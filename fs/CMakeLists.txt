@@ -3,6 +3,10 @@
 ## Attempt to build acngfs where possible ##
 ############################################
 
+OPTION(USE_FUSE "Use FUSE library to build acngfs" on)
+
+if(USE_FUSE)
+
 pkg_check_modules(fuse fuse)
 
 _append(acngfs_cflags -DMINIBUILD ${fuse_CFLAGS} ${CFLAGS_PTHREAD})
@@ -32,4 +36,4 @@ else(fuse_FOUND AND HAVE_FUSE_25)
         message("- FUSE not found or not compatible, not building acngfs")
 endif(fuse_FOUND AND HAVE_FUSE_25)
 
-
+endif()

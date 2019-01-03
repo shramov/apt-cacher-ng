@@ -41,12 +41,12 @@ atomic_int nConCount(0), nDisconCount(0), nReuseCount(0);
 #include <openssl/crypto.h>
 #include <openssl/x509_vfy.h>
 #include <openssl/x509v3.h>
-#endif
 #ifndef HAVE_SSL_HOST_VALIDATION
 extern "C"
 {
 #include "oldssl-workaround/openssl_hostname_validation.h"
 }
+#endif
 #endif
 
 namespace acng

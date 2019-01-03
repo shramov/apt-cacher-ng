@@ -562,8 +562,10 @@ int maint_job()
 						if (!ids.send(m_conFd))
 							return;
 
+#ifdef HAVE_SSL
 						m_ssl = nullptr;
 						m_bio = nullptr;
+#endif
 						// better match the TCP socket parameters
 						m_sHostName = "localhost";
 						m_sPort = sDefPortHTTP;
