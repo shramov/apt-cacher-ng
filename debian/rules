@@ -19,9 +19,9 @@ ifneq (,$(filter $(DEB_HOST_ARCH), mips mipsel))
 endif
 
 # gold with --threads crashes there, maybe not enough stack size on those architectures
-ifneq (,$(filter $(DEB_HOST_ARCH), mipsel mips64el))
- EXTRA_LIBS="-DUSE_GOLD_MT=off"
-endif
+#ifneq (,$(filter $(DEB_HOST_ARCH), mipsel mips64el))
+EXTRA_LIBS=" -DUSE_GOLD=off -DUSE_GOLD_MT=off"
+#endif
 
 %:
 	dh $@ --with systemd
