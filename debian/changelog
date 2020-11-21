@@ -1,3 +1,9 @@
+apt-cacher-ng (3.5-3) unstable; urgency=low
+
+  * Apply gold disabling flags correctly (now really handles #975137)
+
+ -- Eduard Bloch <blade@debian.org>  Sat, 21 Nov 2020 11:45:52 +0100
+
 apt-cacher-ng (3.5-2) unstable; urgency=medium
 
   * Disable use of gold linker to avoid linker crash; this has been observed
