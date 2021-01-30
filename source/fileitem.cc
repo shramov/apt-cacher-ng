@@ -777,7 +777,7 @@ TFileItemUser::~TFileItemUser()
 
 TFileItemUser TFileItemUser::Create(cmstring &sPathUnescaped, bool makeWay)
 {
-	LOGSTART2("fileitem::GetFileItem", sPathUnescaped);
+	LOGSTARTFUNCxs(sPathUnescaped);
 	TFileItemUser ret;
 
 	try
@@ -842,7 +842,7 @@ TFileItemUser TFileItemUser::Create(cmstring &sPathUnescaped, bool makeWay)
 // make the fileitem globally accessible
 TFileItemUser TFileItemUser::Create(tFileItemPtr spCustomFileItem, bool isShareable)
 {
-	LOGSTART2("fileitem::RegisterFileItem", spCustomFileItem->m_sPathRel);
+	LOGSTARTFUNCxs(spCustomFileItem->m_sPathRel);
 
 	TFileItemUser ret;
 
@@ -853,7 +853,6 @@ TFileItemUser TFileItemUser::Create(tFileItemPtr spCustomFileItem, bool isSharea
 	if(!isShareable)
 	{
 		ret.m_ptr = spCustomFileItem;
-	Unreg();
 	}
 
 	lockguard lockGlobalMap(mapItemsMx);
@@ -870,8 +869,6 @@ TFileItemUser TFileItemUser::Create(tFileItemPtr spCustomFileItem, bool isSharea
 	return ret;
 }
 
-	LOGSTART2("fileItemMgmt::ReplaceWithLocal", replacement);
-	Unreg();
 // this method is supposed to be awaken periodically and detects items with ref count manipulated by
 // the request storm prevention mechanism. Items shall be be dropped after some time if no other
 // thread but us is using them.

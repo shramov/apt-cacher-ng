@@ -436,7 +436,8 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 		}
 	}
 
-	m_pDlcon->AddJob(pFi, pResolvedDirectUrl, pRepoDesc, &sRemoteSuffix, 0, cfg::REDIRMAX_DEFAULT);
+	m_pDlcon->AddJob(pFi, pResolvedDirectUrl, pRepoDesc, &sRemoteSuffix, 0,
+			cfg::REDIRMAX_DEFAULT, nullptr, false);
 
 	if (pFi->WaitForFinish(nullptr, 1,
 	[&](){
@@ -980,7 +981,7 @@ bool cacheman::StartDlder()
 	{
 		if (m_pDlcon)
 			return true;
-		m_pDlcon = new dlcon(true);
+		m_pDlcon = new dlcon("INTERNAL");
 	}
 	catch(...)
 	{

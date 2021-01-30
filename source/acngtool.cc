@@ -129,9 +129,9 @@ SHARED_PTR<fileitem> CreateStdoutItem()
 			m_nSizeChecked = m_nSizeSeen = 0;
 			return m_status = FIST_INITED;
 		}
-		virtual int GetFileFd() override
+		virtual unique_fd GetFileFd() override
 		{
-			return 1;
+			return unique_fd();
 		}
 		; // something, don't care for now
 		virtual bool DownloadStartedStoreHeader(const header &h, size_t, const char*, bool, bool&)
@@ -282,9 +282,9 @@ SHARED_PTR<fileitem> CreateReportItem()
 
 void DownloadItem(const tHttpUrl &url, IDlConFactory &pDlconFac, const SHARED_PTR<fileitem> &fi)
 {
-	dlcon dl("", nullptr, &pDlconFac);
+	dlcon dl("INTERN", pDlconFac);
 	std::thread dlThread([&]() {dl.WorkLoop();});
-	dl.AddJob(fi, &url, nullptr, nullptr, 0, cfg::REDIRMAX_DEFAULT, false);
+	dl.AddJob(fi, &url, nullptr, nullptr, 0, cfg::REDIRMAX_DEFAULT, nullptr, false);
 	int st;
 	auto fistatus = fi->WaitForFinish(&st);
 	// just be sure to set a proper error code
@@ -550,12 +550,12 @@ inline bool patchChunk(tPatchSequence& idx, LPCSTR pline, size_t len, tPatchSequ
  */
 struct TUdsFactory : public ::acng::IDlConFactory
 {
-	void RecycleIdleConnection(tDlStreamHandle &handle) override
+	void RecycleIdleConnection(tDlStreamHandle &handle) const override
 	{
 		// keep going, no recycling/restoring
 	}
 	tDlStreamHandle CreateConnected(cmstring&, cmstring&, mstring& sErrorOut, bool*,
-			cfg::tRepoData::IHookHandler*, bool, int, bool) override
+			cfg::tRepoData::IHookHandler*, bool, int, bool) const override
 	{
 		struct udsconnection: public tcpconnect
 		{
@@ -1130,7 +1130,8 @@ int wcat(LPCSTR surl, LPCSTR proxy, IFitemFactory* fac, const IDlConFactory &pDl
 	});
 
 	auto fi=fac->Create();
-	dl.AddJob(fi, &url, nullptr, nullptr, 0, cfg::REDIRMAX_DEFAULT, nullptr);
+	dl.AddJob(fi, &url, nullptr, nullptr, 0, cfg::REDIRMAX_DEFAULT,
+			nullptr, false);
 	int st;
 	auto fistatus = fi->WaitForFinish(&st);
 	if(fistatus == fileitem::FIST_COMPLETE && st == 200)

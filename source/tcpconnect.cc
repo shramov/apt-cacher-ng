@@ -74,6 +74,8 @@ tcpconnect::~tcpconnect()
 
 	}
 }
+// UNTESTED blocking of IP protocol when appearing to fail permanently
+#ifdef PROTO_BLOCKER
 
 class tProtoBlocker
 {
@@ -102,7 +104,8 @@ public:
 		auto before = what->fetch_add(fail_count);
 		if(before < threshhold && (before+fail_count) >= threshhold)
 		{
-			event_base_once(evabase::instance->base, -1, EV_TIMEOUT, reset_cb, &what, &block_time);
+			event_base_once(evabase::base, -1, EV_TIMEOUT, reset_cb,
+					&what, &block_time);
 		}
 	}
 	bool can_connect(int proto)
@@ -119,6 +122,7 @@ public:
 
 	}
 } proto_blocker;
+#endif
 
 std::string tcpconnect::_Connect(int timeout)
 {
@@ -127,10 +131,13 @@ std::string tcpconnect::_Connect(int timeout)
 	auto dnsres = CAddrInfo::Resolve(m_sHostName, m_sPort);
 
 	unsigned timeouts_v4(0), timeouts_v6(0);
+#ifdef PROTO_BLOCKER
+
 	tDtorEx transfer_timeout_counts([&](){
 		proto_blocker.report(PF_INET, timeouts_v4);
 		proto_blocker.report(PF_INET6, timeouts_v6);
 	});
+#endif
 
 	if(!dnsres || !dnsres->getTcpAddrInfo())
 	{
@@ -164,7 +171,7 @@ std::string tcpconnect::_Connect(int timeout)
 		{
 			checkforceclose(fd);
 			tmexp = time_exp;
-
+#ifdef PROTO_BLOCKER
 			// check if temporary blacklisted
 			if(!proto_blocker.can_connect(dns->ai_family))
 			{
@@ -172,7 +179,7 @@ std::string tcpconnect::_Connect(int timeout)
 				state = HANDLE_ERROR;
 				return false;
 			}
-
+#endif
 			fd = ::socket(dns->ai_family, dns->ai_socktype, dns->ai_protocol);
 			if(fd == -1)
 			{
@@ -210,15 +217,19 @@ std::string tcpconnect::_Connect(int timeout)
 	// pickup the first and/or probably the best errno code which can be reported to user
 	int error_prim = 0;
 
-	auto retGood = [&](int& fd) { std::swap(fd, m_conFd); 
-	
-	// mark this as good protocol, report failure count on other on return later
-		if(condata.dns->ai_family == PF_INET6)
+	auto retGood = [&](int &fd)
+	{
+		std::swap(fd, m_conFd);
+
+#ifdef PROTO_BLOCKER
+		// mark this as good protocol, report failure count on other on return later
+			if(condata.dns->ai_family == PF_INET6)
 			timeouts_v6 = 0;
-		else
+			else
 			timeouts_v4 = 0;
-			
-	return sEmptyString; };
+#endif
+			return sEmptyString;
+	};
 	auto withErrnoError = [&]() { return tErrnoFmter("500 Connection failure: ");	};
 	auto withThisErrno = [&withErrnoError](int myErr) { errno = myErr; return withErrnoError(); };
 
@@ -227,7 +238,7 @@ std::string tcpconnect::_Connect(int timeout)
 	{
 		dbgline;
 		if(cfg::conprotos[0] == PF_UNSPEC)
-			return retError("523 Target address could not be resolved");
+			return "523 No such host";
 		else
 			return withThisErrno(EAFNOSUPPORT);
 	}
@@ -252,7 +263,7 @@ std::string tcpconnect::_Connect(int timeout)
 			break;
 		case ADDR_PICKED:
 			if(prim.init_con(time_start + cfg::nettimeout))
-				return retGood(prim);
+				return retGood(prim.fd);
 			OPTSET(error_prim, errno);
 			__just_fall_through;
 		case SELECT_CONN:
@@ -309,7 +320,7 @@ std::string tcpconnect::_Connect(int timeout)
 		case ADDR_PICKED:
 		{
 			if(alt.init_con(GetTime() + cfg::fasttimeout))
-				return retGood(alt);
+				return retGood(alt.fd);
 			continue;
 		}
 		case PICK_ADDR:
@@ -393,7 +404,7 @@ std::string tcpconnect::_Connect(int timeout)
 						prim.state = HANDLE_ERROR;
 					}
 					else
-						return retGood(*p);
+						return retGood(p->fd);
 				}
 			}
 		}
@@ -520,7 +531,7 @@ void dl_con_factory::RecycleIdleConnection(tDlStreamHandle & handle) const
 	if(!handle)
 		return;
 
-	LOGSTARTFUNCsx(handle->m_sHostName);
+	LOGSTARTFUNCxs(handle->m_sHostName);
 
 	if(handle->m_pStateObserver)
 	{

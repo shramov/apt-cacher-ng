@@ -61,7 +61,7 @@ int teardown_event_activity(const event_base*, const event* ev, void* ret)
 
 ACNG_API int evabase::MainLoop()
 {
-		LOGSTART2s("Run", "GoGoGo");
+		LOGSTARTFUNCs;
 
 	#ifdef HAVE_SD_NOTIFY
 		sd_notify(0, "READY=1");

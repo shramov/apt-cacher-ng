@@ -18,7 +18,7 @@ using namespace std;
 #include <dirent.h>
 #include <algorithm>
 #include "maintenance.h"
-
+#include "evabase.h"
 #include <event2/buffer.h>
 
 #include <errno.h>
@@ -128,7 +128,7 @@ public:
 				// abandoned by the user?
 				if(m_status >= FIST_DLERROR)
 					LOGRET(false);
-				if(g_global_shutdown)
+				if(evabase::in_shutdown)
 					LOGRET(false);
 				auto in_buffer = evbuffer_get_length(m_q);
 				off_t nAddLimit = PT_BUF_MAX - in_buffer;
@@ -154,7 +154,7 @@ public:
 		LOGSTARTFUNC;
 		lockuniq g(this);
 		notifyAll();
-		if (m_status > FIST_COMPLETE || g_global_shutdown)
+		if (m_status > FIST_COMPLETE || evabase::in_shutdown)
 			return -1;
 		errno = -42;
 		auto ret = evbuffer_write_atmost(m_q, out_fd, nMax2SendNow);
@@ -688,40 +688,41 @@ void job::PrepareDownload(LPCSTR headBuf) {
     	dbgline;
 try
 		{
-    		auto bHaveRedirects=(repoMapping.repodata && !repoMapping.repodata->m_backends.empty());
+			auto bHaveRedirects = (repoMapping.repodata
+					&& !repoMapping.repodata->m_backends.empty());
 
-    		if (cfg::forcemanaged && !bHaveRedirects)
-						goto report_notallowed;
+			if (cfg::forcemanaged && !bHaveRedirects)
+				goto report_notallowed;
 
-				if (!bPtMode)
-				{
-					// XXX: this only checks the first found backend server, what about others?
-					auto testUri= bHaveRedirects
-							? repoMapping.repodata->m_backends.front().ToURI(false)
-									+ repoMapping.sRestPath
-							: theUrl.ToURI(false);
-					if (rex::MatchUncacheable(testUri, rex::NOCACHE_TGT))
-						fistate = _SwitchToPtItem();
-				}
+			if (!bPtMode)
+			{
+				// XXX: this only checks the first found backend server, what about others?
+				auto testUri =
+						bHaveRedirects ?
+								repoMapping.repodata->m_backends.front().ToURI(
+										false) + repoMapping.sRestPath :
+								theUrl.ToURI(false);
+				if (rex::MatchUncacheable(testUri, rex::NOCACHE_TGT))
+					fistate = _SwitchToPtItem();
+			}
 
-					if (m_pParentCon->SetupDownloader()->AddJob(m_pItem.getFiPtr(),
-							bHaveRedirects ? nullptr : &theUrl, repoMapping.repodata,
-							bHaveRedirects ? &repoMapping.sRestPath : nullptr,
-									(LPCSTR) ( bPtMode ? headBuf : nullptr),
-							cfg::redirmax, bPtMode))
-							#error alle calls von addjob checken
-				{
-					ldbg("Download job enqueued for " << m_sFileLoc);
-				}
-				else
-				{
-					ldbg("PANIC! Error creating download job for " << m_sFileLoc);
-					goto report_overload;
-				}
-		}
-		catch(const std::bad_alloc&) // OOM, may this ever happen here?
+			if (m_pParentCon->SetupDownloader()->AddJob(m_pItem.getFiPtr(),
+					bHaveRedirects ? nullptr : &theUrl, repoMapping.repodata,
+					bHaveRedirects ? &repoMapping.sRestPath : nullptr,
+					(LPCSTR) (bPtMode ? headBuf : nullptr), cfg::redirmax,
+					m_reqHead.h[header::XFORWARDEDFOR], bPtMode))
+
+			{
+				ldbg("Download job enqueued for " << m_sFileLoc);
+			}
+			else
+			{
+				ldbg("PANIC! Error creating download job for " << m_sFileLoc);
+				goto report_overload;
+			}
+		} catch (const std::bad_alloc&) // OOM, may this ever happen here?
 		{
-			USRDBG( "Out of memory");
+			USRDBG("Out of memory");
 			goto report_overload;
 		};
 	}

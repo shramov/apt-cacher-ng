@@ -62,7 +62,7 @@ void cb_resume(evutil_socket_t fd, short what, void* arg)
 
 void do_accept(evutil_socket_t server_fd, short what, void* arg)
 {
-	LOGSTARTFUNCxs(soc->fd());
+	LOGSTARTFUNCxs(server_fd);
 	auto self((event*)arg);
 
 	if(evabase::in_shutdown)
@@ -246,7 +246,7 @@ void SetupConAndGo(unique_fd man_fd, const char *szClientName, const char *portN
 
 bool bind_and_listen(evutil_socket_t mSock, const evutil_addrinfo *pAddrInfo, cmstring& port)
 		{
-	LOGSTARTFUNCxs(formatIpPort(pAddrInfo));
+			LOGSTARTFUNCxs(formatIpPort(pAddrInfo));
 			if ( ::bind(mSock, pAddrInfo->ai_addr, pAddrInfo->ai_addrlen))
 			{
 				log::flush();
@@ -340,7 +340,7 @@ unsigned setup_tcp_listeners(LPCSTR addi, const std::string& port)
 
 int ACNG_API Setup()
 {
-	LOGSTART2s("Setup", 0);
+	LOGSTARTFUNCs;
 	
 	if (cfg::udspath.empty() && (cfg::port.empty() && cfg::bindaddr.empty()))
 	{

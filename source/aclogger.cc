@@ -201,7 +201,7 @@ void misc(const string & sLine, const char cLogType)
 		fStat.flush();
 }
 
-void err(const char *msg, const char *client)
+void err(const char *msg, size_t len)
 {
 	if(!logIsEnabled)
 		return;

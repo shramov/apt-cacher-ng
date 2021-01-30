@@ -9,7 +9,7 @@
 #include "meta.h"
 
 #include "cleaner.h"
-
+#include "evabase.h"
 #include "fileitem.h"
 #include "acfg.h"
 #include "caddrinfo.h"
@@ -46,7 +46,7 @@ void cleaner::WorkLoop()
 
 	while(true)
 	{
-		if (m_terminating || g_global_shutdown)
+		if (m_terminating || evabase::in_shutdown)
 			return;
 
 		decltype(stamps) snapshot;
@@ -61,7 +61,7 @@ void cleaner::WorkLoop()
 			auto &time_cand = snapshot[i];
 			if (time_cand > now)
 				continue;
-			if (m_terminating || g_global_shutdown)
+			if (m_terminating || evabase::in_shutdown)
 				return;
 
 			switch (eType(i))
@@ -77,7 +77,7 @@ void cleaner::WorkLoop()
 				USRDBG("tcpconnect::ExpireCache, nextRunTime now: " << time_cand);
 				break;
 			case TYPE_EXFILEITEM:
-			time_nextcand = TFileItemUser::BackgroundCleanup();
+				time_cand = TFileItemUser::BackgroundCleanup();
 				USRDBG("fileitem::DoDelayedUnregAndCheck, nextRunTime now: " << time_cand);
 				break;
 		/*	case DNS_CACHE:
@@ -116,13 +116,13 @@ inline void * CleanerThreadAction(void *pVoid)
 
 void cleaner::ScheduleFor(time_t when, eType what)
 {
-	if(m_noop || g_global_shutdown)
+	if(m_noop || evabase::in_shutdown)
 		return;
 
 	setLockGuard;
 	if(m_thr == 0)
 	{
-		if(g_global_shutdown)
+		if(evabase::in_shutdown)
 			return;
 		Init();
 		stamps[what] = when;
