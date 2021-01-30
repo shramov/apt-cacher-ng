@@ -24,6 +24,7 @@
 #include "fileitem.h"
 #include "fileio.h"
 #include "sockio.h"
+#include "evabase.h"
 
 #ifdef HAVE_LINUX_EVENTFD
 #include <sys/eventfd.h>
@@ -39,10 +40,16 @@ using namespace std;
 namespace acng
 {
 
-static cmstring sGenericError("567 Unknown download error occured");
+static cmstring sGenericError("502 Bad Gateway");
 
-// those are not allowed to be forwarded
-static const auto taboo =
+// those are not allowed to be forwarded ever
+static const auto tabooHeadersForCaching =
+{
+	string("Host"), string("Cache-Control"),
+	string("Proxy-Authorization"), string("Accept"),
+	string("User-Agent"), string("Accept-Encoding")
+};
+static const auto tabooHeadersPassThrough =
 {
 	string("Host"), string("Cache-Control"),
 	string("Proxy-Authorization"), string("Accept"),
@@ -167,7 +174,8 @@ struct tDlJob
 	const tHttpUrl *m_pCurBackend=nullptr;
 
 	uint_fast8_t m_eReconnectASAP =0;
-	bool m_bBackendMode=false;
+	bool m_bBackendMode = false;
+	bool m_isPassThroughRequest = false;
 
 	off_t m_nRest =0;
 
@@ -179,10 +187,11 @@ struct tDlJob
 			const tHttpUrl *pUri,
 			const cfg::tRepoData * pRepoData,
 			const std::string *psPath,
-			int redirmax) :
+			int redirmax, bool isPassThroughRequest) :
 			m_pStorage(pFi),
 			m_parent(*p),
 			m_pRepoDesc(pRepoData),
+			m_isPassThroughRequest(isPassThroughRequest),
 			m_nRedirRemaining(redirmax)
 	{
 		LOGSTART("tDlJob::tDlJob");
@@ -206,8 +215,15 @@ struct tDlJob
 	~tDlJob()
 	{
 		LOGSTART("tDlJob::~tDlJob");
+		const auto* pError = &sErrorMsg;
+		if(sErrorMsg.empty())
+		{
+			pError = &sGenericError;
+			// XXX: BS? Leaving without error is not a bad situation
+			// log::err(RemoteUri(true)  + " -- bad download descriptor, exited without leaving error message");
+		}
 		if (m_pStorage)
-			m_pStorage->DecDlRefCount(sErrorMsg.empty() ? sGenericError : sErrorMsg);
+			m_pStorage->DecDlRefCount(*pError);
 	}
 
 	inline void ExtractCustomHeaders(LPCSTR reqHead)
@@ -215,18 +231,24 @@ struct tDlJob
 		if(!reqHead)
 			return;
 		header h;
-		bool forbidden=false;
+		// continuation of header line
+		bool forbidden = false;
 		h.Load(reqHead, (unsigned) std::numeric_limits<int>::max(),
-				[this, &forbidden](cmstring& key, cmstring& rest)
+				[this, &forbidden](cmstring &key, cmstring &rest)
 				{
-			// heh, continuation of ignored stuff or without start?
-			if(key.empty() && (m_extraHeaders.empty() || forbidden))
-				return;
-			forbidden = taboo.end() != std::find_if(taboo.begin(), taboo.end(),
-					[&key](cmstring &x){return scaseequals(x,key);});
-			if(!forbidden)
-				m_extraHeaders += key + rest;
-				}
+					// heh, continuation of ignored stuff or without start?
+						if(key.empty() && (m_extraHeaders.empty() || forbidden))
+						{
+							return;
+						}
+						const auto& taboo = m_isPassThroughRequest ? tabooHeadersPassThrough : tabooHeadersForCaching;
+
+						forbidden = taboo.end() != std::find_if(taboo.begin(), taboo.end(),
+								[&](cmstring &x)
+								{	return scaseequals(x,key);});
+						if(!forbidden)
+							m_extraHeaders += key + rest;
+					}
 		);
 	}
 
@@ -259,7 +281,6 @@ struct tDlJob
 		m_pCurBackend = nullptr;
 		bool bWasBeMode = m_bBackendMode;
 		m_bBackendMode = false;
-		sErrorMsg = "500 Bad redirection (path)";
 
 		auto sLocationDecoded = UrlUnescape(pNewUrl);
 
@@ -282,7 +303,10 @@ struct tDlJob
 		if(bWasBeMode)
 		{
 			if(!m_pCurBackend)
+			{
+				sErrorMsg = "500 Bad redirection (path)";
 				return false;
+			}
 			auto sPathBackup=m_remoteUri.sPath;
 			m_remoteUri=*m_pCurBackend;
 			m_remoteUri.sPath+=sPathBackup;
@@ -313,7 +337,7 @@ struct tDlJob
 				const auto bliter = blacklist.find(
 						make_pair(m_pCurBackend->sHost, m_pCurBackend->GetPort()));
 				if (bliter == blacklist.end())
-					return true;
+					LOGRET(true);
 			}
 
 			// look in the constant list, either it's usable or it was blacklisted before
@@ -323,23 +347,29 @@ struct tDlJob
 				if (bliter == blacklist.end())
 				{
 					m_pCurBackend = &bend;
-					return true;
+					LOGRET(true);
 				}
 
 				// uh, blacklisted, remember the last reason
-				sReasonMsg = bliter->second;
+				if(sReasonMsg.empty())
+				{
+					sReasonMsg = bliter->second;
+					LOG(sReasonMsg);
+				}
 			}
-			return false;
+			if(sReasonMsg.empty())
+				sReasonMsg = "502 Mirror blocked due to repeated errors";
+			LOGRET(false);
 		}
 
 		// ok, not backend mode. Check the mirror data (vs. blacklist)
 		auto bliter = blacklist.find(
 				make_pair(GetPeerHost().sHost, GetPeerHost().GetPort()));
 		if (bliter == blacklist.end())
-			return true;
+			LOGRET(true);
 
 		sReasonMsg = bliter->second;
-		return false;
+		LOGRET(false);
 	}
 
 	// needs connectedHost, blacklist, output buffer from the parent, proxy mode?
@@ -449,18 +479,21 @@ struct tDlJob
 		}
 
 		if (m_pStorage->m_bCheckFreshness)
-			head << "Cache-Control: no-store,no-cache,max-age=0\r\n";
+			head << "Cache-Control: " /*no-store,no-cache,*/ "max-age=0\r\n";
 
 		if (cfg::exporigin && !m_xff.empty())
 			head << "X-Forwarded-For: " << m_xff << "\r\n";
 
 		head << cfg::requestapx
 				<< m_extraHeaders
-				<< "Accept: application/octet-stream\r\n"
-				"Accept-Encoding: identity\r\n"
-				"Connection: "
-				<< (cfg::persistoutgoing ? "keep-alive\r\n\r\n" : "close\r\n\r\n");
+				<< "Accept: application/octet-stream\r\n";
+		if(!m_isPassThroughRequest)
+		{
+			head << "Accept-Encoding: identity\r\n"
+					"Connection: " << (cfg::persistoutgoing ? "keep-alive\r\n" : "close\r\n");
 
+		}
+		head << "\r\n";
 #ifdef SPAM
 		//head.syswrite(2);
 #endif
@@ -541,7 +574,12 @@ struct tDlJob
 				}
 
 				ldbg("contents: " << std::string(inBuf.rptr(), hDataLen));
-				inBuf.drop((unsigned long) hDataLen);
+
+				if(m_pStorage)
+					m_pStorage->SetRawResponseHeader(string(inBuf.rptr(), hDataLen));
+
+				inBuf.drop(size_t(hDataLen));
+
 				if (h.type != header::ANSWER)
 				{
 					dbgline;
@@ -660,7 +698,7 @@ struct tDlJob
 					}
 				}
 
-				if(!m_pStorage->DownloadStartedStoreHeader(h, hDataLen,
+				if(!m_pStorage->DownloadStartedStoreHeader(h, size_t(hDataLen),
 						inBuf.rptr(), bHotItem, bDoRetry))
 				{
 					if(bDoRetry)
@@ -833,18 +871,18 @@ inline void dlcon::Impl::wake()
 	}
 
 }
+
 inline void dlcon::Impl::awaken_check()
 {
-	LOGSTART("dlcon::Impl::awaken_check");
+	LOGSTARTFUNC
 	eventfd_t xtmp;
-	for(int i=0; ; ++i)
+	for(int i=0; i < 1000 ; ++i)
 	{
 		auto tmp = eventfd_read(fdWakeRead, &xtmp);
-		LOG("got one event, res: " << tmp << ", errno: " << errno);
-		if(i > 100) // breakpoint... OS bug? what's the errno?
-			break;
-		if(tmp == -1 && errno == EAGAIN) continue;
-		break;
+		if(tmp == 0)
+			return;
+		if(errno != EAGAIN)
+			return;
 	}
 }
 
@@ -865,9 +903,9 @@ inline void dlcon::Impl::awaken_check()
 bool dlcon::Impl::AddJob(tFileItemPtr m_pItem, const tHttpUrl *pForcedUrl,
 		const cfg::tRepoData *pBackends,
 		cmstring *sPatSuffix, LPCSTR reqHead,
-		int nMaxRedirection, const char* szHeaderXff)
+		int nMaxRedirection, const char* szHeaderXff, bool isPassThroughRequest)
 {
-	if(m_ctrl_hint<0)
+	if(m_ctrl_hint<0 || evabase::in_shutdown)
 		return false;
 
 	if(!pForcedUrl)
@@ -901,8 +939,8 @@ bool dlcon::Impl::AddJob(tFileItemPtr m_pItem, const tHttpUrl *pForcedUrl,
 
 inline unsigned dlcon::Impl::ExchangeData(mstring &sErrorMsg, tDlStreamHandle &con, tDljQueue &inpipe)
 {
-	LOGSTART2("dlcon::Impl::ExchangeData",
-			"qsize: " << inpipe.size() << ", sendbuf size: "
+	LOGSTARTFUNC;
+	LOG("qsize: " << inpipe.size() << ", sendbuf size: "
 			<< m_sendBuf.size() << ", inbuf size: " << m_inBuf.size());
 
 	fd_set rfds, wfds;
@@ -961,12 +999,10 @@ inline unsigned dlcon::Impl::ExchangeData(mstring &sErrorMsg, tDlStreamHandle &c
 		{
 			if (EINTR == errno)
 				continue;
-#ifdef MINIBUILD
-			string fer("select failed");
-#else
+			if(EBADF == errno) // that some times happen for no obvious reason
+				return HINT_DISCON;
 			tErrnoFmter fer("FAILURE: select, ");
 			LOG(fer);
-#endif
 			sErrorMsg = string("500 Internal malfunction, ") + fer;
 			return HINT_DISCON|EFLAG_JOB_BROKEN|EFLAG_MIRROR_BROKEN;
 		}
@@ -1268,7 +1304,7 @@ void dlcon::Impl::WorkLoop()
 		// init state or transfer loop jumped out, what are the needed actions?
 		LOG("New next_jobs: " << next_jobs.size());
 
-		if(m_ctrl_hint < 0) // check for ordered shutdown
+		if(m_ctrl_hint < 0 || evabase::in_shutdown) // check for ordered shutdown
 		{
 			/* The no-more-users checking logic will purge orphaned items from the inpipe
 			 * queue. When the connection is dirty after that, it will be closed in the
@@ -1448,15 +1484,15 @@ void dlcon::Impl::WorkLoop()
 			}
 		}
 
-
 		ldbg("Request(s) cooked, buffer contents: " << m_sendBuf);
+		ASSERT(!m_sendBuf.empty());
 
         go_select:
 
         // inner loop: plain communication until something happens. Maybe should use epoll here?
         loopRes=ExchangeData(sErrorMsg, con, active_jobs);
-        ldbg("loopRes: "<< loopRes);
-        if(m_ctrl_hint < 0)
+		ldbg("loopRes: "<< loopRes);
+        if(m_ctrl_hint < 0 || evabase::in_shutdown)
         	return;
 
         /* check whether we have a pipeline stall. This may happen because a) we are done or

@@ -100,7 +100,7 @@ void fileitem::DecDlRefCount(const string &sReason)
 	checkforceclose(m_filefd);
 }
 
-uint64_t fileitem::GetTransferCount()
+uint64_t fileitem::TakeTransferCount()
 {
 	setLockGuard;
 	uint64_t ret=m_nIncommingCount;
@@ -142,7 +142,7 @@ void fileitem::ResetCacheState()
 
 fileitem::FiStatus fileitem::Setup(bool bCheckFreshness)
 {
-	LOGSTART2("fileitem::Setup", bCheckFreshness);
+	LOGSTARTFUNCx(bCheckFreshness);
 
 	setLockGuard;
 
@@ -303,6 +303,19 @@ fileitem::FiStatus fileitem::WaitForFinish(int *httpCode)
 	lockuniq g(this);
 	while(m_status<FIST_COMPLETE)
 		wait(g);
+	if(httpCode)
+		*httpCode=m_head.getStatus();
+	return m_status;
+}
+
+fileitem::FiStatus fileitem::WaitForFinish(int *httpCode, unsigned check_interval, const std::function<void()> &check_func)
+{
+	lockuniq g(this);
+	while(m_status<FIST_COMPLETE)
+	{
+		if(wait_for(g, 1, 1)) // on timeout
+			check_func();
+	}
 	if(httpCode)
 		*httpCode=m_head.getStatus();
 	return m_status;
@@ -655,8 +668,7 @@ bool fileitem_with_storage::DownloadStartedStoreHeader(const header & h, size_t 
 bool fileitem_with_storage::StoreFileData(const char *data, unsigned int size)
 {
 	setLockGuard;
-
-	LOGSTART2("fileitem::StoreFileData", "status: " <<  (int) m_status << ", size: " << size);
+	LOGSTARTFUNCx(int(size));
 
 	// something might care, most likely... also about BOUNCE action
 	notifyAll();
@@ -745,6 +757,7 @@ TFileItemUser::~TFileItemUser()
 	// invalid or not globally registered?
 	if (m_ptr->m_globRef == mapItems.end())
 		return;
+#warning fixme, v3.3.x added another code path with some action for non-global items too!
 
 	// some file items will be held ready for some time
 
@@ -764,7 +777,7 @@ TFileItemUser::~TFileItemUser()
 
 TFileItemUser TFileItemUser::Create(cmstring &sPathUnescaped, bool makeWay)
 {
-	LOGSTART2s("TFileItemUser::Create", sPathUnescaped);
+	LOGSTART2("fileitem::GetFileItem", sPathUnescaped);
 	TFileItemUser ret;
 
 	try
@@ -829,7 +842,7 @@ TFileItemUser TFileItemUser::Create(cmstring &sPathUnescaped, bool makeWay)
 // make the fileitem globally accessible
 TFileItemUser TFileItemUser::Create(tFileItemPtr spCustomFileItem, bool isShareable)
 {
-	LOGSTART2s("TFileItemUser::Create", spCustomFileItem->m_sPathRel);
+	LOGSTART2("fileitem::RegisterFileItem", spCustomFileItem->m_sPathRel);
 
 	TFileItemUser ret;
 
@@ -840,7 +853,7 @@ TFileItemUser TFileItemUser::Create(tFileItemPtr spCustomFileItem, bool isSharea
 	if(!isShareable)
 	{
 		ret.m_ptr = spCustomFileItem;
-		return ret;
+	Unreg();
 	}
 
 	lockguard lockGlobalMap(mapItemsMx);
@@ -857,15 +870,18 @@ TFileItemUser TFileItemUser::Create(tFileItemPtr spCustomFileItem, bool isSharea
 	return ret;
 }
 
+	LOGSTART2("fileItemMgmt::ReplaceWithLocal", replacement);
+	Unreg();
 // this method is supposed to be awaken periodically and detects items with ref count manipulated by
 // the request storm prevention mechanism. Items shall be be dropped after some time if no other
 // thread but us is using them.
 time_t TFileItemUser::BackgroundCleanup()
 {
-	LOGSTART2s("fileItemMgmt::BackgroundCleanup", GetTime());
+	auto now = GetTime();
+	LOGSTARTFUNCsx(now);
 	lockguard lockGlobalMap(mapItemsMx);
 
-	time_t now = GetTime();
+
 	time_t oldestGet = END_OF_TIME;
 	time_t expBefore = now - MAXTEMPDELAY;
 

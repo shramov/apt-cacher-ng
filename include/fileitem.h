@@ -40,7 +40,8 @@ public:
 	virtual FiStatus Setup(bool bDynType);
 	
 	virtual unique_fd GetFileFd();
-	uint64_t GetTransferCount();
+	uint64_t TakeTransferCount();
+	uint64_t GetTransferCountUnlocked() { return m_nIncommingCount; }
 	// send helper like wrapper for sendfile. Just declare virtual here to make it better customizable later.
 	virtual ssize_t SendData(int confd, int filefd, off_t &nSendPos, size_t nMax2SendNow)=0;
 	
@@ -49,6 +50,13 @@ public:
 	virtual bool DownloadStartedStoreHeader(const header & h, size_t hDataLen,
 			const char *pNextData,
 			bool bForcedRestart, bool &bDoCleanRestart) =0;
+	/**
+	 * For special implementations, member the original header data.
+	 * By default, drop that data since we pickup everything important already.
+	 */
+	virtual void SetRawResponseHeader(std::string) {}
+	virtual const std::string& GetRawResponseHeader() { return sEmptyString; }
+
 	void IncDlRefCount();
 	void DecDlRefCount(const mstring & sReasonStatusLine);
 	//virtual void SetFailureMode(const mstring & message, FiStatus fist=FIST_ERROR,
@@ -71,6 +79,8 @@ public:
 
 	// returns when the state changes to complete or error
 	FiStatus WaitForFinish(int *httpCode=nullptr);
+
+	FiStatus WaitForFinish(int *httpCode, unsigned check_interval, const std::function<void()> &check_func);
 
 	bool SetupClean(bool bForce=false);
 	
@@ -158,6 +168,7 @@ public:
 	TFileItemUser& operator=(TFileItemUser &&src) { m_ptr.swap(src.m_ptr); return *this; }
 	TFileItemUser(TFileItemUser &&src) { m_ptr.swap(src.m_ptr); };
 private:
+
 	tFileItemPtr m_ptr;
 };
 #else

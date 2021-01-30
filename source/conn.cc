@@ -79,7 +79,7 @@ class conn::Impl
   		if(c) // if nullptr, pick up later when sent by the wrapper
   			m_sClientHost=c;
 
-  		LOGSTART2("con::con", "fd: " << m_confd << ", clienthost: " << c);
+	LOGSTARTx("con::con", m_confd, c);
 
   	#ifdef DEBUG
   		m_nProcessedJobs=0;
@@ -276,9 +276,11 @@ void conn::Impl::WorkLoop() {
 
 		if(ready == 0)
 		{
-			//USRDBG("Timeout occurred, idle client hanging around?");
 			if(GetTime() > client_timeout)
+			{
+				USRDBG("Timeout occurred, apt client disappeared silently?");
 				return; // yeah, time to leave
+			}
 			continue;
 		}
 		else if (ready<0)
