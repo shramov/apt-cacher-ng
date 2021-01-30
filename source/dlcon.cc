@@ -1549,7 +1549,20 @@ void dlcon::Impl::WorkLoop()
 
 		// inner loop: plain communication until something happens. Maybe should use epoll here?
 		loopRes = ExchangeData(sErrorMsg, con, active_jobs);
-		ldbg("loopRes: "<< loopRes);
+		ldbg("loopRes: "<< loopRes << " = " << tSS::BitPrint(" | ", loopRes,
+				BITNNAME(HINT_DISCON)
+		, BITNNAME(HINT_DONE)
+		, BITNNAME(HINT_KILL_LAST_FILE)
+		, BITNNAME(HINT_MORE)
+		, BITNNAME(HINT_SWITCH)
+		, BITNNAME(HINT_TGTCHANGE)
+		, BITNNAME(EFLAG_JOB_BROKEN)
+		, BITNNAME(EFLAG_LOST_CON)
+		, BITNNAME(EFLAG_STORE_COLLISION)
+		, BITNNAME(EFLAG_MIRROR_BROKEN)
+
+
+		) );
 		if (m_ctrl_hint < 0 || evabase::in_shutdown)
 			return;
 

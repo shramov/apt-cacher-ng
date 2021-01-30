@@ -63,7 +63,8 @@ inline void dump_proc_status(){}; // strip away
 		{ auto&f=__logobj.GetFmter(pfx); tSS::Chain(f, ", ", __VA_ARGS__); \
 			__logobj.WriteWithContext(__FILE__ ":" STRINGIFY(__LINE__)); }
 
-#define LOGAPP(n, pfx, x) if(acng::cfg::debug&n){ __logobj.GetFmter(pfx) << x; __logobj.WriteWithContext(__FILE__ ":" STRINGIFY(__LINE__)); }
+#define LOGAPP(n, pfx, x) if(acng::cfg::debug&n) \
+		{ __logobj.GetFmter(pfx) << x; __logobj.WriteWithContext(__FILE__ ":" STRINGIFY(__LINE__)); }
 
 #define LOG(what) LOGAPP(log::LOG_DEBUG, "- ", what)
 

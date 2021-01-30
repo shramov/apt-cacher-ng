@@ -139,7 +139,25 @@ public:
 		Chain(fmter, delimiter, args...);
 	}
 
-
+	inline static tSS BitPrint(const std::string& delimiter,
+			int input, int bitMask, const char *bitName) {
+		if ( input & bitMask)
+			return tSS() << bitName << delimiter;
+		return tSS();
+	}
+	template <typename... Args>
+	inline static tSS BitPrint(const std::string& delimiter,
+			int input, int bitMask, const char *bitName,
+			Args... args) {
+		if (input & bitMask)
+		{
+			return BitPrint(delimiter, input, args...)
+					<< BitPrint(delimiter, input, bitMask, bitName);
+		}
+		else
+			return BitPrint(delimiter, input, args...);
+	}
+#define BITNNAME(x) x, #x
 
 protected:
 	fmtflags m_fmtmode;
