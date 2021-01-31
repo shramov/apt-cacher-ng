@@ -1370,13 +1370,14 @@ void dlcon::Impl::WorkLoop()
 			lockguard g(m_handover_mutex);
 			next_jobs.splice(next_jobs.begin(), m_new_jobs);
 		}
-
+		dbgline;
 		if (next_jobs.empty() && active_jobs.empty())
 			goto go_select;
 		// parent will notify RSN
-
+		dbgline;
 		if (!con)
 		{
+			dbgline;
 			// cleanup after the last connection - send buffer, broken next_jobs, ...
 			m_sendBuf.clear();
 			m_inBuf.clear();
@@ -1529,7 +1530,7 @@ void dlcon::Impl::WorkLoop()
 			}
 
 			frontJob.AppendRequest(m_sendBuf, proxy);
-			LOG("request added to buffer");
+			LOG("request headers added to buffer");
 			auto itSecond = next_jobs.begin();
 			active_jobs.splice(active_jobs.end(), next_jobs, next_jobs.begin(),
 					++itSecond);
@@ -1542,8 +1543,9 @@ void dlcon::Impl::WorkLoop()
 			}
 		}
 
-		ldbg("Request(s) cooked, buffer contents: " << m_sendBuf);
-		ASSERT(!m_sendBuf.empty());
+		//ldbg("Request(s) cooked, buffer contents: " << m_sendBuf);
+		//ASSERT(!m_sendBuf.empty());
+		// FIXME: this is BS in case of SSL (rekeying) but what was the idea?
 
 		go_select:
 
