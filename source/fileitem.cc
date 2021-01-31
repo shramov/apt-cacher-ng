@@ -100,7 +100,7 @@ void fileitem::DecDlRefCount(const string &sReason)
 	checkforceclose(m_filefd);
 }
 
-uint64_t fileitem::GetTransferCount()
+uint64_t fileitem::TakeTransferCount()
 {
 	setLockGuard;
 	uint64_t ret=m_nIncommingCount;
@@ -142,7 +142,7 @@ void fileitem::ResetCacheState()
 
 fileitem::FiStatus fileitem::Setup(bool bCheckFreshness)
 {
-	LOGSTART2("fileitem::Setup", bCheckFreshness);
+	LOGSTARTFUNCx(bCheckFreshness);
 
 	setLockGuard;
 
@@ -303,6 +303,19 @@ fileitem::FiStatus fileitem::WaitForFinish(int *httpCode)
 	lockuniq g(this);
 	while(m_status<FIST_COMPLETE)
 		wait(g);
+	if(httpCode)
+		*httpCode=m_head.getStatus();
+	return m_status;
+}
+
+fileitem::FiStatus fileitem::WaitForFinish(int *httpCode, unsigned check_interval, const std::function<void()> &check_func)
+{
+	lockuniq g(this);
+	while(m_status<FIST_COMPLETE)
+	{
+		if(wait_for(g, 1, 1)) // on timeout
+			check_func();
+	}
 	if(httpCode)
 		*httpCode=m_head.getStatus();
 	return m_status;
@@ -655,8 +668,7 @@ bool fileitem_with_storage::DownloadStartedStoreHeader(const header & h, size_t 
 bool fileitem_with_storage::StoreFileData(const char *data, unsigned int size)
 {
 	setLockGuard;
-
-	LOGSTART2("fileitem::StoreFileData", "status: " <<  (int) m_status << ", size: " << size);
+	LOGSTARTFUNCx(int(size));
 
 	// something might care, most likely... also about BOUNCE action
 	notifyAll();
@@ -731,40 +743,58 @@ bool fileitem_with_storage::StoreFileData(const char *data, unsigned int size)
 
 TFileItemUser::~TFileItemUser()
 {
-	LOGSTART("TFileItemUser::~TFileItemUser");
-
-	lockguard managementLock(mapItemsMx);
+	LOGSTARTFUNC
 
 	if (!m_ptr) // unregistered before? or not shared?
 		return;
 
-	auto ucount = --m_ptr->usercount;
-	if (ucount > 0)
-		return; // still used
+	lockguard managementLock(mapItemsMx);
 
-	// invalid or not globally registered?
-	if (m_ptr->m_globRef == mapItems.end())
-		return;
+	bool wasGloballyRegistered = m_ptr->m_globRef != mapItems.end();
 
-	// some file items will be held ready for some time
+	auto local_ptr(m_ptr); // might disappear
+	lockguard fitemLock(*local_ptr);
 
-	if (MAXTEMPDELAY && m_ptr->m_bCheckFreshness
-			&& m_ptr->m_status == fileitem::FIST_COMPLETE)
+	if ( -- m_ptr->usercount <= 0)
 	{
-		auto when = m_ptr->m_nTimeDlStarted + MAXTEMPDELAY;
-		if (when > GetTime())
+		m_ptr->notifyAll();
+
+		if(m_ptr->m_status < fileitem::FIST_COMPLETE && m_ptr->m_status != fileitem::FIST_INITED)
 		{
-			cleaner::GetInstance().ScheduleFor(when, cleaner::TYPE_EXFILEITEM);
-			return;
+			ldbg("usercount dropped to zero while downloading?: " << (int) m_ptr->m_status);
 		}
+
+		if(wasGloballyRegistered)
+		{
+			// some file items will be held ready for some time
+
+			time_t when(0);
+			if (MAXTEMPDELAY && m_ptr->m_bCheckFreshness
+					&& m_ptr->m_status == fileitem::FIST_COMPLETE
+					&& ((when = m_ptr->m_nTimeDlStarted + MAXTEMPDELAY) > GetTime()))
+			{
+				cleaner::GetInstance().ScheduleFor(when, cleaner::TYPE_EXFILEITEM);
+				return;
+			}
+		}
+		// nothing, let's put the item into shutdown state
+		m_ptr->m_status = fileitem::FIST_DLSTOP;
+		m_ptr->m_head.frontLine="HTTP/1.1 500 Cache file item expired";
+
+		if (wasGloballyRegistered)
+		{
+			LOG("*this is last entry, deleting dl/fi mapping");
+			mapItems.erase(m_ptr->m_globRef);
+			m_ptr->m_globRef = mapItems.end();
+		}
+		// make sure it's not double-unregistered accidentally!
+		m_ptr.reset();
 	}
-	// no more readers for this item, can be discarded
-	mapItems.erase(m_ptr->m_globRef);
 }
 
 TFileItemUser TFileItemUser::Create(cmstring &sPathUnescaped, bool makeWay)
 {
-	LOGSTART2s("TFileItemUser::Create", sPathUnescaped);
+	LOGSTARTFUNCxs(sPathUnescaped);
 	TFileItemUser ret;
 
 	try
@@ -829,7 +859,7 @@ TFileItemUser TFileItemUser::Create(cmstring &sPathUnescaped, bool makeWay)
 // make the fileitem globally accessible
 TFileItemUser TFileItemUser::Create(tFileItemPtr spCustomFileItem, bool isShareable)
 {
-	LOGSTART2s("TFileItemUser::Create", spCustomFileItem->m_sPathRel);
+	LOGSTARTFUNCxs(spCustomFileItem->m_sPathRel);
 
 	TFileItemUser ret;
 
@@ -840,7 +870,6 @@ TFileItemUser TFileItemUser::Create(tFileItemPtr spCustomFileItem, bool isSharea
 	if(!isShareable)
 	{
 		ret.m_ptr = spCustomFileItem;
-		return ret;
 	}
 
 	lockguard lockGlobalMap(mapItemsMx);
@@ -862,10 +891,11 @@ TFileItemUser TFileItemUser::Create(tFileItemPtr spCustomFileItem, bool isSharea
 // thread but us is using them.
 time_t TFileItemUser::BackgroundCleanup()
 {
-	LOGSTART2s("fileItemMgmt::BackgroundCleanup", GetTime());
+	auto now = GetTime();
+	LOGSTARTFUNCsx(now);
 	lockguard lockGlobalMap(mapItemsMx);
 
-	time_t now = GetTime();
+
 	time_t oldestGet = END_OF_TIME;
 	time_t expBefore = now - MAXTEMPDELAY;
 

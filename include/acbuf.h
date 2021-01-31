@@ -126,6 +126,39 @@ public:
 	{ if(val) return add(val, strlen(val)); else return add("(null)", 6); }
 	inline tSS & add(cmstring& val) { return add((const char*) val.data(), (size_t) val.size());}
 
+
+	template <typename Arg>
+	static void Chain(tSS& fmter, const std::string& delimiter, Arg arg) {
+		(void) delimiter;
+		fmter << arg;
+	}
+	template <typename First, typename... Args>
+	static void Chain(tSS& fmter, const std::string& delimiter, First first, Args... args) {
+		Chain(fmter, delimiter, first);
+		fmter << delimiter;
+		Chain(fmter, delimiter, args...);
+	}
+
+	inline static tSS BitPrint(const std::string& delimiter,
+			int input, int bitMask, const char *bitName) {
+		if ( input & bitMask)
+			return tSS() << bitName << delimiter;
+		return tSS();
+	}
+	template <typename... Args>
+	inline static tSS BitPrint(const std::string& delimiter,
+			int input, int bitMask, const char *bitName,
+			Args... args) {
+		if (input & bitMask)
+		{
+			return BitPrint(delimiter, input, args...)
+					<< BitPrint(delimiter, input, bitMask, bitName);
+		}
+		else
+			return BitPrint(delimiter, input, args...);
+	}
+#define BITNNAME(x) x, #x
+
 protected:
 	fmtflags m_fmtmode;
 	/// make sure to have at least minWriteCapa bytes extra available for writing

@@ -30,7 +30,7 @@ class ACNG_API dlcon
 	Impl *_p;
 
     public:
-        dlcon(cmstring& sOwnersHostname, const IDlConFactory &pConFactory = g_tcp_con_factory);
+        dlcon(cmstring& sClientsHostname, const IDlConFactory &pConFactory = g_tcp_con_factory);
         ~dlcon();
 
         void WorkLoop();
@@ -38,7 +38,8 @@ class ACNG_API dlcon
         bool AddJob(SHARED_PTR<fileitem> m_pItem, const tHttpUrl *pForcedUrl,
         		const cfg::tRepoData *pRepoDesc,
         		cmstring *sPatSuffix, LPCSTR reqHead,
-				int nMaxRedirection, const char* szHeaderXff);
+				int nMaxRedirection, const char* szHeaderXff,
+				bool isPassThroughRequest);
 };
 
 #define IS_REDIRECT(st) (st == 301 || st == 302 || st == 307)

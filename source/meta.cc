@@ -33,6 +33,8 @@ cmstring PROT_PFX_HTTPS(WITHLEN("https://")), PROT_PFX_HTTP(WITHLEN("http://"));
 cmstring FAKEDATEMARK(WITHLEN("Sat, 26 Apr 1986 01:23:39 GMT+3"));
 cmstring hendl("<br>\n");
 
+ACNG_API std::atomic<bool> g_global_shutdown;
+
 /*
 int getUUID() {
     lfd=(lfd+1)%65536;
@@ -383,7 +385,7 @@ void MakeAbsolutePath(std::string &dirToFix, const std::string &reldir)
 
 extern uint_fast16_t hexmap[];
 
-cmstring sEmptyString("");
+cmstring sEmptyString;
 
 /*
 int GetSimilarity(cmstring& wanted, cmstring& candidate)

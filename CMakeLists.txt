@@ -38,6 +38,8 @@ endif()
 if(NOT DEFINED(RUNDIR))
 	set(RUNDIR "/run")
 endif()
+set(SOCKET_PATH "${RUNDIR}/${PACKAGE}/socket")
+
 
 IF(NOT DEFINED(ACNG_CACHE_DIR))
         set(ACNG_CACHE_DIR "/var/tmp" CACHE STRING "Cache folder for examples and default configuration")
@@ -104,12 +106,12 @@ foreach(linkarg -Wl,--as-needed -Wl,-O1 -Wl,--discard-all -Wl,--no-undefined -Wl
 	set(CMAKE_REQUIRED_FLAGS "")
 endforeach(linkarg)
 
-set(CMAKE_REQUIRED_FLAGS "-Wl,-fuse-ld=gold -Wl,--threads")
-CHECK_CXX_COMPILER_FLAG("" LD_MULTITHREADED)
-if(LD_MULTITHREADED)
-	_append(CMAKE_EXE_LINKER_FLAGS "-Wl,-fuse-ld=gold -Wl,--threads")
-endif()
-set(CMAKE_REQUIRED_FLAGS "")
+#set(CMAKE_REQUIRED_FLAGS "-Wl,-fuse-ld=gold -Wl,--threads")
+#CHECK_CXX_COMPILER_FLAG("" LD_MULTITHREADED)
+#if(LD_MULTITHREADED)
+#	_append(CMAKE_EXE_LINKER_FLAGS "-Wl,-fuse-ld=gold -Wl,--threads")
+#endif()
+#set(CMAKE_REQUIRED_FLAGS "")
 
 option(USE_SSL "Use OpenSSL library for TLS and other crypto functionality" on)
 

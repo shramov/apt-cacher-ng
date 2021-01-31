@@ -20,6 +20,7 @@
 #include "fileitem.h"
 #include "cleaner.h"
 #include "dnsiter.h"
+#include "evabase.h"
 #include <tuple>
 
 using namespace std;
@@ -73,12 +74,70 @@ tcpconnect::~tcpconnect()
 
 	}
 }
+// UNTESTED blocking of IP protocol when appearing to fail permanently
+#ifdef PROTO_BLOCKER
+
+class tProtoBlocker
+{
+	atomic_uint v4, v6;
+	// block connection type after that many failed attempts
+	const unsigned threshhold=4;
+    struct timeval block_time = {30,0};
+
+	static void reset_cb(evutil_socket_t, short, void *arg)
+	{
+		auto what = (std::atomic_uint*)arg;
+		what->store(0);
+	};
+public:
+	void report(int proto, unsigned fail_count)
+	{
+		if(0 == fail_count) return;
+
+		atomic_uint* what;
+		switch(proto)
+		{
+		case PF_INET: what=&v4; break;
+		case PF_INET6: what=&v6; break;
+		default: return;
+		}
+		auto before = what->fetch_add(fail_count);
+		if(before < threshhold && (before+fail_count) >= threshhold)
+		{
+			event_base_once(evabase::base, -1, EV_TIMEOUT, reset_cb,
+					&what, &block_time);
+		}
+	}
+	bool can_connect(int proto)
+	{
+		switch (proto)
+		{
+		case PF_INET:
+			return v4 < threshhold;
+		case PF_INET6:
+			return v6 < threshhold;
+		default:
+			return true;
+		}
+
+	}
+} proto_blocker;
+#endif
 
 std::string tcpconnect::_Connect(int timeout)
 {
-	LOGSTART2("tcpconnect::_Connect", "hostname: " << m_sHostName);
+	LOGSTARTFUNCx(m_sHostName, timeout);
 
 	auto dnsres = CAddrInfo::Resolve(m_sHostName, m_sPort);
+
+	unsigned timeouts_v4(0), timeouts_v6(0);
+#ifdef PROTO_BLOCKER
+
+	tDtorEx transfer_timeout_counts([&](){
+		proto_blocker.report(PF_INET, timeouts_v4);
+		proto_blocker.report(PF_INET6, timeouts_v6);
+	});
+#endif
 
 	if(!dnsres || !dnsres->getTcpAddrInfo())
 	{
@@ -112,6 +171,15 @@ std::string tcpconnect::_Connect(int timeout)
 		{
 			checkforceclose(fd);
 			tmexp = time_exp;
+#ifdef PROTO_BLOCKER
+			// check if temporary blacklisted
+			if(!proto_blocker.can_connect(dns->ai_family))
+			{
+				errno = EAFNOSUPPORT;
+				state = HANDLE_ERROR;
+				return false;
+			}
+#endif
 			fd = ::socket(dns->ai_family, dns->ai_socktype, dns->ai_protocol);
 			if(fd == -1)
 			{
@@ -149,19 +217,40 @@ std::string tcpconnect::_Connect(int timeout)
 	// pickup the first and/or probably the best errno code which can be reported to user
 	int error_prim = 0;
 
-	auto retGood = [&](int& fd) { std::swap(fd, m_conFd); return sEmptyString; };
+	auto retGood = [&](int &fd)
+	{
+		std::swap(fd, m_conFd);
+
+#ifdef PROTO_BLOCKER
+		// mark this as good protocol, report failure count on other on return later
+			if(condata.dns->ai_family == PF_INET6)
+			timeouts_v6 = 0;
+			else
+			timeouts_v4 = 0;
+#endif
+			return sEmptyString;
+	};
 	auto withErrnoError = [&]() { return tErrnoFmter("500 Connection failure: ");	};
 	auto withThisErrno = [&withErrnoError](int myErr) { errno = myErr; return withErrnoError(); };
 
 	// ok, initial condition, one target should be always there, iterator would also hop to the next fallback if allowed
 	if(!prim.dns)
-		return withThisErrno(EAFNOSUPPORT);
+	{
+		dbgline;
+		if(cfg::conprotos[0] == PF_UNSPEC)
+			return "523 No such host";
+		else
+			return withThisErrno(EAFNOSUPPORT);
+	}
+
 	if (cfg::fasttimeout > 0)
 	{
+		dbgline;
 		alt.dns = iter.next();
 		alt.state = alt.dns ? NOT_YET : NO_ALTERNATIVES;
 	}
 
+	dbgline;
 	for(auto op_max=0; op_max < 30000; ++op_max) // fail-safe switch, in case of any mistake here
 	{
 		LOG("state a: " << prim.state << ", state b: " << alt.state );
@@ -182,6 +271,7 @@ std::string tcpconnect::_Connect(int timeout)
 			if(GetTime() >= prim.tmexp)
 			{
 				OPTSET(error_prim, ELVIS(errno, ETIMEDOUT));
+				++(prim.dns->ai_family == PF_INET ? timeouts_v4 : timeouts_v6);
 				prim.state = HANDLE_ERROR;
 				continue;
 			}
@@ -249,6 +339,7 @@ std::string tcpconnect::_Connect(int timeout)
 			}
 			if(now >= alt.tmexp)
 			{
+				++(alt.dns->ai_family == PF_INET ? timeouts_v4 : timeouts_v6);
 				alt.state = HANDLE_ERROR;
 				continue;
 			}
@@ -290,6 +381,8 @@ std::string tcpconnect::_Connect(int timeout)
 		}
 
 		auto res = select(selset.nfds(), nullptr, &selset.fds, nullptr, tv.Remaining(time_inter));
+		if(evabase::in_shutdown)
+			return withThisErrno(ETIMEDOUT);
 		if (res < 0)
 		{
 			if (EINTR != errno)
@@ -328,7 +421,7 @@ std::string tcpconnect::_Connect(int timeout)
 
 void tcpconnect::Disconnect()
 {
-	LOGSTART("tcpconnect::_Disconnect");
+	LOGSTARTFUNCx(m_sHostName);
 
 #ifdef DEBUG
 	nDisconCount.fetch_add(m_conFd >=0);
@@ -357,8 +450,7 @@ tDlStreamHandle dl_con_factory::CreateConnected(cmstring &sHostname, cmstring &s
 		mstring &sErrOut, bool *pbSecondHand, cfg::tRepoData::IHookHandler *pStateTracker
 		,bool bSsl, int timeout, bool nocache) const
 {
-	LOGSTART2s("tcpconnect::CreateConnected", "hostname: " << sHostname << ", port: " << sPort
-			<< (bSsl?" with ssl":" , no ssl"));
+	LOGSTARTFUNCsx(sHostname, sPort, bSsl);
 
 	tDlStreamHandle p;
 #ifndef HAVE_SSL
@@ -439,7 +531,7 @@ void dl_con_factory::RecycleIdleConnection(tDlStreamHandle & handle) const
 	if(!handle)
 		return;
 
-	LOGSTART2s("tcpconnect::RecycleIdleConnection", handle->m_sHostName);
+	LOGSTARTFUNCxs(handle->m_sHostName);
 
 	if(handle->m_pStateObserver)
 	{

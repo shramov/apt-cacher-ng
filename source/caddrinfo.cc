@@ -148,7 +148,7 @@ void CAddrInfo::Resolve(cmstring & sHostname, cmstring &sPort, tDnsResultReporte
 	{
 		auto args = unique_ptr<tDnsResContext>(temp_ctx); //temporarily owned here
 		if(!args || args->cbs.empty() || !(args->cbs.front())) return; // heh?
-		LOGSTART2s("cb_invoke_dns_res", temp_ctx->sHost);
+		LOGSTARTFUNCsx(temp_ctx->sHost);
 
 		if(canceled || evabase::in_shutdown)
 		{

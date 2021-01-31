@@ -10,7 +10,7 @@
 namespace acng
 {
 
-class ACNG_API CAddrInfo
+class CAddrInfo
 {
 	// not to be copied ever
 	CAddrInfo(const CAddrInfo&) = delete;
