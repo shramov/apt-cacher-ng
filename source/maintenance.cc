@@ -278,8 +278,11 @@ tSpecialRequest::eMaintWorkType tSpecialRequest::DispatchMaintWork(cmstring& cmd
 	return workMAINTREPORT;
 }
 
-tSpecialRequest* tSpecialRequest::MakeMaintWorker(const tRunParms& parms)
+tSpecialRequest* tSpecialRequest::MakeMaintWorker(tRunParms&& parms)
 {
+	if(cfg::DegradedMode() && parms.type != workSTYLESHEET)
+		parms.type = workUSERINFO;
+
 	switch (parms.type)
 	{
 	case workNotSpecial:
@@ -324,8 +327,7 @@ tSpecialRequest* tSpecialRequest::MakeMaintWorker(const tRunParms& parms)
 
 void tSpecialRequest::RunMaintWork(eMaintWorkType jobType, cmstring& cmd, int fd)
 {
-	if(cfg::DegradedMode() && jobType != workSTYLESHEET)
-		jobType = workUSERINFO;
+	LOGSTARTFUNCsx(jobType, cmd, fd);
 
 	try {
 		SHARED_PTR<tSpecialRequest> p;

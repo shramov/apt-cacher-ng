@@ -126,7 +126,7 @@ public:
 	static void RunMaintWork(eMaintWorkType jobType, cmstring& cmd, int fd);
 
 protected:
-	static tSpecialRequest* MakeMaintWorker(const tRunParms& parms);
+	static tSpecialRequest* MakeMaintWorker(tRunParms&& parms);
 };
 
 std::string to_base36(unsigned int val);

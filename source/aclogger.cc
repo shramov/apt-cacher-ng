@@ -432,12 +432,14 @@ tErrnoFmter::tErrnoFmter(const char *prefix)
 
 #ifdef DEBUG
 
-thread_local unsigned gtls_indent_level=0;
+thread_local unsigned gtls_indent_level = 0;
 
 t_logger::t_logger(const char *szFuncName,  const void * ptr, const char *szIndentString)
 : m_szName(szFuncName), m_szIndentString(szIndentString)
 {
-	if(!cfg::debug) return;
+	if(!cfg::debug)
+		return;
+
 	// explicit truncation, don't care about the PID part of it
 	auto id = uint32_t((uint64_t)pthread_self());
 	m_threadNameBEGIN = std::string(" [T:") + std::to_string(id);
@@ -450,16 +452,15 @@ t_logger::t_logger(const char *szFuncName,  const void * ptr, const char *szInde
 
 t_logger::~t_logger()
 {
-	if(!cfg::debug) return;
+	if(!cfg::debug)
+		return;
+	gtls_indent_level--;
+
 	if(m_szName)
 	{
-		gtls_indent_level--;
 		GetFmter(" << ") << m_szName << m_threadNameBEGIN << m_objectIdEND;
 	}
-	else
-	{
-		// otherwise there is unfinished string in buffer for the printing
-	}
+	// otherwise there is unfinished string in buffer for the printing
 	Write();
 }
 
@@ -468,7 +469,7 @@ t_logger::~t_logger()
  */
 tSS & t_logger::GetFmter4End()
 {
-	gtls_indent_level--;
+	//gtls_indent_level--;
 	auto& ret = GetFmter();
 	GetFmter(" << ") << m_szName << m_threadNameBEGIN << m_objectIdEND;
 	m_szName = nullptr;
@@ -480,7 +481,7 @@ tSS & t_logger::GetFmter4End()
 tSS & t_logger::GetFmter(const char *szPrefix)
 {
 	m_strm.clear();
-	for(unsigned i=0;i<gtls_indent_level;i++)
+	for(unsigned i=0; i < gtls_indent_level; i++)
 		m_strm << m_szIndentString;
 	if(szPrefix)
 		m_strm << szPrefix;

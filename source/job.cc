@@ -495,7 +495,10 @@ void job::PrepareDownload(LPCSTR headBuf) {
 	if(rex::Match(sReqPath, rex::NASTY_PATH)
 			|| stmiss != sReqPath.find(MAKE_PTR_0_LEN("/_actmp"))
 			|| startsWithSz(sReqPath, "/_"))
+	{
+		LOG("ERROR: internal path or FS break-out attempt");
 		goto report_notallowed;
+	}
 
     try
 	{
@@ -508,6 +511,7 @@ void job::PrepareDownload(LPCSTR headBuf) {
 		if(!theUrl.SetHttpUrl(sReqPath, false))
 		{
 			m_eMaintWorkType=tSpecialRequest::workUSERINFO;
+			LOG("work type: USERINFO");
 			return;
 		}
 		LOG("refined path: " << theUrl.sPath << "\n on host: " << theUrl.sHost);
@@ -759,7 +763,7 @@ job::eJobResult job::SendData(int confd, bool haveMoreJobs)
 {
 	LOGSTART("job::SendData");
 
-	if(m_eMaintWorkType)
+	if (m_eMaintWorkType != tSpecialRequest::eMaintWorkType::workNotSpecial)
 	{
 		tSpecialRequest::RunMaintWork(m_eMaintWorkType, m_sFileLoc, confd);
 		DBG_DISCONNECT
@@ -782,7 +786,7 @@ job::eJobResult job::SendData(int confd, bool haveMoreJobs)
 		
 		for(;;)
 		{
-			fistate=m_pItem.getFiPtr()->GetStatusUnlocked(nGoodDataSize);
+			fistate = m_pItem.getFiPtr()->GetStatusUnlocked(nGoodDataSize);
 			
 			LOG((int) fistate);
 			if (fistate > fileitem::FIST_COMPLETE)
@@ -919,6 +923,7 @@ job::eJobResult job::SendData(int confd, bool haveMoreJobs)
 						THROW_ERROR("400 Client error");
 					
 					LOGRET(R_AGAIN);
+					break;
 				}
 				case(STATE_SEND_CHUNK_HEADER):
 				{
@@ -956,6 +961,7 @@ job::eJobResult job::SendData(int confd, bool haveMoreJobs)
 						continue;
 					}
 					LOGRET(R_AGAIN);
+					break;
 				}
 				case(STATE_SEND_BUFFER):
 				{
@@ -989,6 +995,7 @@ job::eJobResult job::SendData(int confd, bool haveMoreJobs)
 						LOGRET(R_DISCON);
 					}
 					LOGRET(R_AGAIN);
+					break;
 				}
 			case (STATE_ALLDONE):
 				return return_stream_ok("STATE_ALLDONE?");
