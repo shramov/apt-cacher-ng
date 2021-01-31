@@ -235,18 +235,29 @@ bool tHttpUrl::SetHttpUrl(cmstring &sUrlRaw, bool unescape)
 	hEndSuc=url.find('/', hStart);
 	if(stmiss==hEndSuc)
 	{
-		hEndSuc=l;
-		goto extract_host_check_port;
+		// also match http://foo?param=X
+		hEndSuc=url.find('?', hStart);
+		if(stmiss!=hEndSuc)
+		{
+			sPath = mstring("/") + url.substr(hEndSuc);
+			goto extract_host_check_port;
+		}
+
+		hEndSuc = l;
+		goto extract_host_and_path_and_check_port;
+
 	}
 	pStart=hEndSuc;
 	while(pStart<l && url[pStart]=='/') pStart++;
 	pStart--;
 	
-	extract_host_check_port:
+	extract_host_and_path_and_check_port:
 	if(pStart==0)
 		sPath="/";
 	else
 		sPath=url.substr(pStart);
+
+	extract_host_check_port:
 
 	if(url[hStart]=='_') // those are reserved
 		return false;
