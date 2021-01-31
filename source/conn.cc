@@ -151,6 +151,9 @@ void PassThrough(acbuf &clientBufIn, int fdClient, cmstring& uri)
 	if (!url.SetHttpUrl(uri))
 		return;
 	auto proxy = cfg::GetProxyInfo();
+
+	signal(SIGPIPE, SIG_IGN);
+
 	if (!proxy)
 	{
 		direct_connect:

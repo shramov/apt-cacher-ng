@@ -236,6 +236,7 @@ filereader::filereader()
 
 bool filereader::OpenFile(const string & sFilename, bool bNoMagic, unsigned nFakeTrailingNewlines)
 {
+	LOGSTARTFUNCx(sFilename, bNoMagic, nFakeTrailingNewlines);
 	Close(); // reset to clean state
 	m_nEofLines=nFakeTrailingNewlines;
 

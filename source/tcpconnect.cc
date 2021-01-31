@@ -657,19 +657,23 @@ bool tcpconnect::SSLinit(mstring &sErr, cmstring &sHostname, cmstring &sPort)
 	SSL * ssl(nullptr);
 	mstring ebuf;
 
-	auto withSslError = [&sErr](const char *perr)
+	auto withSslHeadPfx = [&sErr](const char *perr)
 					{
 		sErr="500 SSL error: ";
 		sErr+=(perr?perr:"Generic SSL failure");
 		return false;
 					};
-	auto withLastSslError = [&withSslError]()
+	auto withLastSslError = [&withSslHeadPfx]()
 						{
-		return withSslError(ERR_reason_error_string(ERR_get_error()));
+		auto nErr = ERR_get_error();
+		auto serr = ERR_reason_error_string(nErr);
+		return withSslHeadPfx(serr);
 						};
-	auto withRetCode = [&withSslError, &ssl](int hret)
+	auto withSslRetCode = [&withSslHeadPfx, &ssl](int hret)
 				{
-		return withSslError(ERR_reason_error_string(SSL_get_error(ssl, hret)));
+		auto nErr = SSL_get_error(ssl, hret);
+		auto serr =  ERR_reason_error_string(nErr);
+		return withSslHeadPfx(serr);
 				};
 
 	// cleaned up in the destructor on EOL
@@ -705,21 +709,22 @@ bool tcpconnect::SSLinit(mstring &sErr, cmstring &sHostname, cmstring &sPort)
  			| SSL_MODE_ENABLE_PARTIAL_WRITE);
 
  	auto hret=SSL_set_fd(ssl, m_conFd);
- 	if(hret != 1) return withRetCode(hret);
+ 	if(hret != 1) return withSslRetCode(hret);
 
  	while(true)
  	{
  		hret=SSL_connect(ssl);
- 		if(hret == 1 )
- 			break;
- 		if(hret == 0)
- 			return withRetCode(hret);
+		if (hret == 1)
+			break;
+		if (hret == 0)
+			return withSslRetCode(hret);
 
 		fd_set rfds, wfds;
 		FD_ZERO(&rfds);
 		FD_ZERO(&wfds);
- 		switch(SSL_get_error(ssl, hret))
- 		{
+		auto nError = SSL_get_error(ssl, hret);
+		switch (nError)
+		{
  		case SSL_ERROR_WANT_READ:
  			FD_SET(m_conFd, &rfds);
  			break;
@@ -727,23 +732,23 @@ bool tcpconnect::SSLinit(mstring &sErr, cmstring &sHostname, cmstring &sPort)
  			FD_SET(m_conFd, &wfds);
  			break;
  		default:
- 			return withRetCode(hret);
+ 			return withSslRetCode(nError);
  		}
 		int nReady=select(m_conFd+1, &rfds, &wfds, nullptr, CTimeVal().ForNetTimeout());
-		if(!nReady) return withSslError("Socket timeout");
+		if(!nReady) return withSslHeadPfx("Socket timeout");
 		if (nReady<0)
 		{
 #ifndef MINIBUILD
 			ebuf=tErrnoFmter("Socket error");
-			return withSslError(ebuf.c_str());
+			return withSslHeadPfx(ebuf.c_str());
 #else
-			return withSslError("Socket error");
+			return withSslHeadPfx("Socket error");
 #endif
 		}
  	}
  	if(m_bio) BIO_free_all(m_bio);
  	m_bio = BIO_new(BIO_f_ssl());
- 	if(!m_bio) return withSslError("IO initialization error");
+ 	if(!m_bio) return withSslHeadPfx("IO initialization error");
  	// not sure we need it but maybe the handshake can access this data
  	BIO_set_conn_hostname(m_bio, sHostname.c_str());
  	BIO_set_conn_port(m_bio, sPort.c_str());
@@ -758,7 +763,7 @@ bool tcpconnect::SSLinit(mstring &sErr, cmstring &sHostname, cmstring &sPort)
 		X509* server_cert = nullptr;
 		hret=SSL_get_verify_result(ssl);
 		if( hret != X509_V_OK)
-			return withSslError(X509_verify_cert_error_string(hret));
+			return withSslHeadPfx(X509_verify_cert_error_string(hret));
 		server_cert = SSL_get_peer_certificate(ssl);
 		if(server_cert)
 		{
@@ -767,7 +772,7 @@ bool tcpconnect::SSLinit(mstring &sErr, cmstring &sHostname, cmstring &sPort)
 			X509_free(server_cert);
 		}
 		else // The handshake was successful although the server did not provide a certificate
-			return withSslError("Incompatible remote certificate");
+			return withSslHeadPfx("Incompatible remote certificate");
 	}
 	return true;
 }

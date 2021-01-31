@@ -17,9 +17,8 @@
 #include "lockable.h"
 #include "cleaner.h"
 #include "tcpconnect.h"
-
+#include "ebrunner.h"
 #include "fileitem.h"
-#include "dlcon.h"
 #include "fileio.h"
 
 #ifdef HAVE_SYS_MOUNT_H
@@ -46,8 +45,7 @@
 
 using namespace std;
 using namespace acng;
-
-dlcon dler("");
+dlcon *dler;
 
 //#define SPAM
 
@@ -292,8 +290,8 @@ public:
 
 		tFitem *pFi = new tFitem(retbuf, len, pos, fid, bIsFirst);
 		tFileItemPtr spFi(static_cast<fileitem*>(pFi));
-		dler.AddJob(spFi, &uri, 0, 0, 0, cfg::REDIRMAX_DEFAULT, nullptr, false);
-		dler.WorkLoop();
+		dler->AddJob(spFi, &uri, 0, 0, 0, cfg::REDIRMAX_DEFAULT, nullptr, false);
+		dler->WorkLoop();
 		int nHttpCode(100);
 		pFi->WaitForFinish(&nHttpCode);
 		bIsFirst=false;
@@ -363,7 +361,7 @@ public:
 			}
 		};
 		auto probe(make_shared<tFitemProbe>());
-		dler.AddJob(probe, &uri, 0, 0, 0, cfg::REDIRMAX_DEFAULT, nullptr, false);
+		dler->AddJob(probe, &uri, 0, 0, 0, cfg::REDIRMAX_DEFAULT, nullptr, false);
 		int nHttpCode(100);
 		fileitem::FiStatus res = probe->WaitForFinish(&nHttpCode);
 		stbuf.st_size = atoofft(probe->GetHeaderUnlocked().h[header::CONTENT_LENGTH], 0);
@@ -674,6 +672,8 @@ int main(int argc, char *argv[])
    if(argc<4)
       barf("Not enough arguments, try --help.\n");
    
+   evabase infrastructure;
+
    cfg::agentname = "ACNGFS";
    cfg::agentheader="User-Agent: ACNGFS\r\n";
    cfg::requestapx = "User-Agent: ACNGFS\r\nX-Original-Source: 42\r\n";
@@ -744,13 +744,8 @@ int main(int argc, char *argv[])
    argv=&argv[nMyArgCount];
    argc-=nMyArgCount;
 
-   std::thread thr([]() { dler.WorkLoop(); });
-	tDtorEx cleaner([&]()
-	{
-		dler.SignalStop();
-		thr.join();
-		acng::cleaner::GetInstance().Stop();
-	});
+   evabaseFreeFrunner eb(g_tcp_con_factory);
+   dler = &eb.dl;
 
    return my_fuse_main(argc, argv);
 }
