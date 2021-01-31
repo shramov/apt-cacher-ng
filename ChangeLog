@@ -17,6 +17,7 @@ apt-cacher-ng (3.6) SOMETIMES-YOU-EAT-THE-BEAR; urgency=low
   * In case of stuck/creeping download of volatile files, move them out of the
     way faster and easier (replacing file entry) instead of moving them to a
     side cache
+  * Fixed error message selection for early fatal SSL errors
 
  -- 
 
