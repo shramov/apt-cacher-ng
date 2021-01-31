@@ -115,6 +115,7 @@ void evabase::Post(tCancelableAction&& act)
 		lockguard g(handover_mx);
 		incoming_q.emplace_back(move(act));
 	}
+	ASSERT(handover_wakeup);
 	event_add(handover_wakeup, &timeout_asap);
 }
 

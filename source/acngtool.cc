@@ -46,7 +46,7 @@
 #include "filereader.h"
 #include "csmapping.h"
 #include "cleaner.h"
-#include "evabase.h"
+#include "ebrunner.h"
 
 using namespace std;
 using namespace acng;
@@ -280,18 +280,15 @@ SHARED_PTR<fileitem> CreateReportItem()
 	return make_shared<tRepItem>();
 }
 
-void DownloadItem(const tHttpUrl &url, IDlConFactory &pDlconFac, const SHARED_PTR<fileitem> &fi)
+void DownloadItem(const tHttpUrl &url, dlcon &dlConnector, const SHARED_PTR<fileitem> &fi)
 {
-	dlcon dl("INTERN", pDlconFac);
-	std::thread dlThread([&]() {dl.WorkLoop();});
-	dl.AddJob(fi, &url, nullptr, nullptr, 0, cfg::REDIRMAX_DEFAULT, nullptr, false);
+	dlConnector.AddJob(fi, &url, nullptr, nullptr, 0,
+			cfg::REDIRMAX_DEFAULT, nullptr, false);
 	int st;
 	auto fistatus = fi->WaitForFinish(&st);
 	// just be sure to set a proper error code
 	if(fistatus != fileitem::FIST_COMPLETE && fi->GetHeader().getStatus() < 400)
 		fi->GetHeader().frontLine = "909 Incomplete download";
-	dl.SignalStop();
-	dlThread.join();
 }
 int wcat(LPCSTR url, LPCSTR proxy, IFitemFactory*, const IDlConFactory &pdlconfa = g_tcp_con_factory);
 
@@ -653,8 +650,9 @@ int maint_job()
 		DBGQLOG("Trying UDS path")
 		auto fi =CreateReportItem();
 		url.sHost = FAKE_UDS_HOSTNAME;
-		TUdsFactory udsConFac;
-		DownloadItem(url, udsConFac, fi);
+		TUdsFactory udsFac;
+		evabaseFreeFrunner eb(udsFac);
+		DownloadItem(url, eb.dl, fi);
 		response_ok = fi->GetHeader().getStatus() == 200;
 		DBGQLOG("UDS result: " << response_ok)
 	}
@@ -671,8 +669,9 @@ int maint_job()
 		for (const auto &tgt : hostips)
 		{
 			url.sHost = tgt;
+			evabaseFreeFrunner eb(g_tcp_con_factory);
 			auto fi = CreateReportItem();
-			DownloadItem(url, g_tcp_con_factory, fi);
+			DownloadItem(url, eb.dl, fi);
 			response_ok = fi->GetHeader().getStatus() == 200;
 			if (response_ok)
 				break;
@@ -1115,22 +1114,10 @@ int wcat(LPCSTR surl, LPCSTR proxy, IFitemFactory* fac, const IDlConFactory &pDl
 	if(url.bSSL)
 		globalSslInit();
 
-	dlcon dl("", pDlconFac);
-
-	evabase eb;
-	std::thread evthr([&]() { eb.MainLoop(); });
-	std::thread thr([&]() {	dl.WorkLoop();});
-	tDtorEx cleaner([&]()
-	{
-		::acng::cleaner::GetInstance().Stop();
-		dl.SignalStop();
-		eb.SignalStop();
-		thr.join();
-		evthr.join();
-	});
+	evabaseFreeFrunner eb(pDlconFac);
 
 	auto fi=fac->Create();
-	dl.AddJob(fi, &url, nullptr, nullptr, 0, cfg::REDIRMAX_DEFAULT,
+	eb.dl.AddJob(fi, &url, nullptr, nullptr, 0, cfg::REDIRMAX_DEFAULT,
 			nullptr, false);
 	int st;
 	auto fistatus = fi->WaitForFinish(&st);
