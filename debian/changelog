@@ -1,9 +1,55 @@
-apt-cacher-ng (3.3-3) UNRELEASED; urgency=medium
+apt-cacher-ng (3.6-1) UNRELEASED; urgency=low
 
   * Dropped ancient pidof check from the init script (no bug here but there
     was some complaint on debian-devel a while ago)
 
  -- Eduard Bloch <blade@debian.org>  Mon, 18 Nov 2019 20:53:56 +0100
+
+apt-cacher-ng (3.5-3) unstable; urgency=low
+
+  * Apply gold disabling flags correctly (now really handles #975137)
+
+ -- Eduard Bloch <blade@debian.org>  Sat, 21 Nov 2020 11:45:52 +0100
+
+apt-cacher-ng (3.5-2) unstable; urgency=medium
+
+  * Disable use of gold linker to avoid linker crash; this has been observed
+    on mipsel before and probably also affects amd64 (closes: #975137)
+
+ -- Eduard Bloch <blade@debian.org>  Fri, 20 Nov 2020 19:15:22 +0100
+
+apt-cacher-ng (3.5-1) unstable; urgency=low
+
+  * New upstream release
+
+ -- Eduard Bloch <blade@debian.org>  Mon, 20 Apr 2020 23:35:50 +0200
+
+apt-cacher-ng (3.4-1) unstable; urgency=low
+
+  * New upstream release
+    + potentially closes: #952811
+  * Added timeouts to postinst steps which access network
+
+ -- Eduard Bloch <blade@debian.org>  Sun, 05 Apr 2020 18:27:07 +0200
+
+apt-cacher-ng (3.3.1-2) unstable; urgency=high
+
+  * Fixes FTBFS on mipsel/mips64el
+  * Fixes missing last-minute changes in actual upstream version 3.3.1
+
+ -- Eduard Bloch <blade@debian.org>  Sun, 19 Jan 2020 21:24:09 +0100
+
+apt-cacher-ng (3.3.1-1) unstable; urgency=medium
+
+  * Bugfix upstream release update
+    + (CVE-2020-5202) Enforce secured call to the server in maint job triggering
+    + Allow .zst compression for tarballs (closes: Bug#948259, thanks
+      to Arnaud Rebillout)
+    + Added branch information to Vcs-Git control line (closes: #913594)
+    + Hint about not set (by debconf) CacheDir variable in zz_debconf.conf
+      (closes: #929031)
+
+ -- Eduard Bloch <blade@debian.org>  Wed, 08 Jan 2020 21:01:26 +0100
 
 apt-cacher-ng (3.3-2) unstable; urgency=low
 
