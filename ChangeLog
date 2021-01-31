@@ -3,7 +3,8 @@ apt-cacher-ng (3.6) SOMETIMES-YOU-EAT-THE-BEAR; urgency=low
   [ FEATURES AND USAGE IMPROVEMENTS ]
   * Allowed specification of different/multiple endpoints to bind with
     arbitrary ports, i.e. binding with non-default port on specific network interfaces
-  * By default, refer to the manual served through the built-in webserver
+  * Admin pages refer to the locally served location of the manual (via
+    built-in webserver)
 
   [ BUGFIXES AND OPTIMIZATIONS ]
   * Fixing construction of individual X-Forwarded-For headers. This matters
@@ -11,7 +12,7 @@ apt-cacher-ng (3.6) SOMETIMES-YOU-EAT-THE-BEAR; urgency=low
   * Potential hanging of acngtool/acngfs on termination
   * Minor speedup in acngfs with reused download agent
   * Using asynchronous libevent DNS resolver instead of getaddrinfo from OS,
-    since the later turned out to be unstable in stress tests
+    since the later turned out to be unreliable in stress tests
   * Safely ignore the HTTP 102 Processing status code and similar hints 
   * In case of stuck/creeping download of volatile files, move them out of the
     way faster and easier (replacing file entry) instead of moving them to a

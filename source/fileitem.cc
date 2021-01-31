@@ -743,36 +743,53 @@ bool fileitem_with_storage::StoreFileData(const char *data, unsigned int size)
 
 TFileItemUser::~TFileItemUser()
 {
-	LOGSTART("TFileItemUser::~TFileItemUser");
-
-	lockguard managementLock(mapItemsMx);
+	LOGSTARTFUNC
 
 	if (!m_ptr) // unregistered before? or not shared?
 		return;
 
-	auto ucount = --m_ptr->usercount;
-	if (ucount > 0)
-		return; // still used
+	lockguard managementLock(mapItemsMx);
 
-	// invalid or not globally registered?
-	if (m_ptr->m_globRef == mapItems.end())
-		return;
-#warning fixme, v3.3.x added another code path with some action for non-global items too!
+	bool wasGloballyRegistered = m_ptr->m_globRef != mapItems.end();
 
-	// some file items will be held ready for some time
+	auto local_ptr(m_ptr); // might disappear
+	lockguard fitemLock(*local_ptr);
 
-	if (MAXTEMPDELAY && m_ptr->m_bCheckFreshness
-			&& m_ptr->m_status == fileitem::FIST_COMPLETE)
+	if ( -- m_ptr->usercount <= 0)
 	{
-		auto when = m_ptr->m_nTimeDlStarted + MAXTEMPDELAY;
-		if (when > GetTime())
+		m_ptr->notifyAll();
+
+		if(m_ptr->m_status < fileitem::FIST_COMPLETE && m_ptr->m_status != fileitem::FIST_INITED)
 		{
-			cleaner::GetInstance().ScheduleFor(when, cleaner::TYPE_EXFILEITEM);
-			return;
+			ldbg("usercount dropped to zero while downloading?: " << (int) m_ptr->m_status);
 		}
+
+		if(wasGloballyRegistered)
+		{
+			// some file items will be held ready for some time
+
+			time_t when(0);
+			if (MAXTEMPDELAY && m_ptr->m_bCheckFreshness
+					&& m_ptr->m_status == fileitem::FIST_COMPLETE
+					&& ((when = m_ptr->m_nTimeDlStarted + MAXTEMPDELAY) > GetTime()))
+			{
+				cleaner::GetInstance().ScheduleFor(when, cleaner::TYPE_EXFILEITEM);
+				return;
+			}
+		}
+		// nothing, let's put the item into shutdown state
+		m_ptr->m_status = fileitem::FIST_DLSTOP;
+		m_ptr->m_head.frontLine="HTTP/1.1 500 Cache file item expired";
+
+		if (wasGloballyRegistered)
+		{
+			LOG("*this is last entry, deleting dl/fi mapping");
+			mapItems.erase(m_ptr->m_globRef);
+			m_ptr->m_globRef = mapItems.end();
+		}
+		// make sure it's not double-unregistered accidentally!
+		m_ptr.reset();
 	}
-	// no more readers for this item, can be discarded
-	mapItems.erase(m_ptr->m_globRef);
 }
 
 TFileItemUser TFileItemUser::Create(cmstring &sPathUnescaped, bool makeWay)
