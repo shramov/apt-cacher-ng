@@ -511,30 +511,57 @@ typedef deque<tPtrLen> tPatchSequence;
 // might need to access the last line externally
 unsigned long rangeStart(0), rangeLast(0);
 
-inline bool patchChunk(tPatchSequence& idx, LPCSTR pline, size_t len, tPatchSequence chunk)
+inline bool patchChunk(tPatchSequence& idx, LPCSTR pline, tPatchSequence diffPayload)
 {
-	char op = 0x0;
-	auto n = sscanf(pline, "%lu,%lu%c\n", &rangeStart, &rangeLast, &op);
-	if (n == 1) // good enough
-		rangeLast = rangeStart, op = pline[len - 2];
-	else if(n!=3)
-		return false; // bad instruction
+	bool append = false;
+	char *pEnd = nullptr;
+	auto n = strtoul(pline, &pEnd, 10);
+	if (!pEnd || pline == pEnd)
+		return false;
+	rangeStart = n;
+
+	switch (*pEnd)
+	{
+	case ',':
+	{
+		pline = pEnd + 1;
+		n = strtoul(pline, &pEnd, 10);
+		if (!pEnd || pline == pEnd || (*pEnd != 'c' && *pEnd != 'd'))
+			return false;
+		rangeLast = n;
+		break;
+	}
+	case 'a':
+		append = true;
+		__just_fall_through;
+	case 'c':
+	case 'd':
+	{
+		// that is just one line?
+		rangeLast = rangeStart = n;
+		break;
+	}
+	default:
+		return false;
+	}
+
 	if (rangeStart > idx.size() || rangeLast > idx.size() || rangeStart > rangeLast)
 		return false;
-	if (op == 'a')
-		idx.insert(idx.begin() + (size_t) rangeStart + 1, chunk.begin(), chunk.end());
+
+	if (append)
+		idx.insert(idx.begin() + (size_t) rangeStart + 1, diffPayload.begin(), diffPayload.end());
 	else
 	{
 		size_t i = 0;
-		for (; i < chunk.size(); ++i, ++rangeStart)
+		for (; i < diffPayload.size(); ++i, ++rangeStart)
 		{
 			if (rangeStart <= rangeLast)
-				idx[rangeStart] = chunk[i];
+				idx[rangeStart] = diffPayload[i];
 			else
 				break; // new stuff bigger than replaced range
 		}
-		if (i < chunk.size()) // not enough space :-(
-			idx.insert(idx.begin() + (size_t) rangeStart, chunk.begin() + i, chunk.end());
+		if (i < diffPayload.size()) // not enough space :-(
+			idx.insert(idx.begin() + (size_t) rangeStart, diffPayload.begin() + i, diffPayload.end());
 		else if (rangeStart - 1 != rangeLast) // less data now?
 			idx.erase(idx.begin() + (size_t) rangeStart, idx.begin() + (size_t) rangeLast + 1);
 	}
@@ -693,19 +720,19 @@ int patch_file(string sBase, string sPatch, string sResult)
 		return -2;
 	auto buf = frBase.GetBuffer();
 	auto size = frBase.GetSize();
-	tPatchSequence idx;
-	idx.emplace_back(buf, 0); // dummy entry to avoid -1 calculations because of ed numbering style
+	tPatchSequence lines;
+	lines.emplace_back(buf, 0); // dummy entry to avoid -1 calculations because of ed numbering style
 	for (auto p = buf; p < buf + size;)
 	{
 		LPCSTR crNext = strchr(p, '\n');
 		if (crNext)
 		{
-			idx.emplace_back(p, crNext + 1 - p);
+			lines.emplace_back(p, crNext + 1 - p);
 			p = crNext + 1;
 		}
 		else
 		{
-			idx.emplace_back(p, buf + size - p);
+			lines.emplace_back(p, buf + size - p);
 			break;
 		}
 	}
@@ -713,10 +740,11 @@ int patch_file(string sBase, string sPatch, string sResult)
 	auto pbuf = frPatch.GetBuffer();
 	auto psize = frPatch.GetSize();
 	tPatchSequence chunk;
-	LPCSTR cmd =0;
-	size_t cmdlen = 0;
+	LPCSTR patchCmd =0;
+	size_t patchCmdLen = 0;
 	for (auto p = pbuf; p < pbuf + psize;)
 	{
+		// accumulate lines until chunk is consumed
 		LPCSTR crNext = strchr(p, '\n');
 		size_t len = 0;
 		LPCSTR line=p;
@@ -732,48 +760,51 @@ int patch_file(string sBase, string sPatch, string sResult)
 		}
 		p=crNext+1;
 
-		bool gogo = (len == 2 && *line == '.');
-		if(!gogo)
+		bool hunkOK = (len == 2 && *line == '.');
+		if(!hunkOK)
 		{
-			if(!cmdlen)
+			if(!patchCmdLen)
 			{
 				if(!strncmp("s/.//\n", line, 6))
 				{
 					// oh, that's the fix-the-last-line command :-(
 					if(rangeStart)
-						idx[rangeStart].first = ".\n", idx[rangeStart].second=2;
+					{
+						lines[rangeStart].first = ".\n";
+						lines[rangeStart].second=2;
+					}
 					continue;
 				}
 				else if(line[0] == 'w')
 					continue; // don't care, we know the target
 
-				cmdlen = len;
-				cmd = line;
+				patchCmdLen = len;
+				patchCmd = line;
 
 				if(len>2 && line[len-2] == 'd')
-					gogo = true; // no terminator to expect
+					hunkOK = true; // no terminator to expect
 			}
 			else
 				chunk.emplace_back(line, len);
 		}
 
-		if(gogo)
+		if(hunkOK)
 		{
-			if(!patchChunk(idx, cmd, cmdlen, chunk))
+			if(!patchChunk(lines, patchCmd, chunk))
 			{
 				cerr << "Bad patch line: ";
-				cerr.write(cmd, cmdlen);
+				cerr.write(patchCmd, patchCmdLen);
 				exit(EINVAL);
 			}
 			chunk.clear();
-			cmdlen = 0;
+			patchCmdLen = 0;
 		}
 	}
 	ofstream res(sResult.c_str());
 	if(!res.is_open())
 		return -3;
 
-	for(const auto& kv : idx)
+	for(const auto& kv : lines)
 		res.write(kv.first, kv.second);
 	res.flush();
 //	dump_proc_status_always();
