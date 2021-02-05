@@ -94,7 +94,7 @@ public:
 	// helpers to keep the code cleaner and more readable
 	const tIfileAttribs &GetFlags(cmstring &sPathRel) const;
 
-protected:
+SUTPROTECTED:
 	// this is not unordered because sometimes we make use of iterator references while
 	// doing modification of the map
 	std::map<mstring,tIfileAttribs> m_metaFilesRel;
@@ -178,7 +178,7 @@ protected:
 	// whitelist patterns do not apply there!
 	tStrSet m_managedDirs;
 
-private:
+SUTPRIVATE:
 
 	void ExtractAllRawReleaseDataFixStrandedPatchIndex(tFileGroups& ret, const tStrDeq& releaseFilesRel);
 	void FilterGroupData(tFileGroups& idxGroups);
@@ -200,14 +200,16 @@ private:
 	cmstring& GetFirstPresentPath(const tFileGroups& groups, const tContentKey& ckey);
 
 	/*
-	 * Analyze patch base candidate, fetch patch files as suggested by index, patch, distribute result
+	 * Analyze patch base candidate, fetch patch files as suggested by index, patch, distribute result.
+	 *
+	 * Returns 0 for success, -1 for "not needed", other values for errors
 	 */
-	void PatchOne(cmstring& pindexPathRel, const tStrDeq& patchBaseCandidates);
+	int PatchOne(cmstring& pindexPathRel, const tStrDeq& patchBaseCandidates);
 	void ParseGenericRfc822File(filereader& reader, cmstring& sExtListFilter,
 			map<string, deque<string> >& contents);
 	bool ParseDebianIndexLine(tRemoteFileInfo& info, cmstring& fline);
 
-protected:
+SUTPROTECTED:
 	bool CalculateBaseDirectories(cmstring& sPath, enumMetaType idxType, mstring& sBaseDir, mstring& sBasePkgDir);
 	bool IsDeprecatedArchFile(cmstring &sFilePathRel);
 	/**

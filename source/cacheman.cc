@@ -1252,43 +1252,36 @@ void cacheman::SortAndInterconnectGroupData(tFileGroups& idxGroups)
 	}
 }
 
-void cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
+int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 {
-//	cmstring* pBest = nullptr;
-//	const tIfileAttribs* pBestAttr = nullptr;
-	int changeNeedCount = 0;
-	//tStrSet locationsInSidestore;
+#define PATCH_FALSE __LINE__
 
-	for(const auto& pb: siblings)
-	{
-		auto& fl = GetFlags(pb);
-		if(!fl.vfile_ondisk)
-			continue;
-		if(!fl.parseignore && !fl.uptodate)
-			changeNeedCount++;
-		//locationsInSidestore.emplace( pb.substr(0, FindCompSfxPos(pb)));
-	}
+	auto need_update = std::find_if(siblings.begin(), siblings.end(), [&](cmstring& pb) {
+		const auto& fl = GetFlags(pb);
+		return fl.vfile_ondisk && !fl.parseignore && !fl.uptodate;
+	});
 
-	if(!changeNeedCount)
-		return;
+	if(need_update == siblings.end())
+		return -1;
+
 	filereader reader;
 	if(!reader.OpenFile(SABSPATH(pindexPathRel), true, 1))
-		return;
+		return PATCH_FALSE;
 	map<string, deque<string> > contents;
 	ParseGenericRfc822File(reader, "", contents);
 	auto& sStateCurrent = contents["SHA256-Current"];
 	if(sStateCurrent.empty() || sStateCurrent.front().empty())
-		return;
+		return PATCH_FALSE;
 	auto& csHist = contents["SHA256-History"];
 	if(csHist.empty() || csHist.size() < 2)
-		return;
+		return PATCH_FALSE;
 
 	tFingerprint probeStateWanted, // the target data
 	probe, // temp scan object
 	probeOrig; // appropriate patch base stuff
 
 	if(!probeStateWanted.Set(tSplitWalk(& sStateCurrent.front()), CSTYPE_SHA256))
-				return;
+		return PATCH_FALSE;
 
 	unordered_map<string,tFingerprint> patchSums;
 	for(const auto& line: contents["SHA256-Patches"])
@@ -1429,7 +1422,7 @@ void cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 			{
 				SendFmt << "Cannot write temporary patch data to "
 						<< sPatchInputRel << "<br>";
-				return;
+				return PATCH_FALSE;
 			}
 			if(!probeOrig.ScanFile(SABSPATH(pb),
 					CSTYPE_SHA256, true, df.p))
@@ -1439,7 +1432,7 @@ void cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 			{
 				SetFlags(pb).uptodate = true;
 				SyncSiblings(pb, siblings);
-				return; // the file is uptodate already...
+				return PATCH_FALSE; // the file is uptodate already...
 			}
 
 			if(!tryPatch(pb))
@@ -1457,7 +1450,7 @@ void cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 				{
 					auto len=strlen(h.h[header::XORIG]);
 					if(len < diffIdxSfx.length())
-						return; // heh?
+						return PATCH_FALSE; // heh?
 					h.h[header::XORIG][len-diffIdxSfx.length()] = 0;
 					h.set(header::CONTENT_TYPE, "octet/stream");
 					h.set(header::LAST_MODIFIED, FAKEDATEMARK);
@@ -1479,7 +1472,7 @@ void cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 			}
 
 			// patched, installed, DONE!
-			return;
+			return 0;
 		}
 	}
 }
