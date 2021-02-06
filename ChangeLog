@@ -21,6 +21,10 @@ apt-cacher-ng (3.6) SOMETIMES-YOU-EAT-THE-BEAR; urgency=low
   * Fixed pdiff algorithm to use now available combined patches directly
   * Vastly improved the CPU consumption of pdiff patching code in acngtool
 
+  [ Miscellaneous]
+
+  * Database update
+
  -- 
 
 apt-cacher-ng (3.5) CLOUDY-WITH-A-CHANCE-OF-VEGGIE-BURGERS; urgency=medium
