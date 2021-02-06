@@ -2,6 +2,10 @@ apt-cacher-ng (3.6-1) UNRELEASED; urgency=low
 
   * Dropped ancient pidof check from the init script (no bug here but there
     was some complaint on debian-devel a while ago)
+  * FIXME:
+xargs: warning: options --max-args and --replace/-I/-i are mutually exclusive, ignoring previous --max-args value
+insserv: script portmap: service portmap already provided!
+
 
  -- Eduard Bloch <blade@debian.org>  Mon, 18 Nov 2019 20:53:56 +0100
 
