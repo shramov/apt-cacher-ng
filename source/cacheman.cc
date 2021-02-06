@@ -30,8 +30,8 @@
 
 #ifdef DEBUG
 #warning enable, and it will spam a lot!
-//#define DEBUGIDX
-//#define DEBUGSPAM
+#define DEBUGIDX
+#define DEBUGSPAM
 #endif
 
 #define MAX_TOP_COUNT 10
@@ -1572,7 +1572,8 @@ bool cacheman::UpdateVolatileFiles()
 		if(!ProcessByHashReleaseFileRestoreFiles(sPathRel, ""))
 		{
 			m_nErrorCount++;
-			if(sErr.empty()) sErr = "ByHash error at " + sPathRel;
+			if(sErr.empty())
+				sErr = "ByHash error at " + sPathRel;
 			continue;
 		}
 
@@ -1587,8 +1588,10 @@ bool cacheman::UpdateVolatileFiles()
 			}
 
 			if(CheckStopSignal())
-				LOGRET(false);
-
+			{
+				SendFmt << "Operation canceled." << hendl;
+				return false;
+			}
 			continue;
 		}
 	}
@@ -1596,15 +1599,18 @@ bool cacheman::UpdateVolatileFiles()
 	SendChunk("<b>Bringing index files up to date...</b><br>\n");
 
 	{
-		std::unordered_set<std::string> oldReleaseFiles;
+		std::unordered_set<std::string> oldReleaseFilesInRsnap;
 		auto baseFolder = cfg::cacheDirSlash + cfg::privStoreRelSnapSufix;
-		IFileHandler::FindFiles(baseFolder, [&baseFolder, &oldReleaseFiles](cmstring &sPath, const struct stat &st)
-				-> bool {
-			oldReleaseFiles.emplace(sPath.substr(baseFolder.size() + 1));
-			return true;
-		});
 
-		if(!FixMissingByHashLinks(oldReleaseFiles))
+		IFileHandler::FindFiles(baseFolder,
+				[&baseFolder, &oldReleaseFilesInRsnap](cmstring &sPath, const struct stat &st)
+				-> bool
+				{
+			oldReleaseFilesInRsnap.emplace(sPath.substr(baseFolder.size() + 1));
+			return true;
+				});
+
+		if(!FixMissingByHashLinks(oldReleaseFilesInRsnap))
 		{
 			SendFmt << "Error fixing by-hash links" << hendl;
 			m_nErrorCount++;
@@ -2523,9 +2529,9 @@ bool cacheman::ProcessByHashReleaseFileRestoreFiles(cmstring& releasePathRel, cm
 			//	should be ok				h.set(header::CONTENT_LENGTH, entry.fpr.size)
 			if(!Inject(solidPathRel, wantedPathRel, false, &h, false))
 			{
-			if(m_bVerbose)
-				SendChunk("Couldn't install<br>");
-			return;
+				if(m_bVerbose)
+					SendFmt << "Couldn't install " << solidPathRel << hendl;
+				return;
 			}
 			auto& flags = SetFlags(wantedPathRel);
 			if(flags.vfile_ondisk)
@@ -2537,29 +2543,29 @@ bool cacheman::ProcessByHashReleaseFileRestoreFiles(cmstring& releasePathRel, cm
 	stripPrefix + releasePathRel, enumMetaType::EIDX_RELEASE, true) && errors == 0;
 }
 
-bool cacheman::FixMissingByHashLinks(std::unordered_set<std::string> &oldReleaseFiles)
+bool cacheman::FixMissingByHashLinks(std::unordered_set<std::string> &oldReleaseFilesInRsnap)
 {
 	bool ret = true;
 
-	// path of side store with trailing slash relativ to cache folder
+	// path of side store with trailing slash relative to cache folder
 	auto srcPrefix(cfg::privStoreRelSnapSufix + sPathSep);
 
-	for(const auto& snapPathInXstore: oldReleaseFiles)
+	for(const auto& nameInXstore: oldReleaseFilesInRsnap)
 	{
-		if(endsWithSzAr(snapPathInXstore, ".upgrayedd"))
+		if(endsWithSzAr(nameInXstore, ".upgrayedd"))
 			continue;
 		// path relative to cache folder
-		if(!ProcessByHashReleaseFileRestoreFiles(snapPathInXstore, srcPrefix))
+		if(!ProcessByHashReleaseFileRestoreFiles(nameInXstore, srcPrefix))
 		{
-			SendFmt << "There were error(s) processing " << snapPathInXstore << ", ignoring..."<< hendl;
+			SendFmt << "There were error(s) processing " << nameInXstore << ", ignoring..."<< hendl;
 			if(!m_bVerbose)
-				SendChunk("Enable verbosity to see more");
+				SendFmt << "Enable verbosity to see more" << hendl;
 			return ret;
 		}
 #ifdef DEBUGIDX
-		SendFmt << "Purging " << SABSPATH(srcPrefix + snapPathInXstore) << hendl;
+		SendFmt << "Purging " << SABSPATH(srcPrefix + nameInXstore) << hendl;
 #endif
-		unlink(SABSPATH(srcPrefix + snapPathInXstore).c_str());
+		unlink(SABSPATH(srcPrefix + nameInXstore).c_str());
 	}
 	return ret;
 }
