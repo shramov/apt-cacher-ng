@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.1)
 
-# enforce minimal C++ language level
-set(CMAKE_CXX_STANDARD 14)
+# try to set the best C++ language level
+set(CMAKE_CXX_STANDARD 20)
 # let it take the lowest version, we need some precursor of C++14x
 #set(CMAKE_CXX_STANDARD_REQUIRED on)
 
@@ -185,8 +185,10 @@ if(HAVE_SOCKETLIB)
    LIST(APPEND BaseNetworkLibs socket nsl)
 endif(HAVE_SOCKETLIB)
 
+set(TESTKITDIR "tests/build")
+
 SET(CMAKE_REQUIRED_LIBRARIES wrap ${BaseNetworkLibs})
-FILE(READ test/build/HAVE_LIBWRAP.cc TESTSRC)
+FILE(READ ${TESTKITDIR}/HAVE_LIBWRAP.cc TESTSRC)
 CHECK_CXX_SOURCE_COMPILES("${TESTSRC}" HAVE_LIBWRAP)
 IF(HAVE_LIBWRAP)
    LIST(APPEND ServerLibs wrap)
@@ -208,41 +210,41 @@ if(CYGWIN)
 message("!! Not using wordexp on Cygwin, not reliable")
 set(HAVE_WORDEXP off)
 else()
-FILE(READ test/build/HAVE_WORDEXP.cc TESTSRC)
+FILE(READ ${TESTKITDIR}/HAVE_WORDEXP.cc TESTSRC)
 CHECK_CXX_SOURCE_COMPILES("${TESTSRC}" HAVE_WORDEXP)
 endif()
 
 # test some methods explicitly where we want to be sure about the signatures
 # and linkability
 
-FILE(READ test/build/HAVE_GLOB.cc TESTSRC)
+FILE(READ ${TESTKITDIR}/HAVE_GLOB.cc TESTSRC)
 CHECK_CXX_SOURCE_COMPILES("${TESTSRC}" HAVE_GLOB)
 
-FILE(READ test/build/HAVE_FADVISE.cc TESTSRC)
+FILE(READ ${TESTKITDIR}/HAVE_FADVISE.cc TESTSRC)
 CHECK_CXX_SOURCE_COMPILES("${TESTSRC}" HAVE_FADVISE)
 
-FILE(READ test/build/HAVE_MADVISE.cc TESTSRC)
+FILE(READ ${TESTKITDIR}/HAVE_MADVISE.cc TESTSRC)
 CHECK_CXX_SOURCE_COMPILES("${TESTSRC}" HAVE_MADVISE)
 
 if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
 
-   FILE(READ test/build/HAVE_LINUX_FALLOCATE.cc TESTSRC)
+   FILE(READ ${TESTKITDIR}/HAVE_LINUX_FALLOCATE.cc TESTSRC)
    CHECK_CXX_SOURCE_COMPILES("${TESTSRC}" HAVE_LINUX_FALLOCATE)
 
-   FILE(READ test/build/HAVE_LINUX_SENDFILE.cc TESTSRC)
+   FILE(READ ${TESTKITDIR}/HAVE_LINUX_SENDFILE.cc TESTSRC)
    CHECK_CXX_SOURCE_COMPILES("${TESTSRC}" HAVE_LINUX_SENDFILE)
 
-   FILE(READ test/build/HAVE_LINUX_EVENTFD.cc TESTSRC)
+   FILE(READ ${TESTKITDIR}/HAVE_LINUX_EVENTFD.cc TESTSRC)
    CHECK_CXX_SOURCE_COMPILES("${TESTSRC}" HAVE_LINUX_EVENTFD)
 
-   # FILE(READ test/build/HAVE_LINUX_SPLICE.cc TESTSRC)
+   # FILE(READ ${TESTKITDIR}/HAVE_LINUX_SPLICE.cc TESTSRC)
    # CHECK_CXX_SOURCE_COMPILES("${TESTSRC}" HAVE_LINUX_SPLICE)
 endif()
 
-FILE(READ test/build/HAVE_PREAD.cc TESTSRC)
+FILE(READ ${TESTKITDIR}/HAVE_PREAD.cc TESTSRC)
 CHECK_CXX_SOURCE_COMPILES("${TESTSRC}" HAVE_PREAD)
 
-FILE(READ test/build/HAVE_DAEMON.cc TESTSRC)
+FILE(READ ${TESTKITDIR}/HAVE_DAEMON.cc TESTSRC)
 CHECK_CXX_SOURCE_COMPILES("${TESTSRC}" HAVE_DAEMON)
 
 pkg_check_modules(lsd "libsystemd>=209")
@@ -255,7 +257,7 @@ _append(LDFLAGS_DAEMON ${lsd_LDFLAGS})
 set(HAVE_SD_NOTIFY ${lsd_FOUND})
 
 SET(CMAKE_REQUIRED_LIBRARIES dl)
-FILE(READ test/build/HAVE_DLOPEN.cc TESTSRC)
+FILE(READ ${TESTKITDIR}/HAVE_DLOPEN.cc TESTSRC)
 CHECK_CXX_SOURCE_COMPILES("${TESTSRC}" HAVE_DLOPEN)
 
 # XXX: convert the compressor stuff to pkgconfig usage and print an overview of enabled/found values in one final message and collect and process cflags too
@@ -284,7 +286,7 @@ endif (BZIP2_FOUND)
 
 SET(CMAKE_REQUIRED_FLAGS ${ACNG_COMPFLAGS})
 SET(CMAKE_REQUIRED_LIBRARIES lzma)
-FILE(READ test/build/HAVE_LZMA.cc TESTSRC)
+FILE(READ ${TESTKITDIR}/HAVE_LZMA.cc TESTSRC)
 CHECK_CXX_SOURCE_COMPILES("${TESTSRC}" HAVE_LZMA)
 IF(HAVE_LZMA)
 	list(APPEND CompLibs lzma)
@@ -383,6 +385,10 @@ add_subdirectory(fs)
 add_subdirectory(source)
 add_subdirectory(conf)
 add_subdirectory(systemd)
+
+if(ENABLE_TESTS)
+        add_subdirectory(tests)
+endif()
 
 ###
 ### Extra install rules for static files

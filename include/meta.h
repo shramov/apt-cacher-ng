@@ -2,6 +2,7 @@
 #define _META_H
 
 #include "config.h"
+#include "sut.h"
 
 #if defined(_POSIX_C_SOURCE) && (_POSIX_C_SOURCE < 200112L)
 #undef _POSIX_C_SOURCE

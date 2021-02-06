@@ -30,8 +30,8 @@
 
 #ifdef DEBUG
 #warning enable, and it will spam a lot!
-//#define DEBUGIDX
-//#define DEBUGSPAM
+#define DEBUGIDX
+#define DEBUGSPAM
 #endif
 
 #define MAX_TOP_COUNT 10
@@ -47,9 +47,13 @@ static cmstring diffIdxSfx(".diff/Index");
 
 time_t m_gMaintTimeNow=0;
 
-static cmstring sPatchCombinedRel("_actmp/combined.diff");
-static cmstring sPatchInputRel("_actmp/patch.base");
-static cmstring sPatchResultRel("_actmp/patch.result");
+#define PATCH_TEMP_DIR "_actmp/"
+#define PATCH_COMBINED_NAME "combined.diff"
+static cmstring sPatchCombinedRel(PATCH_TEMP_DIR PATCH_COMBINED_NAME);
+#define PATCH_BASE_NAME "patch.base"
+static cmstring sPatchInputRel(PATCH_TEMP_DIR PATCH_BASE_NAME);
+#define PATCH_RESULT_NAME "patch.result"
+static cmstring sPatchResultRel(PATCH_TEMP_DIR PATCH_RESULT_NAME);
 
 struct tPatchEntry
 {
@@ -1252,43 +1256,37 @@ void cacheman::SortAndInterconnectGroupData(tFileGroups& idxGroups)
 	}
 }
 
-void cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
+int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 {
-//	cmstring* pBest = nullptr;
-//	const tIfileAttribs* pBestAttr = nullptr;
-	int changeNeedCount = 0;
-	//tStrSet locationsInSidestore;
+#define PATCH_FAIL __LINE__
+	unsigned injected = 0;
 
-	for(const auto& pb: siblings)
-	{
-		auto& fl = GetFlags(pb);
-		if(!fl.vfile_ondisk)
-			continue;
-		if(!fl.parseignore && !fl.uptodate)
-			changeNeedCount++;
-		//locationsInSidestore.emplace( pb.substr(0, FindCompSfxPos(pb)));
-	}
+	auto need_update = std::find_if(siblings.begin(), siblings.end(), [&](cmstring& pb) {
+		const auto& fl = GetFlags(pb);
+		return fl.vfile_ondisk && !fl.parseignore && !fl.uptodate;
+	});
 
-	if(!changeNeedCount)
-		return;
+	if(need_update == siblings.end())
+		return -1;
+
 	filereader reader;
 	if(!reader.OpenFile(SABSPATH(pindexPathRel), true, 1))
-		return;
+		return PATCH_FAIL;
 	map<string, deque<string> > contents;
 	ParseGenericRfc822File(reader, "", contents);
 	auto& sStateCurrent = contents["SHA256-Current"];
 	if(sStateCurrent.empty() || sStateCurrent.front().empty())
-		return;
+		return PATCH_FAIL;
 	auto& csHist = contents["SHA256-History"];
 	if(csHist.empty() || csHist.size() < 2)
-		return;
+		return PATCH_FAIL;
 
 	tFingerprint probeStateWanted, // the target data
 	probe, // temp scan object
 	probeOrig; // appropriate patch base stuff
 
 	if(!probeStateWanted.Set(tSplitWalk(& sStateCurrent.front()), CSTYPE_SHA256))
-				return;
+		return PATCH_FAIL;
 
 	unordered_map<string,tFingerprint> patchSums;
 	for(const auto& line: contents["SHA256-Patches"])
@@ -1304,12 +1302,13 @@ void cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 	cmstring sPatchCombinedAbs(SABSPATH(sPatchCombinedRel));
 
 	// returns true if a new patched file was created
-	auto tryPatch = [&](cmstring& pbaseRel) -> bool
+	auto tryPatch = [&](cmstring& pbaseRel) -> int
 			{
 		// XXX: use smarter line matching or regex
 		auto probeCS = probeOrig.GetCsAsString();
 		auto probeSize = offttos(probeOrig.size);
 		FILE_RAII pf;
+		string pname;
 		for(const auto& histLine: csHist)
 		{
 			// quick filter
@@ -1322,51 +1321,54 @@ void cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 				continue;
 			// at size token
 			if(!pf.p && probeSize != split.str())
-				return false; // faulty data?
+				return PATCH_FAIL; // faulty data?
 			if(!split.Next())
 				continue;
-			string pname = split.str();
+			pname = split.str();
 			trimString(pname);
-			if(pname.empty())
-				return false; // XXX: maybe throw int with line number
+			if (!startsWithSz(pname, "T-2"))
+				return PATCH_FAIL;
+			if (pname.empty())
+				return PATCH_FAIL;
+		}
 
-			// ok, first patch of the sequence found
+		// ok, first patch of the sequence found
+		if(!pf.p)
+		{
+			acng::mkbasedir(sPatchCombinedAbs);
+			// append mode!
+			pf.p=fopen(sPatchCombinedAbs.c_str(), "w");
 			if(!pf.p)
 			{
-				acng::mkbasedir(sPatchCombinedAbs);
-				// append mode!
-				pf.p=fopen(sPatchCombinedAbs.c_str(), "w");
-				if(!pf.p)
-				{
-					SendChunk("Failed to create intermediate patch file, stop patching...<br>");
-					return false;
-				}
-			}
-			// ok, so we started collecting patches...
-
-			string patchPathRel(pindexPathRel.substr(0, pindexPathRel.size()-5) +
-					pname + ".gz");
-			if(!Download(patchPathRel, false, eDlMsgPrio::eMsgHideErrors,
-					tFileItemPtr(), nullptr, DL_HINT_NOTAG, &pindexPathRel))
-			{
-				return false;
-			}
-			SetFlags(patchPathRel).parseignore = true; // static stuff, hands off!
-
-			// append context to combined diff while unpacking
-			// XXX: probe result can be checked against contents["SHA256-History"]
-			if(!probe.ScanFile(SABSPATH(patchPathRel), CSTYPE_SHA256, true, pf.p))
-			{
-				if(m_bVerbose)
-					SendFmt << "Failure on checking of intermediate patch data in " << patchPathRel << ", stop patching...<br>";
-				return false;
-			}
-			if(probe != patchSums[pname])
-			{
-				SendFmt<< "Bad patch data in " << patchPathRel <<" , stop patching...<br>";
-				return false;
+				SendChunk("Failed to create intermediate patch file, stop patching...<br>");
+				return PATCH_FAIL;
 			}
 		}
+		// ok, so we started collecting patches...
+
+		string patchPathRel(pindexPathRel.substr(0, pindexPathRel.size()-5) +
+				pname + ".gz");
+		if(!Download(patchPathRel, false, eDlMsgPrio::eMsgHideErrors,
+				tFileItemPtr(), nullptr, DL_HINT_NOTAG, &pindexPathRel))
+		{
+			return PATCH_FAIL;
+		}
+		SetFlags(patchPathRel).parseignore = true; // static stuff, hands off!
+
+		// append context to combined diff while unpacking
+		// XXX: probe result can be checked against contents["SHA256-History"]
+		if(!probe.ScanFile(SABSPATH(patchPathRel), CSTYPE_SHA256, true, pf.p))
+		{
+			if(m_bVerbose)
+				SendFmt << "Failure on checking of intermediate patch data in " << patchPathRel << ", stop patching...<br>";
+			return PATCH_FAIL;
+		}
+		if(probe != patchSums[pname])
+		{
+			SendFmt<< "Bad patch data in " << patchPathRel <<" , stop patching...<br>";
+			return PATCH_FAIL;
+		}
+
 		if(pf.p)
 		{
 			::fprintf(pf.p, "w patch.result\n");
@@ -1374,45 +1376,50 @@ void cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 			if(::ferror(pf.p))
 			{
 				SendChunk("Patch application error<br>");
-				return false;
+				return PATCH_FAIL;
 			}
 			checkForceFclose(pf.p);
 
-#ifndef DEBUGIDX
+	#ifndef DEBUGIDX
 			if(m_bVerbose)
-#endif
+	#endif
 				SendChunk("Patching...<br>");
 
 			tSS cmd;
-			cmd << "cd '" << CACHE_BASE << "_actmp' && ";
+			cmd << "cd '" << CACHE_BASE << PATCH_TEMP_DIR "' && ";
 			auto act = cfg::suppdir + SZPATHSEP "acngtool";
 			if(!cfg::suppdir.empty() && 0==access(act.c_str(), X_OK))
-				cmd << "'" << act << "' patch patch.base " << sPatchCombinedAbs << " patch.result";
+			{
+				cmd << "'" << act
+						<< "' patch " PATCH_BASE_NAME " " PATCH_COMBINED_NAME " " PATCH_RESULT_NAME;
+			}
 			else
-				cmd << " red --silent patch.base < " << sPatchCombinedAbs;
+			{
+				cmd << " red --silent " PATCH_BASE_NAME " < " PATCH_COMBINED_NAME;
+			}
 
-			if (::system(cmd.c_str()))
+			auto szCmd = cmd.c_str();
+			if (::system(szCmd))
 			{
 				MTLOGASSERT(false, "Command failed: " << cmd);
-				return false;
+				return PATCH_FAIL;
 			}
 
 			if (!probe.ScanFile(sPatchResultAbs, CSTYPE_SHA256, false))
 			{
 				MTLOGASSERT(false, "Scan failed: " << sPatchResultAbs);
-				return false;
+				return PATCH_FAIL;
 			}
 
 			if(probe != probeStateWanted)
 			{
 				MTLOGASSERT(false,"Final verification failed");
-				return false;
+				return PATCH_FAIL;
 			}
-			return true;
-		}
-		return false;
+			return 0;
 			};
-
+		return PATCH_FAIL;
+			};
 	// start with uncompressed type, xz, bz2, gz, lzma
 	for(auto itype : { -1, 0, 1, 2, 3})
 	{
@@ -1429,7 +1436,7 @@ void cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 			{
 				SendFmt << "Cannot write temporary patch data to "
 						<< sPatchInputRel << "<br>";
-				return;
+				return PATCH_FAIL;
 			}
 			if(!probeOrig.ScanFile(SABSPATH(pb),
 					CSTYPE_SHA256, true, df.p))
@@ -1439,11 +1446,11 @@ void cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 			{
 				SetFlags(pb).uptodate = true;
 				SyncSiblings(pb, siblings);
-				return; // the file is uptodate already...
+				return PATCH_FAIL; // the file is uptodate already...
 			}
 
-			if(!tryPatch(pb))
-				continue; // only if fails on file checks
+			if(tryPatch(pb))
+				continue;
 
 			// install to one of uncompressed locations, let SyncSiblings handle the rest
 			for(auto& path: siblings)
@@ -1457,7 +1464,7 @@ void cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 				{
 					auto len=strlen(h.h[header::XORIG]);
 					if(len < diffIdxSfx.length())
-						return; // heh?
+						return PATCH_FAIL; // heh?
 					h.h[header::XORIG][len-diffIdxSfx.length()] = 0;
 					h.set(header::CONTENT_TYPE, "octet/stream");
 					h.set(header::LAST_MODIFIED, FAKEDATEMARK);
@@ -1475,13 +1482,15 @@ void cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 						&& Inject(sPatchResultRel, path, true, ph, 0))
 				{
 					SyncSiblings(path, siblings);
+					injected++;
 				}
 			}
 
 			// patched, installed, DONE!
-			return;
+			return injected ? 0 : PATCH_FAIL;
 		}
 	}
+	return -2;
 }
 
 bool cacheman::UpdateVolatileFiles()
@@ -1563,7 +1572,8 @@ bool cacheman::UpdateVolatileFiles()
 		if(!ProcessByHashReleaseFileRestoreFiles(sPathRel, ""))
 		{
 			m_nErrorCount++;
-			if(sErr.empty()) sErr = "ByHash error at " + sPathRel;
+			if(sErr.empty())
+				sErr = "ByHash error at " + sPathRel;
 			continue;
 		}
 
@@ -1578,8 +1588,10 @@ bool cacheman::UpdateVolatileFiles()
 			}
 
 			if(CheckStopSignal())
-				LOGRET(false);
-
+			{
+				SendFmt << "Operation canceled." << hendl;
+				return false;
+			}
 			continue;
 		}
 	}
@@ -1587,15 +1599,18 @@ bool cacheman::UpdateVolatileFiles()
 	SendChunk("<b>Bringing index files up to date...</b><br>\n");
 
 	{
-		std::unordered_set<std::string> oldReleaseFiles;
+		std::unordered_set<std::string> oldReleaseFilesInRsnap;
 		auto baseFolder = cfg::cacheDirSlash + cfg::privStoreRelSnapSufix;
-		IFileHandler::FindFiles(baseFolder, [&baseFolder, &oldReleaseFiles](cmstring &sPath, const struct stat &st)
-				-> bool {
-			oldReleaseFiles.emplace(sPath.substr(baseFolder.size() + 1));
-			return true;
-		});
 
-		if(!FixMissingByHashLinks(oldReleaseFiles))
+		IFileHandler::FindFiles(baseFolder,
+				[&baseFolder, &oldReleaseFilesInRsnap](cmstring &sPath, const struct stat &st)
+				-> bool
+				{
+			oldReleaseFilesInRsnap.emplace(sPath.substr(baseFolder.size() + 1));
+			return true;
+				});
+
+		if(!FixMissingByHashLinks(oldReleaseFilesInRsnap))
 		{
 			SendFmt << "Error fixing by-hash links" << hendl;
 			m_nErrorCount++;
@@ -2514,9 +2529,9 @@ bool cacheman::ProcessByHashReleaseFileRestoreFiles(cmstring& releasePathRel, cm
 			//	should be ok				h.set(header::CONTENT_LENGTH, entry.fpr.size)
 			if(!Inject(solidPathRel, wantedPathRel, false, &h, false))
 			{
-			if(m_bVerbose)
-				SendChunk("Couldn't install<br>");
-			return;
+				if(m_bVerbose)
+					SendFmt << "Couldn't install " << solidPathRel << hendl;
+				return;
 			}
 			auto& flags = SetFlags(wantedPathRel);
 			if(flags.vfile_ondisk)
@@ -2528,29 +2543,29 @@ bool cacheman::ProcessByHashReleaseFileRestoreFiles(cmstring& releasePathRel, cm
 	stripPrefix + releasePathRel, enumMetaType::EIDX_RELEASE, true) && errors == 0;
 }
 
-bool cacheman::FixMissingByHashLinks(std::unordered_set<std::string> &oldReleaseFiles)
+bool cacheman::FixMissingByHashLinks(std::unordered_set<std::string> &oldReleaseFilesInRsnap)
 {
 	bool ret = true;
 
-	// path of side store with trailing slash relativ to cache folder
+	// path of side store with trailing slash relative to cache folder
 	auto srcPrefix(cfg::privStoreRelSnapSufix + sPathSep);
 
-	for(const auto& snapPathInXstore: oldReleaseFiles)
+	for(const auto& nameInXstore: oldReleaseFilesInRsnap)
 	{
-		if(endsWithSzAr(snapPathInXstore, ".upgrayedd"))
+		if(endsWithSzAr(nameInXstore, ".upgrayedd"))
 			continue;
 		// path relative to cache folder
-		if(!ProcessByHashReleaseFileRestoreFiles(snapPathInXstore, srcPrefix))
+		if(!ProcessByHashReleaseFileRestoreFiles(nameInXstore, srcPrefix))
 		{
-			SendFmt << "There were error(s) processing " << snapPathInXstore << ", ignoring..."<< hendl;
+			SendFmt << "There were error(s) processing " << nameInXstore << ", ignoring..."<< hendl;
 			if(!m_bVerbose)
-				SendChunk("Enable verbosity to see more");
+				SendFmt << "Enable verbosity to see more" << hendl;
 			return ret;
 		}
 #ifdef DEBUGIDX
-		SendFmt << "Purging " << SABSPATH(srcPrefix + snapPathInXstore) << hendl;
+		SendFmt << "Purging " << SABSPATH(srcPrefix + nameInXstore) << hendl;
 #endif
-		unlink(SABSPATH(srcPrefix + snapPathInXstore).c_str());
+		unlink(SABSPATH(srcPrefix + nameInXstore).c_str());
 	}
 	return ret;
 }

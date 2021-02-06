@@ -669,11 +669,11 @@ bool tcpconnect::SSLinit(mstring &sErr, cmstring &sHostname, cmstring &sPort)
 		auto serr = ERR_reason_error_string(nErr);
 		return withSslHeadPfx(serr);
 						};
-	auto withSslRetCode = [&withSslHeadPfx, &ssl](int hret)
+	auto withSslRetCode = [&withSslHeadPfx, &withLastSslError, &ssl](int hret)
 				{
 		auto nErr = SSL_get_error(ssl, hret);
 		auto serr =  ERR_reason_error_string(nErr);
-		return withSslHeadPfx(serr);
+		return serr ? withSslHeadPfx(serr) : withLastSslError();
 				};
 
 	// cleaned up in the destructor on EOL
@@ -716,35 +716,41 @@ bool tcpconnect::SSLinit(mstring &sErr, cmstring &sHostname, cmstring &sPort)
  		hret=SSL_connect(ssl);
 		if (hret == 1)
 			break;
+
 		if (hret == 0)
 			return withSslRetCode(hret);
 
-		fd_set rfds, wfds;
-		FD_ZERO(&rfds);
-		FD_ZERO(&wfds);
-		auto nError = SSL_get_error(ssl, hret);
-		switch (nError)
+		if (hret == -1)
 		{
- 		case SSL_ERROR_WANT_READ:
- 			FD_SET(m_conFd, &rfds);
- 			break;
- 		case SSL_ERROR_WANT_WRITE:
- 			FD_SET(m_conFd, &wfds);
- 			break;
- 		default:
- 			return withSslRetCode(nError);
- 		}
-		int nReady=select(m_conFd+1, &rfds, &wfds, nullptr, CTimeVal().ForNetTimeout());
-		if(!nReady) return withSslHeadPfx("Socket timeout");
-		if (nReady<0)
-		{
-#ifndef MINIBUILD
-			ebuf=tErrnoFmter("Socket error");
-			return withSslHeadPfx(ebuf.c_str());
-#else
-			return withSslHeadPfx("Socket error");
-#endif
+			auto nError = SSL_get_error(ssl, hret);
+			fd_set rfds, wfds;
+			FD_ZERO(&rfds);
+			FD_ZERO(&wfds);
+			switch (nError)
+			{
+			case SSL_ERROR_WANT_READ:
+				FD_SET(m_conFd, &rfds);
+				break;
+			case SSL_ERROR_WANT_WRITE:
+				FD_SET(m_conFd, &wfds);
+				break;
+			default:
+				return withSslRetCode(nError);
+			}
+			int nReady = select(m_conFd + 1, &rfds, &wfds, nullptr, CTimeVal().ForNetTimeout());
+			if (nReady == 1)
+				continue;
+			if (nReady == 0)
+				return withSslHeadPfx("Socket timeout");
+			if (nReady < 0)
+			{
+				ebuf = tErrnoFmter("Socket error");
+				return withSslHeadPfx(ebuf.c_str());
+			}
 		}
+		else
+			return withLastSslError();
+
  	}
  	if(m_bio) BIO_free_all(m_bio);
  	m_bio = BIO_new(BIO_f_ssl());
