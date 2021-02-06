@@ -132,7 +132,7 @@ SUTPROTECTED:
 		eMsgHideErrors,
 		eMsgShow
 	};
-	bool Download(cmstring& sFilePathRel, bool bIsVolatileFile,
+	virtual bool Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 			eDlMsgPrio msgLevel, tFileItemPtr pForcedItem=tFileItemPtr(),
 			const tHttpUrl *pForcedURL=nullptr, unsigned hints=0, cmstring* sGuessedFrom = nullptr);
 #define DL_HINT_GUESS_REPLACEMENT 0x1
@@ -159,7 +159,7 @@ SUTPROTECTED:
 	std::unordered_map<mstring,bool> m_forceKeepInTrash;
 
 	bool GetAndCheckHead(cmstring & sHeadfile, cmstring &sFilePathRel, off_t nWantedSize);
-	bool Inject(cmstring &fromRel, cmstring &toRel,
+	virtual bool Inject(cmstring &fromRel, cmstring &toRel,
 			bool bSetIfileFlags=true, const header *pForcedHeader=nullptr, bool bTryLink=false);
 
 	void PrintStats(cmstring &title);

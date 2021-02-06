@@ -11,9 +11,11 @@
 #ifdef UNDER_TEST
 #define SUTPROTECTED public
 #define SUTPRIVATE public
+#define SUTVIRTUAL virtual
 #else
 #define SUTPROTECTED protected
 #define SUTPRIVATE private
+#define SUTVIRTUAL
 #endif
 
 #endif /* INCLUDE_SUT_H_ */

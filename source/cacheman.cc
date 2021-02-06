@@ -47,9 +47,13 @@ static cmstring diffIdxSfx(".diff/Index");
 
 time_t m_gMaintTimeNow=0;
 
-static cmstring sPatchCombinedRel("_actmp/combined.diff");
-static cmstring sPatchInputRel("_actmp/patch.base");
-static cmstring sPatchResultRel("_actmp/patch.result");
+#define PATCH_TEMP_DIR "_actmp/"
+#define PATCH_COMBINED_NAME "combined.diff"
+static cmstring sPatchCombinedRel(PATCH_TEMP_DIR PATCH_COMBINED_NAME);
+#define PATCH_BASE_NAME "patch.base"
+static cmstring sPatchInputRel(PATCH_TEMP_DIR PATCH_BASE_NAME);
+#define PATCH_RESULT_NAME "patch.result"
+static cmstring sPatchResultRel(PATCH_TEMP_DIR PATCH_RESULT_NAME);
 
 struct tPatchEntry
 {
@@ -1254,7 +1258,8 @@ void cacheman::SortAndInterconnectGroupData(tFileGroups& idxGroups)
 
 int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 {
-#define PATCH_FALSE __LINE__
+#define PATCH_FAIL __LINE__
+	unsigned injected = 0;
 
 	auto need_update = std::find_if(siblings.begin(), siblings.end(), [&](cmstring& pb) {
 		const auto& fl = GetFlags(pb);
@@ -1266,22 +1271,22 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 
 	filereader reader;
 	if(!reader.OpenFile(SABSPATH(pindexPathRel), true, 1))
-		return PATCH_FALSE;
+		return PATCH_FAIL;
 	map<string, deque<string> > contents;
 	ParseGenericRfc822File(reader, "", contents);
 	auto& sStateCurrent = contents["SHA256-Current"];
 	if(sStateCurrent.empty() || sStateCurrent.front().empty())
-		return PATCH_FALSE;
+		return PATCH_FAIL;
 	auto& csHist = contents["SHA256-History"];
 	if(csHist.empty() || csHist.size() < 2)
-		return PATCH_FALSE;
+		return PATCH_FAIL;
 
 	tFingerprint probeStateWanted, // the target data
 	probe, // temp scan object
 	probeOrig; // appropriate patch base stuff
 
 	if(!probeStateWanted.Set(tSplitWalk(& sStateCurrent.front()), CSTYPE_SHA256))
-		return PATCH_FALSE;
+		return PATCH_FAIL;
 
 	unordered_map<string,tFingerprint> patchSums;
 	for(const auto& line: contents["SHA256-Patches"])
@@ -1297,12 +1302,13 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 	cmstring sPatchCombinedAbs(SABSPATH(sPatchCombinedRel));
 
 	// returns true if a new patched file was created
-	auto tryPatch = [&](cmstring& pbaseRel) -> bool
+	auto tryPatch = [&](cmstring& pbaseRel) -> int
 			{
 		// XXX: use smarter line matching or regex
 		auto probeCS = probeOrig.GetCsAsString();
 		auto probeSize = offttos(probeOrig.size);
 		FILE_RAII pf;
+		string pname;
 		for(const auto& histLine: csHist)
 		{
 			// quick filter
@@ -1315,51 +1321,54 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 				continue;
 			// at size token
 			if(!pf.p && probeSize != split.str())
-				return false; // faulty data?
+				return PATCH_FAIL; // faulty data?
 			if(!split.Next())
 				continue;
-			string pname = split.str();
+			pname = split.str();
 			trimString(pname);
-			if(pname.empty())
-				return false; // XXX: maybe throw int with line number
+			if (!startsWithSz(pname, "T-2"))
+				return PATCH_FAIL;
+			if (pname.empty())
+				return PATCH_FAIL;
+		}
 
-			// ok, first patch of the sequence found
+		// ok, first patch of the sequence found
+		if(!pf.p)
+		{
+			acng::mkbasedir(sPatchCombinedAbs);
+			// append mode!
+			pf.p=fopen(sPatchCombinedAbs.c_str(), "w");
 			if(!pf.p)
 			{
-				acng::mkbasedir(sPatchCombinedAbs);
-				// append mode!
-				pf.p=fopen(sPatchCombinedAbs.c_str(), "w");
-				if(!pf.p)
-				{
-					SendChunk("Failed to create intermediate patch file, stop patching...<br>");
-					return false;
-				}
-			}
-			// ok, so we started collecting patches...
-
-			string patchPathRel(pindexPathRel.substr(0, pindexPathRel.size()-5) +
-					pname + ".gz");
-			if(!Download(patchPathRel, false, eDlMsgPrio::eMsgHideErrors,
-					tFileItemPtr(), nullptr, DL_HINT_NOTAG, &pindexPathRel))
-			{
-				return false;
-			}
-			SetFlags(patchPathRel).parseignore = true; // static stuff, hands off!
-
-			// append context to combined diff while unpacking
-			// XXX: probe result can be checked against contents["SHA256-History"]
-			if(!probe.ScanFile(SABSPATH(patchPathRel), CSTYPE_SHA256, true, pf.p))
-			{
-				if(m_bVerbose)
-					SendFmt << "Failure on checking of intermediate patch data in " << patchPathRel << ", stop patching...<br>";
-				return false;
-			}
-			if(probe != patchSums[pname])
-			{
-				SendFmt<< "Bad patch data in " << patchPathRel <<" , stop patching...<br>";
-				return false;
+				SendChunk("Failed to create intermediate patch file, stop patching...<br>");
+				return PATCH_FAIL;
 			}
 		}
+		// ok, so we started collecting patches...
+
+		string patchPathRel(pindexPathRel.substr(0, pindexPathRel.size()-5) +
+				pname + ".gz");
+		if(!Download(patchPathRel, false, eDlMsgPrio::eMsgHideErrors,
+				tFileItemPtr(), nullptr, DL_HINT_NOTAG, &pindexPathRel))
+		{
+			return PATCH_FAIL;
+		}
+		SetFlags(patchPathRel).parseignore = true; // static stuff, hands off!
+
+		// append context to combined diff while unpacking
+		// XXX: probe result can be checked against contents["SHA256-History"]
+		if(!probe.ScanFile(SABSPATH(patchPathRel), CSTYPE_SHA256, true, pf.p))
+		{
+			if(m_bVerbose)
+				SendFmt << "Failure on checking of intermediate patch data in " << patchPathRel << ", stop patching...<br>";
+			return PATCH_FAIL;
+		}
+		if(probe != patchSums[pname])
+		{
+			SendFmt<< "Bad patch data in " << patchPathRel <<" , stop patching...<br>";
+			return PATCH_FAIL;
+		}
+
 		if(pf.p)
 		{
 			::fprintf(pf.p, "w patch.result\n");
@@ -1367,45 +1376,50 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 			if(::ferror(pf.p))
 			{
 				SendChunk("Patch application error<br>");
-				return false;
+				return PATCH_FAIL;
 			}
 			checkForceFclose(pf.p);
 
-#ifndef DEBUGIDX
+	#ifndef DEBUGIDX
 			if(m_bVerbose)
-#endif
+	#endif
 				SendChunk("Patching...<br>");
 
 			tSS cmd;
-			cmd << "cd '" << CACHE_BASE << "_actmp' && ";
+			cmd << "cd '" << CACHE_BASE << PATCH_TEMP_DIR "' && ";
 			auto act = cfg::suppdir + SZPATHSEP "acngtool";
 			if(!cfg::suppdir.empty() && 0==access(act.c_str(), X_OK))
-				cmd << "'" << act << "' patch patch.base " << sPatchCombinedAbs << " patch.result";
+			{
+				cmd << "'" << act
+						<< "' patch " PATCH_BASE_NAME " " PATCH_COMBINED_NAME " " PATCH_RESULT_NAME;
+			}
 			else
-				cmd << " red --silent patch.base < " << sPatchCombinedAbs;
+			{
+				cmd << " red --silent " PATCH_BASE_NAME " < " PATCH_COMBINED_NAME;
+			}
 
-			if (::system(cmd.c_str()))
+			auto szCmd = cmd.c_str();
+			if (::system(szCmd))
 			{
 				MTLOGASSERT(false, "Command failed: " << cmd);
-				return false;
+				return PATCH_FAIL;
 			}
 
 			if (!probe.ScanFile(sPatchResultAbs, CSTYPE_SHA256, false))
 			{
 				MTLOGASSERT(false, "Scan failed: " << sPatchResultAbs);
-				return false;
+				return PATCH_FAIL;
 			}
 
 			if(probe != probeStateWanted)
 			{
 				MTLOGASSERT(false,"Final verification failed");
-				return false;
+				return PATCH_FAIL;
 			}
-			return true;
-		}
-		return false;
+			return 0;
 			};
-
+		return PATCH_FAIL;
+			};
 	// start with uncompressed type, xz, bz2, gz, lzma
 	for(auto itype : { -1, 0, 1, 2, 3})
 	{
@@ -1422,7 +1436,7 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 			{
 				SendFmt << "Cannot write temporary patch data to "
 						<< sPatchInputRel << "<br>";
-				return PATCH_FALSE;
+				return PATCH_FAIL;
 			}
 			if(!probeOrig.ScanFile(SABSPATH(pb),
 					CSTYPE_SHA256, true, df.p))
@@ -1432,11 +1446,11 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 			{
 				SetFlags(pb).uptodate = true;
 				SyncSiblings(pb, siblings);
-				return PATCH_FALSE; // the file is uptodate already...
+				return PATCH_FAIL; // the file is uptodate already...
 			}
 
-			if(!tryPatch(pb))
-				continue; // only if fails on file checks
+			if(tryPatch(pb))
+				continue;
 
 			// install to one of uncompressed locations, let SyncSiblings handle the rest
 			for(auto& path: siblings)
@@ -1450,7 +1464,7 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 				{
 					auto len=strlen(h.h[header::XORIG]);
 					if(len < diffIdxSfx.length())
-						return PATCH_FALSE; // heh?
+						return PATCH_FAIL; // heh?
 					h.h[header::XORIG][len-diffIdxSfx.length()] = 0;
 					h.set(header::CONTENT_TYPE, "octet/stream");
 					h.set(header::LAST_MODIFIED, FAKEDATEMARK);
@@ -1468,13 +1482,15 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 						&& Inject(sPatchResultRel, path, true, ph, 0))
 				{
 					SyncSiblings(path, siblings);
+					injected++;
 				}
 			}
 
 			// patched, installed, DONE!
-			return 0;
+			return injected ? 0 : PATCH_FAIL;
 		}
 	}
+	return -2;
 }
 
 bool cacheman::UpdateVolatileFiles()
