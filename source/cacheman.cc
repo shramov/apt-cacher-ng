@@ -28,8 +28,7 @@
 
 #include <unistd.h>
 
-#ifdef DEBUG
-#warning enable, and it will spam a lot!
+#ifdef EXTRA_DEBUG
 #define DEBUGIDX
 #define DEBUGSPAM
 #endif

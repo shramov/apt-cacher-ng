@@ -36,3 +36,4 @@
 #define LOGDIR "@ACNG_LOG_DIR@"
 #define UDSPATH "@SOCKET_PATH@"
 #cmakedefine DEBUG
+#cmakedefine EXTRA_DEBUG
