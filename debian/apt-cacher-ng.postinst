@@ -109,7 +109,7 @@ guess_ubuntu_mirrors() {
    check_sane_data="grep -q http:// $tmpfile"
 
    # may hit a local mirror which also hosts Debian, use it then
-   sed -e 's,\([a-z]\)/.*,\1,' < $CFG/backends_debian | xargs -n1 -i grep "{}" $DDIR/ubuntu_mirrors > $tmpfile || true
+   sed -e 's,\([a-z]\)/.*,\1,' < $CFG/backends_debian | xargs -I{} grep "{}" $DDIR/ubuntu_mirrors > $tmpfile || true
 
    get_umirrors_txt
 
@@ -123,12 +123,12 @@ guess_ubuntu_mirrors() {
    if ! $check_sane_data ; then # ok, go by Debian TLD
       grep debian.org/ /etc/apt-cacher-ng/backends_debian | \
          sed -e 's,^http://ftp[2-3]\?\.\([a-z][a-z]\).*,http://\1.archive.ubuntu.com/,' | \
-         sort -u | xargs -n1 -i grep "{}" $DDIR/ubuntu_mirrors > $tmpfile || true
+         sort -u | xargs -I{} grep "{}" $DDIR/ubuntu_mirrors > $tmpfile || true
    fi
 
    if ! $check_sane_data ; then # ok, then try just any TLD
       sed -e 's,^http://\([^\/]\+\).*,\1,;s,.*\.\(.*\),http://\1.archive.ubuntu.com/,' < $CFG/backends_debian | \
-         sort -u | xargs -n1 -i grep "{}" $DDIR/ubuntu_mirrors > $tmpfile || true
+         sort -u | xargs -I{} grep "{}" $DDIR/ubuntu_mirrors > $tmpfile || true
    fi
 
    if ! $check_sane_data ; then
