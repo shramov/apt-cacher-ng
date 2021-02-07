@@ -114,18 +114,7 @@ int getUUID();
 
 #define SPACECHARS " \f\n\r\t\v"
 
-#ifdef COMPATGCC47
-class tStrMap : public std::map<mstring, mstring>
-{
-public:
-	void emplace(cmstring& key, cmstring& value)
-	{
-		EMPLACE_PAIR_COMPAT(*this, key, value);
-	}
-};
-#else
 typedef std::map<mstring, mstring> tStrMap;
-#endif
 
 inline void trimFront(mstring &s, LPCSTR junk=SPACECHARS)
 {

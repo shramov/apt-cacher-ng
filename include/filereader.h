@@ -100,6 +100,15 @@ inline bool CsEqual(const char *sz, uint8_t b[], unsigned short binLen)
 
 bool Bz2compressFile(const char *pathIn, const char*pathOut);
 
+enum class COMP_TYPE {
+	NONE,
+	XZ,
+	GZ,
+	BZ2,
+	LZMA,
+	ZSTD
+};
+
 }
 
 #endif // __FILEREADER_H
