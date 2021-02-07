@@ -24,7 +24,7 @@ EXTRA_LIBS += -DUSE_GOLD=off -DUSE_GOLD_MT=off
 #endif
 
 %:
-	dh $@ --with systemd
+	dh $@
 
 override_dh_auto_configure:
 	dh_auto_configure -- -DSDINSTALL=on -DACNG_CACHE_DIR=/var/cache/apt-cacher-ng -DACNG_LOG_DIR=/var/log/apt-cacher-ng -DUSE_LTO=off $(EXTRA_LIBS)
