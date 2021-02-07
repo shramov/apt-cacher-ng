@@ -1053,17 +1053,6 @@ void ReadConfigDirectory(const char *szPath, bool bReadErrorIsFatal)
 #else
 	ReadOneConfFile(confdir+SZPATHSEP"acng.conf", bReadErrorIsFatal);
 #endif
-	dump_proc_status();
-	if(debug & log::LOG_DEBUG)
-	{
-		unsigned nUrls=0;
-		for(const auto& x: mapUrl2pVname)
-			nUrls+=x.second.size();
-
-		if(debug&6)
-			cerr << "Loaded " << repoparms.size() << " backend descriptors\nLoaded mappings for "
-				<< mapUrl2pVname.size() << " hosts and " << nUrls<<" paths\n";
-	}
 }
 
 void PostProcConfig()
@@ -1200,6 +1189,17 @@ void PostProcConfig()
 	   pipelinelen = 1;
    }
 
+	dump_proc_status();
+	if (debug & log::LOG_DEBUG)
+	{
+		unsigned nUrls = 0;
+		for (const auto &x : mapUrl2pVname)
+			nUrls += x.second.size();
+
+		if (debug & log::LOG_MORE)
+			cerr << "Loaded " << repoparms.size() << " backend descriptors\nLoaded mappings for "
+					<< mapUrl2pVname.size() << " hosts and " << nUrls << " paths\n";
+	}
 } // PostProcConfig
 
 void dump_config(bool includeDelicate)
