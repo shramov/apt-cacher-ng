@@ -7,9 +7,11 @@ apt-cacher-ng (3.6) SOMETIMES-YOU-EAT-THE-BEAR; urgency=low
     built-in webserver)
 
   [ BUGFIXES AND OPTIMIZATIONS ]
-  * Fixing construction of individual X-Forwarded-For headers. This matters
-    only for proxy cascades and only when ExposeOrigin option is set.
+  * Fixing construction of request specific X-Forwarded-For headers. This
+    matters only for proxy cascades and only when ExposeOrigin option is set.
   * Potential hanging of acngtool/acngfs on termination
+  * Fixed potential deadlock in index file processing in maintenance job (only
+    when checksumming was enabled)
   * Minor speedup in acngfs with reused download agent
   * Using asynchronous libevent DNS resolver instead of getaddrinfo from OS,
     since the later turned out to be unreliable in stress tests

@@ -2063,10 +2063,15 @@ bool cacheman::ParseAndProcessMetaFile(std::function<void(const tRemoteFileInfo&
 				EIDX_TRANSIDX, CSTYPES::CSTYPE_SHA1, "SHA1", byHashMode);
 	case EIDX_RELEASE:
 		if(byHashMode)
+		{
 			return ParseDebianRfc822Index(reader, ret, sBaseDir, sPkgBaseDir,
 					EIDX_RELEASE, CSTYPES::CSTYPE_INVALID, "", true);
-		return ParseDebianRfc822Index(reader, ret, sBaseDir, sPkgBaseDir,
-				EIDX_RELEASE, CSTYPES::CSTYPE_SHA256, "SHA256", false);
+		}
+		else
+		{
+			return ParseDebianRfc822Index(reader, ret, sBaseDir, sPkgBaseDir,
+					EIDX_RELEASE, CSTYPES::CSTYPE_SHA256, "SHA256", false);
+		}
 	default:
 		SendChunk("<span class=\"WARNING\">"
 				"WARNING: unable to read this file (unsupported format)</span>\n<br>\n");
