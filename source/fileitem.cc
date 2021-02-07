@@ -993,7 +993,7 @@ int fileitem_with_storage::Truncate2checkedSize()
 	return ftruncate(m_filefd, m_nSizeChecked);
 }
 
-// special file? When it's rewritten from start, save the old version instead
+// special file? When it's rewritten from start, save the old version aside
 int fileitem_with_storage::MoveRelease2Sidestore()
 {
 	if(m_nSizeChecked)

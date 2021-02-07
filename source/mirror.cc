@@ -122,15 +122,13 @@ void pkgmirror::Action()
 	auto TryAdd = [&matchList, &srcs](cmstring &s)
 			{
 				for(const auto& match : matchList)
+				{
 					if(0==fnmatch(match.c_str(), s.c_str(), FNM_PATHNAME))
 					{
-#ifdef COMPATGCC47
-						srcs.insert(s);
-#else
 						srcs.emplace(s);
-#endif
 						break;
 					}
+				}
 			};
 
 	mstring sErr;
