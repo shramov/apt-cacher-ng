@@ -186,26 +186,28 @@ void expiration::HandlePkgEntry(const tRemoteFileInfo &entry)
 				}
 			}
 
-			if(entry.fpr.csType != descHave.fpr.csType &&
-					!descHave.fpr.ScanFile(sPathAbs, entry.fpr.csType))
+			if (entry.sFileName != "Release" && entry.sFileName != "InRelease" )
 			{
-				// IO error? better keep it for now, not sure how to deal with it
-				SendFmt << ECLASS "An error occurred while checksumming "
-				<< sPathRel << ", leaving as-is for now.";
-				log::err(tSS() << "Error reading " << sPathAbs );
-				AddDelCbox(sPathRel, "IO error");
-				SendFmt<<CLASSEND;
-				return false;
+				if(entry.fpr.csType != descHave.fpr.csType &&
+						!descHave.fpr.ScanFile(sPathAbs, entry.fpr.csType))
+				{
+					// IO error? better keep it for now, not sure how to deal with it
+					SendFmt << ECLASS "An error occurred while checksumming "
+					<< sPathRel << ", leaving as-is for now.";
+					log::err(tSS() << "Error reading " << sPathAbs );
+					AddDelCbox(sPathRel, "IO error");
+					SendFmt<<CLASSEND;
+					return false;
+				}
+
+				// ok, now fingerprint data must be consistent
+
+				if(!descHave.fpr.csEquals(entry.fpr))
+				{
+					SendFmt << ECLASS << "checksum mismatch on " << sPathRel;
+					return finish_bad("checksum mismatch");
+				}
 			}
-
-			// ok, now fingerprint data must be consistent
-
-			if(!descHave.fpr.csEquals(entry.fpr))
-			{
-				SendFmt << ECLASS << "checksum mismatch on " << sPathRel;
-				return finish_bad("checksum mismatch");
-			}
-
 			// good, or cannot check so must be good
 			if(entry.fpr.size<0 || (descHave.fpr.size == entry.fpr.size))
 				return report_good(lenFromStat);
@@ -535,7 +537,7 @@ void expiration::Action()
 
 	LoadHints();
 	UpdateVolatileFiles();
-#warning fime, why disabled?
+
 	if(/* CheckAndReportError() || */ CheckStopSignal())
 		goto save_fail_count;
 
