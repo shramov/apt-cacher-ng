@@ -1,12 +1,9 @@
 apt-cacher-ng (3.6) SOMETIMES-YOU-EAT-THE-BEAR; urgency=low
 
-  [ FEATURES AND USAGE IMPROVEMENTS ]
   * Allowed specification of different/multiple endpoints to bind with
     arbitrary ports, i.e. binding with non-default port on specific network interfaces
   * Admin pages refer to the locally served location of the manual (via
     built-in webserver)
-
-  [ BUGFIXES AND OPTIMIZATIONS ]
   * Fixing construction of request specific X-Forwarded-For headers. This
     matters only for proxy cascades and only when ExposeOrigin option is set.
   * Potential hanging of acngtool/acngfs on termination
@@ -22,12 +19,9 @@ apt-cacher-ng (3.6) SOMETIMES-YOU-EAT-THE-BEAR; urgency=low
   * Fixed error message selection for early fatal SSL errors
   * Fixed pdiff algorithm to use now available combined patches directly
   * Vastly improved the CPU consumption of pdiff patching code in acngtool
-
-  [ Miscellaneous]
-
   * Database update
 
- -- 
+ -- Eduard Bloch <blade@debian.org>  Sun, 07 Feb 2021 22:30:55 +0100
 
 apt-cacher-ng (3.5) CLOUDY-WITH-A-CHANCE-OF-VEGGIE-BURGERS; urgency=medium
 

@@ -291,7 +291,6 @@ public:
 		tFitem *pFi = new tFitem(retbuf, len, pos, fid, bIsFirst);
 		tFileItemPtr spFi(static_cast<fileitem*>(pFi));
 		dler->AddJob(spFi, &uri, 0, 0, 0, cfg::REDIRMAX_DEFAULT, nullptr, false);
-		dler->WorkLoop();
 		int nHttpCode(100);
 		pFi->WaitForFinish(&nHttpCode);
 		bIsFirst=false;
@@ -671,8 +670,6 @@ int main(int argc, char *argv[])
    
    if(argc<4)
       barf("Not enough arguments, try --help.\n");
-   
-   evabase infrastructure;
 
    cfg::agentname = "ACNGFS";
    cfg::agentheader="User-Agent: ACNGFS\r\n";
