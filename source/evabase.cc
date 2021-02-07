@@ -124,13 +124,16 @@ evabase::evabase()
 	evthread_use_pthreads();
 	evabase::base = event_base_new();
 	evabase::dnsbase = evdns_base_new(evabase::base, 1);
-	handover_wakeup =  evtimer_new(base, cb_handover, nullptr);
+	handover_wakeup = evtimer_new(base, cb_handover, nullptr);
 }
 
 evabase::~evabase()
 {
 	if(evabase::base)
+	{
 		event_base_free(evabase::base);
+		evabase::base = nullptr;
+	}
 }
 
 
