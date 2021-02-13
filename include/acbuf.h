@@ -87,6 +87,7 @@ public:
 	inline tSS & operator<<(const char *val) { return add(val); }
 	inline tSS & operator<<(cmstring& val) { return add(val); };
 	inline tSS & operator<<(const acbuf& val) { return add(val.rptr(), val.size()); };
+	inline tSS & operator<<(const string_view& val) { return add(val.data(), val.size()); };
 
 #define __tss_nbrfmt(x, h, y) { reserve_atleast(22); got(sprintf(wptr(), m_fmtmode == hex ? h : x, y)); return *this; }
 	inline tSS & operator<<(int val) __tss_nbrfmt("%d", "%x", val);

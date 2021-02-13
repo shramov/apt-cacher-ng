@@ -12,6 +12,7 @@
 #include <atomic>
 #include <algorithm>
 #include <list>
+#include <regex>
 
 #define LOCAL_DEBUG
 #include "debug.h"
@@ -50,14 +51,953 @@ static const auto tabooHeadersPassThrough =
 		string("Accept"), string("User-Agent") };
 
 std::atomic_uint g_nDlCons(0);
+using tRemoteBlacklist = std::map<std::pair<cmstring, cmstring>, mstring>;
+
+
+struct tDlJob
+{
+	tFileItemPtr m_pStorage;
+	mstring sErrorMsg;
+	dlcon::Impl &m_parent;
+
+	enum EStreamState : uint8_t
+	{
+		STATE_GETHEADER,
+		//STATE_REGETHEADER,
+		STATE_PROCESS_DATA,
+		STATE_GETCHUNKHEAD,
+		STATE_PROCESS_CHUNKDATA,
+		STATE_GET_CHUNKTRAILER,
+		STATE_FINISHJOB
+	}
+	m_DlState = EStreamState::STATE_GETHEADER;
+
+	enum class EResponseEval
+	{
+		GOOD, BUSY_OR_ERROR, RESTART_NEEDED
+	};
+
+	inline bool HasBrokenStorage()
+	{
+		return (!m_pStorage
+				|| m_pStorage->GetStatus() > fileitem::FIST_COMPLETE);
+	}
+
+#define HINT_MORE 0
+#define HINT_DONE 1
+#define HINT_DISCON 2
+#define EFLAG_JOB_BROKEN 4
+#define EFLAG_MIRROR_BROKEN 8
+#define EFLAG_STORE_COLLISION 16
+#define HINT_SWITCH 32
+#define EFLAG_LOST_CON 64
+#define HINT_KILL_LAST_FILE 128
+#define HINT_TGTCHANGE 256
+
+	const cfg::tRepoData *m_pRepoDesc = nullptr;
+
+	/*!
+	 * Returns a reference to http url where host and port and protocol match the current host
+	 * Other fields in that member have undefined contents. ;-)
+	 */
+	inline const tHttpUrl& GetPeerHost()
+	{
+		return m_pCurBackend ? *m_pCurBackend : m_remoteUri;
+	}
+
+	inline cfg::tRepoData::IHookHandler* GetConnStateTracker()
+	{
+		return m_pRepoDesc ? m_pRepoDesc->m_pHooks : nullptr;
+	}
+
+	string m_extraHeaders, m_xff;
+
+	tHttpUrl m_remoteUri;
+	const tHttpUrl *m_pCurBackend = nullptr;
+
+	uint_fast8_t m_eReconnectASAP = 0;
+	bool m_bBackendMode = false;
+	// input parameters
+	bool m_bIsPassThroughRequest = false;
+	bool m_bAllowStoreData = true;
+	bool m_bHeadOnly = false;
+	bool m_bFileItemAssigned = false;
+
+	int m_nRedirRemaining = cfg::redirmax;
+
+	// state attribute
+	off_t m_nRest = 0;
+
+	// range limit has a special purpose for special kind of jobs, this can override other checks
+	off_t m_nRangeLimit = -1;
+
+	// flag to use ranges and also define start if >= 0
+	off_t m_nUsedRangeStartPos = -1;
+
+	inline tDlJob(dlcon::Impl *p, const tFileItemPtr& pFi, const dlrequest& rq) :
+					m_pStorage(pFi), m_parent(*p),
+					m_bIsPassThroughRequest(rq.isPassThroughRequest),
+					m_bHeadOnly(rq.m_bHeadOnly),
+					m_nRangeLimit(rq.m_nRangeLimit)
+	{
+		LOGSTARTFUNC
+
+		ldbg(
+				"uri: " << (rq.pForcedUrl ? rq.pForcedUrl->ToURI(false) : sEmptyString )
+				<< ", restpath: " << rq.repoSrc.sRestPath
+				<< "repo: " << uintptr_t(rq.repoSrc.repodata));
+
+		if (m_pStorage)
+			m_pStorage->DlRefCountAdd();
+		if (rq.pForcedUrl)
+			m_remoteUri = *(rq.pForcedUrl);
+		else if(rq.repoSrc.repodata)
+		{
+			m_remoteUri.sPath = rq.repoSrc.sRestPath;
+			m_pRepoDesc = rq.repoSrc.repodata;
+			m_bBackendMode = true;
+		}
+#warning extract custom headers but maybe do this during the initial parsing, also see AddJob
+	}
+	// Default move ctor is ok despite of pointers, we only need it in the beginning, list-splice operations should not move the object around
+	tDlJob(tDlJob &&other) = default;
+
+	~tDlJob()
+	{
+		LOGSTART("tDlJob::~tDlJob");
+		if (m_pStorage)
+		{
+			m_pStorage->DlRefCountDec(sErrorMsg.empty() ?
+					sGenericError : move(sErrorMsg));
+		}
+	}
+
+	inline void ExtractCustomHeaders(LPCSTR reqHead)
+	{
+		if (!reqHead)
+			return;
+		header h;
+		// continuation of header line
+		bool forbidden = false;
+		h.Load(reqHead, (unsigned) std::numeric_limits<int>::max(),
+				[this, &forbidden](cmstring &key, cmstring &rest)
+				{
+					// heh, continuation of ignored stuff or without start?
+						if(key.empty() && (m_extraHeaders.empty() || forbidden))
+						{
+							return;
+						}
+						const auto& taboo = m_bIsPassThroughRequest ? tabooHeadersPassThrough : tabooHeadersForCaching;
+
+						forbidden = taboo.end() != std::find_if(taboo.begin(), taboo.end(),
+								[&](cmstring &x)
+								{	return scaseequals(x,key);});
+						if(!forbidden)
+						m_extraHeaders += key + rest;
+					}
+					);
+	}
+
+	inline string RemoteUri(bool bUrlEncoded)
+	{
+		if (m_pCurBackend)
+		{
+			return m_pCurBackend->ToURI(bUrlEncoded)
+					+ (bUrlEncoded ?
+							UrlEscape(m_remoteUri.sPath) : m_remoteUri.sPath);
+		}
+		return m_remoteUri.ToURI(bUrlEncoded);
+	}
+
+	inline bool RewriteSource(const char *pNewUrl)
+	{
+		LOGSTART("tDlJob::RewriteSource");
+		if (--m_nRedirRemaining <= 0)
+		{
+			sErrorMsg = "500 Bad redirection (loop)";
+			return false;
+		}
+
+		if (!pNewUrl || !*pNewUrl)
+		{
+			sErrorMsg = "500 Bad redirection (empty)";
+			return false;
+		}
+
+		// start modifying the target URL, point of no return
+		m_pCurBackend = nullptr;
+		bool bWasBeMode = m_bBackendMode;
+		m_bBackendMode = false;
+
+		auto sLocationDecoded = UrlUnescape(pNewUrl);
+
+		tHttpUrl newUri;
+		if (newUri.SetHttpUrl(sLocationDecoded, false))
+		{
+			dbgline;
+			m_remoteUri = newUri;
+			return true;
+		}
+		// ok, some protocol-relative crap? let it parse the hostname but keep the protocol
+		if (startsWithSz(sLocationDecoded, "//"))
+		{
+			stripPrefixChars(sLocationDecoded, "/");
+			return m_remoteUri.SetHttpUrl(
+					m_remoteUri.GetProtoPrefix() + sLocationDecoded);
+		}
+
+		// recreate the full URI descriptor matching the last download
+		if (bWasBeMode)
+		{
+			if (!m_pCurBackend)
+			{
+				sErrorMsg = "500 Bad redirection (path)";
+				return false;
+			}
+			auto sPathBackup = m_remoteUri.sPath;
+			m_remoteUri = *m_pCurBackend;
+			m_remoteUri.sPath += sPathBackup;
+		}
+
+		if (startsWithSz(sLocationDecoded, "/"))
+		{
+			m_remoteUri.sPath = sLocationDecoded;
+			return true;
+		}
+		// ok, must be relative
+		m_remoteUri.sPath += (sPathSepUnix + sLocationDecoded);
+		return true;
+	}
+
+	bool SetupJobConfig(mstring &sReasonMsg,
+			tRemoteBlacklist &blacklist)
+	{
+		LOGSTART("dlcon::Impl::SetupJobConfig");
+
+		// using backends? Find one which is not blacklisted
+		if (m_bBackendMode)
+		{
+			// keep the existing one if possible
+			if (m_pCurBackend)
+			{
+				LOG(
+						"Checking [" << m_pCurBackend->sHost << "]:" << m_pCurBackend->GetPort());
+				const auto bliter = blacklist.find(
+						make_pair(m_pCurBackend->sHost,
+								m_pCurBackend->GetPort()));
+				if (bliter == blacklist.end())
+					LOGRET(true);
+			}
+
+			// look in the constant list, either it's usable or it was blacklisted before
+			for (const auto &bend : m_pRepoDesc->m_backends)
+			{
+				const auto bliter = blacklist.find(
+						make_pair(bend.sHost, bend.GetPort()));
+				if (bliter == blacklist.end())
+				{
+					m_pCurBackend = &bend;
+					LOGRET(true);
+				}
+
+				// uh, blacklisted, remember the last reason
+				if (sReasonMsg.empty())
+				{
+					sReasonMsg = bliter->second;
+					LOG(sReasonMsg);
+				}
+			}
+			if (sReasonMsg.empty())
+				sReasonMsg = "502 Mirror blocked due to repeated errors";
+			LOGRET(false);
+		}
+
+		// ok, not backend mode. Check the mirror data (vs. blacklist)
+		auto bliter = blacklist.find(
+				make_pair(GetPeerHost().sHost, GetPeerHost().GetPort()));
+		if (bliter == blacklist.end())
+			LOGRET(true);
+
+		sReasonMsg = bliter->second;
+		LOGRET(false);
+	}
+
+	// needs connectedHost, blacklist, output buffer from the parent, proxy mode?
+	inline void AppendRequest(tSS &head, const tHttpUrl *proxy)
+	{
+		LOGSTART("tDlJob::AppendRequest");
+
+#define H_IFMO "If-Modified-Since: "
+#define H_IFRA "If-Range: "
+#define CRLF "\r\n"
+
+		if (m_bHeadOnly)
+		{
+			head << "HEAD ";
+			m_bAllowStoreData = false;
+		}
+		else
+		{
+			head << "GET ";
+			m_bAllowStoreData = true;
+		}
+
+		if (proxy)
+			head << RemoteUri(true);
+		else // only absolute path without scheme
+		{
+			if (m_pCurBackend) // base dir from backend definition
+				head << UrlEscape(m_pCurBackend->sPath);
+
+			head << UrlEscape(m_remoteUri.sPath);
+		}
+
+		ldbg(RemoteUri(true));
+
+		head << " HTTP/1.1" CRLF
+				<< cfg::agentheader
+				<< "Host: " << GetPeerHost().sHost << CRLF;
+
+		if (proxy) // proxy stuff, and add authorization if there is any
+		{
+			ldbg("using proxy");
+			if (!proxy->sUserPass.empty())
+			{
+				// could cache it in a static string but then again, this makes it too
+				// easy for the attacker to extract from memory dump
+				head << "Proxy-Authorization: Basic "
+						<< EncodeBase64Auth(proxy->sUserPass) << CRLF;
+			}
+			// Proxy-Connection is a non-sensical copy of Connection but some proxy
+			// might listen only to this one so better add it
+			head << (cfg::persistoutgoing ?
+							"Proxy-Connection: keep-alive" CRLF :
+							"Proxy-Connection: close" CRLF);
+		}
+
+		const auto &pSourceHost = GetPeerHost();
+		if (!pSourceHost.sUserPass.empty())
+		{
+			head << "Authorization: Basic "
+					<< EncodeBase64Auth(pSourceHost.sUserPass) << CRLF;
+		}
+
+		m_nUsedRangeStartPos = -1;
+
+		lockguard g(*m_pStorage);
+		const header &pHead = m_pStorage->GetHeaderUnlocked();
+		auto lamo = pHead.h[header::LAST_MODIFIED];
+		m_nUsedRangeStartPos = m_pStorage->m_nSizeChecked >= 0 ?
+				m_pStorage->m_nSizeChecked : m_pStorage->m_nSizeCachedInitial;
+
+		if (AC_UNLIKELY(m_nUsedRangeStartPos < -1))
+			m_nUsedRangeStartPos = -1;
+
+		/*
+		 * Validate those before using them, with extra caution for ranges with date check
+		 * on volatile files. Also make sure that Date checks are only used
+		 * in combination with range request, otherwise it doesn't make sense.
+		 */
+		if (m_pStorage->m_bVolatile)
+		{
+			if (cfg::vrangeops <= 0)
+			{
+				m_nUsedRangeStartPos = -1;
+			}
+			else if (m_nUsedRangeStartPos == m_pStorage->m_nContLenInitial
+					&& m_nUsedRangeStartPos > 1)
+			{
+				m_nUsedRangeStartPos--; // the probe trick
+			}
+
+			if (!lamo) // date unusable but needed for volatile files?
+				m_nUsedRangeStartPos = -1;
+		}
+		else
+		{
+			lamo = nullptr;
+		}
+
+		if (m_nRangeLimit >= 0)
+		{
+			 if(m_nUsedRangeStartPos < 0)
+			 {
+				 m_nRangeLimit = 0;
+			 }
+			 else if(AC_UNLIKELY(m_nRangeLimit < m_nUsedRangeStartPos))
+			{
+				// must be BS, fetch the whole remainder!
+				m_nRangeLimit = -1;
+			}
+		}
+
+		if (m_nUsedRangeStartPos > 0)
+		{
+			if (lamo)
+				head << H_IFRA << lamo << CRLF;
+			head << "Range: bytes=" << m_nUsedRangeStartPos << "-";
+			if (m_nRangeLimit > 0)
+				head << m_nRangeLimit;
+			head << CRLF;
+		}
+
+		if (m_pStorage->m_bVolatile)
+			head << "Cache-Control: " /*no-store,no-cache,*/ "max-age=0" CRLF;
+
+		if (cfg::exporigin && !m_xff.empty())
+			head << "X-Forwarded-For: " << m_xff << CRLF;
+
+		head << cfg::requestapx << m_extraHeaders
+				<< "Accept: application/octet-stream" CRLF;
+		if (!m_bIsPassThroughRequest)
+		{
+			head << "Accept-Encoding: identity" CRLF
+					"Connection: " << (cfg::persistoutgoing ?
+							"keep-alive" CRLF : "close" CRLF);
+
+		}
+		head << CRLF;
+#ifdef SPAM
+	//head.syswrite(2);
+#endif
+
+	}
+
+	inline uint_fast8_t NewDataHandler(acbuf &inBuf)
+	{
+		LOGSTART("tDlJob::NewDataHandler");
+		while (true)
+		{
+			off_t nToStore = min((off_t) inBuf.size(), m_nRest);
+			if (0 == nToStore)
+				break;
+
+			if (m_bAllowStoreData)
+			{
+				ldbg("To store: " <<nToStore);
+				if (!m_pStorage->DlAddData(string_view(inBuf.rptr(), nToStore)))
+				{
+					dbgline;
+					sErrorMsg = "502 Could not store data";
+					return HINT_DISCON | EFLAG_JOB_BROKEN;
+				}
+			}
+			m_nRest -= nToStore;
+			inBuf.drop(nToStore);
+		}
+
+		ldbg("Rest: " << m_nRest);
+
+		if (m_nRest != 0)
+			return HINT_MORE; // will come back
+
+		m_DlState =
+				(STATE_PROCESS_DATA == m_DlState) ?
+						STATE_FINISHJOB : STATE_GETCHUNKHEAD;
+		return HINT_SWITCH;
+	}
+
+	/*!
+	 *
+	 * Process new incoming data and write it down to disk or other receivers.
+	 */
+	unsigned ProcessIncomming(acbuf &inBuf, bool bOnlyRedirectionActivity)
+	{
+		LOGSTART("tDlJob::ProcessIncomming");
+		if (!m_pStorage)
+		{
+			sErrorMsg = "502 Bad cache descriptor";
+			return HINT_DISCON | EFLAG_JOB_BROKEN;
+		}
+
+		for (;;) // returned by explicit error (or get-more) return
+		{
+			ldbg("switch: " << (int)m_DlState);
+
+			if (STATE_GETHEADER == m_DlState)
+			{
+				ldbg("STATE_GETHEADER");
+				header h;
+				if (inBuf.size() == 0)
+					return HINT_MORE;
+
+				dbgline;
+
+				auto hDataLen =
+						h.Load(inBuf.rptr(), inBuf.size());
+				// XXX: find out why this was ever needed; actually we want the opposite,
+				// download the contents now and store the reported file as XORIG for future
+				// https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Location
+#if 0
+				,
+								[&h](cmstring &key,
+										cmstring &rest)
+										{	if(scaseequals(key, "Content-Location"))
+											h.frontLine = "HTTP/1.1 500 Apt-Cacher NG does not like that data";
+										});
+#endif
+				if (0 == hDataLen)
+					return HINT_MORE;
+				if (hDataLen < 0)
+				{
+					dbgline;
+					sErrorMsg = "500 Invalid header";
+					// can be followed by any junk... drop that mirror, previous file could also contain bad data
+					return EFLAG_MIRROR_BROKEN | HINT_DISCON
+							| HINT_KILL_LAST_FILE;
+				}
+
+				ldbg("contents: " << string_view(inBuf.rptr(), hDataLen));
+
+				if (h.type != header::ANSWER)
+				{
+					dbgline;
+					sErrorMsg = "500 Unexpected response type";
+					// smells fatal...
+					return EFLAG_MIRROR_BROKEN | HINT_DISCON;
+				}
+				ldbg("GOT, parsed: " << h.frontLine);
+
+				int st = h.getStatus();
+
+				off_t contentLength = atoofft(h.h[header::CONTENT_LENGTH], -1);
+
+				// processing hint 102, or something like 103 which we can ignore
+				if (st < 200)
+					return HINT_MORE;
+
+				if (cfg::redirmax) // internal redirection might be disabled
+				{
+					if (IS_REDIRECT(st))
+					{
+						if (!RewriteSource(h.h[header::LOCATION]))
+							return EFLAG_JOB_BROKEN;
+
+						// drop the redirect page contents if possible so the outer loop
+						// can scan other headers
+						off_t contLen = atoofft(h.h[header::CONTENT_LENGTH],
+								0);
+						if (contLen <= inBuf.size())
+							inBuf.drop(contLen);
+						return HINT_TGTCHANGE; // no other flags, caller will evaluate the state
+					}
+
+					// for non-redirection responses process as usual
+
+					// unless it's a probe run from the outer loop, in this case we
+					// should go no further
+					if (bOnlyRedirectionActivity)
+						return EFLAG_LOST_CON | HINT_DISCON;
+				}
+
+				// explicitly blacklist mirror if key file is missing
+				if (st >= 400 && m_pRepoDesc && m_remoteUri.sHost.empty())
+				{
+					for (const auto &kfile : m_pRepoDesc->m_keyfiles)
+					{
+						if (endsWith(m_remoteUri.sPath, kfile))
+						{
+							sErrorMsg =
+									"500 Keyfile missing, mirror blacklisted";
+							return HINT_DISCON | EFLAG_MIRROR_BROKEN;
+						}
+					}
+				}
+
+				auto sremote = RemoteUri(false);
+				h.set(header::XORIG, sremote);
+
+				auto pCon = h.h[header::CONNECTION];
+				if (!pCon)
+					pCon = h.h[header::PROXY_CONNECTION];
+
+				if (pCon && 0 == strcasecmp(pCon, "close"))
+				{
+					ldbg("Peer wants to close connection after request");
+					m_eReconnectASAP = HINT_DISCON;
+				}
+
+				if (m_bHeadOnly)
+				{
+					dbgline;
+					m_DlState = STATE_FINISHJOB;
+				}
+				else if (st == 304 && cfg::vrangeops == 0)
+				{
+					dbgline;
+					m_pStorage->SetupComplete();
+					m_DlState = STATE_FINISHJOB;
+				}
+				else if (h.h[header::TRANSFER_ENCODING]
+						&& 0
+								== strcasecmp(
+										h.h[header::TRANSFER_ENCODING],
+										"chunked"))
+				{
+					dbgline;
+					m_DlState = STATE_GETCHUNKHEAD;
+					h.del(header::TRANSFER_ENCODING); // don't care anymore
+				}
+				else if (contentLength < 0)
+				{
+					dbgline;
+					sErrorMsg = "500 Missing Content-Length";
+					return HINT_DISCON | EFLAG_JOB_BROKEN;
+				}
+				else
+				{
+					dbgline;
+					// may support such endless stuff in the future but that's too unreliable for now
+					m_nRest = contentLength;
+					m_DlState = STATE_PROCESS_DATA;
+				}
+
+				// detect bad auto-redirectors (auth-pages, etc.) by the mime-type of their target
+				if (cfg::redirmax && !cfg::badredmime.empty()
+						&& cfg::redirmax != m_nRedirRemaining
+						&& h.h[header::CONTENT_TYPE]
+						&& strstr(h.h[header::CONTENT_TYPE],
+								cfg::badredmime.c_str())
+						&& h.getStatus() < 300) // contains the final data/response
+				{
+					if (m_pStorage->m_bVolatile)
+					{
+						// volatile... this is still ok, just make sure time check works next time
+						h.set(header::LAST_MODIFIED, FAKEDATEMARK);
+					}
+					else
+					{
+						// this was redirected and the destination is BAD!
+						h.frontLine =
+								"HTTP/1.1 501 Redirected to invalid target";
+						// XXX: not sure this is the right attribution
+						//void DropDnsCache();
+						//DropDnsCache();
+					}
+				}
+
+				// ok, can pass the data to the file handler
+				auto storeResult = CheckAndSaveHeader(move(h),
+						string_view(inBuf.rptr(), hDataLen), contentLength);
+				inBuf.drop(size_t(hDataLen));
+
+				if (storeResult == EResponseEval::RESTART_NEEDED)
+					return EFLAG_LOST_CON | HINT_DISCON; // recoverable
+
+				if (storeResult == EResponseEval::BUSY_OR_ERROR)
+				{
+					ldbg("Item dl'ed by others or in error state --> drop it, reconnect");
+					m_DlState = STATE_PROCESS_DATA;
+					sErrorMsg = "502 Cache descriptor busy";
+					/*					header xh = m_pStorage->GetHeader();
+					 if(xh.frontLine.length() > 12)
+					 sErrorMsg = sErrorMsg + " (" + xh.frontLine.substr(12) + ")";
+					 */
+					return HINT_DISCON | EFLAG_JOB_BROKEN
+							| EFLAG_STORE_COLLISION;
+				}
+
+			}
+			else if (m_DlState == STATE_PROCESS_CHUNKDATA
+					|| m_DlState == STATE_PROCESS_DATA)
+			{
+				// similar states, just handled differently afterwards
+				ldbg("STATE_GETDATA");
+				auto res = NewDataHandler(inBuf);
+				if (HINT_SWITCH != res)
+					return res;
+			}
+			else if (m_DlState == STATE_FINISHJOB)
+			{
+				ldbg("STATE_FINISHJOB");
+				m_pStorage->DlFinish();
+				m_DlState = STATE_GETHEADER;
+				return HINT_DONE | m_eReconnectASAP;
+			}
+			else if (m_DlState == STATE_GETCHUNKHEAD)
+			{
+				ldbg("STATE_GETCHUNKHEAD");
+				// came back from reading, drop remaining newlines?
+				while (inBuf.size() > 0)
+				{
+					char c = *(inBuf.rptr());
+					if (c != '\r' && c != '\n')
+						break;
+					inBuf.drop(1);
+				}
+				const char *crlf(0), *pStart(inBuf.c_str());
+				if (!inBuf.size()
+						|| nullptr == (crlf = strstr(pStart, "\r\n")))
+				{
+					inBuf.move();
+					return HINT_MORE;
+				}
+				unsigned len(0);
+				if (1 != sscanf(pStart, "%x", &len))
+				{
+					sErrorMsg = "500 Invalid data stream";
+					return EFLAG_JOB_BROKEN; // hm...?
+				}
+				inBuf.drop(crlf + 2 - pStart);
+				if (len > 0)
+				{
+					m_nRest = len;
+					m_DlState = STATE_PROCESS_CHUNKDATA;
+				}
+				else
+					m_DlState = STATE_GET_CHUNKTRAILER;
+			}
+			else if (m_DlState == STATE_GET_CHUNKTRAILER)
+			{
+				if (inBuf.size() < 2)
+					return HINT_MORE;
+				const char *pStart(inBuf.c_str());
+				const char *crlf(strstr(pStart, "\r\n"));
+				if (!crlf)
+					return HINT_MORE;
+
+				if (crlf == pStart) // valid empty line -> done here
+				{
+					inBuf.drop(2);
+					m_DlState = STATE_FINISHJOB;
+				}
+				else
+					inBuf.drop(crlf + 2 - pStart); // drop line and watch for others
+			}
+		}
+		ASSERT(!"unreachable");
+		sErrorMsg = "502 Invalid state";
+		return EFLAG_JOB_BROKEN;
+	}
+
+	EResponseEval CheckAndSaveHeader(header h, string_view rawHeader, off_t remoteSize)
+	{
+		LOGSTARTFUNC;
+
+		lockguard g(*m_pStorage);
+
+		auto& sPathRel = m_pStorage->m_sPathRel;
+		auto& fiStatus = m_pStorage->m_status;
+
+		auto compDates = [&](){
+			return header::ParseDate(m_pStorage->m_head.h[header::LAST_MODIFIED], -1)
+				== header::ParseDate(h.h[header::LAST_MODIFIED], -2);
+		};
+
+		auto isHiddenResuming = [&]() {
+			return m_pStorage->m_status > fileitem::FIST_DLPENDING;
+		};
+
+		auto SETERROR = [&](string_view x) {
+			m_bAllowStoreData = false;
+			h.clear();
+			h.frontLine = "HTTP/1.1 ";
+			h.frontLine += x;
+			log::err(tSS() << sPathRel << " storage error [" << x
+					<< "], last errno: " << tErrnoFmter());
+		};
+
+		auto withError = [&](string_view codeAndMessage,
+				fileitem::EDestroyMode destruction = fileitem::EDestroyMode::KEEP) {
+			SETERROR(codeAndMessage);
+			//m_pStorage->DlStarted(move(h), rawHeader);
+			m_pStorage->DlSetError(destruction);
+			return EResponseEval::BUSY_OR_ERROR;
+		};
+
+
+		USRDBG( "Download started, storeHeader for " << sPathRel << ", current status: " << (int) fiStatus);
+
+		m_pStorage->m_nIncommingCount += rawHeader.size();
+
+		int serverStatus = h.getStatus();
+
+		if(fiStatus >= fileitem::FIST_COMPLETE)
+		{
+			USRDBG( "Download was completed or aborted, not restarting before expiration");
+			return EResponseEval::BUSY_OR_ERROR;
+		}
+
+		// conflict with another thread's download attempt? Deny, except for a forced restart
+		if (isHiddenResuming())
+		{
+			if (!m_bFileItemAssigned)
+				return EResponseEval::BUSY_OR_ERROR;
+			// OK, resuming, is the remote still valid?
+			if (!compDates())
+			{
+				return withError("500 Remote resource changed while resuming",
+						fileitem::EDestroyMode::KEEP);
+			}
+		}
+
+		cmstring sPathAbs(SABSPATH(sPathRel));
+		string sHeadPath = sPathAbs + ".head";
+
+	#if 0
+	#warning FIXME
+		static UINT fc=1;
+		if(!(++fc % 4))
+		{
+			serverStatus = 416;
+		}
+	#endif
+		switch(serverStatus)
+		{
+		case 200:
+		{
+			// Code 200 must start from the beginning, size was already reported
+			if (m_pStorage->m_nSizeChecked > 0)
+			{
+				/* shouldn't be here, and if resuming that would be a 206 instead
+				 */
+				return withError("500 Failed to resume remote download");
+			}
+			if (m_nUsedRangeStartPos >= 0)
+			{
+				// might be okay but only if file is newer and file item expects this
+				if (m_pStorage->m_bVolatile)
+					m_nUsedRangeStartPos = -1;
+				else
+					return withError("500 Cannot resume while previous size already reported");
+			}
+			break;
+		}
+		case 206:
+		{
+			/*
+			 * Range: bytes=453291-
+			 * ...
+			 * Content-Length: 7271829
+			 * Content-Range: bytes 453291-7725119/7725120
+			 *
+			 * RFC:
+			 * HTTP/1.1 206 Partial content
+       Date: Wed, 15 Nov 1995 06:25:24 GMT
+       Last-Modified: Wed, 15 Nov 1995 04:58:08 GMT
+       Content-Range: bytes 21010-47021/47022
+       Content-Length: 26012
+       Content-Type: image/gif
+			 */
+			const char *p=h.h[header::CONTENT_RANGE];
+			h.frontLine="HTTP/1.1 200 OK";
+
+			if(!p)
+				return withError("500 Missing Content-Range in Partial Response");
+
+			const static std::regex re("bytes(\\s*|=)(\\d+)-(\\d+|\\*)/(\\d+|\\*)");
+
+			std::cmatch reRes;
+			if (!std::regex_search(p, reRes, re))
+			{
+				return withError("500 Bad range format");
+			}
+			auto tcount = reRes.size();
+			if (tcount != 5)
+			{
+				return withError("500 Bad range format");
+			}
+			// * would mean -1
+			remoteSize = atoofft(reRes[4].first, -1);
+			auto startPos = atoofft(reRes[2].first, -1);
+
+			// detect quality of the special probe request which reports what we already knew
+			if (m_pStorage->m_bVolatile &&
+					m_pStorage->m_nSizeCachedInitial > 0 &&
+					remoteSize == m_pStorage->m_nSizeCachedInitial &&
+					m_pStorage->m_nSizeCachedInitial - 1 == startPos &&
+					compDates())
+			{
+				m_bAllowStoreData = false;
+				m_pStorage->DlFinish(true);
+				return EResponseEval::GOOD;
+			}
+			// in other cases should resume and the expected position, or else!
+			if (startPos == -1 ||
+					m_nUsedRangeStartPos != startPos ||
+					startPos < m_pStorage->m_nSizeCachedInitial)
+			{
+				return withError("500 Server reports unexpected range");
+			}
+			break;
+		}
+		case 416:
+			// that's bad; it cannot have been completed before (the -1 trick)
+			// however, proxy servers with v3r4 cl3v3r caching strategy can cause that
+			// if if-mo-since is used and they don't like it, so attempt a retry in this case
+			if(m_pStorage->m_nSizeChecked < 0)
+			{
+				USRDBG( "Peer denied to resume previous download (transient error) " << sPathRel );
+				m_pStorage->m_nSizeCachedInitial = 0; // XXX: this is ok as hint to request cooking but maybe add dedicated flag
+				return EResponseEval::RESTART_NEEDED;
+			}
+			else
+			{
+				// -> kill cached file ASAP
+				m_bAllowStoreData=false;
+				return withError("503 Server disagrees on file size, cleaning up", fileitem::EDestroyMode::TRUNCATE);
+			}
+			break;
+		default: //all other codes don't have a useful body
+			if (isHiddenResuming()) // resuming case
+			{
+				// got an error from the replacement mirror? cannot handle it properly
+				// because some job might already have started returning the data
+				USRDBG( "Cannot restart, HTTP code: " << serverStatus);
+				return withError(h.getCodeMessage());
+			}
+			m_bAllowStoreData = false;
+			remoteSize = -1;
+		}
+
+		if (isHiddenResuming())
+			return EResponseEval::GOOD;
+
+		if (remoteSize < 0)
+			h.del(header::CONTENT_LENGTH);
+		else
+			h.set(header::CONTENT_LENGTH, remoteSize);
+
+		if(cfg::debug & log::LOG_MORE)
+			log::misc(string("Download of ")+sPathRel+" started");
+
+		h.del(header::CONTENT_RANGE);
+
+		if (!m_pStorage->DlStarted(move(h), rawHeader, m_nUsedRangeStartPos))
+		{
+			return EResponseEval::BUSY_OR_ERROR;
+		}
+
+		m_bFileItemAssigned = true;
+
+		if (m_bAllowStoreData)
+		{
+			m_pStorage->DlPreAlloc(remoteSize);
+		}
+		else // finish it asap regardless of trailing body garbage
+		{
+			m_pStorage->DlFinish();
+		}
+		return EResponseEval::GOOD;
+	}
+
+	inline bool IsRecoverableState()
+	{
+		return m_DlState == STATE_GETHEADER;
+	}
+
+private:
+	// not to be copied ever
+	tDlJob(const tDlJob&);
+	tDlJob& operator=(const tDlJob&);
+};
+
 
 class dlcon::Impl
 {
-
-	struct tDlJob;
 	typedef std::list<tDlJob> tDljQueue;
-	friend struct tDlJob;
-	friend class dlcon;
+	friend struct ::acng::tDlJob;
+	friend class ::acng::dlcon;
 
 	tDljQueue m_new_jobs;
 	const IDlConFactory &m_conFactory;
@@ -77,7 +1017,7 @@ class dlcon::Impl
 	mutex m_handover_mutex;
 
 	/// blacklist for permanently failing hosts, with error message
-	std::map<std::pair<cmstring, cmstring>, mstring> m_blacklist;
+	tRemoteBlacklist m_blacklist;
 	tSS m_sendBuf, m_inBuf;
 
 	unsigned ExchangeData(mstring &sErrorMsg, tDlStreamHandle &con,
@@ -110,714 +1050,7 @@ class dlcon::Impl
 	void awaken_check();
 
 	void WorkLoop();
-	bool AddJob(tFileItemPtr m_pItem, const tHttpUrl *pForcedUrl,
-			const cfg::tRepoData *pRepoDesc, cmstring *sPatSuffix,
-			LPCSTR reqHead, int nMaxRedirection, const char *szHeaderXff,
-			bool isPassThroughRequest);
-
-	struct tDlJob
-	{
-		tFileItemPtr m_pStorage;
-		mstring sErrorMsg;
-		dlcon::Impl &m_parent;
-
-		inline bool HasBrokenStorage()
-		{
-			return (!m_pStorage
-					|| m_pStorage->GetStatus() > fileitem::FIST_COMPLETE);
-		}
-
-#define HINT_MORE 0
-#define HINT_DONE 1
-#define HINT_DISCON 2
-#define EFLAG_JOB_BROKEN 4
-#define EFLAG_MIRROR_BROKEN 8
-#define EFLAG_STORE_COLLISION 16
-#define HINT_SWITCH 32
-#define EFLAG_LOST_CON 64
-#define HINT_KILL_LAST_FILE 128
-#define HINT_TGTCHANGE 256
-
-		const cfg::tRepoData *m_pRepoDesc = nullptr;
-
-		/*!
-		 * Returns a reference to http url where host and port and protocol match the current host
-		 * Other fields in that member have undefined contents. ;-)
-		 */
-		inline const tHttpUrl& GetPeerHost()
-		{
-			return m_pCurBackend ? *m_pCurBackend : m_remoteUri;
-		}
-
-		inline cfg::tRepoData::IHookHandler* GetConnStateTracker()
-		{
-			return m_pRepoDesc ? m_pRepoDesc->m_pHooks : nullptr;
-		}
-
-		typedef enum : char
-		{
-			STATE_GETHEADER,
-			STATE_REGETHEADER,
-			STATE_PROCESS_DATA,
-			STATE_GETCHUNKHEAD,
-			STATE_PROCESS_CHUNKDATA,
-			STATE_GET_CHUNKTRAILER,
-			STATE_FINISHJOB
-		} tDlState;
-
-		string m_extraHeaders, m_xff;
-
-		tHttpUrl m_remoteUri;
-		const tHttpUrl *m_pCurBackend = nullptr;
-
-		uint_fast8_t m_eReconnectASAP = 0;
-		bool m_bBackendMode = false;
-		bool m_isPassThroughRequest = false;
-
-		off_t m_nRest = 0;
-
-		tDlState m_DlState = STATE_GETHEADER;
-
-		int m_nRedirRemaining;
-
-		inline tDlJob(dlcon::Impl *p, tFileItemPtr pFi, const tHttpUrl *pUri,
-				const cfg::tRepoData *pRepoData, const std::string *psPath,
-				int redirmax, bool isPassThroughRequest) :
-						m_pStorage(pFi), m_parent(*p), m_pRepoDesc(pRepoData),
-						m_isPassThroughRequest(isPassThroughRequest),
-						m_nRedirRemaining(redirmax)
-		{
-			LOGSTARTFUNC;
-			ldbg(
-					"uri: " << (pUri ? pUri->ToURI(false) : sEmptyString )
-					<< ", " << "restpath: " << (psPath?*psPath:sEmptyString)
-					<< "repo: " << uintptr_t(pRepoData));
-			if (m_pStorage)
-				m_pStorage->IncDlRefCount();
-			if (pUri)
-				m_remoteUri = *pUri;
-			else
-			{
-				m_remoteUri.sPath = *psPath;
-				m_bBackendMode = true;
-			}
-		}
-		// Default move ctor is ok despite of pointers, we only need it in the beginning, list-splice operations should not move the object around
-		tDlJob(tDlJob &&other) = default;
-
-		~tDlJob()
-		{
-			LOGSTART("tDlJob::~tDlJob");
-			const auto *pError = &sErrorMsg;
-			if (sErrorMsg.empty())
-			{
-				pError = &sGenericError;
-				// XXX: BS? Leaving without error is not a bad situation
-				// log::err(RemoteUri(true)  + " -- bad download descriptor, exited without leaving error message");
-			}
-			if (m_pStorage)
-				m_pStorage->DecDlRefCount(*pError);
-		}
-
-		inline void ExtractCustomHeaders(LPCSTR reqHead)
-		{
-			if (!reqHead)
-				return;
-			header h;
-			// continuation of header line
-			bool forbidden = false;
-			h.Load(reqHead, (unsigned) std::numeric_limits<int>::max(),
-					[this, &forbidden](cmstring &key, cmstring &rest)
-					{
-						// heh, continuation of ignored stuff or without start?
-							if(key.empty() && (m_extraHeaders.empty() || forbidden))
-							{
-								return;
-							}
-							const auto& taboo = m_isPassThroughRequest ? tabooHeadersPassThrough : tabooHeadersForCaching;
-
-							forbidden = taboo.end() != std::find_if(taboo.begin(), taboo.end(),
-									[&](cmstring &x)
-									{	return scaseequals(x,key);});
-							if(!forbidden)
-							m_extraHeaders += key + rest;
-						}
-						);
-		}
-
-		inline string RemoteUri(bool bUrlEncoded)
-		{
-			if (m_pCurBackend)
-				return m_pCurBackend->ToURI(bUrlEncoded)
-						+ (bUrlEncoded ?
-								UrlEscape(m_remoteUri.sPath) : m_remoteUri.sPath);
-
-			return m_remoteUri.ToURI(bUrlEncoded);
-		}
-
-		inline bool RewriteSource(const char *pNewUrl)
-		{
-			LOGSTART("tDlJob::RewriteSource");
-			if (--m_nRedirRemaining <= 0)
-			{
-				sErrorMsg = "500 Bad redirection (loop)";
-				return false;
-			}
-
-			if (!pNewUrl || !*pNewUrl)
-			{
-				sErrorMsg = "500 Bad redirection (empty)";
-				return false;
-			}
-
-			// start modifying the target URL, point of no return
-			m_pCurBackend = nullptr;
-			bool bWasBeMode = m_bBackendMode;
-			m_bBackendMode = false;
-
-			auto sLocationDecoded = UrlUnescape(pNewUrl);
-
-			tHttpUrl newUri;
-			if (newUri.SetHttpUrl(sLocationDecoded, false))
-			{
-				dbgline;
-				m_remoteUri = newUri;
-				return true;
-			}
-			// ok, some protocol-relative crap? let it parse the hostname but keep the protocol
-			if (startsWithSz(sLocationDecoded, "//"))
-			{
-				stripPrefixChars(sLocationDecoded, "/");
-				return m_remoteUri.SetHttpUrl(
-						m_remoteUri.GetProtoPrefix() + sLocationDecoded);
-			}
-
-			// recreate the full URI descriptor matching the last download
-			if (bWasBeMode)
-			{
-				if (!m_pCurBackend)
-				{
-					sErrorMsg = "500 Bad redirection (path)";
-					return false;
-				}
-				auto sPathBackup = m_remoteUri.sPath;
-				m_remoteUri = *m_pCurBackend;
-				m_remoteUri.sPath += sPathBackup;
-			}
-
-			if (startsWithSz(sLocationDecoded, "/"))
-			{
-				m_remoteUri.sPath = sLocationDecoded;
-				return true;
-			}
-			// ok, must be relative
-			m_remoteUri.sPath += (sPathSepUnix + sLocationDecoded);
-			return true;
-		}
-
-		bool SetupJobConfig(mstring &sReasonMsg,
-				decltype(dlcon::Impl::m_blacklist) &blacklist)
-		{
-			LOGSTART("dlcon::Impl::SetupJobConfig");
-
-			// using backends? Find one which is not blacklisted
-			if (m_bBackendMode)
-			{
-				// keep the existing one if possible
-				if (m_pCurBackend)
-				{
-					LOG(
-							"Checking [" << m_pCurBackend->sHost << "]:" << m_pCurBackend->GetPort());
-					const auto bliter = blacklist.find(
-							make_pair(m_pCurBackend->sHost,
-									m_pCurBackend->GetPort()));
-					if (bliter == blacklist.end())
-						LOGRET(true);
-				}
-
-				// look in the constant list, either it's usable or it was blacklisted before
-				for (const auto &bend : m_pRepoDesc->m_backends)
-				{
-					const auto bliter = blacklist.find(
-							make_pair(bend.sHost, bend.GetPort()));
-					if (bliter == blacklist.end())
-					{
-						m_pCurBackend = &bend;
-						LOGRET(true);
-					}
-
-					// uh, blacklisted, remember the last reason
-					if (sReasonMsg.empty())
-					{
-						sReasonMsg = bliter->second;
-						LOG(sReasonMsg);
-					}
-				}
-				if (sReasonMsg.empty())
-					sReasonMsg = "502 Mirror blocked due to repeated errors";
-				LOGRET(false);
-			}
-
-			// ok, not backend mode. Check the mirror data (vs. blacklist)
-			auto bliter = blacklist.find(
-					make_pair(GetPeerHost().sHost, GetPeerHost().GetPort()));
-			if (bliter == blacklist.end())
-				LOGRET(true);
-
-			sReasonMsg = bliter->second;
-			LOGRET(false);
-		}
-
-		// needs connectedHost, blacklist, output buffer from the parent, proxy mode?
-		inline void AppendRequest(tSS &head, const tHttpUrl *proxy)
-		{
-			LOGSTART("tDlJob::AppendRequest");
-
-			head << (m_pStorage->m_bHeadOnly ? "HEAD " : "GET ");
-
-			if (proxy)
-				head << RemoteUri(true);
-			else // only absolute path without scheme
-			{
-				if (m_pCurBackend) // base dir from backend definition
-					head << UrlEscape(m_pCurBackend->sPath);
-
-				head << UrlEscape(m_remoteUri.sPath);
-			}
-
-			ldbg(RemoteUri(true));
-
-			head << " HTTP/1.1\r\n" << cfg::agentheader << "Host: "
-					<< GetPeerHost().sHost << "\r\n";
-
-			if (proxy) // proxy stuff, and add authorization if there is any
-			{
-				ldbg("using proxy");
-				if (!proxy->sUserPass.empty())
-				{
-					head << "Proxy-Authorization: Basic "
-							<< EncodeBase64Auth(proxy->sUserPass) << "\r\n";
-				}
-				// Proxy-Connection is a non-sensical copy of Connection but some proxy
-				// might listen only to this one so better add it
-				head
-						<< (cfg::persistoutgoing ?
-								"Proxy-Connection: keep-alive\r\n" :
-								"Proxy-Connection: close\r\n");
-			}
-
-			const auto &pSourceHost = GetPeerHost();
-			if (!pSourceHost.sUserPass.empty())
-			{
-				head << "Authorization: Basic "
-						<< EncodeBase64Auth(pSourceHost.sUserPass) << "\r\n";
-			}
-
-			// either by backend or by host in file uri, never both
-			//XXX: still needed? Checked while inserting already.
-			// ASSERT( (m_pCurBackend && m_fileUri.sHost.empty()) || (!m_pCurBackend && !m_fileUri.sHost.empty()));
-
-			if (m_pStorage->m_nSizeSeen > 0 || m_pStorage->m_nRangeLimit >= 0)
-			{
-				bool bSetRange(false), bSetIfRange(false);
-
-				lockguard g(m_pStorage.get());
-				const header &pHead = m_pStorage->GetHeaderUnlocked();
-
-				if (m_pStorage->m_bCheckFreshness)
-				{
-					if (pHead.h[header::LAST_MODIFIED])
-					{
-						if (cfg::vrangeops > 0)
-						{
-							bSetIfRange = true;
-							bSetRange = true;
-						}
-						else if (cfg::vrangeops == 0)
-						{
-							head << "If-Modified-Since: "
-									<< pHead.h[header::LAST_MODIFIED] << "\r\n";
-						}
-					}
-				}
-				else
-				{
-					/////////////// this was protection against broken stuff in the pool ////
-					// static file type, date does not matter. check known content length, not risking "range not satisfiable" result
-					//
-					//off_t nContLen=atol(h.get("Content-Length"));
-					//if (nContLen>0 && j->m_pStorage->m_nFileSize < nContLen)
-					bSetRange = true;
-				}
-
-				/*
-				 if(m_pStorage->m_nSizeSeen >0 && m_pStorage->m_nRangeLimit>=0)
-				 {
-				 bool bSaneRange=m_pStorage->m_nRangeLimit >=m_pStorage->m_nSizeSeen;
-				 // just to be sure
-				 ASSERT(bSaneRange);
-				 }
-				 if(m_pStorage->m_nRangeLimit < m_pStorage->m_nSizeSeen)
-				 bSetRange = bSetIfRange = false;
-				 */
-
-				/* use APT's old trick - set the starting position one byte lower -
-				 * this way the server has to send at least one byte if the assumed
-				 * position is correct, and we never get a 416 error (one byte
-				 * waste is acceptable).
-				 * */
-				if (bSetRange)
-				{
-					head << "Range: bytes="
-							<< std::max(off_t(0), m_pStorage->m_nSizeSeen - 1)
-							<< "-";
-					if (m_pStorage->m_nRangeLimit >= 0)
-						head << m_pStorage->m_nRangeLimit;
-					head << "\r\n";
-				}
-
-				if (bSetIfRange)
-					head << "If-Range: " << pHead.h[header::LAST_MODIFIED]
-							<< "\r\n";
-			}
-
-			if (m_pStorage->m_bCheckFreshness)
-				head << "Cache-Control: " /*no-store,no-cache,*/"max-age=0\r\n";
-
-			if (cfg::exporigin && !m_xff.empty())
-				head << "X-Forwarded-For: " << m_xff << "\r\n";
-
-			head << cfg::requestapx << m_extraHeaders
-					<< "Accept: application/octet-stream\r\n";
-			if (!m_isPassThroughRequest)
-			{
-				head << "Accept-Encoding: identity\r\n"
-						"Connection: "
-						<< (cfg::persistoutgoing ?
-								"keep-alive\r\n" : "close\r\n");
-
-			}
-			head << "\r\n";
-#ifdef SPAM
-		//head.syswrite(2);
-#endif
-
-		}
-
-		inline uint_fast8_t NewDataHandler(acbuf &inBuf)
-		{
-			LOGSTART("tDlJob::NewDataHandler");
-			while (true)
-			{
-				off_t nToStore = min((off_t) inBuf.size(), m_nRest);
-				ldbg("To store: " <<nToStore);
-				if (0 == nToStore)
-					break;
-
-				if (!m_pStorage->StoreFileData(inBuf.rptr(), nToStore))
-				{
-					dbgline;
-					sErrorMsg = "502 Could not store data";
-					return HINT_DISCON | EFLAG_JOB_BROKEN;
-				}
-
-				m_nRest -= nToStore;
-				inBuf.drop(nToStore);
-			}
-
-			ldbg("Rest: " << m_nRest);
-
-			if (m_nRest != 0)
-				return HINT_MORE; // will come back
-
-			m_DlState =
-					(STATE_PROCESS_DATA == m_DlState) ?
-							STATE_FINISHJOB : STATE_GETCHUNKHEAD;
-			return HINT_SWITCH;
-		}
-
-		/*!
-		 *
-		 * Process new incoming data and write it down to disk or other receivers.
-		 */
-		unsigned ProcessIncomming(acbuf &inBuf, bool bOnlyRedirectionActivity)
-		{
-			LOGSTART("tDlJob::ProcessIncomming");
-			if (!m_pStorage)
-			{
-				sErrorMsg = "502 Bad cache descriptor";
-				return HINT_DISCON | EFLAG_JOB_BROKEN;
-			}
-
-			for (;;) // returned by explicit error (or get-more) return
-			{
-				ldbg("switch: " << (int)m_DlState);
-
-				if (STATE_GETHEADER == m_DlState
-						|| STATE_REGETHEADER == m_DlState)
-				{
-					ldbg("STATE_GETHEADER");
-					header h;
-					if (inBuf.size() == 0)
-						return HINT_MORE;
-
-					bool bHotItem = (m_DlState == STATE_REGETHEADER);
-					dbgline;
-
-					auto hDataLen =
-							h.Load(inBuf.rptr(), inBuf.size(),
-									[&h](cmstring &key,
-											cmstring &rest)
-											{	if(scaseequals(key, "Content-Location"))
-												h.frontLine = "HTTP/1.1 500 Apt-Cacher NG does not like that data";
-											});
-
-					if (0 == hDataLen)
-						return HINT_MORE;
-					if (hDataLen < 0)
-					{
-						dbgline;
-						sErrorMsg = "500 Invalid header";
-						// can be followed by any junk... drop that mirror, previous file could also contain bad data
-						return EFLAG_MIRROR_BROKEN | HINT_DISCON
-								| HINT_KILL_LAST_FILE;
-					}
-
-					ldbg("contents: " << std::string(inBuf.rptr(), hDataLen));
-
-					if (m_pStorage)
-						m_pStorage->SetRawResponseHeader(
-								string(inBuf.rptr(), hDataLen));
-
-					inBuf.drop(size_t(hDataLen));
-
-					if (h.type != header::ANSWER)
-					{
-						dbgline;
-						sErrorMsg = "500 Unexpected response type";
-						// smells fatal...
-						return EFLAG_MIRROR_BROKEN | HINT_DISCON;
-					}
-					ldbg("GOT, parsed: " << h.frontLine);
-
-					int st = h.getStatus();
-
-					// processing hint 102, or something like 103 which we can ignore
-					if (st < 200)
-						return HINT_MORE;
-
-					if (cfg::redirmax) // internal redirection might be disabled
-					{
-						if (IS_REDIRECT(st))
-						{
-							if (!RewriteSource(h.h[header::LOCATION]))
-								return EFLAG_JOB_BROKEN;
-
-							// drop the redirect page contents if possible so the outer loop
-							// can scan other headers
-							off_t contLen = atoofft(h.h[header::CONTENT_LENGTH],
-									0);
-							if (contLen <= inBuf.size())
-								inBuf.drop(contLen);
-							return HINT_TGTCHANGE; // no other flags, caller will evaluate the state
-						}
-
-						// for non-redirection responses process as usual
-
-						// unless it's a probe run from the outer loop, in this case we
-						// should go no further
-						if (bOnlyRedirectionActivity)
-							return EFLAG_LOST_CON | HINT_DISCON;
-					}
-
-					// explicitly blacklist mirror if key file is missing
-					if (st >= 400 && m_pRepoDesc && m_remoteUri.sHost.empty())
-					{
-						for (const auto &kfile : m_pRepoDesc->m_keyfiles)
-						{
-							if (endsWith(m_remoteUri.sPath, kfile))
-							{
-								sErrorMsg =
-										"500 Keyfile missing, mirror blacklisted";
-								return HINT_DISCON | EFLAG_MIRROR_BROKEN;
-							}
-						}
-					}
-
-					auto pCon = h.h[header::CONNECTION];
-					if (!pCon)
-						pCon = h.h[header::PROXY_CONNECTION];
-
-					if (pCon && 0 == strcasecmp(pCon, "close"))
-					{
-						ldbg("Peer wants to close connection after request");
-						m_eReconnectASAP = HINT_DISCON;
-					}
-
-					if (m_pStorage->m_bHeadOnly)
-					{
-						m_DlState = STATE_FINISHJOB;
-					}
-					// the only case where we expect a 304
-					else if (st == 304 && cfg::vrangeops == 0)
-					{
-						m_pStorage->SetupComplete();
-						m_DlState = STATE_FINISHJOB;
-					}
-					else if (h.h[header::TRANSFER_ENCODING]
-							&& 0
-									== strcasecmp(
-											h.h[header::TRANSFER_ENCODING],
-											"chunked"))
-					{
-						m_DlState = STATE_GETCHUNKHEAD;
-						h.del(header::TRANSFER_ENCODING); // don't care anymore
-					}
-					else
-					{
-						dbgline;
-						if (!h.h[header::CONTENT_LENGTH])
-						{
-							sErrorMsg = "500 Missing Content-Length";
-							return HINT_DISCON | EFLAG_JOB_BROKEN;
-						}
-						// may support such endless stuff in the future but that's too unreliable for now
-						m_nRest = atoofft(h.h[header::CONTENT_LENGTH]);
-						m_DlState = STATE_PROCESS_DATA;
-					}
-
-					// ok, can pass the data to the file handler
-					auto sremote = RemoteUri(false);
-					h.set(header::XORIG, sremote);
-					bool bDoRetry(false);
-
-					// detect bad auto-redirectors (auth-pages, etc.) by the mime-type of their target
-					if (cfg::redirmax && !cfg::badredmime.empty()
-							&& cfg::redirmax != m_nRedirRemaining
-							&& h.h[header::CONTENT_TYPE]
-							&& strstr(h.h[header::CONTENT_TYPE],
-									cfg::badredmime.c_str())
-							&& h.getStatus() < 300) // contains the final data/response
-					{
-						if (m_pStorage->m_bCheckFreshness)
-						{
-							// volatile... this is still ok, just make sure time check works next time
-							h.set(header::LAST_MODIFIED, FAKEDATEMARK);
-						}
-						else
-						{
-							// this was redirected and the destination is BAD!
-							h.frontLine =
-									"HTTP/1.1 501 Redirected to invalid target";
-							// XXX: not sure this is the right attribution
-							//void DropDnsCache();
-							//DropDnsCache();
-						}
-					}
-
-					if (!m_pStorage->DownloadStartedStoreHeader(h,
-							size_t(hDataLen), inBuf.rptr(), bHotItem, bDoRetry))
-					{
-						if (bDoRetry)
-							return EFLAG_LOST_CON | HINT_DISCON; // recoverable
-
-						ldbg(
-								"Item dl'ed by others or in error state --> drop it, reconnect");
-						m_DlState = STATE_PROCESS_DATA;
-						sErrorMsg = "502 Cache descriptor busy";
-						/*					header xh = m_pStorage->GetHeader();
-						 if(xh.frontLine.length() > 12)
-						 sErrorMsg = sErrorMsg + " (" + xh.frontLine.substr(12) + ")";
-						 */
-						return HINT_DISCON | EFLAG_JOB_BROKEN
-								| EFLAG_STORE_COLLISION;
-					}
-				}
-				else if (m_DlState == STATE_PROCESS_CHUNKDATA
-						|| m_DlState == STATE_PROCESS_DATA)
-				{
-					// similar states, just handled differently afterwards
-					ldbg("STATE_GETDATA");
-					auto res = NewDataHandler(inBuf);
-					if (HINT_SWITCH != res)
-						return res;
-				}
-				else if (m_DlState == STATE_FINISHJOB)
-				{
-					ldbg("STATE_FINISHJOB");
-					m_DlState = STATE_GETHEADER;
-					m_pStorage->StoreFileData(nullptr, 0);
-					return HINT_DONE | m_eReconnectASAP;
-				}
-				else if (m_DlState == STATE_GETCHUNKHEAD)
-				{
-					ldbg("STATE_GETCHUNKHEAD");
-					// came back from reading, drop remaining newlines?
-					while (inBuf.size() > 0)
-					{
-						char c = *(inBuf.rptr());
-						if (c != '\r' && c != '\n')
-							break;
-						inBuf.drop(1);
-					}
-					const char *crlf(0), *pStart(inBuf.c_str());
-					if (!inBuf.size()
-							|| nullptr == (crlf = strstr(pStart, "\r\n")))
-					{
-						inBuf.move();
-						return HINT_MORE;
-					}
-					unsigned len(0);
-					if (1 != sscanf(pStart, "%x", &len))
-					{
-						sErrorMsg = "500 Invalid data stream";
-						return EFLAG_JOB_BROKEN; // hm...?
-					}
-					inBuf.drop(crlf + 2 - pStart);
-					if (len > 0)
-					{
-						m_nRest = len;
-						m_DlState = STATE_PROCESS_CHUNKDATA;
-					}
-					else
-						m_DlState = STATE_GET_CHUNKTRAILER;
-				}
-				else if (m_DlState == STATE_GET_CHUNKTRAILER)
-				{
-					if (inBuf.size() < 2)
-						return HINT_MORE;
-					const char *pStart(inBuf.c_str());
-					const char *crlf(strstr(pStart, "\r\n"));
-					if (!crlf)
-						return HINT_MORE;
-
-					if (crlf == pStart) // valid empty line -> done here
-					{
-						inBuf.drop(2);
-						m_DlState = STATE_FINISHJOB;
-					}
-					else
-						inBuf.drop(crlf + 2 - pStart); // drop line and watch for others
-				}
-			}
-			ASSERT(!"unreachable");
-			sErrorMsg = "502 Invalid state";
-			return EFLAG_JOB_BROKEN;
-		}
-
-		inline bool IsRecoverableState()
-		{
-			return (m_DlState == STATE_GETHEADER
-					|| m_DlState == STATE_REGETHEADER);
-			// XXX: In theory, could also easily recover from STATE_FINISH but that's
-			// unlikely to happen
-		}
-
-	private:
-		// not to be copied ever
-		tDlJob(const tDlJob&);
-		tDlJob& operator=(const tDlJob&);
-	};
+	bool AddJob(tFileItemPtr m_pItem, const dlrequest& rq);
 
 public:
 
@@ -885,12 +1118,9 @@ void dlcon::SignalStop()
 {
 	return _p->SignalStop();
 }
-bool dlcon::AddJob(tFileItemPtr m_pItem, const tHttpUrl *pForcedUrl,
-		const cfg::tRepoData *pRepoDesc, cmstring *sPatSuffix, LPCSTR reqHead,
-		int nMaxRedirection, const char *szHeaderXff, bool isPassThroughRequest)
+bool dlcon::AddJob(const tFileItemPtr& fi, const dlrequest& rq)
 {
-	return _p->AddJob(m_pItem, pForcedUrl, pRepoDesc, sPatSuffix, reqHead,
-			nMaxRedirection, szHeaderXff, isPassThroughRequest);
+	return _p->AddJob(fi, rq);
 }
 
 #ifdef HAVE_LINUX_EVENTFD
@@ -936,29 +1166,27 @@ inline void dlcon::Impl::awaken_check()
 
 #endif
 
-bool dlcon::Impl::AddJob(tFileItemPtr m_pItem, const tHttpUrl *pForcedUrl,
-		const cfg::tRepoData *pBackends, cmstring *sPatSuffix, LPCSTR reqHead,
-		int nMaxRedirection, const char *szHeaderXff, bool isPassThroughRequest)
+bool dlcon::Impl::AddJob(tFileItemPtr fi, const dlrequest& rq)
 {
 	if (m_ctrl_hint < 0 || evabase::in_shutdown)
 		return false;
 
-	if (!pForcedUrl)
+	if (!rq.pForcedUrl)
 	{
-		if (!pBackends || pBackends->m_backends.empty())
+		if (! rq.repoSrc.repodata || rq.repoSrc.repodata->m_backends.empty())
 			return false;
-		if (!sPatSuffix || sPatSuffix->empty())
+		if (rq.repoSrc.sRestPath.empty())
 			return false;
 	}
-	tDlJob xnew(this, m_pItem, pForcedUrl, pBackends, sPatSuffix,
-			nMaxRedirection, isPassThroughRequest);
-	xnew.ExtractCustomHeaders(reqHead);
+	tDlJob xnew(this, fi, rq);
+#warning TODO: should pickup unknown lines earlier when parsing original header
+	xnew.ExtractCustomHeaders(rq.reqHead);
 
 	if (cfg::exporigin && !m_ownersHostname.empty())
 	{
-		if (szHeaderXff)
+		if (rq.szHeaderXff)
 		{
-			xnew.m_xff = szHeaderXff;
+			xnew.m_xff = rq.szHeaderXff;
 			xnew.m_xff += ", ";
 		}
 		xnew.m_xff += m_ownersHostname;
@@ -1634,10 +1862,10 @@ void dlcon::Impl::WorkLoop()
 			// trying to resume that job secretly, unless user disabled the use of range (we
 			// cannot resync the sending position ATM, throwing errors to user for now)
 			if (cfg::vrangeops <= 0
-					&& active_jobs.front().m_pStorage->m_bCheckFreshness)
+					&& active_jobs.front().m_pStorage->m_bVolatile)
 				loopRes |= EFLAG_JOB_BROKEN;
 			else
-				active_jobs.front().m_DlState = tDlJob::STATE_REGETHEADER;
+				active_jobs.front().m_DlState = tDlJob::STATE_GETHEADER;
 		}
 
 		if (loopRes & (HINT_DONE | HINT_MORE))

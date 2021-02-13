@@ -60,52 +60,54 @@ bool isUdsAccessible(cmstring& path)
 	return s && S_ISSOCK(s.st_mode) && 0 == access(path.c_str(), W_OK);
 }
 
+#warning todo: print error log to console for curl mode because the code is there. maybe patch the error string to, make it a global static?
+
 struct ACNG_API IFitemFactory
 {
 	virtual SHARED_PTR<fileitem> Create() =0;
 	virtual ~IFitemFactory() =default;
 };
-
 struct ACNG_API CPrintItemFactory : public IFitemFactory
 {
 	virtual SHARED_PTR<fileitem> Create()
 	{
-		class tPrintItem : public fileitem
-		{
-		public:
-			tPrintItem()
+		class tPrintItem: public fileitem
 			{
-				m_bAllowStoreData=false;
-				m_nSizeChecked = m_nSizeSeen = 0;
-			};
-			virtual FiStatus Setup(bool) override
-			{
-				m_nSizeChecked = m_nSizeSeen = 0;
-				return m_status = FIST_INITED;
-			}
-			virtual unique_fd GetFileFd() override
-			{	return unique_fd();}; // something, don't care for now
-			virtual bool DownloadStartedStoreHeader(const header &h, size_t, const char *,
-					bool, bool&) override
-			{
-				m_head = h;
-				auto opt_dbg=getenv("ACNGTOOL_DEBUG_DOWNLOAD");
-				if(opt_dbg && *opt_dbg)
-					std::cerr << (std::string) h.ToString() << std::endl;
-				return true;
-			}
-			virtual bool StoreFileData(const char *data, unsigned int size) override
-			{
-				if(!size)
-				m_status = FIST_COMPLETE;
+			public:
+				tPrintItem()
+				{
+				}
+				virtual FiStatus Setup(bool) override
+				{
+					return m_status = FIST_INITED;
+				}
+				virtual unique_fd GetFileFd() override
+				{
+					return unique_fd();
+				}
+				ssize_t SendData(int, int, off_t&, size_t) override
+				{
+					return 0;
+				}
 
-				return (size==fwrite(data, sizeof(char), size, stdout));
-			}
-			ssize_t SendData(int , int, off_t &, size_t ) override
-			{
-				return 0;
-			}
-		};
+			protected:
+				bool DlStarted(acng::header h, acng::string_view rawHeader, off_t bytes2seek) override
+				{
+					m_head = h;
+					static auto opt_dbg = getenv("ACNGTOOL_DEBUG_DOWNLOAD");
+					if (opt_dbg && *opt_dbg)
+						std::cerr << (std::string) h.ToString() << std::endl;
+					return true;
+				}
+				void DlFinish(bool asInCache) override
+				{
+					m_status = FIST_COMPLETE;
+				}
+				bool DlAddData(acng::string_view chunk) override
+				{
+					return (chunk.size() == fwrite(chunk.data(), sizeof(char), chunk.size(), stdout));
+				}
+			};
 		return make_shared<tPrintItem>();
 	}
 };
@@ -113,50 +115,6 @@ struct ACNG_API CPrintItemFactory : public IFitemFactory
 // That is relevant to push the download agent logics correctly and are shown in logs;
 // not relevant for the actual connection since it's rerouted through TUdsFactory
 #define FAKE_UDS_HOSTNAME "UNIX-DOMAIN-SOCKET"
-
-SHARED_PTR<fileitem> CreateStdoutItem()
-{
-	class tPrintItem: public fileitem
-	{
-	public:
-		tPrintItem()
-		{
-			m_bAllowStoreData = false;
-			m_nSizeChecked = m_nSizeSeen = 0;
-		}
-		virtual FiStatus Setup(bool) override
-		{
-			m_nSizeChecked = m_nSizeSeen = 0;
-			return m_status = FIST_INITED;
-		}
-		virtual unique_fd GetFileFd() override
-		{
-			return unique_fd();
-		}
-		; // something, don't care for now
-		virtual bool DownloadStartedStoreHeader(const header &h, size_t, const char*, bool, bool&)
-				override
-		{
-			m_head = h;
-			auto opt_dbg = getenv("ACNGTOOL_DEBUG_DOWNLOAD");
-			if (opt_dbg && *opt_dbg)
-				std::cerr << (std::string) h.ToString() << std::endl;
-			return true;
-		}
-		virtual bool StoreFileData(const char *data, unsigned int size) override
-		{
-			if (!size)
-				m_status = FIST_COMPLETE;
-
-			return (size == fwrite(data, sizeof(char), size, stdout));
-		}
-		ssize_t SendData(int, int, off_t&, size_t) override
-		{
-			return 0;
-		}
-	};
-	return make_shared<tPrintItem>();
-}
 
 struct verbprint
 {
@@ -201,35 +159,40 @@ SHARED_PTR<fileitem> CreateReportItem()
 	public:
 		tRepItem()
 		{
-			m_bAllowStoreData = false;
-			m_nSizeChecked = m_nSizeSeen = 0;
+			m_nSizeChecked = m_nSizeCachedInitial = 0;
 			lineBuf.setsize(1 << 16);
 			memset(lineBuf.wptr(), 0, 1 << 16);
 		}
 		;
 		virtual FiStatus Setup(bool) override
 		{
-			m_nSizeChecked = m_nSizeSeen = 0;
 			return m_status = FIST_INITED;
 		}
-			virtual unique_fd GetFileFd() override
-			{	return unique_fd();}; // something, don't care for now
-		; // something, don't care for now
-		virtual bool DownloadStartedStoreHeader(const header &h, size_t, const char*, bool, bool&)
-				override
+		virtual unique_fd GetFileFd() override
+		{
+			return unique_fd();
+		}
+		ssize_t SendData(int, int, off_t&, size_t) override
+		{
+			return 0;
+		}
+
+	protected:
+		bool DlStarted(acng::header h, acng::string_view rawHeader, off_t bytes2seek) override
 		{
 			m_head = h;
 			return true;
 		}
-		virtual bool StoreFileData(const char *data, unsigned int size) override
+		void DlFinish(bool) override
 		{
-			if (!size)
-			{
-				m_status = FIST_COMPLETE;
-				vprint.fin();
-			}
-			auto consumed = std::min(size, lineBuf.freecapa());
-			memcpy(lineBuf.wptr(), data, consumed);
+			m_status = FIST_COMPLETE;
+			vprint.fin();
+
+		}
+		bool DlAddData(acng::string_view chunk) override
+		{
+			auto consumed = std::min(size_t(chunk.size()), size_t(lineBuf.freecapa()));
+			memcpy(lineBuf.wptr(), chunk.data(), consumed);
 			lineBuf.got(consumed);
 			for (;;)
 			{
@@ -272,18 +235,14 @@ SHARED_PTR<fileitem> CreateReportItem()
 			}
 			return true;
 		}
-		ssize_t SendData(int, int, off_t&, size_t) override
-		{
-			return 0;
-		}
 	};
 	return make_shared<tRepItem>();
 }
 
 void DownloadItem(const tHttpUrl &url, dlcon &dlConnector, const SHARED_PTR<fileitem> &fi)
 {
-	dlConnector.AddJob(fi, &url, nullptr, nullptr, 0,
-			cfg::REDIRMAX_DEFAULT, nullptr, false);
+	dlConnector.AddJob(fi, dlrequest().setSrc(url));
+
 	int st;
 	auto fistatus = fi->WaitForFinish(&st);
 	// just be sure to set a proper error code
@@ -506,7 +465,7 @@ bool AppendPasswordHash(string &stringWithSalt, LPCSTR plainPass, size_t passLen
 }
 #endif
 
-typedef deque<tPtrLen> tPatchSequence;
+typedef deque<acng::string_view> tPatchSequence;
 
 // might need to access the last line externally
 unsigned long rangeStart(0), rangeLast(0);
@@ -770,8 +729,7 @@ int patch_file(string sBase, string sPatch, string sResult)
 					// oh, that's the fix-the-last-line command :-(
 					if(rangeStart)
 					{
-						lines[rangeStart].first = ".\n";
-						lines[rangeStart].second=2;
+						lines[rangeStart] = ".\n";
 					}
 					continue;
 				}
@@ -805,7 +763,7 @@ int patch_file(string sBase, string sPatch, string sResult)
 		return -3;
 
 	for(const auto& kv : lines)
-		res.write(kv.first, kv.second);
+		res.write(kv.data(), kv.size());
 	res.flush();
 //	dump_proc_status_always();
 	return res.good() ? 0 : -4;
@@ -1148,8 +1106,7 @@ int wcat(LPCSTR surl, LPCSTR proxy, IFitemFactory* fac, const IDlConFactory &pDl
 	evabaseFreeFrunner eb(pDlconFac);
 
 	auto fi=fac->Create();
-	eb.dl.AddJob(fi, &url, nullptr, nullptr, 0, cfg::REDIRMAX_DEFAULT,
-			nullptr, false);
+	eb.dl.AddJob(fi, dlrequest().setSrc(url));
 	int st;
 	auto fistatus = fi->WaitForFinish(&st);
 	if(fistatus == fileitem::FIST_COMPLETE && st == 200)

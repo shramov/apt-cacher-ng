@@ -114,6 +114,7 @@ endforeach(linkarg)
 #set(CMAKE_REQUIRED_FLAGS "")
 
 option(USE_SSL "Use OpenSSL library for TLS and other crypto functionality" on)
+option(ENABLE_TOOLS "Build additional command line tools (acngfs, inetd client)" on)
 
 IF(CMAKE_SYSTEM MATCHES "Darwin")
         _append(ACNG_COMPFLAGS -D_DARWIN_C_SOURCE)
@@ -361,8 +362,10 @@ SET(CMAKE_SHARED_LIBRARY_LINK_C_FLAGS "")
 
 CONFIGURE_FILE("${CMAKE_SOURCE_DIR}/include/acsyscap.h.in" "${CMAKE_BINARY_DIR}/acsyscap.h")
 
-add_subdirectory(client)
-add_subdirectory(fs)
+if(ENABLE_TOOLS)
+	add_subdirectory(client)
+	add_subdirectory(fs)
+endif()
 add_subdirectory(source)
 add_subdirectory(conf)
 add_subdirectory(systemd)

@@ -23,6 +23,12 @@
 #include <functional>
 #include <atomic>
 
+#if __cplusplus >= 201703L
+#include <string_view>
+#else
+#include <experimental/string_view>
+#endif
+
 #include <fcntl.h>
 #include <pthread.h>
 #include <strings.h>
@@ -70,7 +76,11 @@ const static tStrPos stmiss(cmstring::npos);
 typedef unsigned short USHORT;
 typedef unsigned char UCHAR;
 typedef const char * LPCSTR;
-typedef std::pair<LPCSTR, size_t> tPtrLen;
+#if __cplusplus >= 201703L
+using string_view = std::string_view;
+#else
+using string_view = std::experimental::basic_string_view;
+#endif
 #define citer const_iterator
 
 #define CPATHSEPUNX '/'

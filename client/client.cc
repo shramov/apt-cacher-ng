@@ -1,6 +1,8 @@
 
 
 #define NOLOGATALL
+#include "acsyscap.h"
+#include "../include/debug.h"
 #include "../source/acbuf.cc"
 #include "../include/sockio.h"
 #include "../include/fileio.h"
@@ -9,7 +11,8 @@
 #include <sys/select.h>
 #include <signal.h>
 
-namespace acng{
+namespace acng
+{
 namespace cfg
 {
 	int nettimeout=60;
@@ -90,7 +93,7 @@ int main(int argc, char **argv)
 	
 	addr.sun_family=PF_UNIX;
 	strcpy(addr.sun_path, argv[1]);
-	socklen_t adlen = pLen+1+offsetof(struct sockaddr_un, sun_path);
+	socklen_t adlen = pLen + 1 + offsetof(struct sockaddr_un, sun_path);
 	if ( 0!=connect(s, (struct sockaddr*)&addr, adlen))
 	{
 		printf("HTTP/1.1 500 ERROR: Unable to attach to the local daemon: %s\r\n\r\n", strerror(errno));

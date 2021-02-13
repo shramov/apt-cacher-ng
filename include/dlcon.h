@@ -24,8 +24,15 @@ class fileitem;
  * In addition, there is a local blacklist which is applied to all download jobs in the queue,
  * i.e. remotes marked as faulty there are no longer considered by the subsequent download jobs.
  */
+
+struct dlrequest;
+struct tDlJob;
+class fileitem;
+#define IS_REDIRECT(st) (st == 301 || st == 302 || st == 307)
+
 class ACNG_API dlcon
 {
+	friend class ::acng::tDlJob;
 	class Impl;
 	Impl *_p;
 
@@ -35,14 +42,30 @@ class ACNG_API dlcon
 
         void WorkLoop();
         void SignalStop();
-        bool AddJob(SHARED_PTR<fileitem> m_pItem, const tHttpUrl *pForcedUrl,
-        		const cfg::tRepoData *pRepoDesc,
-        		cmstring *sPatSuffix, LPCSTR reqHead,
-				int nMaxRedirection, const char* szHeaderXff,
-				bool isPassThroughRequest);
+        bool AddJob(const SHARED_PTR<fileitem> &fi, const dlrequest& dlrq);
 };
 
-#define IS_REDIRECT(st) (st == 301 || st == 302 || st == 307)
+/**
+ * @brief Parameter struct and fluent-friendly builder for download requests.
+ */
+
+struct dlrequest
+{
+	const tHttpUrl *pForcedUrl = nullptr;
+	cfg::tRepoResolvResult repoSrc;
+	LPCSTR reqHead = nullptr;
+	LPCSTR szHeaderXff = nullptr;
+	bool m_bHeadOnly = false;
+	bool isPassThroughRequest = false;
+	off_t m_nRangeLimit = -1;
+
+	dlrequest& setSrc(const tHttpUrl& url) { pForcedUrl=&url; return *this;}
+	dlrequest& setSrc(cfg::tRepoResolvResult repoRq) { repoSrc = std::move(repoRq); return *this; }
+	dlrequest& setRqHeadString(LPCSTR rh) { reqHead = rh; return *this;}
+	dlrequest& setXff(LPCSTR xff) { szHeaderXff = xff; return *this;}
+	dlrequest& setHeadOnly(bool val) { m_bHeadOnly = val; return *this;}
+	dlrequest& setRangeLimit(off_t limit) { m_nRangeLimit = limit; return *this; }
+};
 
 }
 

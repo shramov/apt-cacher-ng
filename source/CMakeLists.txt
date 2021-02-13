@@ -1,4 +1,4 @@
-set(SHAREDSRCS sockio.cc acbuf.cc acfg.cc acfg_defaults.cc aclogger.cc caddrinfo.cc dirwalk.cc dlcon.cc fileio.cc fileitem.cc filelocks.cc filereader.cc header.cc meta.cc tcpconnect.cc cleaner.cc job.cc bgtask.cc cacheman.cc conn.cc conserver.cc expiration.cc lockable.cc maintenance.cc mirror.cc pkgimport.cc showinfo.cc evabase.cc dnsiter.cc ebrunner.cc)
+set(SHAREDSRCS sockio.cc acbuf.cc acfg.cc acfg_defaults.cc aclogger.cc caddrinfo.cc dirwalk.cc dlcon.cc fileio.cc fileitem.cc filereader.cc header.cc meta.cc tcpconnect.cc cleaner.cc job.cc bgtask.cc cacheman.cc conn.cc conserver.cc expiration.cc lockable.cc maintenance.cc mirror.cc pkgimport.cc showinfo.cc evabase.cc dnsiter.cc ebrunner.cc)
 set(ACNG_SRCS apt-cacher.cc)
 
 if(SUP_STATIC)
@@ -9,6 +9,13 @@ add_definitions(-DACNG_CORE_IN_SO)
 endif()
 
 SET_TARGET_PROPERTIES(supacng PROPERTIES COMPILE_FLAGS "${ACNG_COMPFLAGS} ${ACNG_CXXFLAGS} ${CFLAGS_DAEMON} ${CFLAGS_PTHREAD}")
+
+# this brings about 15% faster builds
+# OTOH it ruins ccache functionality so keep it off until ccache is improved, or this function
+#if (${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.16")
+#        target_precompile_headers(supacng PUBLIC ../include/meta.h)
+#endif()
+
 TARGET_LINK_LIBRARIES(supacng ${BaseNetworkLibs} ${ServerLibs} ${CompLibs} ${SSL_LIB_LIST} ${LDFLAGS_DAEMON} ${CMAKE_THREAD_LIBS_INIT} ${EXTRA_LIBS_ACNG})
 INSTALL(TARGETS supacng LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 

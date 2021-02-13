@@ -265,6 +265,10 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 	mstring sErr;
 	bool bSuccess=false;
 	const tHttpUrl* fallbackUrl = nullptr;
+	fileitem::FiStatus initState = fileitem::FIST_FRESH;
+
+	cfg::tRepoResolvResult repinfo;
+	dlrequest rq;
 
 //	bool holdon = sFilePathRel == "debrep/dists/experimental/contrib/binary-amd64/Packages";
 
@@ -282,12 +286,11 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 
 #define GOTOREPMSG(x) {sErr = x; bSuccess=false; goto rep_dlresult; }
 
-	const cfg::tRepoData *pRepoDesc=nullptr;
-	mstring sRemoteSuffix, sFilePathAbs(SABSPATH(sFilePathRel));
+	mstring sFilePathAbs(SABSPATH(sFilePathRel));
 
 	//uint64_t prog_before = 0;
 
-	TFileItemUser fiaccess;
+	TFileItemHolder fiaccess;
 	tHttpUrl parserPath, parserHead;
 	const tHttpUrl *pResolvedDirectUrl=nullptr;
 
@@ -297,11 +300,15 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 	hor.LoadFromFile(sFilePathAbs + ".head");
 
 	dbgline;
+	auto mode = m_bForceDownload ? ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY :
+			(bIsVolatileFile ? ESharingHow::AUTO_MOVE_OUT_OF_THE_WAY :
+			ESharingHow::ALWAYS_TRY_SHARING);
+
 	if(!pFi)
 	{
 		dbgline;
-		fiaccess = fiaccess.Create(sFilePathRel, false);
-		pFi=fiaccess.getFiPtr();
+		fiaccess = fiaccess.Create(sFilePathRel, mode);
+		pFi=fiaccess.get();
 	}
 	if (!pFi)
 	{
@@ -310,44 +317,33 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 		GOTOREPMSG(" could not create file item handler.");
 	}
 
-	if (bIsVolatileFile && m_bForceDownload)
+	dbgline;
+	if(bIsVolatileFile && m_bSkipIxUpdate)
 	{
-		dbgline;
-		if (!pFi->SetupClean())
-			GOTOREPMSG("Item busy, cannot reload");
-		if (NEEDED_VERBOSITY_ALL_BUT_ERRORS)
-			SendFmt << "Downloading " << sFilePathRel << "...\n";
+		SendFmt << "Checking " << sFilePathRel << "... (skipped, as requested)<br>\n";
+		LOGRET(true);
 	}
-	else
-	{
-		dbgline;
-		if(bIsVolatileFile && m_bSkipIxUpdate)
-		{
-			SendFmt << "Checking " << sFilePathRel << "... (skipped, as requested)<br>\n";
-			LOGRET(true);
-		}
 
-		dbgline;
-		fileitem::FiStatus initState = pFi->Setup(bIsVolatileFile);
-		if (initState > fileitem::FIST_COMPLETE)
-			GOTOREPMSG(pFi->GetHeader().frontLine);
-		dbgline;
-		if (fileitem::FIST_COMPLETE == initState)
+	initState = pFi->Setup(bIsVolatileFile);
+	if (initState > fileitem::FIST_COMPLETE)
+		GOTOREPMSG(pFi->GetHeader().frontLine);
+
+	if (fileitem::FIST_COMPLETE == initState)
+	{
+		int hs = pFi->GetHeader().getStatus();
+		if(hs != 200)
 		{
-			int hs = pFi->GetHeader().getStatus();
-			if(hs != 200)
-			{
-				SendFmt << "Error downloading " << sFilePathRel << ":\n";
-				goto format_error;
-				//GOTOREPMSG(pFi->GetHeader().frontLine);
-			}
-			SendFmt << "Checking " << sFilePathRel << "... (complete)<br>\n";
-			LOGRET(true);
+			SendFmt << "Error downloading " << sFilePathRel << ":\n";
+			goto format_error;
+			//GOTOREPMSG(pFi->GetHeader().frontLine);
 		}
-		if (NEEDED_VERBOSITY_ALL_BUT_ERRORS)
-			SendFmt << (bIsVolatileFile ? "Checking/Updating " : "Downloading ")
-			<< sFilePathRel	<< "...\n";
+		SendFmt << "Checking " << sFilePathRel << "... (complete)<br>\n";
+		LOGRET(true);
 	}
+	if (NEEDED_VERBOSITY_ALL_BUT_ERRORS)
+		SendFmt << (bIsVolatileFile ? "Checking/Updating " : "Downloading ")
+		<< sFilePathRel	<< "...\n";
+
 
 	if(!StartDlder())
 		return false;
@@ -363,11 +359,11 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 				<< " and path: " << parserPath.sPath << ", ok? " << bCachePathAsUriPlausible);
 
 		if(!cfg::stupidfs && bCachePathAsUriPlausible
-				&& 0 != (pRepoDesc = cfg::GetRepoData(parserPath.sHost))
-				&& !pRepoDesc->m_backends.empty())
+				&& nullptr != (rq.repoSrc.repodata = cfg::GetRepoData(parserPath.sHost))
+				&& !rq.repoSrc.repodata->m_backends.empty())
 		{
 			ldbg("will use backend mode, subdirectory is path suffix relative to backend uri");
-			sRemoteSuffix=parserPath.sPath.substr(1);
+			rq.repoSrc.sRestPath = parserPath.sPath.substr(1);
 		}
 		else
 		{
@@ -427,20 +423,19 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 	if (pResolvedDirectUrl)
 	{
 		dbgline;
-		cfg::tRepoResolvResult repinfo;
-		cfg::GetRepNameAndPathResidual(*pResolvedDirectUrl, repinfo);
-		auto hereDesc = repinfo.repodata;
+		repinfo = cfg::GetRepNameAndPathResidual(*pResolvedDirectUrl);
 		if(repinfo.repodata && !repinfo.repodata->m_backends.empty())
 		{
 			dbgline;
 			pResolvedDirectUrl = nullptr;
-			pRepoDesc = hereDesc;
-			sRemoteSuffix = repinfo.sRestPath;
+			rq.setSrc(repinfo);
 		}
 	}
 
-	m_pDlcon->AddJob(pFi, pResolvedDirectUrl, pRepoDesc, &sRemoteSuffix, 0,
-			cfg::REDIRMAX_DEFAULT, nullptr, false);
+	if (pResolvedDirectUrl)
+		rq.setSrc(*pResolvedDirectUrl);
+
+	m_pDlcon->AddJob(pFi, rq);
 
 	if (pFi->WaitForFinish(nullptr, 1,
 	[&](){
@@ -462,10 +457,10 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 	else
 	{
 		LOG("having alternative url and fitem was created here anyway")
-		if(fallbackUrl && fiaccess.getFiPtr())
+		if(fallbackUrl && fiaccess.get())
 		{
 #if 0			// this is brute-force but in this condition probably the only sensible thing
-			auto p=fiaccess.getFiPtr();
+			auto p=fiaccess.get();
 			fiaccess.reset();
 			p->SetupClean(true);
 			p.reset();
@@ -519,7 +514,7 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 
 	if(!bSuccess)
 	{
-		if(pRepoDesc && pRepoDesc->m_backends.empty() && !hor.h[header::XORIG] && !pForcedURL)
+		if(rq.repoSrc.repodata && rq.repoSrc.repodata->m_backends.empty() && !hor.h[header::XORIG] && !pForcedURL)
 		{
 			// oh, that crap: in a repo, but no backends configured, and no original source
 			// to look at because head file is probably damaged :-(
@@ -548,15 +543,17 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 								&& hare.h[header::XORIG])
 						{
 							string url(hare.h[header::XORIG]);
-							url.replace(url.size() - sfx->size(), sfx->size(), sFilePathRel.substr(pos));
+							url.replace(url.size() - sfx->size(), sfx->size(),
+									sFilePathRel.substr(pos));
 							tHttpUrl tu;
 							if(tu.SetHttpUrl(url, false))
 							{
 								SendChunkSZ("Restarting download... ");
-								if(pFi)
-									pFi->ResetCacheState();
+								fiaccess = fiaccess.Create(sFilePathRel,
+										ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY);
 								return Download(sFilePathRel, bIsVolatileFile,
-										msgVerbosityLevel, tFileItemPtr(), &tu);
+										msgVerbosityLevel, fiaccess.get(),
+										&tu);
 							}
 						}
 					}
@@ -805,7 +802,7 @@ tFingerprint * BuildPatchList(string sFilePathAbs, deque<tPatchEntry> &retList)
 }
 
 
-
+#if 0
 bool cacheman::GetAndCheckHead(cmstring & sTempDataRel, cmstring &sReferencePathRel,
 		off_t nWantedSize)
 {
@@ -842,7 +839,7 @@ bool cacheman::GetAndCheckHead(cmstring & sTempDataRel, cmstring &sReferencePath
 	return (Download(sReferencePathRel, true, eMsgHideAll, p)
 			&& ( (tHeadOnlyStorage*) p.get())->m_nGotSize == nWantedSize);
 }
-
+#endif
 
 
 bool cacheman::Inject(cmstring &fromRel, cmstring &toRel,
@@ -905,12 +902,6 @@ bool cacheman::Inject(cmstring &fromRel, cmstring &toRel,
 		tInjectItem(cmstring &to, bool bTryLink) : fileitem_with_storage(to), m_link(bTryLink)
 		{
 		}
-		// noone else should attempt to store file through it
-		virtual bool DownloadStartedStoreHeader(const header &, size_t, const char *,
-				bool, bool&) override
-		{
-			return false;
-		}
 		virtual bool Inject(cmstring &fromRel, const header &head)
 		{
 			m_head = head;
@@ -946,12 +937,11 @@ bool cacheman::Inject(cmstring &fromRel, cmstring &toRel,
 
 			if (Setup(true) > fileitem::FIST_COMPLETE)
 				return false;
-			bool bNix(false);
-			if (!fileitem_with_storage::DownloadStartedStoreHeader(head, 0,
-					nullptr, false, bNix))
+			if (!DlStarted(head, string_view(), -1))
 				return false;
-			if(!StoreFileData(data.GetBuffer(), data.GetSize()) || ! StoreFileData(nullptr, 0))
+			if (!DlAddData(string_view(data.GetBuffer(), data.GetSize())))
 				return false;
+			DlFinish(false);
 			if(GetStatus() != FIST_COMPLETE)
 				return false;
 			return true;
@@ -959,8 +949,8 @@ bool cacheman::Inject(cmstring &fromRel, cmstring &toRel,
 	};
 	auto pfi(make_shared<tInjectItem>(toRel, bTryLink));
 	// register it in global scope
-	auto fiUser = TFileItemUser::Create(pfi, true);
-	if(!fiUser)
+	auto fiUser = TFileItemHolder::Create(pfi, true);
+	if( ! fiUser.get())
 	{
 		MTLOGASSERT(false, "Couldn't register copy item");
 		return false;
@@ -1504,7 +1494,7 @@ bool cacheman::UpdateVolatileFiles()
 		SendChunk("<b>Bringing index files up to date...</b><br>\n");
 		for (auto& f: m_metaFilesRel)
 		{
-			// nope... tell the fileitem to ignore file data instead ::truncate(SZABSPATH(it->first), 0);
+			// tolerate or not, it depends
 			if (!Download(f.first, true, eMsgShow))
 				m_nErrorCount += !m_metaFilesRel[f.first].forgiveDlErrors;
 		}

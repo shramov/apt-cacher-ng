@@ -170,20 +170,18 @@ public:
 		public:
 			char *pRet;
 			size_t nRest, nGot;
-			off_t skipBytes;
+			off_t skipBytes, m_nRangeLimit;
 			int nErr;
 
 			ssize_t SendData(int, int, off_t&, size_t) override
 			{
 				return 0;
 			} // nothing to send
-			bool StoreFileData(const char *p, unsigned int count) override
+
+			virtual bool DlAddData(string_view chunk)
 			{
-				if (count == 0)
-				{
-					m_status=FIST_COMPLETE;
-					return true;
-				}
+				auto count = chunk.size();
+				auto p = chunk.data();
 
 				if(skipBytes>0)
 				{
@@ -209,9 +207,17 @@ public:
 				nRest-=count;
 				return true;
 			}
+
+			virtual void DlFinish(bool asInCache = false)
+			{
+				notifyAll();
+				m_status=FIST_COMPLETE;
+			};
+
 #define SETERROR { nErr=__LINE__; return false;}
 			bool &m_isFirst;
-			bool DownloadStartedStoreHeader(const header &head, size_t, const char*, bool bRestarted, bool&) override
+
+			virtual bool DlStarted(header head, string_view, off_t) override
 			{
 				_cerr(head.frontLine<<endl);
 				m_head = head; // XXX: bloat, only status line and contlen required
@@ -219,10 +225,7 @@ public:
 
 				if(st == 416)
 					return true; // EOF
-
-				if(bRestarted) // throw the head away, the data should be ok
-					return true; // XXX, add more checks?
-
+#warning that all needs to be overhauled, old evil copy-paste code
 				if(st != 200 && st != 206)
 				{
 					SETERROR;
@@ -245,7 +248,7 @@ public:
 					if(n<=0)
 						n=sscanf(p, "bytes=" OFF_T_FMT "-" OFF_T_FMT "/" OFF_T_FMT, &myfrom, &myto, &mylen);
 					if(n!=3  // check for nonsense
-							|| (m_nSizeSeen>0 && myfrom != m_nSizeSeen-1)
+							|| (m_nSizeCachedInitial>0 && myfrom != m_nSizeCachedInitial-1)
 							|| (m_nRangeLimit>=0 && myto > m_nRangeLimit) // too much data?
 							|| myfrom<0 || mylen<0
 					)
@@ -274,8 +277,8 @@ public:
 			: pRet(p), nRest(size),
 					nGot(0), skipBytes(start), nErr(0), m_isFirst(isfirst), fid(fi)
 			{
-				m_bCheckFreshness = false;
-				m_nSizeSeen = start;
+				m_bVolatile = false;
+				m_nSizeCachedInitial = start;
 				m_nRangeLimit = g_bGoodServer ? start+size-1 : -1;
 			}
 		};
@@ -288,9 +291,9 @@ public:
 		}
 		tFileId fidOrig=fid;
 
-		tFitem *pFi = new tFitem(retbuf, len, pos, fid, bIsFirst);
+		auto* pFi = new tFitem(retbuf, len, pos, fid, bIsFirst);
 		tFileItemPtr spFi(static_cast<fileitem*>(pFi));
-		dler->AddJob(spFi, &uri, 0, 0, 0, cfg::REDIRMAX_DEFAULT, nullptr, false);
+		dler->AddJob(spFi, dlrequest().setSrc(uri).setRangeLimit(pFi->m_nRangeLimit));
 		int nHttpCode(100);
 		pFi->WaitForFinish(&nHttpCode);
 		bIsFirst=false;
@@ -339,28 +342,16 @@ public:
 			ssize_t SendData(int, int, off_t&, size_t) override
 			{
 				return 0;
-			} // nothing to send
-			bool StoreFileData(const char*, unsigned int) override
-			{
-				return false;
 			}
-			tFitemProbe()
-			{
-				m_bHeadOnly = true;
-			}
-			bool DownloadStartedStoreHeader(const header &head, size_t, const char*,
-					bool bRestart, bool&) override
-			{
-				if(bRestart)
-					return true;
-
+		protected:
+			bool DlStarted(header head, string_view rawHeader, off_t) override {
 				m_head = head; // XXX: bloat, only status line and contlen required
 				m_status = FIST_COMPLETE;
 				return true;
 			}
 		};
 		auto probe(make_shared<tFitemProbe>());
-		dler->AddJob(probe, &uri, 0, 0, 0, cfg::REDIRMAX_DEFAULT, nullptr, false);
+		dler->AddJob(probe, dlrequest().setSrc(uri).setHeadOnly(true));
 		int nHttpCode(100);
 		fileitem::FiStatus res = probe->WaitForFinish(&nHttpCode);
 		stbuf.st_size = atoofft(probe->GetHeaderUnlocked().h[header::CONTENT_LENGTH], 0);

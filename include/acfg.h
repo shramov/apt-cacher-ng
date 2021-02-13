@@ -90,7 +90,7 @@ struct tRepoResolvResult {
  *
  * @return: true IFF a repository was found and the by-reference arguments are set
  */
-void GetRepNameAndPathResidual(const tHttpUrl & uri, tRepoResolvResult &result);
+tRepoResolvResult GetRepNameAndPathResidual(const tHttpUrl & uri);
 
 const tRepoData * GetRepoData(cmstring &vname);
 

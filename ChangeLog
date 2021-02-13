@@ -1,3 +1,25 @@
+apt-cacher-ng (3.7) AND-SOMETIMES-THE-BEAR-EATS-YOU; urgency=low
+
+  * Overhauling download client state machine, now:
+    a) using less CPU cycles, fewer locks
+    b) supporting open-end range responses
+    c) almost never truncating files, only appending
+  * TODO: 
+Subject: [Bug 1915713] [NEW] support for Cache-Control
+curl -H 'Cache-Control: no-cache'
+http://192.168.33.1:3142/repo.percona.com/tools/apt/dists/buster/Release
+
+TODO:
+turn on unused parameters warning
+
+redo acfg namespace (picking next branch) to have builder object
+
+ -- 
+
+
+
+
+
 apt-cacher-ng (3.6.3) SOHMIETNG-T0-REBMEMER; urgency=medium
 
   * Amend the file creation scheme for cache files which are rewritten from

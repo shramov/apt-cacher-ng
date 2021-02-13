@@ -28,6 +28,7 @@ namespace acng
 {
 
 int falloc_helper(int fd, off_t start, off_t len);
+int fdatasync_helper(int fd);
 
 ssize_t sendfile_generic(int out_fd, int in_fd, off_t *offset, size_t count);
 
@@ -35,20 +36,13 @@ class Cstat : public stat
 {
 	bool bResult;
 public:
-	inline Cstat(cmstring &s) { bResult = !::stat(s.c_str(), static_cast<struct stat*>(this)); }
-	inline operator bool() const { return bResult; }
+	Cstat() : bResult(false) {};
+	Cstat(cmstring &s) : bResult(false) { update(s); }
+	operator bool() const { return bResult; }
+	bool update(cmstring &s) { return (bResult = !::stat(s.c_str(), static_cast<struct stat*>(this))); }
 };
 
-bool FileCopy_generic(cmstring &from, cmstring &to);
-
-// in fact, pipe&splice&splice method works about 10% but only without considering other IO costs
-// with them, the benefit is neglible
-
-//#if defined(HAVE_LINUX_SPLICE) && defined(HAVE_PREAD)
-//bool FileCopy(cmstring &from, cmstring &to);
-//#else
-#define FileCopy(x,y) FileCopy_generic(x,y)
-//#endif
+bool FileCopy(cmstring &from, cmstring &to, int *pErrnoRet = nullptr);
 
 bool LinkOrCopy(const mstring &from, const mstring &to);
 

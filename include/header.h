@@ -53,9 +53,11 @@ class ACNG_API header {
       header(const header &);
       header(header &&);
       header& operator=(const header&); 
+      header& operator=(header&&);
       
       static mstring GenInfoHeaders();
       static bool ParseDate(const char *, struct tm*);
+      static time_t ParseDate(const char *, time_t onError);
 
       int LoadFromFile(const mstring & sPath);
       
@@ -77,7 +79,7 @@ class ACNG_API header {
       void clear();
       
       tSS ToString() const;
-      static std::vector<tPtrLen> GetKnownHeaders();
+      static std::vector<string_view> GetKnownHeaders();
       /**
        * Read buffer to parse one string. Optional offset where to begin to
        * scan.

@@ -11,7 +11,6 @@
 
 #include "csmapping.h"
 #include "aclogger.h"
-#include "filelocks.h"
 #include "lockable.h"
 #include "debug.h"
 
@@ -309,9 +308,6 @@ bool filereader::OpenFile(const string & sFilename, bool bNoMagic, unsigned nFak
 		return false;
 	}
 
-	// this makes sure not to truncate file while it's mmaped
-	m_mmapLock = TFileShrinkGuard::Acquire(statbuf);
-
 	// LFS on 32bit? That's not good for mmap. Don't risk incorrect behaviour.
 	if(uint64_t(statbuf.st_size) >  MAX_VAL(size_t))
     {
@@ -396,29 +392,14 @@ bool filereader::CheckGoodState(bool bErrorsConsiderFatal, cmstring *reportFileP
 void filereader::Close()
 {
 	m_nCurLine=0;
-	m_mmapLock.reset();
 
 	if (m_szFileBuf != MAP_FAILED)
 	{
-#ifdef SIGBUSHUNTING
-		{
-			lockguard g(g_mmapMemoryLock);
-			for (auto &x : g_mmapMemory)
-			{
-				if (x.valid.load()
-				&& pthread_equal(pthread_self(), x.threadref)
-				&& m_mmapLock.get() && x.path == m_mmapLock->path)
-					x.valid = false;
-			}
-		}
-#endif
-
 		munmap(m_szFileBuf, m_nBufSize);
 		m_szFileBuf = (char*) MAP_FAILED;
 	}
 
 	checkforceclose(m_fd);
-	m_mmapLock.reset();
 	m_Dec.reset();
 
 	m_nBufSize=0;

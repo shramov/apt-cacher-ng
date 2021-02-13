@@ -428,10 +428,11 @@ LocalDirs: acng-doc @CMAKE_INSTALL_FULL_DOCDIR@
 
 # There some broken HTTP servers and proxy servers in the wild which don't
 # support the If-Range header correctly and return incorrect data when the
-# contents of a (volatile) file changed. Setting VfileUseRangeOps to zero
-# disables Range-based requests while retrieving volatile files, using
-# If-Modified-Since and requesting the complete file instead. Setting it to
-# a negative value removes even If-Modified-Since headers.
+# contents of a (volatile) file changed. This also applies to incomplete
+# resumed downloads.  Setting VfileUseRangeOps to 0 disables Range-based
+# requests (using purely If-Modified-Since and requesting the complete file
+# instead, if changed). Setting it to a negative value removes even this check
+# and means fetching the whole file from the beginning.
 #
 # VfileUseRangeOps: 1
 

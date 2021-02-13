@@ -152,6 +152,7 @@ MapNameToInt n2iTbl[] = {
 		,{  "FreshIndexMaxAge",                  &maxtempdelay,     nullptr,    10, false}
 		,{  "RedirMax",                          &redirmax,         nullptr,    10, false}
 		,{  "VfileUseRangeOps",                  &vrangeops,        nullptr,    10, false}
+#warning FIXME, Beschreibung mist, eher: "Period at which to decide that a volatile remote item is blocked very slow local downloader."
 		,{  "ResponseFreezeDetectTime",          &stucksecs,        nullptr,    10, false}
 		,{  "ReuseConnections",                  &persistoutgoing,  nullptr,    10, false}
 		,{  "PipelineDepth",                     &pipelinelen,      nullptr,    10, false}
@@ -839,12 +840,14 @@ bool SetOption(const string &sLine, NoCaseStringMap *pDupeCheck)
 	return true;
 }
 
-void GetRepNameAndPathResidual(const tHttpUrl & in, tRepoResolvResult &result)
+tRepoResolvResult GetRepNameAndPathResidual(const tHttpUrl & in)
 {
+	tRepoResolvResult result;
+
 	// get all the URLs matching THE HOSTNAME
 	auto rangeIt=mapUrl2pVname.find(in.sHost+":"+in.GetPort());
 	if(rangeIt == mapUrl2pVname.end())
-		return;
+		return result;
 	
 	tStrPos bestMatchLen(0);
 	auto pBestHit = repoparms.end();
@@ -869,6 +872,7 @@ void GetRepNameAndPathResidual(const tHttpUrl & in, tRepoResolvResult &result)
 		result.sRestPath = in.sPath.substr(bestMatchLen);
 		result.repodata = & pBestHit->second;
 	}
+	return result;
 }
 
 const tRepoData * GetRepoData(cmstring &vname)
@@ -1207,9 +1211,11 @@ void PostProcConfig()
 		for (const auto &x : mapUrl2pVname)
 			nUrls += x.second.size();
 
-		if (debug & log::LOG_MORE)
+		if ((debug & log::LOG_MORE) && repoparms.size() > 0)
+    {
 			cerr << "Loaded " << repoparms.size() << " backend descriptors\nLoaded mappings for "
 					<< mapUrl2pVname.size() << " hosts and " << nUrls << " paths\n";
+    }
 	}
 } // PostProcConfig
 
@@ -1218,32 +1224,36 @@ void dump_config(bool includeDelicate)
 	ostream &cmine(cout);
 
 	for (auto& n2s : n2sTbl)
+	{
 		if (n2s.ptr)
 			cmine << n2s.name << " = " << *n2s.ptr << endl;
+	}
 
 	if (cfg::debug >= log::LOG_DEBUG)
 	{
 		cerr << "escaped version:" << endl;
 		for (const auto& n2s : n2sTbl)
 		{
-			if (n2s.ptr)
+			if (!n2s.ptr)
+				continue;
+
+			cerr << n2s.name << " = ";
+			for (const char *p = n2s.ptr->c_str(); *p; p++)
 			{
-				cerr << n2s.name << " = ";
-				for (const char *p = n2s.ptr->c_str(); *p; p++)
-				{
-					if ('\\' == *p)
-						cmine << "\\\\";
-					else
-						cmine << *p;
-				}
-				cmine << endl;
+				if ('\\' == *p)
+					cmine << "\\\\";
+				else
+					cmine << *p;
 			}
+			cmine << endl;
 		}
 	}
 
 	for (const auto& n2i : n2iTbl)
+	{
 		if (n2i.ptr && !n2i.hidden)
 			cmine << n2i.name << " = " << *n2i.ptr << endl;
+	}
 
 	for (const auto& x : n2pTbl)
 	{

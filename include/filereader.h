@@ -5,7 +5,6 @@
 #include "config.h"
 #include "acbuf.h"
 #include "fileio.h"
-#include "filelocks.h"
 
 namespace acng
 {
@@ -46,7 +45,6 @@ public:
 
 	inline const char *GetBuffer() const { return m_szFileBuf; };
 	inline size_t GetSize() const { return m_nBufSize; };
-
 	void Close();
 
 	const mstring& getSErrorString() const
@@ -77,7 +75,6 @@ private:
 	// not to be copied
 	filereader& operator=(const filereader&);
 	filereader(const filereader&);
-	std::unique_ptr<TFileShrinkGuard> m_mmapLock;
 };
 
 extern uint_fast16_t hexmap[];

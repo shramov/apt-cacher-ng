@@ -217,13 +217,7 @@ void expiration::HandlePkgEntry(const tRemoteFileInfo &entry)
 			if(descHave.fpr.size > entry.fpr.size)
 			{
 				report_oversize:
-				/*
-				 *
-				 *
-ERROR: size mismatch on debrep/dists/jessie/contrib/i18n/Translation-en.bz2 (adding to damage list)Tag
-repro: check by path, after a minor distro upgrade
-				 */
-				// don't really care but let the user truncate
+				// user shall find a resolution here
 				if(rex::GetFiletype(sPathRel) == rex::FILE_VOLATILE)
 					return report_weird_volatile(lenFromStat);
 
@@ -252,9 +246,12 @@ repro: check by path, after a minor distro upgrade
 			{
 				if(lenFromStat >0)
 				{
-					ignore_value(::truncate(sPathAbs.c_str(), 0));
 					SendFmt << WCLASS << " incomplete download, truncating (as requested): "
 					<< sPathRel;
+					auto hodler = TFileItemHolder::Create(sPathRel,
+							ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY);
+					if (hodler.get())
+						hodler.get()->MarkFaulty(false);
 					return finish_good(0);
 				}
 				// otherwise be quiet and don't care
@@ -669,24 +666,24 @@ void expiration::TrimFiles()
 	{
 		// still there and not changed?
 		Cstat stinfo(fil);
-		if(!stinfo)
+		if (!stinfo)
 			continue;
-		if(now - 86400 > stinfo.st_mtim.tv_sec)
-		{
-//			SendFmt << "let's truncate " << fil << " to " << stinfo.st_size << "<br>";
-			// it's unlikely to be accessed but better protect it
-			auto user = TFileItemUser::Create(fil, true);
-			if(!user)
-				continue;
-			lockguard g(user.getFiPtr().get());
-			off_t nix;
-			if(user.getFiPtr()->GetStatusUnlocked(nix) >= fileitem::FIST_DLGOTHEAD)
-				continue;
+		if (now - 86400 < stinfo.st_mtim.tv_sec)
+			continue;
 
-			if(0 != truncate(fil.c_str(), stinfo.st_size))
-				SendFmt << "Error at " << fil << " (" << tErrnoFmter() << ")" << sBRLF;
+		// this is just probing, make sure not to interact with DL
+		auto user = TFileItemHolder::Create(fil, ESharingHow::ALWAYS_TRY_SHARING);
+		if ( ! user.get())
+			continue;
+		auto pFi = user.get();
+		lockguard g(*pFi);
+		off_t nix;
+		if (pFi->GetStatusUnlocked(nix) >= fileitem::FIST_DLGOTHEAD)
+			continue;
+		if (0 != truncate(fil.c_str(), stinfo.st_size)) // CHECKED!
+			SendFmt << "Error at " << fil << " (" << tErrnoFmter() << ")"
+					<< sBRLF;
 
-		}
 	}
 }
 
@@ -707,13 +704,24 @@ void expiration::HandleDamagedFiles()
 			if(this->m_parms.type == workExPurgeDamaged)
 			{
 				SendFmt << "Removing " << s << sBRLF;
-				unlink(SZABSPATH(s));
-				unlink(SZABSPATH(s+".head"));
+				auto holder = TFileItemHolder::Create(s, ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY);
+				if (holder.get())
+				{
+					holder.get()->MarkFaulty(true);
+				}
+				else
+				{
+					// still little risk but not of crashing
+					unlink(SZABSPATH(s));
+					unlink(SZABSPATH(s+".head"));
+				}
 			}
 			else if(this->m_parms.type == workExTruncDamaged)
 			{
 				SendFmt << "Truncating " << s << sBRLF;
-				ignore_value(truncate(SZABSPATH(s), 0));
+				auto holder = TFileItemHolder::Create(s, ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY);
+				if (holder.get())
+					holder.get()->MarkFaulty();
 			}
 			else
 				SendFmt << s << sBRLF;

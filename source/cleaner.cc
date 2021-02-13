@@ -77,7 +77,7 @@ void cleaner::WorkLoop()
 				USRDBG("tcpconnect::ExpireCache, nextRunTime now: " << time_cand);
 				break;
 			case TYPE_EXFILEITEM:
-				time_cand = TFileItemUser::BackgroundCleanup();
+				time_cand = TFileItemHolder::BackgroundCleanup();
 				USRDBG("fileitem::DoDelayedUnregAndCheck, nextRunTime now: " << time_cand);
 				break;
 		/*	case DNS_CACHE:
@@ -172,7 +172,7 @@ void cleaner::dump_status()
 
 
 void ACNG_API dump_handler(evutil_socket_t fd, short what, void *arg) {
-	TFileItemUser::dump_status();
+	TFileItemHolder::dump_status();
 	cleaner::GetInstance().dump_status();
 	g_tcp_con_factory.dump_status();
 	cfg::dump_trace();

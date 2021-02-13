@@ -11,6 +11,7 @@
 #ifdef HAVE_LINUX_FALLOCATE
 #include <linux/falloc.h>
 #endif
+#include <unistd.h>
 
 using namespace std;
 
@@ -30,8 +31,17 @@ int falloc_helper(int, off_t, off_t)
 }
 #endif
 
+int fdatasync_helper(int fd)
+{
+#if ( (_POSIX_C_SOURCE >= 199309L || _XOPEN_SOURCE >= 500) && _POSIX_SYNCHRONIZED_IO > 0)
+	return fdatasync(fd);
+#else
+	return 0;
+#endif
+}
+
 // linking not possible? different filesystems?
-bool FileCopy_generic(cmstring &from, cmstring &to)
+bool FileCopy(cmstring &from, cmstring &to, int* pErrno)
 {
 	acbuf buf;
 	buf.setsize(50000);
@@ -77,9 +87,12 @@ bool FileCopy_generic(cmstring &from, cmstring &to)
 	return true;
 
 	error_copying:
+	auto backupErr = errno;
 
 	checkforceclose(in);
 	checkforceclose(out);
+
+	if (pErrno) *pErrno = backupErr;
 	return false;
 }
 

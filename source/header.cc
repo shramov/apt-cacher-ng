@@ -47,9 +47,9 @@ eHeadPos2label mapId2Headname[] =
 		{ header::XORIG, WITHLEN("X-Original-Source")}
 };
 
-std::vector<tPtrLen> header::GetKnownHeaders()
+std::vector<string_view> header::GetKnownHeaders()
 {
-	std::vector<tPtrLen> ret;
+	std::vector<string_view> ret;
 	ret.reserve(_countof(mapId2Headname));
 	for (auto& x : mapId2Headname)
 		ret.emplace_back(x.str, x.len);
@@ -84,7 +84,7 @@ header::header(header &&s)
 :type(s.type)
 {
 	frontLine.swap(s.frontLine);
-	swap(h, s.h);
+	std::swap(h, s.h);
 }
 
 
@@ -100,6 +100,16 @@ header& header::operator=(const header& s)
 	}
 	return *this;
 }
+
+
+header& header::operator=(header&& s)
+{
+	type = s.type;
+	frontLine.swap(s.frontLine);
+	std::swap(h, s.h);
+	return *this;
+}
+
 
 header::~header()
 {
@@ -374,5 +384,14 @@ bool header::ParseDate(const char *s, struct tm *tm)
 
 	return false;
 }
+#warning all that date handling goes to actimeutil.h later
+time_t header::ParseDate(const char *s, time_t onError)
+{
+	struct tm t;
+	if (!ParseDate(s, &t))
+		return onError;
+	return mktime(&t);
+}
+
 
 }
