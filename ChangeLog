@@ -1,3 +1,10 @@
+apt-cacher-ng (3.6.1) HAPPENS-TO-THE-BEAST-OF-US; urgency=low
+
+  * Minor bugfix and update verion
+  * Avoid potential file descriptor leak in download item collision handling
+
+ -- 
+
 apt-cacher-ng (3.6) SOMETIMES-YOU-EAT-THE-BEAR; urgency=low
 
   * Allowed specification of different/multiple endpoints to bind with
