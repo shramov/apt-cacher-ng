@@ -37,4 +37,11 @@ while(<>)
 
 print "http://$_\n" foreach (sort(keys %fddset));
 
+foreach(sort(keys %fddset))
+{
+	next if !/^ftp(\.\w\w\.debian\.org.*)/;
+	print "http://ftp2$1\n";
+	print "http://ftp3$1\n";
+}
+
 exit ! (scalar keys %fddset);
