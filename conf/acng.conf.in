@@ -77,7 +77,7 @@ Remap-fedora: file:fedora_mirrors # Fedora Linux
 Remap-epel:   file:epel_mirrors # Fedora EPEL
 Remap-slrep:  file:sl_mirrors # Scientific Linux
 Remap-gentoo: file:gentoo_mirrors.gz /gentoo ; file:backends_gentoo # Gentoo Archives
-Remap-secdeb: security.debian.org ; security.debian.org deb.debian.org/debian-security
+Remap-secdeb: security.debian.org security.debian.org/debian-security deb.debian.org/debian-security /debian-security ; deb.debian.org/debian-security security.debian.org
 
 # Virtual page accessible in a web browser to see statistics and status
 # information, i.e. under http://localhost:3142/acng-report.html

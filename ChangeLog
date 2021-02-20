@@ -4,6 +4,9 @@ apt-cacher-ng (3.6.1) HAPPENS-TO-THE-BEAST-OF-US; urgency=low
   * Avoid potential file descriptor leak in download item collision handling
   * Extended mirror scan to guess {ftp2, ftp3}.XY.debian.org address aliases
     (Debian bug #951005)
+  * Extended security.debian.org rewriting to also include deb.debian.org
+    requests and change default mirror for them all to deb.debian.org (Debian
+    bugs #932093, previously #884881)
 
  -- 
 
