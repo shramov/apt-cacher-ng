@@ -1,3 +1,9 @@
+apt-cacher-ng (3.6.1-1) unstable; urgency=low
+
+  * Adding symlink for default Kali repo mapping (closes: #982441)
+
+ -- 
+
 apt-cacher-ng (3.6-1) unstable; urgency=low
 
   * New upstream release with important bugfixes
