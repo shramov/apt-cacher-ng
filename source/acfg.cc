@@ -1140,6 +1140,9 @@ void PostProcConfig()
 	   fasttimeout = 0;
    }
 
+   if(RESERVED_DEFVAL == stucksecs)
+	   stucksecs = 2 * (maxtempdelay + 3);
+
    if(RESERVED_DEFVAL == forwardsoap)
 	   forwardsoap = !forcemanaged;
 

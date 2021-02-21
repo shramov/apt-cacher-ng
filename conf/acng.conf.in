@@ -449,14 +449,13 @@ LocalDirs: acng-doc @CMAKE_INSTALL_FULL_DOCDIR@
 # It's possible that an evil client requests a volatile file but does not
 # retrieve the response and keeps the connection effectively stuck over
 # many hours, blocking the particular file for other download attempts (which
-# leads to not reporting file changes on server side to other users). The work
-# around is the use of alternative file descriptors inside of apt-cacher-ng,
-# however this might cost some extra download traffic due to worse cache usage.
-# The ResponseFreezeDetectTime value specifies when a file descriptor in the
-# mentioned state is to be considered defect and will require special handling.
-# Default time is 500 seconds.
+# leads to not reporting file changes on server side to other users). In such
+# case the file descriptor can be moved aside although this might reduce cache
+# efficiency.
 #
-# ResponseFreezeDetectTime: 500
+# Default time is based on the value of FreshIndexMaxAge with a safety factor.
+#
+# ResponseFreezeDetectTime: 60
 
 # Keep outgoing connections alive and reuse them for later downloads from
 # the same server as long as possible.

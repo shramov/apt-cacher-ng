@@ -54,8 +54,8 @@ fileitem::fileitem() :
 			m_nDlRefsCount(0),
 			usercount(0),
 			m_status(FIST_FRESH),
-			m_nTimeDlStarted(0),
-			m_nTimeDlDone(END_OF_TIME),
+			// good enough to not trigger the makeWay check but also not cause overflows
+			m_nTimeDlStarted(END_OF_TIME-MAXTEMPDELAY*2),
 			m_globRef(mapItems.end())
 {
 }
@@ -335,11 +335,14 @@ bool fileitem_with_storage::DownloadStartedStoreHeader(const header & h, size_t 
 		bool bForcedRestart, bool &bDoCleanRetry)
 {
 	LOGSTART("fileitem::DownloadStartedStoreHeader");
+
+	m_nTimeDlStarted = GetTime();
+
 	auto SETERROR = [&](LPCSTR x) {
 		m_bAllowStoreData=false;
 		m_head.frontLine=mstring("HTTP/1.1 ")+x;
 		m_head.set(header::XORIG, h.h[header::XORIG]);
-		m_status=FIST_DLERROR; m_nTimeDlDone=GetTime();
+		m_status=FIST_DLERROR;
 		_LogWithErrno(x, m_sPathRel);
 	};
 
@@ -361,9 +364,6 @@ bool fileitem_with_storage::DownloadStartedStoreHeader(const header & h, size_t 
 	// conflict with another thread's download attempt? Deny, except for a forced restart
 	if (m_status > FIST_DLPENDING && !bForcedRestart)
 		return false;
-
-	if(m_bCheckFreshness)
-		m_nTimeDlStarted = GetTime();
 
 	m_nIncommingCount+=hDataLen;
 
@@ -393,7 +393,6 @@ bool fileitem_with_storage::DownloadStartedStoreHeader(const header & h, size_t 
 		::unlink(sHeadPath.c_str());
 
 		m_status=FIST_DLERROR;
-		m_nTimeDlDone=GetTime();
 		return false;
 			};
 
@@ -690,7 +689,6 @@ bool fileitem_with_storage::StoreFileData(const char *data, unsigned int size)
 		else
 		{
 			m_status = FIST_COMPLETE;
-			m_nTimeDlDone = GetTime();
 
 			if (cfg::debug & log::LOG_MORE)
 				log::misc(tSS() << "Download of " << m_sPathRel << " finished");
@@ -715,7 +713,7 @@ bool fileitem_with_storage::StoreFileData(const char *data, unsigned int size)
 			while(size > 0)
 			{
 				int r = write(m_filefd, data, size);
-				if(r < 0)
+				if (r < 0)
 				{
 					if(EINTR == errno || EAGAIN == errno)
 						continue;
@@ -723,7 +721,6 @@ bool fileitem_with_storage::StoreFileData(const char *data, unsigned int size)
 					m_head.frontLine = efmt;
 					m_status=FIST_DLERROR;
 					// message will be set by the caller
-					m_nTimeDlDone = GetTime();
 					_LogWithErrno(efmt.c_str(), m_sPathRel);
 					return false;
 				}
@@ -809,19 +806,24 @@ TFileItemUser TFileItemUser::Create(cmstring &sPathUnescaped, bool makeWay)
 			{
 				// detect items that got stuck somehow and move it out of the way
 				time_t now(GetTime());
-				if(fi->m_nTimeDlDone > now + MAXTEMPDELAY  + 2
-						|| fi->m_nTimeDlStarted > now - cfg::stucksecs)
+				if(now > (fi->m_nTimeDlStarted + cfg::stucksecs))
 				{
+					auto altPathRel = fi->m_sPathRel + "." + ltos(now);
+					auto altPathAbs = SABSPATH(altPathRel);
+
 					auto pathAbs = SABSPATH(fi->m_sPathRel);
-					auto xName = pathAbs + "." + ltos(now);
-					if (0 != link(pathAbs.c_str(), xName.c_str())
+
+					if (0 != link(pathAbs.c_str(), altPathAbs.c_str())
 							|| 0 != unlink(pathAbs.c_str()))
 					{
 						// oh, that's bad, no permissions on the folder whatsoever?
-						log::err(string("Failure to move stale item ") + fi->m_sPathRel + " out of the way: " + tErrnoFmter());
+						log::err(string("Failed to move stale item ") + fi->m_sPathRel + " out of the way: " + tErrnoFmter());
 					}
 					else
 					{
+						fi->m_sPathRel = altPathRel;
+						fi->m_bIsGarbage = true;
+
 						fi->m_globRef = mapItems.end();
 						mapItems.erase(it);
 						goto add_as_new;
@@ -980,7 +982,10 @@ void TFileItemUser::dump_status()
 
 fileitem_with_storage::~fileitem_with_storage()
 {
-	Truncate2checkedSize();
+	if (m_bIsGarbage && !m_sPathRel.empty())
+		unlink(SZABSPATH(m_sPathRel));
+	else
+		Truncate2checkedSize();
 }
 
 int fileitem_with_storage::Truncate2checkedSize()

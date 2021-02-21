@@ -99,6 +99,7 @@ public:
 
 protected:
 	bool m_bAllowStoreData;
+	bool m_bIsGarbage = false;
 	fileitem();
 	off_t m_nSizeChecked;
 	header m_head;
@@ -107,7 +108,7 @@ protected:
 	std::atomic_int usercount = ATOMIC_VAR_INIT(0);
 	FiStatus m_status;
 	mstring m_sPathRel;
-	time_t m_nTimeDlStarted, m_nTimeDlDone;
+	time_t m_nTimeDlStarted;
 	virtual int Truncate2checkedSize() {return 0;};
 
 protected:
