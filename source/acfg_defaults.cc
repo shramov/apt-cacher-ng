@@ -135,6 +135,7 @@ int dnscachetime(1800);
 string ACNG_API agentname("Apt-Cacher-NG/" ACVERSION);
 string ACNG_API remoteport("80"), port(ACNG_DEF_PORT);
 string ACNG_API agentheader;
+string ACNG_API dnsresconf("/etc/resolv.conf");
 
 string ACNG_API requestapx;
 string sigbuscmd;
@@ -155,7 +156,7 @@ int conprotos[2] = { PF_UNSPEC, PF_UNSPEC };
 std::atomic_bool degraded(false);
 
 int allocspace = 1024*1024;
-
+int dnsopts = 0;
 }
 
 }

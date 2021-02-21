@@ -150,10 +150,17 @@ void CAddrInfo::Resolve(cmstring & sHostname, cmstring &sPort, tDnsResultReporte
 		if(!args || args->cbs.empty() || !(args->cbs.front())) return; // heh?
 		LOGSTARTFUNCsx(temp_ctx->sHost);
 
-		if(canceled || evabase::in_shutdown)
+		if (AC_UNLIKELY(nullptr == evabase::dnsbase))
 		{
-			auto err_hint = make_shared<CAddrInfo>(evutil_gai_strerror(EAI_SYSTEM));
-			args->cbs.front()(err_hint);
+			args->cbs.front()(make_shared<CAddrInfo>(
+					evutil_gai_strerror(EVUTIL_EAI_BADFLAGS)));
+			return;
+		}
+
+		if (AC_UNLIKELY(canceled || evabase::in_shutdown))
+		{
+			args->cbs.front()(make_shared<CAddrInfo>(
+					evutil_gai_strerror(EAI_SYSTEM)));
 			return;
 		}
 

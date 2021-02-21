@@ -815,13 +815,15 @@ TFileItemUser TFileItemUser::Create(cmstring &sPathUnescaped, bool makeWay)
 
 					auto pathAbs = SABSPATH(fi->m_sPathRel);
 					auto xName = pathAbs + ltos(now);
-					if(0 != creat(xName.c_str(), cfg::fileperms))
+					auto testFD = creat(xName.c_str(), cfg::fileperms);
+					if (testFD == -1)
 					{
 						// oh, that's bad, no permissions on the folder whatsoever?
 						log::err(string("Failure to create replacement of ") + fi->m_sPathRel + " - CHECK FOLDER PERMISSIONS!");
 					}
 					else
 					{
+						forceclose(testFD);
 						// if we can create files there then renaming should not be a problem
 						unlink(pathAbs.c_str());
 						rename(xName.c_str(), pathAbs.c_str());
