@@ -117,7 +117,7 @@ keepnver(0), maxtempdelay(27), vrangeops(1), dlretriesmax(2);
 int dlbufsize(30000), exfailabort(1), exporigin(false), numcores(1),
 logxff(false), oldupdate(false), recompbz2(false), nettimeout(40), updinterval(0),
 forwardsoap(RESERVED_DEFVAL), usewrap(RESERVED_DEFVAL), redirmax(RESERVED_DEFVAL),
-stucksecs(500), persistoutgoing(1), pipelinelen(10), exsupcount(RESERVED_DEFVAL),
+stucksecs(RESERVED_DEFVAL), persistoutgoing(1), pipelinelen(10), exsupcount(RESERVED_DEFVAL),
 optproxytimeout(-1), patrace(false), maxredlsize(1<<16), nsafriendly(false),
 trackfileuse(false), exstarttradeoff(500000000), fasttimeout(4), discotimeout(15);
 
