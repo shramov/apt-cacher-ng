@@ -812,21 +812,16 @@ TFileItemUser TFileItemUser::Create(cmstring &sPathUnescaped, bool makeWay)
 				if(fi->m_nTimeDlDone > now + MAXTEMPDELAY  + 2
 						|| fi->m_nTimeDlStarted > now - cfg::stucksecs)
 				{
-
 					auto pathAbs = SABSPATH(fi->m_sPathRel);
-					auto xName = pathAbs + ltos(now);
-					auto testFD = creat(xName.c_str(), cfg::fileperms);
-					if (testFD == -1)
+					auto xName = pathAbs + "." + ltos(now);
+					if (0 != link(pathAbs.c_str(), xName.c_str())
+							|| 0 != unlink(pathAbs.c_str()))
 					{
 						// oh, that's bad, no permissions on the folder whatsoever?
-						log::err(string("Failure to create replacement of ") + fi->m_sPathRel + " - CHECK FOLDER PERMISSIONS!");
+						log::err(string("Failure to move stale item ") + fi->m_sPathRel + " out of the way: " + tErrnoFmter());
 					}
 					else
 					{
-						forceclose(testFD);
-						// if we can create files there then renaming should not be a problem
-						unlink(pathAbs.c_str());
-						rename(xName.c_str(), pathAbs.c_str());
 						fi->m_globRef = mapItems.end();
 						mapItems.erase(it);
 						goto add_as_new;
