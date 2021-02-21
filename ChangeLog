@@ -1,7 +1,9 @@
 apt-cacher-ng (3.6.1) THERE-IS-NO-FREE-BRUNCH; urgency=low
 
   * Minor bugfix and update verion
-  * Avoid potential file descriptor leak in download item collision handling
+  * Avoid potential file descriptor leak in download item collision handling,
+    also various improvements around stale handle detection and resolution of
+    this situation
   * Extended mirror scan to guess {ftp2, ftp3}.XY.debian.org address aliases
     (Debian bug #951005)
   * Extended security.debian.org rewriting to also include deb.debian.org
