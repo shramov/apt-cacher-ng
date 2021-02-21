@@ -11,6 +11,10 @@
 #include <systemd/sd-daemon.h>
 #endif
 
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
 using namespace std;
 
 #define DNS_ABORT_RETURNING_ERROR 1
@@ -65,6 +69,105 @@ ACNG_API int evabase::MainLoop()
 {
 	LOGSTARTFUNCs;
 
+	dnsbase = evdns_base_new(base, cfg::dnsopts ? 0 :
+			EVDNS_BASE_INITIALIZE_NAMESERVERS);
+
+	if (!dnsbase && ! cfg::dnsopts)
+	{
+		// this might be a libevent bug. If it does not find nameservers in
+		// resolv.conf, it starts doing strange things all over the place.
+		// And even if custom nameserver is added afterwards manually,
+		// and it's seems to communicate with it fine,
+		// libevent still throws EAI_FAIL to user code for no f* reason.
+		//
+		// also, the fallback to localhost DNS is apparently sometimes
+		// added to the server list but not always, needs further
+		// investigation.
+
+		// Initialise w/o servers and add the fallback manually
+		dnsbase = evdns_base_new(base, 0);
+		if (dnsbase)
+		{
+			auto err = evdns_base_resolv_conf_parse(dnsbase, DNS_OPTIONS_ALL,
+							cfg::dnsresconf.c_str());
+			(void) err;
+			// in might be in error state now but it seems to be at least
+			// operational enough to get an additional NS added
+
+			auto backup = "127.0.0.1";
+			// backup = "8.8.8.8";
+			struct sockaddr_in localdns;
+			localdns.sin_addr.s_addr = inet_addr(backup);
+			localdns.sin_family = PF_INET;
+			localdns.sin_port = htons(53);
+
+			if (0 != evdns_base_nameserver_sockaddr_add(dnsbase,
+							(sockaddr*) &localdns, sizeof(localdns), 0))
+			{
+				log::err("ERROR: cannot add fallback DNS server!");
+			}
+		}
+	}
+
+	if (!dnsbase)
+	{
+		log::err("ERROR: Failed to setup default DNS service!");
+	}
+	else if (cfg::dnsopts)
+	{
+		// in any case set a sensible timeout!
+		// XXX: this is not effective without having a nameserver
+		// evdns_base_set_option(evabase::dnsbase, "timeout", "8");
+
+		// XXX: might also make that path configurable, and also allow to pass custom hosts file
+		auto err = evdns_base_resolv_conf_parse(dnsbase, cfg::dnsopts,
+				cfg::dnsresconf.c_str());
+		if (err)
+		{
+			log::err(mstring("ERROR: Failed to initialize custom DNS! ") +
+					evdns_err_to_string(err));
+			// this is not totally broken, can still act as local web server
+			// cfg::DegradedMode(true);
+		}
+	}
+
+#if 0
+	// XXX: early attempts to work around the evdns bug w/o name servers
+	auto nResolvers = evdns_base_count_nameservers(dnsbase);
+	if (nResolvers < 2)
+	{
+		/*
+		struct evutil_addrinfo hints;
+		memset(&hints, 0, sizeof(hints));
+		hints.ai_flags = EVUTIL_AI_NUMERICHOST | EVUTIL_AI_NUMERICSERV;
+		hints.ai_protocol = PF_INET;
+		hints.ai_socktype = SOCK_STREAM;
+		static const evutil_addrinfo hints =
+		{
+			// we provide plain port numbers, no resolution needed
+			// also return only probably working addresses
+			AI_NUMERICSERV | AI_ADDRCONFIG,
+			PF_UNSPEC,
+			SOCK_STREAM, IPPROTO_TCP,
+			0, nullptr, nullptr, nullptr
+		};
+
+	    struct evutil_addrinfo *answer = nullptr;
+	    auto res = evutil_getaddrinfo(backup, "53", &hints, &answer);
+		if (0 == res)
+		{
+			evdns_base_nameserver_sockaddr_add(dnsbase, answer->ai_addr, answer->ai_addrlen, 0);
+		}
+
+		if (answer)
+			evutil_freeaddrinfo(answer);
+			*/
+
+
+	}
+	nResolvers = evdns_base_count_nameservers(dnsbase);
+#endif
+
 #ifdef HAVE_SD_NOTIFY
 	sd_notify(0, "READY=1");
 #endif
@@ -72,10 +175,10 @@ ACNG_API int evabase::MainLoop()
 	int r = event_base_loop(evabase::base, EVLOOP_NO_EXIT_ON_EMPTY);
 
 	in_shutdown = true;
-	if (evabase::dnsbase)
+	if (dnsbase)
 	{
 		// graceful DNS resolver shutdown
-		evdns_base_free(evabase::dnsbase, DNS_ABORT_RETURNING_ERROR);
+		evdns_base_free(dnsbase, DNS_ABORT_RETURNING_ERROR);
 		dnsbase = nullptr;
 	}
 
@@ -135,8 +238,6 @@ evabase::evabase()
 {
 	evthread_use_pthreads();
 	evabase::base = event_base_new();
-	evabase::dnsbase = evdns_base_new(evabase::base,
-			EVDNS_BASE_INITIALIZE_NAMESERVERS);
 	handover_wakeup = evtimer_new(base, cb_handover, nullptr);
 }
 
