@@ -120,6 +120,8 @@ MapNameToString n2sTbl[] = {
 		,{  "BadRedirDetectMime",      &badredmime}
 		,{	"OptProxyCheckCommand",	   &optProxyCheckCmd}
 		,{  "BusAction",                &sigbuscmd} // "Special debugging helper, see manual!"
+        ,{  "EvDnsResolvConf",		 	&dnsresconf}
+
 };
 
 MapNameToInt n2iTbl[] = {
@@ -160,6 +162,7 @@ MapNameToInt n2iTbl[] = {
 		,{  "OptProxyCheckInterval",             &optProxyCheckInt, nullptr,    10, false}
 		,{  "TrackFileUse",		             	 &trackfileuse,		nullptr,    10, false}
         ,{  "ReserveSpace",                      &allocspace, 		nullptr ,   10, false}
+        ,{  "EvDnsOpts",                	     &dnsopts,	 		nullptr ,   10, false}
 
         // octal base interpretation of UNIX file permissions
 		,{  "DirPerms",                          &dirperms,         nullptr,    8, false}
@@ -414,6 +417,11 @@ inline bool qgrep(cmstring &needle, cmstring &file)
 bool DegradedMode()
 {
 	return degraded.load();
+}
+
+void DegradedMode(bool setVal)
+{
+	degraded.store(setVal);
 }
 
 inline void _FixPostPreSlashes(string &val)

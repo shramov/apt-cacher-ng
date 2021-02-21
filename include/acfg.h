@@ -35,13 +35,14 @@ cafile, capath, spfilepat, svfilepat, badredmime, sigbuscmd, connectPermPattern;
 
 extern mstring pfilepatEx, vfilepatEx, wfilepatEx, spfilepatEx, svfilepatEx; // for customization by user
 
+extern ACNG_API mstring dnsresconf;
+
 extern ACNG_API int debug, numcores, offlinemode, foreground, verbose, stupidfs, forcemanaged, keepnver,
 verboselog, extreshhold, exfailabort, tpstandbymax, tpthreadmax, dnscachetime, dlbufsize, usewrap,
 exporigin, logxff, oldupdate, recompbz2, nettimeout, updinterval, forwardsoap, dirperms, fileperms,
 maxtempdelay, redirmax, vrangeops, stucksecs, persistoutgoing, pipelinelen, exsupcount,
 optproxytimeout, patrace, maxdlspeed, maxredlsize, dlretriesmax, nsafriendly, trackfileuse, exstarttradeoff,
-fasttimeout, discotimeout;
-extern int allocspace;
+fasttimeout, discotimeout, allocspace, dnsopts;
 
 // processed config settings
 extern const tHttpUrl* GetProxyInfo();
@@ -58,6 +59,7 @@ void ACNG_API ReadConfigDirectory(const char*, bool bReadErrorIsFatal=true);
 void ACNG_API PostProcConfig();
 
 bool DegradedMode();
+void DegradedMode(bool newValue);
 
 struct tRepoData
 {

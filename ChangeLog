@@ -1,4 +1,4 @@
-apt-cacher-ng (3.6.1) HAPPENS-TO-THE-BEAST-OF-US; urgency=low
+apt-cacher-ng (3.6.1) THERE-IS-NO-FREE-BRUNCH; urgency=low
 
   * Minor bugfix and update verion
   * Avoid potential file descriptor leak in download item collision handling
@@ -7,6 +7,12 @@ apt-cacher-ng (3.6.1) HAPPENS-TO-THE-BEAST-OF-US; urgency=low
   * Extended security.debian.org rewriting to also include deb.debian.org
     requests and change default mirror for them all to deb.debian.org (Debian
     bugs #932093, previously #884881)
+  * Fixes potential hanging at the end of download job execution in acngtool
+    (possibly responsible for various Debian bugs)
+  * Workaround for libevent issue with systems having local nameserver and not
+    having nameserver entries in resolv.conf, also adding a couple of
+    "undocumented" Debug options for further investigation (EvDnsResolvConf,
+    EvDnsOpts). For debian bug #982984.
 
  -- 
 
