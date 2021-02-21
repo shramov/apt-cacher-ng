@@ -13,6 +13,8 @@
 
 using namespace std;
 
+#define DNS_ABORT_RETURNING_ERROR 1
+
 //XXX: add an extra task once per hour or so, optimizing all caches
 
 namespace acng
@@ -61,30 +63,40 @@ int teardown_event_activity(const event_base*, const event* ev, void* ret)
 
 ACNG_API int evabase::MainLoop()
 {
-		LOGSTARTFUNCs;
+	LOGSTARTFUNCs;
 
-	#ifdef HAVE_SD_NOTIFY
-		sd_notify(0, "READY=1");
-	#endif
+#ifdef HAVE_SD_NOTIFY
+	sd_notify(0, "READY=1");
+#endif
 
-		int r=event_base_loop(evabase::base, EVLOOP_NO_EXIT_ON_EMPTY);
-		in_shutdown = true;
-		event_base_loop(base, EVLOOP_NONBLOCK);
-		if(evabase::dnsbase)
-		{
-			evdns_base_free(evabase::dnsbase, 1);
-			dnsbase = nullptr;
-			event_base_loop(base, EVLOOP_NONBLOCK);
-		}
-		// send teardown hint to all event callbacks
-		deque<t_event_desctor> todo;
-		event_base_foreach_event(evabase::base, teardown_event_activity, &todo);
-		for (const auto &ptr : todo)
-		{
-			DBGQLOG("Notifying event on " << ptr.fd);
-			ptr.callback(ptr.fd, EV_TIMEOUT, ptr.arg);
-		}
-		event_base_loop(base, EVLOOP_NONBLOCK);
+	int r = event_base_loop(evabase::base, EVLOOP_NO_EXIT_ON_EMPTY);
+
+	in_shutdown = true;
+	if (evabase::dnsbase)
+	{
+		// graceful DNS resolver shutdown
+		evdns_base_free(evabase::dnsbase, DNS_ABORT_RETURNING_ERROR);
+		dnsbase = nullptr;
+	}
+
+	// push the loop a few times to make sure that the state change
+	// is propagated to the background threads
+	for (int i = 5; i >= 0; --i)
+	{
+		// if error or nothing more to do...
+		if (0 != event_base_loop(base, EVLOOP_NONBLOCK))
+			break;
+	}
+
+	// send teardown hint to all event callbacks
+	deque<t_event_desctor> todo;
+	event_base_foreach_event(evabase::base, teardown_event_activity, &todo);
+	for (const auto &ptr : todo)
+	{
+		DBGQLOG("Notifying event on " << ptr.fd);
+		ptr.callback(ptr.fd, EV_TIMEOUT, ptr.arg);
+	}
+	event_base_loop(base, EVLOOP_NONBLOCK);
 
 #ifdef HAVE_SD_NOTIFY
 	sd_notify(0, "READY=0");
@@ -123,7 +135,8 @@ evabase::evabase()
 {
 	evthread_use_pthreads();
 	evabase::base = event_base_new();
-	evabase::dnsbase = evdns_base_new(evabase::base, 1);
+	evabase::dnsbase = evdns_base_new(evabase::base,
+			EVDNS_BASE_INITIALIZE_NAMESERVERS);
 	handover_wakeup = evtimer_new(base, cb_handover, nullptr);
 }
 
