@@ -15,6 +15,13 @@ apt-cacher-ng (3.6.1) THERE-IS-NO-FREE-BRUNCH; urgency=low
     having nameserver entries in resolv.conf, also adding a couple of
     "undocumented" Debug options for further investigation (EvDnsResolvConf,
     EvDnsOpts). For debian bug #982984.
+  * More ACID-like handling of metadata storing when a download starts
+  * Now not destroying the fileitem when aborting on late errors (where risk
+    is compensated by the new metadata behavior) but letting the user know that
+    something is wrong with the filesystem (Salsa issue #9); also dropped the
+    fstat check (triggering "Inconsistent file state" message) because it's
+    intended task is taken over by the subsequent lseek check with SEEK_END,
+    this also should reveal faulty filesystem behavior.
 
  -- 
 
