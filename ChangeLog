@@ -23,7 +23,7 @@ apt-cacher-ng (3.6.1) THERE-IS-NO-FREE-BRUNCH; urgency=low
     intended task is taken over by the subsequent lseek check with SEEK_END,
     this also should reveal faulty filesystem behavior.
 
- -- 
+ -- Eduard Bloch <blade@debian.org>  Thu, 25 Feb 2021 22:50:41 +0100
 
 apt-cacher-ng (3.6) SOMETIMES-YOU-EAT-THE-BEAR; urgency=low
 
