@@ -654,9 +654,8 @@ bool fileitem_with_storage::DownloadStartedStoreHeader(const header & h, size_t 
 
 		if(count<0)
 		{
-			if (-count == ENOSPC)
-				return withError("503 OUT OF DISK SPACE");
-			return withError(mstring("503 Cache error ") + ltos(-count));
+			errno = -count;
+			return withError(tErrnoFmter("503 Cache error, ").c_str());
 		}
 
 		// by now the file should have been validated and adjusted to the correct size
