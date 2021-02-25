@@ -1,6 +1,8 @@
 apt-cacher-ng (3.6.1-1) unstable; urgency=low
 
   * Adding symlink for default Kali repo mapping (closes: #982441)
+  * Dropping alternative Build-Deps on dh-systemd and libsystemd-daemon-dev
+    (transitional and/or obsolete, closes: #958624)
 
  -- 
 
