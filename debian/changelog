@@ -1,10 +1,24 @@
-apt-cacher-ng (3.6.1-1) unstable; urgency=low
+apt-cacher-ng (3.6.1-1) unstable; urgency=medium
 
-  * Adding symlink for default Kali repo mapping (closes: #982441)
+  * New upstream bugfix version
+    + Adding Kali repo mapping (closes: #982441)
+    + Fix inclusion of ftp2.fr.debian.org and similarly named alternative
+      local mirrors into database (closes: #951005)
+    + Solving DNS issues on certain systems introduced with the partial switch
+      to libevent in 3.6 due to a potential bug of libevent (closes: #983394,
+      #982984), also fix the file renaming scheme for stale download introduced
+      there (incorrectly triggered in most cases and not only in rare ones,
+      also implemented inefficiently)
+    + Disable potentially incorrect destruction of cached items (now only
+      notifying user) in case of wrong permissions or strange filesystem
+      behavior, also shift the truncation to zero size on download start to the
+      begin to reduce probability of such issues (Salsa issue #9)
+    + Extends/improves security.debian.org mapping, also considering
+      deb.debian.net (closes: #944114, #932093, #884881)
   * Dropping alternative Build-Deps on dh-systemd and libsystemd-daemon-dev
     (transitional and/or obsolete, closes: #958624)
 
- -- 
+ -- Eduard Bloch <blade@debian.org>  Thu, 25 Feb 2021 22:46:45 +0100
 
 apt-cacher-ng (3.6-1) unstable; urgency=low
 
