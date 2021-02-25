@@ -566,6 +566,9 @@ bool fileitem_with_storage::DownloadStartedStoreHeader(const header & h, size_t 
 		// every error after that leads to full cleanup to not risk inconsistent file contents 
 
 		int flags = O_WRONLY | O_CREAT | O_BINARY;
+		// 0 might also be a sign of missing metadata while data file may exist, so crop it ASAP!
+		if (m_nSizeSeen == 0)
+			flags |= O_TRUNC;
 		struct stat stbuf;
 
 		mkbasedir(sPathAbs);
@@ -646,18 +649,23 @@ bool fileitem_with_storage::DownloadStartedStoreHeader(const header & h, size_t 
 #endif
 		 */
 		ldbg("Storing header as " + sHeadPath);
-		int count=m_head.StoreToFile(sHeadPath);
+		auto tempHead(sPathAbs + ".hea%");
+		int count = m_head.StoreToFile(tempHead);
 
 		if(count<0)
-			return withErrorAndKillFile( (-count != ENOSPC
-					? "503 Cache storage error" : "503 OUT OF DISK SPACE"));
+		{
+			if (-count == ENOSPC)
+				return withError("503 OUT OF DISK SPACE");
+			return withError(mstring("503 Cache error ") + ltos(-count));
+		}
 
-		// double-check the sane state
-		if(0 != fstat(m_filefd, &stbuf) || stbuf.st_size != m_nSizeChecked)
-			return withErrorAndKillFile("503 Inconsistent file state");
+		// by now the file should have been validated and adjusted to the correct size
+		if (m_nSizeChecked != lseek(m_filefd, 0, SEEK_END))
+			return withError("503 Cache error, size trimming failed");
 
-		if(m_nSizeChecked != lseek(m_filefd, m_nSizeChecked, SEEK_SET))
-			return withErrorAndKillFile("503 IO error, positioning");
+		// this is not supposed to go wrong at this moment
+		if (0 != rename(tempHead.c_str(), sHeadPath.c_str()))
+			return withError("503 Cache error, renaming failure");
 	}
 
 	m_status=FIST_DLGOTHEAD;
