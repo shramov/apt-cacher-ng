@@ -44,6 +44,7 @@ deque<decltype(dns_cache)::iterator> dns_exp_q;
 struct tDnsResContext
 {
 	string sHost, sPort;
+	std::shared_ptr<CDnsBase> resolver;
 	list<CAddrInfo::tDnsResultReporter> cbs;
 };
 unordered_map<string,tDnsResContext*> g_active_resolver_index;
@@ -141,16 +142,17 @@ void CAddrInfo::Resolve(cmstring & sHostname, cmstring &sPort, tDnsResultReporte
 	auto temp_ctx = new tDnsResContext {
 		sHostname,
 		sPort,
+		evabase::GetDnsBase(),
 		list<CAddrInfo::tDnsResultReporter> {move(rep)}
 	};
-
+	// keep a reference on the dns base to extend its lifetime
 	auto cb_invoke_dns_res = [temp_ctx](bool canceled)
 	{
 		auto args = unique_ptr<tDnsResContext>(temp_ctx); //temporarily owned here
 		if(!args || args->cbs.empty() || !(args->cbs.front())) return; // heh?
 		LOGSTARTFUNCsx(temp_ctx->sHost);
 
-		if (AC_UNLIKELY(nullptr == evabase::dnsbase))
+		if (AC_UNLIKELY(!temp_ctx->resolver || !temp_ctx->resolver->get()))
 		{
 			args->cbs.front()(make_shared<CAddrInfo>(
 					evutil_gai_strerror(EVUTIL_EAI_BADFLAGS)));
@@ -194,7 +196,8 @@ void CAddrInfo::Resolve(cmstring & sHostname, cmstring &sPort, tDnsResultReporte
 			0, nullptr, nullptr, nullptr
 		};
 		auto pRaw = args.release(); // to be owned by the operation
-		evdns_getaddrinfo(evabase::dnsbase, pRaw->sHost.empty() ? nullptr : pRaw->sHost.c_str(),
+		evdns_getaddrinfo(temp_ctx->resolver->get(),
+				pRaw->sHost.empty() ? nullptr : pRaw->sHost.c_str(),
 				pRaw->sPort.empty() ? nullptr : pRaw->sPort.c_str(),
 				&default_connect_hints, CAddrInfo::cb_dns, pRaw);
 	};
@@ -207,4 +210,20 @@ CAddrInfo::~CAddrInfo()
 	if (m_rawInfo) evutil_freeaddrinfo(m_rawInfo);
 	m_tcpAddrInfo = m_rawInfo = nullptr;
 }
+
+void RejectPendingDnsRequests()
+{
+	for (auto& el: g_active_resolver_index)
+	{
+		if (!el.second)
+			continue;
+
+		for (const auto& action: el.second->cbs)
+		{
+			action(make_shared<CAddrInfo>(evutil_gai_strerror(EAI_SYSTEM)));
+		}
+		el.second->cbs.clear();
+	}
+}
+
 }
