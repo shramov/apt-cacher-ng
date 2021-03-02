@@ -8,6 +8,18 @@ struct evdns_base;
 
 namespace acng
 {
+
+struct CDnsBase
+{
+	evdns_base* get() { return m_base; }
+  void shutdown();
+	~CDnsBase();
+private:
+	friend class evabase;
+	evdns_base *m_base = nullptr;
+	CDnsBase(evdns_base *pBase) : m_base(pBase) {}
+};
+
 /**
  * This class is an adapter for general libevent handling, roughly fitting it into conventions of the rest of ACNG.
  * Partly static and partly dynamic, for pure convenience! Expected to be a singleton anyway.
@@ -16,8 +28,10 @@ class ACNG_API evabase
 {
 public:
 static event_base *base;
-static evdns_base *dnsbase;
 static std::atomic<bool> in_shutdown;
+
+static std::shared_ptr<CDnsBase> GetDnsBase();
+static void CheckDnsChange();
 
 /**
  * Runs the main loop for a program around the event_base loop.
