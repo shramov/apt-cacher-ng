@@ -143,7 +143,7 @@ void CAddrInfo::Resolve(cmstring & sHostname, cmstring &sPort, tDnsResultReporte
 	auto temp_ctx = new tDnsResContext {
 		sHostname,
 		sPort,
-		evabase::GetDnsBase(),
+		std::shared_ptr<CDnsBase>(),
 		list<CAddrInfo::tDnsResultReporter> {move(rep)}
 	};
 	// keep a reference on the dns base to extend its lifetime
@@ -152,12 +152,6 @@ void CAddrInfo::Resolve(cmstring & sHostname, cmstring &sPort, tDnsResultReporte
 		auto args = unique_ptr<tDnsResContext>(temp_ctx); //temporarily owned here
 		if(!args || args->cbs.empty() || !(args->cbs.front())) return; // heh?
 		LOGSTARTFUNCsx(temp_ctx->sHost);
-
-		if (AC_UNLIKELY(!temp_ctx->resolver || !temp_ctx->resolver->get()))
-		{
-			args->cbs.front()(make_shared<CAddrInfo>("503 Bad DNS configuration"));
-			return;
-		}
 
 		if (AC_UNLIKELY(canceled || evabase::in_shutdown))
 		{
@@ -183,7 +177,15 @@ void CAddrInfo::Resolve(cmstring & sHostname, cmstring &sPort, tDnsResultReporte
 			resIt->second->cbs.splice(resIt->second->cbs.end(), args->cbs);
 			return;
 		}
-		// ok, invoke a completely new DNS lookup operation
+
+		// ok, this is fresh, invoke a completely new DNS lookup operation
+		temp_ctx->resolver = evabase::GetDnsBase();
+		if (AC_UNLIKELY(!temp_ctx->resolver || !temp_ctx->resolver->get()))
+		{
+			args->cbs.front()(make_shared<CAddrInfo>("503 Bad DNS configuration"));
+			return;
+		}
+
 		g_active_resolver_index[key] = args.get();
 		static bool filter_specific = (cfg::conprotos[0] != PF_UNSPEC && cfg::conprotos[1] == PF_UNSPEC);
 		static const evutil_addrinfo default_connect_hints =
