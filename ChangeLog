@@ -1,7 +1,9 @@
-apt-cacher-ng (3.6.2) CIPHERFUNK-3188; urgency=low
+apt-cacher-ng (3.6.2) CIPHERFUNK-3188; urgency=medium
 
   * Dynamic detection of changes of resolv.conf file (again for Debian
     bug #951005)
+  * Make sure to send event_base_loopbreak in the context of the libevent
+    thread (closes hanging of acngtool on exit, Debian bug #977611)
 
  -- Eduard Bloch <blade@debian.org>  Tue, 02 Mar 2021 20:33:01 +0100
 
