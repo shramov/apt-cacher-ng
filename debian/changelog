@@ -1,3 +1,13 @@
+apt-cacher-ng (3.6.2-1) unstable; urgency=medium
+
+  * New upstream bugfix version
+    + solves another DNS issue where resolv.conf is modified after startup,
+      also report most connect errors correctly (now really closes: #982984)
+    + solves sporadic hanging of acngtool in the daily cron job
+      (closes: #977611)
+
+ -- Eduard Bloch <blade@debian.org>  Wed, 03 Mar 2021 19:20:34 +0100
+
 apt-cacher-ng (3.6.1-1) unstable; urgency=medium
 
   * New upstream bugfix version
