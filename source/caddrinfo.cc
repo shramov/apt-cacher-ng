@@ -50,7 +50,8 @@ struct tDnsResContext
 unordered_map<string,tDnsResContext*> g_active_resolver_index;
 
 // this shall remain global and forever, for last-resort notifications
-SHARED_PTR<CAddrInfo> fail_hint=make_shared<CAddrInfo>("503 Fatal system error within apt-cacher-ng processing");
+LPCSTR sGenericErrorStatus = "503 Fatal system error within apt-cacher-ng processing";
+auto fail_hint = make_shared<CAddrInfo>(sGenericErrorStatus);
 
 
 /**
@@ -154,8 +155,7 @@ void CAddrInfo::Resolve(cmstring & sHostname, cmstring &sPort, tDnsResultReporte
 
 		if (AC_UNLIKELY(!temp_ctx->resolver || !temp_ctx->resolver->get()))
 		{
-			args->cbs.front()(make_shared<CAddrInfo>(
-					evutil_gai_strerror(EVUTIL_EAI_BADFLAGS)));
+			args->cbs.front()(make_shared<CAddrInfo>("503 Bad DNS configuration"));
 			return;
 		}
 

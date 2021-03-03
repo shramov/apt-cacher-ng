@@ -504,18 +504,24 @@ tDlStreamHandle dl_con_factory::CreateConnected(cmstring &sHostname, cmstring &s
 		{
 			p->m_sHostName=sHostname;
 			p->m_sPort=sPort;
+			auto conErr = p->_Connect(timeout);
+			if (!conErr.empty())
+			{
+				sErrOut = conErr;
+				p.reset();
+			}
+			else if(p->GetFD() == -1)
+			{
+				sErrOut = sGenericErrorStatus;
+				p.reset();
+			}
 		}
 
-		if(!p || !p->_Connect(timeout).empty() || p->GetFD()<0) // failed or worthless
-			p.reset();
 #ifdef HAVE_SSL
-		else if(bSsl)
+		if(p && bSsl && !p->SSLinit(sErrOut, sHostname, sPort))
 		{
-			if(!p->SSLinit(sErrOut, sHostname, sPort))
-			{
-				p.reset();
-				LOG("ssl init error");
-			}
+			p.reset();
+			LOG("ssl init error");
 		}
 #endif
 	}
