@@ -53,7 +53,7 @@ public:
 };
 
 typedef SHARED_PTR<CAddrInfo> CAddrInfoPtr;
-
+extern LPCSTR sGenericErrorStatus;
 
 }
 

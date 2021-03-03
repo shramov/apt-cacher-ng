@@ -238,8 +238,11 @@ ACNG_API int evabase::MainLoop()
 
 void evabase::SignalStop()
 {
-	if(evabase::base)
+	Post([](bool)
+	{
+		if(evabase::base)
 		event_base_loopbreak(evabase::base);
+	});
 }
 
 void cb_handover(evutil_socket_t, short, void*)
