@@ -1,3 +1,12 @@
+apt-cacher-ng (3.6.3) SOHMIETNG-T0-REBMEMER; urgency=medium
+
+  * Amend the file creation scheme for cache files which are rewritten from
+    the beginning, avoiding need for truncation of open files while
+    downloading, therefore avoiding potential termination from mmap triggered
+    SIGBUS (for example in case of maintenance job processing)
+
+ -- Eduard Bloch <blade@debian.org>  Mon, 08 Mar 2021 22:15:48 +0100
+
 apt-cacher-ng (3.6.2) THIS-ONE-WILL-FLY; urgency=medium
 
   * Dynamic detection of changes of resolv.conf file (again for Debian
