@@ -566,17 +566,41 @@ bool fileitem_with_storage::DownloadStartedStoreHeader(const header & h, size_t 
 		// every error after that leads to full cleanup to not risk inconsistent file contents 
 
 		int flags = O_WRONLY | O_CREAT | O_BINARY;
-		// 0 might also be a sign of missing metadata while data file may exist, so crop it ASAP!
-		if (m_nSizeSeen == 0)
-			flags |= O_TRUNC;
+
 		struct stat stbuf;
 
 		mkbasedir(sPathAbs);
+		// 0 might also be a sign of missing metadata while data file may exist
+		// in that case use the other strategy of new file creation which does not crash mmap
+		if (m_nSizeSeen == 0)
+		{
+			checkforceclose(m_filefd); // be sure about that
+			auto tname(sPathAbs + "-"), tname2(sPathAbs + "~");
+			// keep the file descriptor later if needed
+			unique_fd tmp(open(tname.c_str(), flags, cfg::fileperms | O_TRUNC));
+			if (tmp.m_p == -1)
+				return withError("503 Cannot create cache files");
+			fdatasync(tmp.m_p);
+			bool didExist = true;
+			if (0 != rename(sPathAbs.c_str(), tname2.c_str()))
+			{
+				if (errno != ENOENT)
+					return withError("503 Cannot move cache files");
+				didExist = false;
+			}
+			if (0 != rename(tname.c_str(), sPathAbs.c_str()))
+				return withError("503 Cannot rename cache files");
+			if (!didExist)
+				unlink(tname2.c_str());
+			std::swap(m_filefd, tmp.m_p);
+		}
+		else
+			m_filefd = open(sPathAbs.c_str(), flags, cfg::fileperms);
 
-		m_filefd = open(sPathAbs.c_str(), flags, cfg::fileperms);
 		ldbg("file opened?! returned: " << m_filefd);
 
 		// self-recovery from cache poisoned with files with wrong permissions
+		// we still want to recover the file content if we can
 		if (m_filefd < 0)
 		{
 			if(m_nSizeChecked > 0) // OOOH CRAP! CANNOT APPEND HERE! Do what's still possible.
