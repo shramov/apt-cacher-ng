@@ -1,3 +1,11 @@
+apt-cacher-ng (3.6.3-1) UNRELEASED; urgency=medium
+
+  * New upstream bugfix version
+    + solves a potential SIBGUS situation when doing maintenance work
+  * Minor metadata updates (Standards version w/o changes, VCS urls)
+
+ -- Eduard Bloch <blade@debian.org>  Mon, 08 Mar 2021 22:27:44 +0100
+
 apt-cacher-ng (3.6.2-1) unstable; urgency=medium
 
   * New upstream bugfix version
