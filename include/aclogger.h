@@ -29,7 +29,7 @@ private:
 #define USRDBG(msg) LOG(msg)
 #else
 // print some extra things when user wants debug with non-debug build
-#define USRDBG(msg) { if(cfg::debug & log::LOG_DEBUG) {log::err( tSS()<<msg); } }
+#define USRDBG(msg) { if(cfg::debug & log::LOG_DEBUG) {log::dbg( tSS()<<msg); } }
 #endif
 
 namespace log
@@ -43,10 +43,23 @@ enum ETransferType
 		INDATA = 'I', OUTDATA = 'O', ERRORRQ = 'E'
 };
 
-enum ELogFlags
-	: uint8_t
-	{
-		LOG_FLUSH = 1, LOG_MORE = 2, LOG_DEBUG = 4
+enum ELogFlags : uint8_t
+{
+	///	@brief Flush log output after each line
+	///
+	LOG_FLUSH = 1,
+
+	/// @brief Additional error information
+	///
+	LOG_MORE = 2,
+
+	/// @brief Debug information (basic by default, excessive with -DDEBUG
+	///
+	LOG_DEBUG = 4,
+
+	/// @brief Print debug information to console and not just apt-cacher.dbg
+	///
+	LOG_DEBUG_CONSOLE = 8
 };
 
 // access internal counters
@@ -59,8 +72,9 @@ void ACNG_API close(bool bReopen);
 void transfer(uint64_t bytesIn, uint64_t bytesOut, cmstring& sClient, cmstring& sPath,
 		bool bAsError);
 void ACNG_API err(const char *msg, size_t len);
+void ACNG_API dbg(const char *msg, size_t len);
 void misc(const mstring & sLine, const char cLogType = 'M');
-inline void err(cmstring &msg)
+inline void err(string_view msg)
 {
 	if(!logIsEnabled) return;
 	err(msg.data(), msg.length());
@@ -69,6 +83,11 @@ inline void err(const tSS& msg)
 {
 	if(!logIsEnabled) return;
 	err(msg.rptr(), msg.length());
+}
+inline void dbg(string_view msg)
+{
+	if(!logIsEnabled) return;
+	dbg(msg.data(), msg.length());
 }
 void flush();
 

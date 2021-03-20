@@ -104,6 +104,7 @@ public:
     inline tSS & operator<<(fmtflags mode) { m_fmtmode=mode; return *this;}
 
     operator mstring() const { return mstring(rptr(), size()); }
+    operator string_view() const { return string_view(rptr(), size()); }
     inline size_t length() const { return size();}
     inline const char * data() const { return rptr();}
 

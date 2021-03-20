@@ -330,7 +330,7 @@ bool fileitem_with_storage::DlStarted(acng::header h, acng::string_view rawHeade
 
 bool fileitem_with_storage::DlAddData(string_view chunk)
 {
-
+#warning really needs a lock here all time while doing write operations? or lock around metadata changes?
 	// something might care, most likely... also about BOUNCE action
 	notifyAll();
 

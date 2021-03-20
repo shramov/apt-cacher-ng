@@ -187,8 +187,9 @@ std::string tcpconnect::_Connect(int timeout)
 				return false;
 			}
 			set_connect_sock_flags(fd);
+
 #ifdef DEBUG
-			log::err(string("Connecting: ") + formatIpPort(dns));
+			DBGQLOG("Connecting: " << formatIpPort(dns));
 #endif
 			while (true)
 			{

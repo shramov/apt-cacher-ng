@@ -56,10 +56,6 @@ bool dnode::Walk(IFileHandler *h, dnode::tDupeFilter *pFilter, bool bFollowSymli
 		auto r=lstat(sPath.c_str(), &m_stinfo);
 		if(r)
 		{
-	/*		errnoFmter f;
-				log::err(tSS() << sPath <<
-						" IO error [" << f<<"]");
-						*/
 			return true; // slight risk of missing information here... bug ignoring is safer
 		}
 		// yeah, and we ignore symlinks here

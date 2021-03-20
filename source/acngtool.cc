@@ -1044,6 +1044,7 @@ int main(int argc, const char **argv)
 	}
 	cfg::g_bQuiet = false;
 	cfg::g_bNoComplex = true; // no DB for just single variables
+	cfg::minilog = true;	// no fancy timestamps and only STDERR output
 
   parm* parm = nullptr;
   LPCSTR mode = nullptr;

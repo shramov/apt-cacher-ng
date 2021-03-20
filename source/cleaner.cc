@@ -167,9 +167,8 @@ void cleaner::dump_status()
 	msg << "Cleanup schedule:\n";
 	for(int i=0; i<cleaner::ETYPE_MAX; ++i)
 		msg << stamps[i] << " (in " << (stamps[i]-GetTime()) << " seconds)\n";
-	log::err(msg);
+	log::dbg(msg);
 }
-
 
 void ACNG_API dump_handler(evutil_socket_t fd, short what, void *arg) {
 	TFileItemHolder::dump_status();

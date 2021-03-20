@@ -126,6 +126,8 @@ int maxdlspeed(RESERVED_DEFVAL);
 string optproxycmd;
 int optproxycheckint=-1;
 
+int minilog = 0;
+
 #ifdef DEBUG
 int dnscachetime(30);
 #else

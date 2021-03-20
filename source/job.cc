@@ -271,7 +271,6 @@ inline void job::PrepareLocalDownload(const string &visPath,
 		case ENOMEM:
 		case EOVERFLOW:
 		default:
-			//aclog::err("Internal error");
 			SetErrorResponse("500 Internal server error");
 			break;
 		case ELOOP:
@@ -460,7 +459,7 @@ void job::PrepareDownload(LPCSTR headBuf) {
     
 #ifdef DEBUGLOCAL
     cfg::localdirs["stuff"]="/tmp/stuff";
-    log::err(m_pReqHead->ToString());
+    log::dbg(m_pReqHead->ToString());
 #endif
 
     string sReqPath, sPathResidual;
@@ -1260,7 +1259,7 @@ void job::SetErrorResponse(const char * errorLine, const char *szLocation, const
 	auto p = make_shared<erroritem>("noid", errorLine, bodytext);
 	p->HeadRef().set(header::LOCATION, szLocation);
 	m_pItem = TFileItemHolder::Create(p, false);
-	//aclog::err(tSS() << "fileitem is now " << uintptr_t(m_pItem.get()));
+	//aclog::dbg(tSS() << "fileitem is now " << uintptr_t(m_pItem.get()));
 	m_state=STATE_SEND_MAIN_HEAD;
 }
 

@@ -100,7 +100,7 @@ void CAddrInfo::cb_dns(int rc, struct evutil_addrinfo *results, void *arg)
 		ret->m_rawInfo = results;
 #ifdef DEBUG
 		for (auto p = ret->m_rawInfo; p; p = p->ai_next)
-			std::cerr << formatIpPort(p) << std::endl;
+			DBGQLOG(formatIpPort(p));
 #endif
 		// find any suitable-looking entry and keep a pointer to it faster lookup
 		for (auto pCur = ret->m_rawInfo; pCur && !ret->m_tcpAddrInfo; pCur = pCur->ai_next)

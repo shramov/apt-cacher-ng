@@ -88,7 +88,7 @@ inline void dump_proc_status(){}; // strip away
 #define ldbg(x) LOG(x)
 
 #define dbgline ldbg("mark")
-#define DBGQLOG(x) {log::err(tSS()<< x);}
+#define DBGQLOG(x) {log::dbg(tSS()<< x);}
 #define dump_proc_status dump_proc_status_always
 
 #endif
@@ -96,6 +96,7 @@ inline void dump_proc_status(){}; // strip away
 
 inline void dump_proc_status_always()
 {
+#if 0
 	using namespace std;
 	ifstream sf("/proc/self/status");
 	while (sf)
@@ -104,6 +105,7 @@ inline void dump_proc_status_always()
 		getline(sf, s);
 		cerr << s << endl;
 	}
+#endif
 };
 
 }

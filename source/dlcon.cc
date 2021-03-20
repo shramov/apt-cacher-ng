@@ -477,7 +477,6 @@ struct tDlJob
 				ldbg("To store: " <<nToStore);
 				if (!m_pStorage->DlAddData(string_view(inBuf.rptr(), nToStore)))
 				{
-					dbgline;
 					sErrorMsg = "502 Could not store data";
 					return HINT_DISCON | EFLAG_JOB_BROKEN;
 				}
@@ -710,6 +709,7 @@ struct tDlJob
 			else if (m_DlState == STATE_FINISHJOB)
 			{
 				ldbg("STATE_FINISHJOB");
+				lockguard g(*m_pStorage);
 				m_pStorage->DlFinish();
 				m_DlState = STATE_GETHEADER;
 				return HINT_DONE | m_eReconnectASAP;

@@ -432,56 +432,6 @@ void ACNG_API handle_sigbus()
 						"Please check your system logs for related errors reports. Also consider "
 						"using the BusAction option, see Apt-Cacher NG Manual for details");
 	}
-#if 1
-
-#ifdef SIGBUSHUNTING
-	for (auto &x : g_mmapMemory)
-	{
-		if (!x.valid.load())
-			continue;
-		log::err(string("FATAL ERROR: probably IO error occurred, probably while reading the file ")
-			+x.path+" . Please check your system logs for related errors.");
-	}
-#endif
-
-#else
-	// attempt to pass the signal around threads, stopping the one troublemaker
-	std::cerr << "BUS ARRIVED" << std::endl;
-
-	bool metoo = false;
-
-	if (g_nThreadsToKill.load())
-		goto suicid;
-
-	g_degraded.store(true);
-
-	// this must run lock-free
-	for (auto &x : g_mmapMemory)
-	{
-		if (!x.valid.load())
-			continue;
-		log::err(
-				string("FATAL ERROR: probably IO error occurred, probably while reading the file ")
-						+ x.path + " . Please check your system logs for related errors.");
-
-		if (pthread_equal(pthread_self(), x.threadref))
-			metoo = true;
-		else
-		{
-			g_nThreadsToKill.fetch_add(1);
-			pthread_kill(x.threadref, SIGBUS);
-		}
-	}
-
-	if (!metoo)
-		return;
-
-	suicid: log::err("FATAL ERROR: SIGBUS, probably caused by an IO error. "
-			"Please check your system logs for related errors.");
-
-	g_nThreadsToKill.fetch_add(-1);
-	pthread_exit(0);
-#endif
 }
 
 bool filereader::GetOneLine(string & sOut, bool bForceUncompress) {

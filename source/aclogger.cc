@@ -27,7 +27,7 @@ namespace acng
 namespace log
 {
 
-ofstream fErr, fStat;
+ofstream fErr, fStat, fDbg;
 static acmutex mx;
 
 #ifndef DEBUG
@@ -136,7 +136,9 @@ bool open()
 	
 	logIsEnabled = true;
 
-	string apath(cfg::logdir+"/apt-cacher.log"), epath(cfg::logdir+"/apt-cacher.err");
+	string apath(cfg::logdir+"/apt-cacher.log"),
+			epath(cfg::logdir+"/apt-cacher.err"),
+			dpath(cfg::logdir+"/apt-cacher.dbg");
 	
 	mkbasedir(apath);
 
@@ -144,11 +146,14 @@ bool open()
 		fErr.close();
 	if(fStat.is_open())
 		fStat.close();
+	if(fDbg.is_open())
+		fDbg.close();
 
 	fErr.open(epath.c_str(), ios::out | ios::app);
 	fStat.open(apath.c_str(), ios::out | ios::app);
+	fDbg.open(dpath.c_str(), ios::out | ios::app);
 
-	return fStat.is_open() && fErr.is_open();
+	return fStat.is_open() && fErr.is_open() && fDbg.is_open();
 }
 
 void transfer(uint64_t bytesIn,
@@ -203,32 +208,49 @@ void misc(const string & sLine, const char cLogType)
 
 void err(const char *msg, size_t len)
 {
-	if(!logIsEnabled)
+	if (!logIsEnabled)
 		return;
 
-	auto xlog = [msg, len](ostream& chan){
+	lockguard g(&mx);
+	if (!fErr) return;
+
+	if (!cfg::minilog)
+	{
 		static char buf[32];
-		const time_t tm=time(nullptr);
+		const time_t tm = time(nullptr);
+		ctime_r(&tm, buf);
+		buf[24] = '|';
+		fErr.write(buf, 25);
+	}
+	fErr.write(msg, len).write(szNEWLINE, 1);
+
+	if (cfg::debug & LOG_FLUSH)
+		fErr.flush();
+}
+
+
+void dbg(const char *msg, size_t len)
+{
+	if (!logIsEnabled)
+		return;
+
+	static char buf[32];
+
+	lockguard g(&mx);
+	if (fDbg.is_open() && (cfg::debug & LOG_DEBUG))
+	{
+		auto tm=time(nullptr);
 		ctime_r(&tm, buf);
 		buf[24]='|';
-		chan.write(buf, 25).write(msg, len).write(szNEWLINE, 1);
-		if(cfg::debug & LOG_FLUSH)
-			chan.flush();
-	};
-	lockguard g(&mx);
-	if(!fErr.is_open())
-	{
-#ifdef DEBUG // basic debugging of acngtool
-		cerr << msg <<endl;
-#endif
-		return;
+		fDbg.write(buf, 25).write(msg, len).write(szNEWLINE, 1);
 	}
-	xlog(fErr);
-#ifdef DEBUG
-	if(cfg::debug & LOG_DEBUG)
-		xlog(cerr);
-#endif
+
+	if (cfg::debug & LOG_DEBUG_CONSOLE)
+	{
+		cerr.write(msg, len).write(szNEWLINE, 1);
+	}
 }
+
 
 void ACNG_API flush()
 {
@@ -236,8 +258,11 @@ void ACNG_API flush()
 		return;
 
 	lockguard g(mx);
-	if(fErr.is_open()) fErr.flush();
-	if(fStat.is_open()) fStat.flush();
+	for (auto* h: {&fErr, &fStat, &fDbg})
+	{
+		if(h->is_open())
+			h->flush();
+	}
 }
 
 void close(bool bReopen)
@@ -260,8 +285,11 @@ void close(bool bReopen)
 
 	lockguard g(mx);
 	if(cfg::debug >= LOG_MORE) cerr << (bReopen ? "Reopening logs...\n" : "Closing logs...\n");
-	fErr.close();
-	fStat.close();
+	for (auto* h: {&fErr, &fStat, &fDbg})
+	{
+		if(h->is_open())
+			h->close();
+	}
 	if(bReopen)
 		log::open();
 }
@@ -490,7 +518,7 @@ tSS & t_logger::GetFmter(const char *szPrefix)
 
 void t_logger::Write()
 {
-	log::err(m_strm.c_str());
+	log::dbg(m_strm);
 	m_strm.clear();
 }
 
