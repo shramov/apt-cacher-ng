@@ -159,6 +159,7 @@ public:
 	void MarkFaulty(bool deleteItCompletely = false);
 	/// optional method, returns raw header if needed in special implementations
 	virtual const std::string& GetRawResponseHeader() { return sEmptyString; }
+
 };
 
 enum class ESharingHow
@@ -232,6 +233,8 @@ protected:
 	bool withError(string_view message, fileitem::EDestroyMode destruction
 			= fileitem::EDestroyMode::KEEP);
 
+private:
+	bool SafeOpenOutFile();
 };
 
 

@@ -330,7 +330,6 @@ bool fileitem_with_storage::DlStarted(acng::header h, acng::string_view rawHeade
 
 bool fileitem_with_storage::DlAddData(string_view chunk)
 {
-	LOGSTARTFUNCx(chunk.size());
 
 	// something might care, most likely... also about BOUNCE action
 	notifyAll();
@@ -338,112 +337,8 @@ bool fileitem_with_storage::DlAddData(string_view chunk)
 	m_nIncommingCount += chunk.size();
 
 	// is this the beginning of the stream?
-	if(m_status == FIST_DLGOTHEAD)
-	{
-		checkforceclose(m_filefd);
-
-		// using adaptive Delete-Or-Replace-Or-CopyOnWrite strategy
-
-		MoveRelease2Sidestore();
-
-		auto sPathAbs(SABSPATH(m_sPathRel));
-
-		// First opening the file to be sure that it can be written. Header storage is the critical point,
-		// every error after that leads to full cleanup to not risk inconsistent file contents 
-
-		int flags = O_WRONLY | O_CREAT | O_BINARY;
-
-		Cstat stbuf;
-
-		mkbasedir(sPathAbs);
-		if (m_nSizeChecked <= 0)
-		{
-			// 0 might also be a sign of missing metadata while data file may exist
-			// in that case use the other strategy of new file creation which does not crash mmap
-
-			checkforceclose(m_filefd); // be sure about that
-			mstring tname(sPathAbs + "-"), tname2(sPathAbs + "~");
-			// keep the file descriptor later if needed
-			unique_fd tmp(open(tname.c_str(), flags, cfg::fileperms | O_TRUNC));
-			if (tmp.m_p == -1)
-				return withError("Cannot create cache files");
-			fdatasync(tmp.m_p);
-			bool didExist = true;
-			if (0 != rename(sPathAbs.c_str(), tname2.c_str()))
-			{
-				if (errno != ENOENT)
-					return withError("Cannot move cache files");
-				didExist = false;
-			}
-			if (0 != rename(tname.c_str(), sPathAbs.c_str()))
-				return withError("Cannot rename cache files");
-			if (!didExist)
-				unlink(tname2.c_str());
-			std::swap(m_filefd, tmp.m_p);
-		}
-		else
-			m_filefd = open(sPathAbs.c_str(), flags, cfg::fileperms);
-
-		ldbg("file opened?! returned: " << m_filefd);
-
-		// self-recovery from cache poisoned with files with wrong permissions
-		// we still want to recover the file content if we can
-		if (m_filefd == -1)
-		{
-			if(m_nSizeChecked > 0) // OOOH CRAP! CANNOT APPEND HERE! Do what's still possible.
-			{
-				string temp = sPathAbs + ".tmp";
-				if (!FileCopy(sPathAbs, temp, &errno))
-					return withError("Cannot make file copies");
-
-				if (0 != unlink(sPathAbs.c_str()))
-					return withError("Cannot remove file in folder");
-
-				if (0 != rename(temp.c_str(), sPathAbs.c_str()))
-					return withError("Cannot rename files in folder");
-
-				m_filefd = open(sPathAbs.c_str(), flags, cfg::fileperms);
-			}
-			else
-			{
-				unlink(sPathAbs.c_str());
-				m_filefd=open(sPathAbs.c_str(), flags, cfg::fileperms);
-			}
-		}
-
-		if (m_filefd == -1)
-			return withError("Filesystem error");
-
-#if 0 // do we care?
-		if(0 != fstat(m_filefd, &stbuf) || !S_ISREG(stbuf.st_mode))
-			return withError("Not a regular file", EDestroyMode::DELETE_KEEP_HEAD);
-#endif
-
-		auto sHeadPath(sPathAbs + ".head");
-
-		ldbg("Storing header as " + sHeadPath);
-		auto tempHead(sPathAbs + ".hea%");
-		int count = m_head.StoreToFile(tempHead);
-
-		if(count<0)
-		{
-			errno = -count;
-			return withError("Cannot store header");
-		}
-
-		// by now the file should have been validated and adjusted to the correct size
-		if (m_nSizeChecked >= 0 && m_nSizeChecked != lseek(m_filefd, 0, SEEK_END))
-			return withError("Unexpected file change");
-
-		// this is not supposed to go wrong at this moment
-		if (0 != rename(tempHead.c_str(), sHeadPath.c_str()))
-			return withError("Renaming failure");
-
-		// okay, have the stream open
-		m_status = FIST_DLRECEIVING;
-		if (m_nSizeChecked < 0)
-			m_nSizeChecked = 0;
-	}
+	if(m_status == FIST_DLGOTHEAD && !SafeOpenOutFile())
+		return false;
 
 	if (AC_UNLIKELY(m_filefd == -1 || m_status < FIST_DLGOTHEAD))
 		return withError("Suspicious fileitem status");
@@ -462,6 +357,119 @@ bool fileitem_with_storage::DlAddData(string_view chunk)
 		m_nSizeChecked += r;
 		chunk.remove_prefix(r);
 	}
+	return true;
+}
+
+bool fileitem_with_storage::SafeOpenOutFile()
+{
+	LOGSTARTFUNC
+	checkforceclose(m_filefd);
+
+	// using adaptive Delete-Or-Replace-Or-CopyOnWrite strategy
+
+	MoveRelease2Sidestore();
+
+	auto sPathAbs(SABSPATH(m_sPathRel));
+
+	// First opening the file to be sure that it can be written. Header storage is the critical point,
+	// every error after that leads to full cleanup to not risk inconsistent file contents
+
+	int flags = O_WRONLY | O_CREAT | O_BINARY;
+
+	Cstat stbuf;
+
+	mkbasedir(sPathAbs);
+	if (m_nSizeChecked <= 0)
+	{
+		// 0 might also be a sign of missing metadata while data file may exist
+		// in that case use the other strategy of new file creation which does not crash mmap
+
+		checkforceclose(m_filefd); // be sure about that
+		mstring tname(sPathAbs + "-"), tname2(sPathAbs + "~");
+		// keep the file descriptor later if needed
+		unique_fd tmp(open(tname.c_str(), flags, cfg::fileperms | O_TRUNC));
+		if (tmp.m_p == -1)
+			return withError("Cannot create cache files");
+		fdatasync(tmp.m_p);
+		bool didExist = true;
+		if (0 != rename(sPathAbs.c_str(), tname2.c_str()))
+		{
+			if (errno != ENOENT)
+				return withError("Cannot move cache files");
+			didExist = false;
+		}
+		if (0 != rename(tname.c_str(), sPathAbs.c_str()))
+			return withError("Cannot rename cache files");
+		if (!didExist)
+			unlink(tname2.c_str());
+		std::swap(m_filefd, tmp.m_p);
+	}
+	else
+		m_filefd = open(sPathAbs.c_str(), flags, cfg::fileperms);
+
+	ldbg("file opened?! returned: " << m_filefd);
+
+	// self-recovery from cache poisoned with files with wrong permissions
+	// we still want to recover the file content if we can
+	if (m_filefd == -1)
+	{
+		if (m_nSizeChecked > 0) // OOOH CRAP! CANNOT APPEND HERE! Do what's still possible.
+		{
+			string temp = sPathAbs + ".tmp";
+			if (!FileCopy(sPathAbs, temp, &errno))
+				return withError("Cannot make file copies");
+
+			if (0 != unlink(sPathAbs.c_str()))
+				return withError("Cannot remove file in folder");
+
+			if (0 != rename(temp.c_str(), sPathAbs.c_str()))
+				return withError("Cannot rename files in folder");
+
+			m_filefd = open(sPathAbs.c_str(), flags, cfg::fileperms);
+		}
+		else
+		{
+			unlink(sPathAbs.c_str());
+			m_filefd = open(sPathAbs.c_str(), flags, cfg::fileperms);
+		}
+	}
+
+	if (m_filefd == -1)
+		return withError("Filesystem error");
+
+#if 0 // do we care?
+		if(0 != fstat(m_filefd, &stbuf) || !S_ISREG(stbuf.st_mode))
+			return withError("Not a regular file", EDestroyMode::DELETE_KEEP_HEAD);
+#endif
+
+	auto sHeadPath(sPathAbs + ".head");
+
+	ldbg("Storing header as " + sHeadPath);
+	auto tempHead(sPathAbs + ".hea%");
+	int count = m_head.StoreToFile(tempHead);
+
+	if (count < 0)
+	{
+		errno = -count;
+		return withError("Cannot store header");
+	}
+
+	// either confirm start at zero or verify the expected file state on disk
+
+	if (m_nSizeChecked < 0)
+		m_nSizeChecked = 0;
+	else
+	{
+		if (m_nSizeChecked != lseek(m_filefd, 0, SEEK_END))
+			return withError("Unexpected file change");
+	}
+
+	// this is not supposed to go wrong at this moment
+	if (0 != rename(tempHead.c_str(), sHeadPath.c_str()))
+		return withError("Renaming failure");
+
+	// okay, have the stream open
+	m_status = FIST_DLRECEIVING;
 	return true;
 }
 
