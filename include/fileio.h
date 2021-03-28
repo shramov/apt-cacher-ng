@@ -16,9 +16,19 @@
 #include <cstdio>
 #include <unistd.h>
 
+#include <inttypes.h>
+#include <climits>
+#include <memory>
+
 #ifdef HAVE_LINUX_SENDFILE
 #include <sys/sendfile.h>
 #endif
+
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
+
+#define ENEMIESOFDOSFS "?[]\\=+<>:;#"
 
 #ifndef O_BINARY
 #define O_BINARY 0 // ignore on Unix

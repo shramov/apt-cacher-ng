@@ -638,7 +638,7 @@ int maint_job()
 		url.sHost = FAKE_UDS_HOSTNAME;
 		TUdsFactory udsFac;
 		evabaseFreeFrunner eb(udsFac);
-		DownloadItem(url, eb.dl, fi);
+		DownloadItem(url, eb.getDownloader(), fi);
 		response_ok = fi->GetHeader().getStatus() == 200;
 		DBGQLOG("UDS result: " << response_ok)
 	}
@@ -657,7 +657,7 @@ int maint_job()
 			url.sHost = tgt;
 			evabaseFreeFrunner eb(g_tcp_con_factory);
 			auto fi = CreateReportItem();
-			DownloadItem(url, eb.dl, fi);
+			DownloadItem(url, eb.getDownloader(), fi);
 			response_ok = fi->GetHeader().getStatus() == 200;
 			if (response_ok)
 				break;
@@ -1107,7 +1107,7 @@ int wcat(LPCSTR surl, LPCSTR proxy, IFitemFactory* fac, const IDlConFactory &pDl
 	evabaseFreeFrunner eb(pDlconFac);
 
 	auto fi=fac->Create();
-	eb.dl.AddJob(fi, dlrequest().setSrc(url));
+	eb.getDownloader().AddJob(fi, dlrequest().setSrc(url));
 	int st;
 	auto fistatus = fi->WaitForFinish(&st);
 	if(fistatus == fileitem::FIST_COMPLETE && st == 200)

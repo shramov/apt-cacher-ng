@@ -32,7 +32,7 @@ class fileitem;
 
 class ACNG_API dlcon
 {
-	friend class ::acng::tDlJob;
+	friend struct ::acng::tDlJob;
 	class Impl;
 	Impl *_p;
 

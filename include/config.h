@@ -1,4 +1,7 @@
-
+/**
+ * Most basic configuration preparation for the project build, after reading auto-config variables
+ * and preparing internal configuration bits from that.
+ */
 #ifndef __CONFIG_H_
 #define __CONFIG_H_
 
@@ -16,9 +19,6 @@
 #endif
 
 #define __STDC_FORMAT_MACROS
-#include <inttypes.h>
-#include <climits>
-#include <memory>
 
 // added in Makefile... #define _FILE_OFFSET_BITS 64
 
@@ -26,27 +26,7 @@ namespace acng
 {
 
 #define SHARED_PTR std::shared_ptr
-#define INTRUSIVE_PTR std::intrusive_ptr
 #define WEAK_PTR std::weak_ptr
-#define SCOPED_PTR std::auto_ptr
-
-#ifndef PATH_MAX
-#define PATH_MAX 4096
-#endif
-
-#define ENEMIESOFDOSFS "?[]\\=+<>:;#"
-
-//! Time after which the pooled sockets are considered EOLed
-#define TIME_SOCKET_EXPIRE_CLOSE 33
-
-#define COMMA ,
-#ifdef HAVE_SSL
-#define IFSSLORFALSE(x) x
-#define SSL_OPT_ARG(x) COMMA x
-#else
-#define IFSSLORFALSE(x) false
-#define SSL_OPT_ARG(x)
-#endif
 
 #if defined _WIN32 || defined __CYGWIN__
   #define ACNG_SO_IMPORT __declspec(dllimport)

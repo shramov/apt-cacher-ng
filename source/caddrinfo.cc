@@ -135,7 +135,7 @@ SHARED_PTR<CAddrInfo> CAddrInfo::Resolve(cmstring & sHostname, cmstring &sPort)
 	promise<CAddrInfoPtr> reppro;
 	auto reporter = [&reppro](CAddrInfoPtr result) { reppro.set_value(result); };
 	Resolve(sHostname, sPort, move(reporter));
-	auto res(move(reppro.get_future().get()));
+	auto res(reppro.get_future().get());
 	return res ? res : fail_hint;
 }
 void CAddrInfo::Resolve(cmstring & sHostname, cmstring &sPort, tDnsResultReporter rep)

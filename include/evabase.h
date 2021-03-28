@@ -1,7 +1,9 @@
 #ifndef __EVABASE_H__
 #define __EVABASE_H__
 
-#include "meta.h"
+#include "config.h"
+#include <memory>
+#include <functional>
 #include <event.h>
 
 struct evdns_base;

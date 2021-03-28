@@ -8,23 +8,23 @@
 #ifndef INCLUDE_EBRUNNER_H_
 #define INCLUDE_EBRUNNER_H_
 
-#include "dlcon.h"
-
-#include <thread>
+#include "config.h"
 
 namespace acng
 {
-class evabase;
+class dlcon;
+class IDlConFactory;
+
 // tool helper class for acngtool and httpfs, runs event and download threads
 class ACNG_API evabaseFreeFrunner
 {
+	class Impl;
 public:
-	dlcon dl;
 	evabaseFreeFrunner(const IDlConFactory &pDlconFac);
 	~evabaseFreeFrunner();
+	dlcon& getDownloader();
 private:
-	std::thread evthr, thr;
-	evabase *m_eb;
+	Impl *m_pImpl;
 };
 
 }

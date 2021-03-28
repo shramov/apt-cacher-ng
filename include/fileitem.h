@@ -105,8 +105,6 @@ protected:
 	 * Dl* methods are used by the downloader. All access must happen in locked mode.
 	 *
 	 *************************************/
-#warning benutzer checken, ggf. locks adden, und interne locks rauswerfen
-
 
 	/**
 	 * Mark the beginning of a download, with a header to be consumed and
@@ -213,7 +211,6 @@ public:
 	virtual ~fileitem_with_storage();
 	// send helper like wrapper for sendfile. Just declare virtual here to make it better customizable later.
 	virtual ssize_t SendData(int confd, int filefd, off_t &nSendPos, size_t nMax2SendNow) override;
-	virtual bool DlAddData(string_view chunk) override;
 
 	inline static mstring NormalizePath(cmstring &sPathRaw)
 	{
@@ -224,9 +221,10 @@ protected:
 	int MoveRelease2Sidestore();
 	int m_filefd = -1;
 
-	virtual void DlPreAlloc(off_t remoteSize);
-	virtual bool DlStarted(acng::header h, acng::string_view rawHeader, off_t bytes2seek);
-	virtual void DlFinish(bool asInCache);
+	bool DlAddData(string_view chunk) override;
+	void DlPreAlloc(off_t remoteSize) override;
+	bool DlStarted(acng::header h, acng::string_view rawHeader, off_t bytes2seek) override;
+	void DlFinish(bool asInCache) override;
 
 	void SETERROR(string_view x);
 

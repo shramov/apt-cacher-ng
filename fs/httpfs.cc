@@ -20,6 +20,7 @@
 #include "ebrunner.h"
 #include "fileitem.h"
 #include "fileio.h"
+#include "dlcon.h"
 
 #ifdef HAVE_SYS_MOUNT_H
 #include <sys/param.h>
@@ -178,7 +179,7 @@ public:
 				return 0;
 			} // nothing to send
 
-			virtual bool DlAddData(string_view chunk)
+			bool DlAddData(string_view chunk) override
 			{
 				auto count = chunk.size();
 				auto p = chunk.data();
@@ -208,7 +209,7 @@ public:
 				return true;
 			}
 
-			virtual void DlFinish(bool asInCache = false)
+			void DlFinish(bool asInCache = false) override
 			{
 				notifyAll();
 				m_status=FIST_COMPLETE;
@@ -733,7 +734,7 @@ int main(int argc, char *argv[])
    argc-=nMyArgCount;
 
    evabaseFreeFrunner eb(g_tcp_con_factory);
-   dler = &eb.dl;
+   dler = &eb.getDownloader();
 
    return my_fuse_main(argc, argv);
 }

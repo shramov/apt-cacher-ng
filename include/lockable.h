@@ -46,6 +46,8 @@ struct ACNG_API base_with_condition : public base_with_mutex
 
 #define setLockGuard std::lock_guard<std::mutex> local_helper_lockguard(m_obj_mutex);
 
+#define setLockGuardX(x) std::lock_guard<decltype(x)> local_helper_lockguard(x);
+
 }
 
 #endif

@@ -10,7 +10,7 @@ class dlcon;
 
 class conn // : public tRunable
 {
-	struct Impl;
+	class Impl;
 	Impl *_p;
 public:
 	conn(unique_fd fdId, const char *client);

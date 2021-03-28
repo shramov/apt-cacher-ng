@@ -318,7 +318,6 @@ tStrDeq ExpandFilePattern(cmstring& pattern, bool bSorted=false, bool bQuiet=fal
 
 //void MakeAbsolutePath(mstring &dirToFix, const mstring &reldir);
 
-
 mstring UrlEscape(cmstring &s);
 void UrlEscapeAppend(cmstring &s, mstring &sTarget);
 bool UrlUnescapeAppend(cmstring &from, mstring & to);
@@ -531,12 +530,6 @@ std::pair<T,T> pairSum(const std::pair<T,T>& a, const std::pair<T,T>& b)
 {
 	return std::pair<T,T>(a.first+b.first, a.second + b.second);
 }
-
-#define RET_SWITCH(label) switch(label) {
-#define RET_CASE(label) case label : goto label;
-#define RET_SWITCH_END }
-
-#define setLockGuardX(x) std::lock_guard<decltype(x)> local_helper_lockguard(x);
 
 namespace cfg
 {

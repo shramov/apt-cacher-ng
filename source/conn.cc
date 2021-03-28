@@ -450,9 +450,10 @@ bool conn::Impl::SetupDownloader()
 		if(!m_pDlClient)
 			return false;
 		auto pin = m_pDlClient;
-		m_dlerthr = move(thread([pin](){
+		m_dlerthr = thread([pin]()
+		{
 			pin->WorkLoop();
-		}));
+		});
 		m_badState = false;
 		return true;
 	}

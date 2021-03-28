@@ -19,6 +19,8 @@
 
 using namespace std;
 
+#warning Review all usages of Dl* methods, need to do locks properly
+
 namespace acng
 {
 #define MAXTEMPDELAY acng::cfg::maxtempdelay // 27

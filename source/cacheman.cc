@@ -1038,7 +1038,7 @@ void cacheman::ExtractAllRawReleaseDataFixStrandedPatchIndex(tFileGroups& idxGro
 #ifndef EXPLICIT_INDEX_USE_CHECKING
 			// first, look around for for .diff/Index files on disk, update them, check patch base file
 			// and make sure one is there or something is not right
-			for(const auto cid : file2cid)
+			for(const auto& cid : file2cid)
 			{
 				// not diff index or not in cache?
 				if(!endsWith(cid.first, diffIdxSfx))
@@ -1086,7 +1086,7 @@ void cacheman::ExtractAllRawReleaseDataFixStrandedPatchIndex(tFileGroups& idxGro
 			//dbgState();
 
 			// now refine all extracted information and store it in eqClasses for later processing
-			for(auto if2cid : file2cid)
+			for(const auto& if2cid : file2cid)
 			{
 				string sNativeName=if2cid.first.substr(0, FindCompSfxPos(if2cid.first));
 				tContentKey groupId;
