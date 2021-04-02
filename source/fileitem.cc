@@ -9,6 +9,7 @@
 #include "acbuf.h"
 #include "fileio.h"
 #include "cleaner.h"
+#include "evabase.h"
 
 #include <errno.h>
 #include <algorithm>
@@ -509,20 +510,22 @@ TFileItemHolder::~TFileItemHolder()
 	}
 #endif
 
-	if (wasGloballyRegistered)
+	// some file items will be held ready for some time
+	if (wasGloballyRegistered
+			&& !evabase::in_shutdown
+			&& MAXTEMPDELAY
+			&& m_ptr->m_bVolatile
+			&& m_ptr->m_status == fileitem::FIST_COMPLETE)
 	{
-		// some file items will be held ready for some time
-		if (MAXTEMPDELAY && m_ptr->m_bVolatile && m_ptr->m_status == fileitem::FIST_COMPLETE)
+		auto when = m_ptr->m_nTimeDlStarted + MAXTEMPDELAY;
+		if (when > GetTime())
 		{
-			auto when = m_ptr->m_nTimeDlStarted + MAXTEMPDELAY;
-			if (when > GetTime())
-			{
-				local_ptr->usercount++;
-				AddToProlongedQueue(TFileItemHolder(local_ptr), when);
-				return;
-			}
+			local_ptr->usercount++;
+			AddToProlongedQueue(TFileItemHolder(local_ptr), when);
+			return;
 		}
 	}
+
 	// nothing, let's put the item into shutdown state
 	if (m_ptr->m_status < fileitem::FIST_COMPLETE)
 		m_ptr->m_status = fileitem::FIST_DLSTOP;
