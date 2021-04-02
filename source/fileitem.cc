@@ -149,7 +149,7 @@ fileitem::FiStatus fileitem::Setup(bool bCheckFreshness)
 	{
 		m_nSizeCachedInitial = m_nSizeChecked = m_nContLenInitial = -1;
 #warning flag beachten!
-		m_bReplaceOnOpen = true;
+		m_bWriterMustReplaceFile = true;
 		return m_status = FIST_INITED;
 	};
 
@@ -550,7 +550,7 @@ void TFileItemHolder::AddToProlongedQueue(tFileItemPtr&& p, time_t expTime)
 TFileItemHolder TFileItemHolder::Create(cmstring &sPathUnescaped, ESharingHow how)
 {
 	LOGSTARTFUNCxs(sPathUnescaped);
-#warning braucht UT für alles
+#warning should have UTs for all combinations
 	try
 	{
 		mstring sPathRel(fileitem_with_storage::NormalizePath(sPathUnescaped));
@@ -586,8 +586,11 @@ TFileItemHolder TFileItemHolder::Create(cmstring &sPathUnescaped, ESharingHow ho
 			return share();
 
 		// detect items that got stuck somehow and move it out of the way
-		time_t now(GetTime());
+		auto now(GetTime());
 		auto makeWay = how == ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY ||
+#warning range-limited item (only those starting from zero) shall set this!
+#warning actually, bad idea, should carry rangelimit again in the item and verify against that in this method
+				fi->m_bCreateItemMustDisplace ||
 				(now > (fi->m_nTimeDlStarted + cfg::stucksecs));
 
 		if (!makeWay)

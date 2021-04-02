@@ -86,7 +86,15 @@ public:
 protected:
 
 	bool m_bPreallocated = false;
-	bool m_bReplaceOnOpen = false;
+	/**
+	 * The item is usable but data file must be removed/replaced on opening.
+	 */
+	bool m_bWriterMustReplaceFile = false;
+	/**
+	 * Such item can exist as long as it's used by one client, new creators
+	 * for this location must get it out of the way.
+	 */
+	bool m_bCreateItemMustDisplace = false;
 
 	unsigned m_nDlRefsCount = 0;
 
