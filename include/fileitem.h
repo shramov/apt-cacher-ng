@@ -195,7 +195,7 @@ public:
 
 	// when copied around, invalidates the original reference
 	~TFileItemHolder();
-	inline tFileItemPtr get() {return m_ptr;}
+	inline tFileItemPtr get() { return m_ptr; }
 	// invalid dummy constructor
 	inline TFileItemHolder() {}
 

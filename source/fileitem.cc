@@ -600,30 +600,41 @@ TFileItemHolder TFileItemHolder::Create(cmstring &sPathUnescaped, ESharingHow ho
 		if (fi->m_sPathRel.empty())
 			return TFileItemHolder();
 
-		// okay, needing the evasive maneuver
+		// okay, needing the evasive maneuver because file might exist
 		auto replPathRel = fi->m_sPathRel + "." + ltos(now);
 		auto replPathAbs = SABSPATH(replPathRel);
 
 		auto pathAbs = SABSPATH(fi->m_sPathRel);
 
-		if (0 != link(pathAbs.c_str(), replPathAbs.c_str()) || 0 != unlink(pathAbs.c_str()))
-		{
-			// oh, that's bad, no permissions on the folder whatsoever?
-			log::err(string("Failure to move file out of the way into ") + replPathAbs + " - errno: " + tErrnoFmter());
-			return TFileItemHolder();
-		}
-		else
-		{
+		auto abandon_replace = [&]() {
 			fi->m_sPathRel = replPathAbs;
 			fi->m_eDestroy = fileitem::EDestroyMode::ABANDONED;
 			fi->m_globRef = mapItems.end();
 			mapItems.erase(it);
 			return regnew();
+		};
+
+		if(0 == link(pathAbs.c_str(), replPathAbs.c_str()))
+		{
+			// only if it was actually there!
+			if (0 == unlink(pathAbs.c_str()) || errno != ENOENT)
+				return abandon_replace();
+			else // unlink failed but file was there
+				log::err(string("Failure to erase stale file item for ") + pathAbs + " - errno: " + tErrnoFmter());
 		}
-	} catch (std::bad_alloc&)
-	{
-		return TFileItemHolder();
+		else
+		{
+			if (ENOENT == errno) // XXX: replPathAbs doesn't exist but ignore for now
+				return abandon_replace();
+
+			log::err(string("Failure to move file out of the way into ")
+					+ replPathAbs + " - errno: " + tErrnoFmter());
+		}
 	}
+	catch (std::bad_alloc&)
+	{
+	}
+	return TFileItemHolder();
 }
 
 // make the fileitem globally accessible
