@@ -179,7 +179,6 @@ enum class ESharingHow
 class TFileItemHolder
 {
 public:
-
 	// public constructor wrapper, create a sharable item with storage or share an existing one
 	static TFileItemHolder Create(cmstring &sPathUnescaped, ESharingHow how =
 			ESharingHow::ALWAYS_TRY_SHARING) WARN_UNUSED;
@@ -199,7 +198,6 @@ public:
 	// invalid dummy constructor
 	inline TFileItemHolder() {}
 
-	TFileItemHolder(const TFileItemHolder &src) = delete;
 	TFileItemHolder& operator=(const TFileItemHolder &src) = delete;
 	TFileItemHolder& operator=(TFileItemHolder &&src) { m_ptr.swap(src.m_ptr); return *this; }
 	TFileItemHolder(TFileItemHolder &&src) { m_ptr.swap(src.m_ptr); };
@@ -208,7 +206,7 @@ private:
 
 	tFileItemPtr m_ptr;
 	explicit TFileItemHolder(tFileItemPtr p) : m_ptr(p) {}
-	void AddToProlongedQueue(tFileItemPtr&& p, time_t expTime);
+	void AddToProlongedQueue(TFileItemHolder&&, time_t expTime);
 };
 
 // dl item implementation with storage on disk

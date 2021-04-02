@@ -12,6 +12,7 @@
 
 #include <errno.h>
 #include <algorithm>
+#include <list>
 
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -30,11 +31,11 @@ static acmutex mapItemsMx;
 
 struct TExpiredEntry
 {
-	tFileItemPtr p;
+	TFileItemHolder hodler;
 	time_t timeExpired;
 };
 
-deque<TExpiredEntry> prolongedLifetimeQ;
+std::list<TExpiredEntry> prolongedLifetimeQ;
 static acmutex prolongMx;
 
 header const & fileitem::GetHeaderUnlocked()
@@ -516,7 +517,8 @@ TFileItemHolder::~TFileItemHolder()
 			auto when = m_ptr->m_nTimeDlStarted + MAXTEMPDELAY;
 			if (when > GetTime())
 			{
-				AddToProlongedQueue(move(local_ptr), when);
+				local_ptr->usercount++;
+				AddToProlongedQueue(TFileItemHolder(local_ptr), when);
 				return;
 			}
 		}
@@ -537,12 +539,11 @@ TFileItemHolder::~TFileItemHolder()
 
 }
 
-void TFileItemHolder::AddToProlongedQueue(tFileItemPtr&& p, time_t expTime)
+void TFileItemHolder::AddToProlongedQueue(TFileItemHolder&& p, time_t expTime)
 {
 	lockguard g(prolongMx);
 	// act like the item is still in use
-	p->usercount++;
-	prolongedLifetimeQ.emplace_back(TExpiredEntry {p, expTime});
+	prolongedLifetimeQ.emplace_back(TExpiredEntry {move(p), expTime});
 	cleaner::GetInstance().ScheduleFor(prolongedLifetimeQ.front().timeExpired,
 			cleaner::TYPE_EXFILEITEM);
 }
@@ -672,26 +673,18 @@ TFileItemHolder TFileItemHolder::Create(tFileItemPtr spCustomFileItem, bool isSh
 // thread but us is using them.
 time_t TFileItemHolder::BackgroundCleanup()
 {
-	auto now = GetTime(), ret = END_OF_TIME;
+	auto now = GetTime();
 	LOGSTARTFUNCsx(now);
-	deque<tFileItemPtr> releasedQ;
-
-	{
-		lockguard g(prolongMx);
-		while (!prolongedLifetimeQ.empty() && prolongedLifetimeQ.front().timeExpired <= now)
-		{
-			releasedQ.emplace_back(move(prolongedLifetimeQ.front().p));
-			prolongedLifetimeQ.pop_front();
-		}
-		if (!prolongedLifetimeQ.empty())
-			ret = prolongedLifetimeQ.front().timeExpired;
-	}
-	for(auto& item: releasedQ)
-	{
-		// run dtor just like as if it happened with a regular release would happen
-		TFileItemHolder cleaner(item);
-	}
-	return ret;
+	// where the destructors eventually do their job on stack unrolling
+	decltype(prolongedLifetimeQ) releasedQ;
+	lockguard g(prolongMx);
+	if (prolongedLifetimeQ.empty())
+		return END_OF_TIME;
+	auto notExpired = std::find_if(prolongedLifetimeQ.begin(), prolongedLifetimeQ.end(),
+			[now](const TExpiredEntry &el) {	return el.timeExpired > now;});
+	// grab all before expired element, or even all
+	releasedQ.splice(releasedQ.begin(), prolongedLifetimeQ, prolongedLifetimeQ.begin(), notExpired);
+	return prolongedLifetimeQ.empty() ? END_OF_TIME : prolongedLifetimeQ.front().timeExpired;
 }
 
 ssize_t fileitem_with_storage::SendData(int out_fd, int in_fd, off_t &nSendPos, size_t count)
