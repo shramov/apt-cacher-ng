@@ -637,8 +637,12 @@ struct tHookHandler: public tRepoData::IHookHandler, public base_with_mutex
 		{
 			if(downTimeNext) // huh, already ticking? reset
 				downTimeNext=0;
-			else if(system(cmdCon.c_str()))
-				log::err(tSS() << "Warning: " << cmdCon << " returned with error code.");
+			else if (!cmdCon.empty())
+			{
+				if (system(cmdCon.c_str()))
+					log::err(tSS() << "Warning: " << cmdCon << " returned with error code.");
+			}
+
 		}
 	}
 };
@@ -657,6 +661,7 @@ inline void _AddHooksFile(cmstring& vname)
 			continue;
 
 		const char *p = key.c_str();
+		trimString(val, SPACECHARS "\0");
 		if (strcasecmp("PreUp", p) == 0)
 		{
 			hs.cmdCon = val;
@@ -1315,18 +1320,25 @@ time_t BackgroundCleanup()
 		lockguard g(hooks);
 		if (hooks.downTimeNext)
 		{
-			if (hooks.downTimeNext <= now) // time to execute
+			if (hooks.downTimeNext <= now) // is valid & time to execute?
 			{
-				if(cfg::debug & log::LOG_MORE)
-					log::misc(hooks.cmdRel, 'X');
-				if(cfg::debug & log::LOG_FLUSH)
-					log::flush();
+				if(!hooks.cmdRel.empty())
+				{
+					if (cfg::debug & log::LOG_MORE)
+						log::misc(hooks.cmdRel, 'X');
+					if (cfg::debug & log::LOG_FLUSH)
+						log::flush();
 
-				if(system(hooks.cmdRel.c_str()))
-					log::err(tSS() << "Warning: " << hooks.cmdRel << " returned with error code.");
-				hooks.downTimeNext = 0;
+					if (system(hooks.cmdRel.c_str()))
+					{
+						log::err(
+								tSS() << "Warning: " << hooks.cmdRel
+										<< " returned with error code.");
+					}
+					hooks.downTimeNext = 0;
+				}
 			}
-			else // in future, use the soonest time
+			else // it's in future, take the earliest
 				ret = min(ret, hooks.downTimeNext);
 		}
 	}
