@@ -919,6 +919,7 @@ struct tDlJob
 			{
 				return withError("500 Server reports unexpected range");
 			}
+			h.set(header::CONTENT_LENGTH, remoteSize);
 			break;
 		}
 		case 416:
@@ -929,6 +930,7 @@ struct tDlJob
 			{
 				USRDBG( "Peer denied to resume previous download (transient error) " << sPathRel );
 				m_pStorage->m_nSizeCachedInitial = 0; // XXX: this is ok as hint to request cooking but maybe add dedicated flag
+				m_pStorage->m_bWriterMustReplaceFile = true;
 				return EResponseEval::RESTART_NEEDED;
 			}
 			else
@@ -948,19 +950,18 @@ struct tDlJob
 			}
 			m_bAllowStoreData = false;
 			remoteSize = -1;
+			// if there was body length, make it zero, otherwise better also drop it
+			if (h.h[header::CONTENT_LENGTH])
+				h.set(header::CONTENT_LENGTH, "0");
 		}
 
 		if (isHiddenResuming())
 			return EResponseEval::GOOD;
 
-		if (remoteSize < 0)
-			h.del(header::CONTENT_LENGTH);
-		else
-			h.set(header::CONTENT_LENGTH, remoteSize);
-
 		if(cfg::debug & log::LOG_MORE)
 			log::misc(string("Download of ")+sPathRel+" started");
 
+		// be sure about that!
 		h.del(header::CONTENT_RANGE);
 
 		if (!m_pStorage->DlStarted(move(h), rawHeader, m_nUsedRangeStartPos))
@@ -972,7 +973,8 @@ struct tDlJob
 
 		if (m_bAllowStoreData)
 		{
-			m_pStorage->DlPreAlloc(remoteSize);
+			if(remoteSize > 0)
+				m_pStorage->DlPreAlloc(remoteSize);
 		}
 		else // finish it asap regardless of trailing body garbage
 		{
