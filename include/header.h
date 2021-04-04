@@ -10,6 +10,16 @@
 namespace acng
 {
 
+/**
+ * @brief ParseHeadFromStorage Reads cached items with basic validation
+ * @param path Source file to read
+ * @param contLen [OUT, OPTIONAL] Resulting content lenth
+ * @param lastModified [OUT, OPTIONAL] Last modified date as timestamp
+ * @param origSrc [OUT, OPTIONAL] Resulting content lenth
+ * @return True if head appears valid (200 code answer)
+ */
+bool ParseHeadFromStorage(cmstring& path, off_t* contLen, time_t* lastModified, mstring* origSrc);
+
 class ACNG_API header {
    public:
       enum eHeadType : char
@@ -54,10 +64,6 @@ class ACNG_API header {
       header(header &&);
       header& operator=(const header&); 
       header& operator=(header&&);
-      
-      static mstring GenInfoHeaders();
-      static bool ParseDate(const char *, struct tm*);
-      static time_t ParseDate(const char *, time_t onError);
 
       int LoadFromFile(const mstring & sPath);
       
@@ -76,6 +82,8 @@ class ACNG_API header {
     	  return frontLine.length()>9 ? frontLine.c_str()+9 : "";
       }
       inline int getStatus() const { int r=atoi(getCodeMessage()); return r ? r : 500; }
+
+      std::string getMessage() const;
       void clear();
       
       tSS ToString() const;
@@ -95,13 +103,6 @@ class ACNG_API header {
       // XXX: maybe redesign the unkFunc to just use pointer and length instead of strings
       int Load(const char *src, unsigned length, const std::function<void(cmstring&, cmstring&)> &unkFunc = std::function<void(cmstring&, cmstring&)>());
 };
-
-inline bool BODYFREECODE(int status)
-{
-	// no response if not-modified or similar, following http://www.w3.org/Protocols/rfc2616/rfc2616-sec4.html#sec4.4
-	return (304 == status || (status>=100 && status<200) || 204==status);
-}
-
 }
 
 #endif

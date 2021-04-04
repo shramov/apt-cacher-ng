@@ -35,11 +35,13 @@ protected:
 		EXPECT_EQ(0, dled);
 		return !dled;
 	}
+#if 0
 	virtual bool Inject(cmstring &fromRel, cmstring &toRel, bool bSetIfileFlags,
 			const header *pForcedHeader, bool bTryLink)	override
 	{
 		return true;
 	}
+#endif
 };
 
 

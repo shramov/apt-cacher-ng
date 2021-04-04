@@ -15,6 +15,7 @@
 
 #include "fileio.h"
 #include "filereader.h"
+#include "httpdate.h"
 
 #include <map>
 
@@ -128,7 +129,19 @@ void header::clear()
 void header::del(eHeadPos i)
 {
 	free(h[i]);
-	h[i]=0;
+    h[i]=0;
+}
+
+string header::getMessage() const
+{
+    auto p = frontLine.c_str();
+    while (isspace((unsigned) *p))
+        ++p;
+    while (isdigit((unsigned) *p))
+        ++p;
+    while (isspace((unsigned) *p))
+        ++p;
+    return string(p, frontLine.length() - (p - frontLine.c_str()));
 }
 
 int header::Load(LPCSTR const in, unsigned maxlen,
@@ -308,7 +321,7 @@ tSS header::ToString() const
 	for(const auto& pos2key : mapId2Headname)
 		if (h[pos2key.pos])
 			s << pos2key.str << ": " << h[pos2key.pos] << "\r\n";
-	s<< "Date: " << tCurrentTime() << "\r\n\r\n";
+    s<< "Date: " << tHttpDate(GetTime()).any() << "\r\n\r\n";
 	return s;
 }
 
@@ -358,40 +371,5 @@ int header::StoreToFile(cmstring &sPath) const
 	
 	return nByteCount;
 }
-
-std::string header::GenInfoHeaders()
-{
-	    string ret="Date: ";
-	    ret+=tCurrentTime();
-	    ret+="\r\nServer: Debian Apt-Cacher NG/" ACVERSION "\r\n";
-	    return ret;
-}
-
-static const char* fmts[] =
-{
-		"%a, %d %b %Y %H:%M:%S GMT",
-		"%A, %d-%b-%y %H:%M:%S GMT",
-		"%a %b %d %H:%M:%S %Y"
-};
-
-bool header::ParseDate(const char *s, struct tm *tm)
-{
-	if(!s || !tm)
-		return false;
-	for(const auto& fmt : fmts)
-		if(::strptime(s, fmt, tm))
-			return true;
-
-	return false;
-}
-#warning all that date handling goes to actimeutil.h later
-time_t header::ParseDate(const char *s, time_t onError)
-{
-	struct tm t;
-	if (!ParseDate(s, &t))
-		return onError;
-	return mktime(&t);
-}
-
 
 }

@@ -57,6 +57,14 @@ class ACNG_API acbuf
          */
         int syswrite(int fd, unsigned int maxlen=MAX_VAL(unsigned int));
 
+        /**
+         * Write all data (or limited range) to specified descriptor, draining the buffer.
+         * @return True if succeeded, false otherwise (and sets the errno)
+         */
+        bool dumpall(int fd, ssize_t limit = MAX_VAL(ssize_t));
+
+        bool dumpall(const char *path, int flags, int perms, ssize_t limit = MAX_VAL(ssize_t));
+
         /*
          * Reads from a file descriptor and append to buffered data, update position indexes.
          * \param fd File descriptor

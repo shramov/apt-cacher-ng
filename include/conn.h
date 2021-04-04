@@ -18,7 +18,7 @@ public:
 	void WorkLoop();
 
 	dlcon* SetupDownloader();
-	void LogDataCounts(cmstring & sFile, const char *xff, off_t nNewIn,
+    void LogDataCounts(cmstring & sFile, mstring xff, off_t nNewIn,
 			off_t nNewOut, bool bAsError);
 private:
 	conn& operator=(const conn&); // { /* ASSERT(!"Don't copy con objects"); */ };

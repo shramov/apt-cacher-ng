@@ -13,14 +13,6 @@
 namespace acng
 {
 
-struct ltstring {
-	bool operator()(const mstring &s1, const mstring &s2) const {
-		return strcasecmp(s1.c_str(), s2.c_str()) < 0;
-	}
-};
-
-typedef std::map<mstring, mstring, ltstring> NoCaseStringMap;
-
 namespace cfg
 {
 static const int RESERVED_DEFVAL = -4223;

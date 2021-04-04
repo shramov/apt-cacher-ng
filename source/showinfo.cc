@@ -51,7 +51,6 @@ void tMarkupFileSend::Run()
 	LOGSTARTFUNCx(m_parms.cmd);
 
 	filereader fr;
-	const char *pr(nullptr), *pend(nullptr);
 	if(!m_bFatalError)
 	{
 		m_bFatalError = ! ( fr.OpenFile(cfg::confdir+SZPATHSEP+m_sFileName, true) ||
@@ -63,10 +62,10 @@ void tMarkupFileSend::Run()
 		m_sMimeType="text/plain";
 		return SendRaw(errstring.data(), (size_t) errstring.size());
 	}
-
-	pr = fr.GetBuffer();
-	pend = pr + fr.GetSize();
-
+    auto sv = fr.getView();
+    auto pr = sv.data();
+    auto pend = pr + sv.size();
+    // XXX: redo more nicely with string_view operations?
 	SendChunkedPageHeader(m_sHttpCode, m_sMimeType);
 
 	auto lastchar=pend-1;

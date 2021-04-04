@@ -64,7 +64,7 @@ class conn::Impl
 
 	// This method collects the logged data counts for certain file.
 	// Since the user might restart the transfer again and again, the counts are accumulated (for each file path)
-	void LogDataCounts(cmstring &file, const char *xff, off_t countIn,
+    void LogDataCounts(cmstring &file, std::string xff, off_t countIn,
 			off_t countOut, bool bAsError);
 
 #ifdef DEBUG
@@ -111,8 +111,8 @@ class conn::Impl
 conn::conn(unique_fd fd, const char *c) : _p(new Impl(move(fd), move(c))) { _p->_q = this;};
 conn::~conn() { delete _p; }
 void conn::WorkLoop() {	return _p->WorkLoop(); }
-void conn::LogDataCounts(cmstring &file, const char *xff, off_t countIn, off_t countOut,
-		bool bAsError) {return _p->LogDataCounts(file, xff, countIn, countOut, bAsError); }
+void conn::LogDataCounts(cmstring &file, mstring xff, off_t countIn, off_t countOut,
+        bool bAsError) {return _p->LogDataCounts(file, move(xff), countIn, countOut, bAsError); }
 dlcon* conn::SetupDownloader()
 { return _p->SetupDownloader() ? _p->m_pDlClient.get() : nullptr; }
 
@@ -316,13 +316,13 @@ void conn::Impl::WorkLoop() {
 					return;
 				}
 			}
-		}
-
+        }
+        header h;
 		// split new data into requests
 		while(inBuf.size()>0) {
 			try
 			{
-				header h;
+                h.clear();
 				int nHeadBytes=h.Load(inBuf.rptr(), inBuf.size());
 				ldbg("header parsed how? " << nHeadBytes);
 				if(nHeadBytes == 0)
@@ -394,8 +394,8 @@ void conn::Impl::WorkLoop() {
 
 				ldbg("Parsed REQUEST:" << h.frontLine);
 				ldbg("Rest: " << (inBuf.size()-nHeadBytes));
-				m_jobs2send.emplace_back(std::move(h), _q);
-				m_jobs2send.back().PrepareDownload(inBuf.rptr());
+                m_jobs2send.emplace_back(_q);
+                m_jobs2send.back().Prepare(h, inBuf.rptr());
 				if (m_badState)
 					return;
 				inBuf.drop(nHeadBytes);
@@ -414,23 +414,30 @@ void conn::Impl::WorkLoop() {
 
 		if(FD_ISSET(m_confd, &wfds) && !m_jobs2send.empty())
 		{
-			switch(m_jobs2send.front().SendData(m_confd, hasMoreJobs))
+			try
 			{
-			case(job::R_DISCON):
+				switch(m_jobs2send.front().SendData(m_confd, hasMoreJobs))
 				{
-					ldbg("Disconnect advise received, stopping connection");
-					return;
-				}
-			case(job::R_DONE):
-				{
-					m_jobs2send.pop_front();
-					ldbg("Remaining jobs to send: " << m_jobs2send.size());
+				case(job::R_DISCON):
+					{
+						ldbg("Disconnect advise received, stopping connection");
+						return;
+					}
+				case(job::R_DONE):
+					{
+						m_jobs2send.pop_front();
+						ldbg("Remaining jobs to send: " << m_jobs2send.size());
+						break;
+					}
+				case(job::R_AGAIN):
+					break;
+				default:
 					break;
 				}
-			case(job::R_AGAIN):
-				break;
-			default:
-				break;
+			}
+			catch(...)
+			{
+				return;
 			}
 		}
 	}
@@ -465,15 +472,15 @@ bool conn::Impl::SetupDownloader()
 	}
 }
 
-void conn::Impl::LogDataCounts(cmstring & sFile, const char *xff, off_t nNewIn,
+void conn::Impl::LogDataCounts(cmstring & sFile, mstring xff, off_t nNewIn,
 		off_t nNewOut, bool bAsError)
 {
 	string sClient;
-	if (!cfg::logxff || !xff) // not to be logged or not available
+    if (!cfg::logxff || xff.empty()) // not to be logged or not available
 		sClient=m_sClientHost;
-	else if (xff)
+    else if (!xff.empty())
 	{
-		sClient=xff;
+        sClient=move(xff);
 		trimString(sClient);
 		auto pos = sClient.find_last_of(SPACECHARS);
 		if (pos!=stmiss)

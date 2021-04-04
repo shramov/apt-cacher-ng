@@ -9,10 +9,10 @@ set(TEST_LIB_SET gtest_main gmock_main supacngTEST ${BaseNetworkLibs} ${ServerLi
 
 #file(GLOB_RECURSE TEST_SOURCES LIST_DIRECTORIES false src/*.h src/*.cc)
 #add_executable(ut_acng_misc
-#	src/ut_mandb.cc
 #	src/main.cc
 #	)
-#target_link_libraries(ut_acng_misc ${TEST_LIB_SET})
+        #	src/ut_mandb.cc
+        #target_link_libraries(ut_acng_misc ${TEST_LIB_SET})
 
 #add_executable(ut_cfg_remap
 #	src/ut_cfg_remap.cc
@@ -23,14 +23,22 @@ set(TEST_LIB_SET gtest_main gmock_main supacngTEST ${BaseNetworkLibs} ${ServerLi
 #target_compile_definitions(ut_cfg_remap PUBLIC -DNOCOMP -DMINIBUILD)
 
 
-#add_executable(ut_algos
-#	src/ut_algos.cc
-#	src/main.cc
-#	)
-#target_link_libraries(ut_algos ${TEST_LIB_SET})
+add_executable(ut_algos
+	src/ut_algos.cc
+	src/main.cc
+	)
+target_link_libraries(ut_algos ${TEST_LIB_SET})
 
 add_executable(ut_cacheman
         src/ut_cacheman.cc
         src/main.cc
         )
+
+add_executable(ut_http
+	src/ut_http.cc
+	src/main.cc
+	)
+target_link_libraries(ut_http ${TEST_LIB_SET})
+
+
 target_link_libraries(ut_cacheman ${TEST_LIB_SET})

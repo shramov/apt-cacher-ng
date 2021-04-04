@@ -55,7 +55,7 @@ bool acbuf::initFromFile(const char *szPath)
 
 int acbuf::syswrite(int fd, unsigned int maxlen) {
     size_t todo(std::min(maxlen, size()));
-
+#warning this is errorprone, might be interrupted with eintr but does not retry with eagain - drop this method, use other
 	int n;
 	do
 	{
@@ -68,6 +68,55 @@ int acbuf::syswrite(int fd, unsigned int maxlen) {
         return -errno;
     drop(n);
     return n;
+}
+
+bool acbuf::dumpall(int fd, ssize_t limit) {
+    if (limit > size())
+        limit = size();
+    while (limit)
+    {
+        errno = 0;
+        auto n = ::write(fd, rptr(), limit);
+        if (n > limit) // heh?
+            return false;
+        if (n == ssize_t(limit))
+            return true;
+        if (n <= 0)
+        {
+            if (errno == EINTR || errno == EAGAIN)
+                continue;
+            return false;
+        }
+        drop(n);
+        limit -= n;
+    }
+    return true;
+}
+
+bool acbuf::dumpall(const char *path, int flags, int perms, ssize_t limit)
+{
+    unique_fd tmp(open(path, O_WRONLY | O_BINARY | flags, perms));
+    if (!tmp.valid())
+        return false; // keep the errno
+    if (!dumpall(tmp.m_p, limit))
+    {
+        // rescue the errno of the original error
+        auto e = errno;
+        checkforceclose(tmp.m_p);
+        errno = e;
+        return false;
+    }
+    while (tmp.valid())
+    {
+        if (0 == ::close(tmp.m_p))
+        {
+            tmp.release();
+            return true;
+        }
+        if (errno != EINTR)
+            return false;
+    };
+    return true;
 }
 
 int acbuf::sysread(int fd, unsigned int maxlen)

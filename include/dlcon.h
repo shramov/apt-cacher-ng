@@ -55,16 +55,12 @@ struct dlrequest
 	cfg::tRepoResolvResult repoSrc;
 	LPCSTR reqHead = nullptr;
 	LPCSTR szHeaderXff = nullptr;
-	bool m_bHeadOnly = false;
-	bool isPassThroughRequest = false;
-	off_t m_nRangeLimit = -1;
+    bool isPassThroughRequest = false;
 
 	dlrequest& setSrc(const tHttpUrl& url) { pForcedUrl=&url; return *this;}
 	dlrequest& setSrc(cfg::tRepoResolvResult repoRq) { repoSrc = std::move(repoRq); return *this; }
 	dlrequest& setRqHeadString(LPCSTR rh) { reqHead = rh; return *this;}
 	dlrequest& setXff(LPCSTR xff) { szHeaderXff = xff; return *this;}
-	dlrequest& setHeadOnly(bool val) { m_bHeadOnly = val; return *this;}
-	dlrequest& setRangeLimit(off_t limit) { m_nRangeLimit = limit; return *this; }
 };
 
 }

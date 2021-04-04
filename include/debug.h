@@ -56,7 +56,7 @@ inline void dump_proc_status(){}; // strip away
 #define __ACFUNC__ __func__
 #endif
 */
-#define __ACFUNC__ __func__
+#define __ACFUNC__ __PRETTY_FUNCTION__
 
 
 #define LOGVA(n, pfx, ...) if(acng::cfg::debug & n) \

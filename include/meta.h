@@ -92,11 +92,13 @@ extern cmstring sPathSep, sPathSepUnix, hendl;
 
 extern cmstring FAKEDATEMARK;
 
+#define szRN "\r\n"
+
 #ifdef WINDOWS
 #define WIN32
 #define SZPATHSEP SZPATHSEPWIN
 #define CPATHSEP CPATHSEPWIN
-#define szNEWLINE "\r\n"
+#define szNEWLINE szRN
 #else
 #define SZPATHSEP SZPATHSEPUNIX
 #define CPATHSEP CPATHSEPUNX
@@ -176,8 +178,9 @@ tStrPos findHostStart(const mstring & sUri);
 #define MAKE_PTR_0_LEN(x) x, 0, (_countof(x)-1)
 
 // there is memchr and strpbrk but nothing like the last one acting on specified RAW memory range
-static inline LPCSTR  mempbrk (LPCSTR  membuf, char const * const needles, size_t len)
+inline LPCSTR mempbrk (LPCSTR  membuf, char const * const needles, size_t len)
 {
+#warning drop this, use plain stringview operation
    for(LPCSTR pWhere=membuf ; pWhere<membuf+len ; pWhere++)
       for(LPCSTR pWhat=needles; *pWhat ; pWhat++)
          if(*pWhat==*pWhere)
@@ -350,6 +353,7 @@ ACNG_API mstring offttosH(off_t n);
 //template<typename charp>
 ACNG_API off_t strsizeToOfft(const char *sizeString); // XXX: if needed... charp sizeString, charp *next)
 
+bool ParseHeadFromFile(cmstring& path, off_t* contLen, time_t* lastModified, mstring* origSrc);
 
 void replaceChars(mstring &s, LPCSTR szBadChars, char goodChar);
 
@@ -436,16 +440,6 @@ static inline time_t GetTime()
 }
 
 static const time_t END_OF_TIME(MAX_VAL(time_t)-2);
-
-unsigned FormatTime(char *buf, size_t bufLen, const time_t cur);
-
-struct tCurrentTime
-{
-	char buf[30];
-	unsigned len;
-	inline tCurrentTime() { len=FormatTime(buf, sizeof(buf), time(nullptr)); }
-	inline operator mstring() { return mstring(buf, len); }
-};
 
 // represents a boolean value like a normal bool but also carries additional data
 template <typename Textra, Textra defval>
@@ -578,6 +572,21 @@ public:
 		return &tv;
 	}
 };
+
+
+struct ltstring {
+    bool operator()(const mstring &s1, const mstring &s2) const {
+        return strcasecmp(s1.c_str(), s2.c_str()) < 0;
+    }
+};
+
+typedef std::map<mstring, mstring, ltstring> NoCaseStringMap;
+
+static constexpr string_view svRN = szRN;
+
+#if !defined(HAVE_STRLCPY) || !HAVE_STRLCPY
+size_t strlcpy(char *tgt, const char *src, size_t tgtSize);
+#endif
 }
 
 #endif // _META_H

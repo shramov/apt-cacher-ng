@@ -21,6 +21,7 @@ INCLUDE(CheckCXXSourceCompiles)
 INCLUDE(CheckCXXCompilerFlag)
 INCLUDE(CheckTypeSize)
 INCLUDE(TestBigEndian)
+INCLUDE(CheckFunctionExists)
 INCLUDE(CheckLibraryExists)
 INCLUDE(CheckSymbolExists)
 INCLUDE(FindPkgConfig)
@@ -73,6 +74,8 @@ CHECK_INCLUDE_FILES ("sys/vfs.h" HAVE_SYS_VFS_H)
 CHECK_TYPE_SIZE(int SIZE_INT)
 CHECK_TYPE_SIZE(long SIZE_LONG)
 TEST_BIG_ENDIAN(WORDS_BIGENDIAN)
+
+CHECK_FUNCTION_EXISTS(strlcpy HAVE_STRLCPY)
 
 # those are appended later via COMPILER_FLAGS. $CXXFLAGS and CMAKE_CXX_FLAGS
 # also influence it, need to be adjusted carefully by user.

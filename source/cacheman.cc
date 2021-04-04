@@ -293,6 +293,7 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 	TFileItemHolder fiaccess;
 	tHttpUrl parserPath, parserHead;
 	const tHttpUrl *pResolvedDirectUrl=nullptr;
+    std::pair<fileitem::FiStatus, tRemoteStatus> dlres;
 
 	// header could contained malformed data and be nuked in the process,
 	// try to get the original source whatever happens
@@ -307,7 +308,9 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 	if(!pFi)
 	{
 		dbgline;
-		fiaccess = fiaccess.Create(sFilePathRel, mode);
+        fileitem::tSpecialPurposeAttr attr;
+        attr.bVolatile = bIsVolatileFile;
+        fiaccess = fiaccess.Create(sFilePathRel, mode, attr);
 		pFi=fiaccess.get();
 	}
 	if (!pFi)
@@ -324,26 +327,27 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 		LOGRET(true);
 	}
 
-	initState = pFi->Setup(bIsVolatileFile);
-	if (initState > fileitem::FIST_COMPLETE)
-		GOTOREPMSG(pFi->GetHeader().frontLine);
+    initState = pFi->Setup();
+    {
+        lockguard g(*pFi);
+        if (initState > fileitem::FIST_COMPLETE)
+            GOTOREPMSG(pFi->m_responseStatus.msg);
 
-	if (fileitem::FIST_COMPLETE == initState)
-	{
-		int hs = pFi->GetHeader().getStatus();
-		if(hs != 200)
-		{
-			SendFmt << "Error downloading " << sFilePathRel << ":\n";
-			goto format_error;
-			//GOTOREPMSG(pFi->GetHeader().frontLine);
-		}
-		SendFmt << "Checking " << sFilePathRel << "... (complete)<br>\n";
-		LOGRET(true);
-	}
-	if (NEEDED_VERBOSITY_ALL_BUT_ERRORS)
-		SendFmt << (bIsVolatileFile ? "Checking/Updating " : "Downloading ")
-		<< sFilePathRel	<< "...\n";
-
+        if (fileitem::FIST_COMPLETE == initState)
+        {
+            if(pFi->m_responseStatus.code != 200)
+            {
+                SendFmt << "Error downloading " << sFilePathRel << ":\n";
+                goto format_error;
+                //GOTOREPMSG(pFi->GetHeader().frontLine);
+            }
+            SendFmt << "Checking " << sFilePathRel << "... (complete)<br>\n";
+            LOGRET(true);
+        }
+        if (NEEDED_VERBOSITY_ALL_BUT_ERRORS)
+            SendFmt << (bIsVolatileFile ? "Checking/Updating " : "Downloading ")
+            << sFilePathRel	<< "...\n";
+    }
 
 	if(!StartDlder())
 		return false;
@@ -436,18 +440,8 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 		rq.setSrc(*pResolvedDirectUrl);
 
 	m_pDlcon->AddJob(pFi, rq);
-
-	if (pFi->WaitForFinish(nullptr, 1,
-	[&](){
-		/*
-		auto prog_now = pFi->GetTransferCountUnlocked();
-		if(prog_now == prog_before) return;
-		prog_before = prog_now;
-		*/
-		SendChunk(".");
-	}
-	) == fileitem::FIST_COMPLETE
-			&& pFi->GetHeaderUnlocked().getStatus() == 200)
+    dlres = pFi->WaitForFinish(1, [&](){ SendChunk("."); } );
+    if (dlres.first == fileitem::FIST_COMPLETE && dlres.second.code == 200)
 	{
 		dbgline;
 		bSuccess = true;
@@ -486,8 +480,7 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 		}
 		else if (flags.forgiveDlErrors
 				||
-				(pFi->GetHeaderUnlocked().getStatus() == 404
-								&& endsWith(sFilePathRel, oldStylei18nIdx))
+                (dlres.second.code == 404 && endsWith(sFilePathRel, oldStylei18nIdx))
 		)
 		{
 			bSuccess = true;
@@ -495,7 +488,7 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 				SendChunkSZ("<i>(ignored)</i>\n");
 		}
 		else
-			GOTOREPMSG(pFi->GetHttpMsg());
+            GOTOREPMSG(dlres.second.msg);
 	}
 
 	rep_dlresult:
@@ -549,8 +542,9 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 							if(tu.SetHttpUrl(url, false))
 							{
 								SendChunkSZ("Restarting download... ");
-								fiaccess = fiaccess.Create(sFilePathRel,
-										ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY);
+                                fiaccess = fiaccess.Create(sFilePathRel,
+                                                           ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY,
+                                                           fileitem::tSpecialPurposeAttr());
 								return Download(sFilePathRel, bIsVolatileFile,
 										msgVerbosityLevel, fiaccess.get(),
 										&tu);
@@ -563,8 +557,7 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 				pos--;
 			}
 		}
-		else if((hints&DL_HINT_GUESS_REPLACEMENT)
-				&& pFi->GetHeaderUnlocked().getStatus() == 404)
+        else if((hints&DL_HINT_GUESS_REPLACEMENT) && dlres.second.code == 404)
 		{
 			// another special case, slightly ugly :-(
 			// this is explicit hardcoded repair code
@@ -589,8 +582,9 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 				// if we have it already, use it as-is
 				if (!pResolvedDirectUrl)
 				{
-					auto p = pFi->GetHeaderUnlocked().h[header::XORIG];
-					if (p && parserHead.SetHttpUrl(p))
+                    lockguard g(*pFi);
+                    auto p = pFi->m_responseOrigin;
+                    if (parserHead.SetHttpUrl(p))
 						pResolvedDirectUrl = &parserHead;
 				}
 				auto newurl(*pResolvedDirectUrl);
@@ -843,129 +837,50 @@ bool cacheman::GetAndCheckHead(cmstring & sTempDataRel, cmstring &sReferencePath
 
 
 bool cacheman::Inject(cmstring &fromRel, cmstring &toRel,
-		bool bSetIfileFlags, const header *pHead, bool bTryLink)
+        bool bSetIfileFlags, off_t checkSize, LPCSTR forceOrig)
 {
 	LOGSTART("tCacheMan::Inject");
-
 	// XXX should it really filter it here?
 	if(GetFlags(toRel).uptodate)
-		return true;
+        return true;
+    filereader data;
+    if(!data.OpenFile(SABSPATH(fromRel), true))
+        return false;
+    if (checkSize >= 0 && checkSize != (off_t) data.GetSize())
+        return false;
 
-	auto sFromAbs(SABSPATH(fromRel)), sToAbs(SABSPATH(toRel));
-
-	Cstat infoFrom(sFromAbs), infoTo(sToAbs);
-	if(infoFrom && infoTo && infoFrom.st_ino == infoTo.st_ino && infoFrom.st_dev == infoTo.st_dev)
-		return true;
-
-#ifdef DEBUG_FLAGS
-	bool nix = stmiss!=fromRel.find("debrep/dists/squeeze/non-free/binary-amd64/");
-	SendFmt<<"Replacing "<<toRel<<" with " << fromRel <<  sBRLF;
-#endif
-
-	if(!infoFrom)
-	{
-		MTLOGASSERT(0, "Bad source file: " << sFromAbs);
-		return false;
-	}
-
-	header head;
-
-	if (!pHead)
-	{
-		pHead = &head;
-
-		if (head.LoadFromFile(sFromAbs+".head") > 0 && head.h[header::CONTENT_LENGTH])
-		{
-			if(infoFrom.st_size != atoofft(head.h[header::CONTENT_LENGTH]))
-			{
-				MTLOGASSERT(0, "Bad file size");
-				return false;
-			}
-		}
-		else if(head.LoadFromFile(sToAbs+".head") > 0)
-		{
-			head.set(header::CONTENT_LENGTH, (off_t) infoFrom.st_size);
-		}
-		else
-		{
-			MTLOGASSERT(0, "Cannot build meta data for " << sToAbs);
-			return false;
-		}
-		head.set(header::CONTENT_TYPE, "octet/stream");
-		head.set(header::LAST_MODIFIED, FAKEDATEMARK);
-	}
-
-	class tInjectItem : public fileitem_with_storage
-	{
-	public:
-		bool m_link;
-		tInjectItem(cmstring &to, bool bTryLink) : fileitem_with_storage(to), m_link(bTryLink)
-		{
-		}
-		virtual bool Inject(cmstring &fromRel, const header &head)
-		{
-			m_head = head;
-			mstring sPathAbs = SABSPATH(m_sPathRel);
-			mkbasedir(sPathAbs);
-			if(head.StoreToFile(sPathAbs+".head") <=0)
-				return false;
-
-			if(m_link)
-			{
-				setLockGuard;
-				if (LinkOrCopy(SABSPATH(fromRel), sPathAbs))
-				{
-					m_status = FIST_COMPLETE;
-					notifyAll();
-					return true;
-				}
-			}
-
-			// shit. Permission problem? Use the old fashioned way :-(
-			filereader data;
-			if(!data.OpenFile(SABSPATH(fromRel), true))
-				return false;
-
-			/* evil...
-			if(!m_link)
-			{
-				// just in case it's the same file, kill the target
-				::unlink(m_sPathAbs.c_str());
-				::unlink((m_sPathAbs+".head").c_str());
-			}
-			*/
-
-			if (Setup(true) > fileitem::FIST_COMPLETE)
-				return false;
-			if (!DlStarted(head, string_view(), -1))
-				return false;
-			if (!DlAddData(string_view(data.GetBuffer(), data.GetSize())))
-				return false;
-			DlFinish(false);
-			if(GetStatus() != FIST_COMPLETE)
-				return false;
-			return true;
-		}
-	};
-	auto pfi(make_shared<tInjectItem>(toRel, bTryLink));
-	// register it in global scope
-	auto fiUser = TFileItemHolder::Create(pfi, true);
-	if( ! fiUser.get())
-	{
-		MTLOGASSERT(false, "Couldn't register copy item");
-		return false;
-	}
-	bool bOK = pfi->Inject(fromRel, *pHead);
-
-	MTLOGASSERT(bOK, "Inject: failed");
-
-	if(bSetIfileFlags)
-	{
-		tIfileAttribs &atts = SetFlags(toRel);
-		atts.uptodate = atts.vfile_ondisk = bOK;
-	}
-
-	return bOK;
+    fileitem::tSpecialPurposeAttr attr;
+    attr.bVolatile = rex::GetFiletype(toRel) == rex::FILE_VOLATILE;
+    auto fiUser = TFileItemHolder::Create(toRel, ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY, attr);
+    if (!fiUser.get())
+        return false;
+    auto fi = fiUser.get();
+    fiUser.get()->Setup();
+    lockguard g(*fi);
+    // it's ours, let's play the downloader
+    if (fi->GetStatusUnlocked() > fileitem::FIST_INITED)
+        return false; // already being processing by someone
+    // feed it with some old attributes for now
+    if (!fi->DlStarted(string_view(),
+                       fi->m_responseModDate,
+                       forceOrig ? forceOrig : fi->m_responseOrigin,
+                       {200, "OK"},
+                       0,
+                       data.GetSize()))
+    {
+        return false;
+    }
+    if (!fi->DlAddData(data.getView()))
+        return false;
+    fi->DlFinish(false);
+    if(fileitem::FIST_COMPLETE != fi->GetStatusUnlocked())
+        return false;
+    if(bSetIfileFlags)
+    {
+        tIfileAttribs &atts = SetFlags(toRel);
+        atts.uptodate = atts.vfile_ondisk = true;
+    }
+    return true;
 }
 
 bool cacheman::StartDlder()
@@ -1444,31 +1359,22 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 			// install to one of uncompressed locations, let SyncSiblings handle the rest
 			for(auto& path: siblings)
 			{
-				// if possible, try to reconstruct reliable download information
-				// inject might need it
-				header h;
-				header *ph(0);
+                // if possible, try to reconstruct reliable download source information
+                header h;
 				if(h.LoadFromFile(SABSPATH(pindexPathRel)+".head")
 						&& h.h[header::XORIG])
 				{
 					auto len=strlen(h.h[header::XORIG]);
 					if(len < diffIdxSfx.length())
-						return PATCH_FAIL; // heh?
-					h.h[header::XORIG][len-diffIdxSfx.length()] = 0;
-					h.set(header::CONTENT_TYPE, "octet/stream");
-					h.set(header::LAST_MODIFIED, FAKEDATEMARK);
-					h.set(header::CONTENT_LENGTH, probeStateWanted.size);
-					ph = &h;
-				}
+                        return PATCH_FAIL; // heh?
+                    h.h[header::XORIG][len-diffIdxSfx.length()] = 0;
+				}                
 
-#ifndef DEBUGIDX
 				if(m_bVerbose)
-#endif
 					SendFmt << "Installing as " << path << ", state: " <<  probeStateWanted << hendl;
 
-
 				if(FindCompIdx(path) < 0
-						&& Inject(sPatchResultRel, path, true, ph, 0))
+                        && Inject(sPatchResultRel, path, true, probeStateWanted.size, h.h[header::XORIG]))
 				{
 					SyncSiblings(path, siblings);
 					injected++;
@@ -1732,7 +1638,7 @@ void cacheman::SyncSiblings(cmstring &srcPathRel,const tStrDeq& targets)
 			&& srcDirFile.second == tgtDirFile.second)
 				//&& 0 == strcmp(srcType, GetTypeSuffix(targetDirFile.second)))
 		{
-			Inject(srcPathRel, tgt, true, 0, false);
+            Inject(srcPathRel, tgt, true);
 		}
 	}
 }
@@ -2501,27 +2407,30 @@ bool cacheman::ProcessByHashReleaseFileRestoreFiles(cmstring& releasePathRel, cm
 			// return with increased count if error happens
 			errors++;
 
-			header h;
-			// load by-hash header, check URL, rewrite URL, copy the stuff over
-			if(!h.LoadFromFile(SABSPATH(solidPathRel) + ".head") || ! h.h[header::XORIG])
-				{
-				if(m_bVerbose)
-					SendFmt << "Couldn't read " << SABSPATH(solidPathRel) << ".head<br>";
-				return;
-				}
-			string origin(h.h[header::XORIG]);
-			tStrPos pos = origin.rfind("by-hash/");
-			if(pos == stmiss)
-			{
-			if(m_bVerbose)
-				SendFmt << SABSPATH(solidPathRel) << " is not from by-hash folder<br>";
-			return;
-			}
-			h.set(header::XORIG, origin.substr(0, pos) + entry.sFileName);
-			// most servers report crap type on by-hash files, use generic one
-			h.set(header::CONTENT_TYPE, "octet/stream");
-			//	should be ok				h.set(header::CONTENT_LENGTH, entry.fpr.size)
-			if(!Inject(solidPathRel, wantedPathRel, false, &h, false))
+            string origin;
+
+            {
+                header h;
+                // load by-hash header, check URL, rewrite URL, copy the stuff over
+                if(!h.LoadFromFile(SABSPATH(solidPathRel) + ".head") || ! h.h[header::XORIG])
+                {
+                    if(m_bVerbose)
+                        SendFmt << "Couldn't read " << SABSPATH(solidPathRel) << ".head<br>";
+                    return;
+                }
+                origin = h.h[header::XORIG];
+                tStrPos pos = origin.rfind("by-hash/");
+                if(pos == stmiss)
+                {
+                    if(m_bVerbose)
+                        SendFmt << SABSPATH(solidPathRel) << " is not from by-hash folder<br>";
+                    return;
+                }
+                origin.erase(pos);
+                origin += entry.sFileName;
+            }
+
+            if(!Inject(solidPathRel, wantedPathRel, false, -1, origin.c_str()))
 			{
 				if(m_bVerbose)
 					SendFmt << "Couldn't install " << solidPathRel << hendl;

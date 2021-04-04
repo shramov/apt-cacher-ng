@@ -735,7 +735,8 @@ bool Bz2compressFile(const char *pathIn, const char*pathOut)
 			{
 				if(BZ_OK == nError)
 				{
-					BZ2_bzWrite(&nError, bzf, (void*) reader.GetBuffer(), reader.GetSize());
+                    auto sv = reader.getView();
+                    BZ2_bzWrite(&nError, bzf, (void*) sv.data(), sv.size());
 					if(BZ_OK == nError)
 						bRet=true;
 				}

@@ -68,11 +68,13 @@ public:
 	virtual ~tSpecialRequest();
 
 protected:
-	inline void SendChunk(const mstring &x) { SendChunk(x.data(), x.size()); }
+//	inline void SendChunk(const mstring &x) { SendChunk(x.data(), x.size()); }
 
 	void SendChunk(const char *data, size_t size);
 	void SendChunkRemoteOnly(const char *data, size_t size);
-	inline void SendChunk(const char *x) { SendChunk(x, x?strlen(x):0); }
+    void SendChunkRemoteOnly(string_view sv) { return SendChunkRemoteOnly(sv.data(), sv.size()); }
+//	inline void SendChunk(const char *x) { SendChunk(x, x?strlen(x):0); }
+	void SendChunk(string_view x) { SendChunk(x.data(), x.size()); }
 	inline void SendChunk(const tSS &x){ SendChunk(x.data(), x.length()); }
 	// for customization in base classes
 	virtual void SendChunkLocalOnly(const char* /*data*/, size_t /*size*/) {};

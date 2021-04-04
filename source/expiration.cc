@@ -249,7 +249,8 @@ void expiration::HandlePkgEntry(const tRemoteFileInfo &entry)
 					SendFmt << WCLASS << " incomplete download, truncating (as requested): "
 					<< sPathRel;
 					auto hodler = TFileItemHolder::Create(sPathRel,
-							ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY);
+                                                          ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY,
+                                                          fileitem::tSpecialPurposeAttr());
 					if (hodler.get())
 						hodler.get()->MarkFaulty(false);
 					return finish_good(0);
@@ -672,7 +673,7 @@ void expiration::TrimFiles()
 			continue;
 
 		// this is just probing, make sure not to interact with DL
-		auto user = TFileItemHolder::Create(fil, ESharingHow::ALWAYS_TRY_SHARING);
+        auto user = TFileItemHolder::Create(fil, ESharingHow::ALWAYS_TRY_SHARING, fileitem::tSpecialPurposeAttr());
 		if ( ! user.get())
 			continue;
 		auto pFi = user.get();
@@ -704,7 +705,7 @@ void expiration::HandleDamagedFiles()
 			if(this->m_parms.type == workExPurgeDamaged)
 			{
 				SendFmt << "Removing " << s << sBRLF;
-				auto holder = TFileItemHolder::Create(s, ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY);
+                auto holder = TFileItemHolder::Create(s, ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY, fileitem::tSpecialPurposeAttr());
 				if (holder.get())
 				{
 					holder.get()->MarkFaulty(true);
@@ -719,7 +720,7 @@ void expiration::HandleDamagedFiles()
 			else if(this->m_parms.type == workExTruncDamaged)
 			{
 				SendFmt << "Truncating " << s << sBRLF;
-				auto holder = TFileItemHolder::Create(s, ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY);
+                auto holder = TFileItemHolder::Create(s, ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY, fileitem::tSpecialPurposeAttr());
 				if (holder.get())
 					holder.get()->MarkFaulty();
 			}

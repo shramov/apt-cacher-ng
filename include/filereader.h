@@ -43,8 +43,9 @@ public:
 	static bool GetChecksum(const mstring & sFileName, int csType, uint8_t out[],
 			bool bTryUnpack, off_t &scannedSize, FILE *pDumpFile=nullptr);
 
-	inline const char *GetBuffer() const { return m_szFileBuf; };
-	inline size_t GetSize() const { return m_nBufSize; };
+    inline const char *GetBuffer() const { return m_szFileBuf; };
+    inline size_t GetSize() const { return m_nBufSize; };
+    inline string_view getView() { return string_view(m_szFileBuf, m_nBufSize); }
 	void Close();
 
 	const mstring& getSErrorString() const

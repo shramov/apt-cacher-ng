@@ -317,9 +317,9 @@ void tSpecOpDetachable::DumpLog(time_t id)
 	tSS path(cfg::logdir.length()+24);
 	path<<cfg::logdir<<CPATHSEP<<MAINT_PFX << id << ".log.html";
 	if (!reader.OpenFile(path))
-		SendChunkRemoteOnly(WITHLEN("Log not available"));
+        SendChunkRemoteOnly("Log not available");
 	else
-		SendChunkRemoteOnly(reader.GetBuffer(), reader.GetSize());
+        SendChunkRemoteOnly(reader.getView());
 }
 
 void tSpecOpDetachable::SendChunkLocalOnly(const char *data, size_t len)

@@ -39,19 +39,6 @@ struct TExpiredEntry
 std::list<TExpiredEntry> prolongedLifetimeQ;
 static acmutex prolongMx;
 
-header const & fileitem::GetHeaderUnlocked()
-{
-	return m_head;
-}
-
-string fileitem::GetHttpMsg()
-{
-	setLockGuard;
-	if(m_head.frontLine.length()>9)
-		return m_head.frontLine.substr(9);
-	return m_head.frontLine;
-}
-
 fileitem::fileitem() :
 			// good enough to not trigger the makeWay check but also not cause overflows
 			m_nTimeDlStarted(END_OF_TIME-MAXTEMPDELAY*3),
@@ -70,7 +57,7 @@ void fileitem::DlRefCountAdd()
 	m_nDlRefsCount++;
 }
 
-void fileitem::DlRefCountDec(mstring sReason)
+void fileitem::DlRefCountDec(tRemoteStatus reason)
 {
 	setLockGuard
 
@@ -85,10 +72,7 @@ void fileitem::DlRefCountDec(mstring sReason)
 	if (m_status < FIST_COMPLETE)
 	{
 		m_status = FIST_DLERROR;
-		m_head.clear();
-		m_head.frontLine = "HTTP/1.1 ";
-		m_head.frontLine += move(sReason);
-		m_head.type = header::ANSWER;
+        m_responseStatus = move(reason);
 
 		if (cfg::debug & log::LOG_MORE)
 			log::misc(string("Download of ") + m_sPathRel + " aborted");
@@ -138,9 +122,9 @@ void fileitem::ResetCacheState()
 }
 */
 
-fileitem::FiStatus fileitem::Setup(bool bCheckFreshness)
+fileitem::FiStatus fileitem_with_storage::Setup()
 {
-	LOGSTARTFUNCx(bCheckFreshness);
+    LOGSTARTFUNC
 
 	setLockGuard;
 
@@ -149,74 +133,62 @@ fileitem::FiStatus fileitem::Setup(bool bCheckFreshness)
 
 	auto error_clean = [this]()
 	{
-		m_nSizeCachedInitial = m_nSizeChecked = m_nContLenInitial = -1;
-#warning flag beachten!
+        m_nSizeCachedInitial = m_nSizeChecked = m_nContentLength = -1;
+#warning Users must consider this flag and act accordingly
 		m_bWriterMustReplaceFile = true;
 		return m_status = FIST_INITED;
 	};
 
 	m_status = FIST_INITED;
-	m_bVolatile = bCheckFreshness;
 
 	cmstring sPathAbs(CACHE_BASE + m_sPathRel);
 
-	if (m_head.LoadFromFile(sPathAbs + ".head") > 0 && m_head.type == header::ANSWER)
-	{
-		if (200 != m_head.getStatus())
-			return error_clean();
+    if (!ParseHeadFromStorage(SABSPATHEX(sPathAbs, ".head"), &m_nContentLength, &m_responseModDate, &m_responseOrigin))
+    {
+        if (IsVolatile()) //that's too risky
+            return error_clean();
+        // no head or missing? Whatever, assume it's ok for solid files for now
+        m_nSizeCachedInitial = GetFileSize(sPathAbs, -1);
+    }
+    else
+    {
+        LOG("good head");
+        if (!IsVolatile())
+        {
+#warning for range-limited, consider the range limit to be good enough to set FIST_COMPLETE
+#warning that only works with not head-only
+            // non-volatile files, so could accept the length, do some checks first
+            if (m_nContentLength >= 0)
+            {
+                // file larger than it could ever be?
+                if (m_nContentLength < m_nSizeCachedInitial)
+                    return error_clean();
 
-		LOG("good head");
-
-		m_nSizeCachedInitial = GetFileSize(sPathAbs, 0);
-		m_nContLenInitial = atoofft(m_head.h[header::CONTENT_LENGTH], -1);
-
-		if (!m_bVolatile)
-		{
-			// non-volatile files, so could accept the length, do some checks first
-			if (m_nContLenInitial >= 0)
-			{
-				// file larger than it could ever be?
-				if (m_nContLenInitial < m_nSizeCachedInitial)
-					return error_clean();
-
-				// is it complete? and 0 value also looks weird, try to verify later
-				if (m_nSizeCachedInitial == m_nContLenInitial)
-				{
-					m_nSizeChecked = m_nSizeCachedInitial;
-					m_status = FIST_COMPLETE;
-				}
-				else
-				{
-					// otherwise wait for remote to confirm its presence too
-					m_bVolatile = true;
-				}
-			}
-			else
-			{
-				// no content length known, assume that it's ok
-				m_nSizeChecked = m_nSizeCachedInitial;
-			}
-		}
-
-		// some plausibility checks
-		if (m_bVolatile)
-		{
-			// cannot resume if conditions not satisfied
-			if (!m_head.h[header::LAST_MODIFIED])
-				return error_clean();
-		}
-	}
-	else // -> no .head file
-	{
-		// maybe there is some left-over without head file?
-		// Don't thrust volatile data, but otherwise try to reuse?
-		if (!m_bVolatile)
-			m_nSizeCachedInitial = GetFileSize(sPathAbs, -1);
-	}
+                // is it complete? and 0 value also looks weird, try to verify later
+                if (m_nSizeCachedInitial == m_nContentLength)
+                {
+                    m_nSizeChecked = m_nSizeCachedInitial;
+                    m_status = FIST_COMPLETE;
+                }
+                else
+                {
+                    // otherwise wait for remote to confirm its presence too
+                    m_spattr.bVolatile = true;
+                }
+            }
+            else
+            {
+                // no content length known, assume that it's ok
+                m_nSizeChecked = m_nSizeCachedInitial;
+            }
+        }
+    }
 	LOG("resulting status: " << (int) m_status);
 	return m_status;
 }
 
+#warning dead code?
+#if 0
 bool fileitem::CheckUsableRange_unlocked(off_t nRangeLastByte)
 {
 #warning wer braucht das?
@@ -232,7 +204,9 @@ bool fileitem::CheckUsableRange_unlocked(off_t nRangeLastByte)
 			&& m_nSizeCachedInitial>0 && nRangeLastByte >=0 && nRangeLastByte <m_nSizeCachedInitial
 			&& atoofft(m_head.h[header::CONTENT_LENGTH], -255) > nRangeLastByte);
 }
+#endif
 
+#if 0
 void fileitem::SetupComplete()
 {
 	setLockGuard;
@@ -240,6 +214,7 @@ void fileitem::SetupComplete()
 	m_nSizeChecked = m_nSizeCachedInitial;
 	m_status = FIST_COMPLETE;
 }
+#endif
 
 void fileitem::UpdateHeadTimestamp()
 {
@@ -248,27 +223,23 @@ void fileitem::UpdateHeadTimestamp()
 	utimes(SZABSPATH(m_sPathRel + ".head"), nullptr);
 }
 
-fileitem::FiStatus fileitem::WaitForFinish(int *httpCode)
+std::pair<fileitem::FiStatus, tRemoteStatus> fileitem::WaitForFinish()
 {
 	lockuniq g(this);
-	while(m_status<FIST_COMPLETE)
-		wait(g);
-	if(httpCode)
-		*httpCode=m_head.getStatus();
-	return m_status;
+    while (m_status < FIST_COMPLETE)
+        wait(g);
+    return std::pair<fileitem::FiStatus, tRemoteStatus>(m_status, m_responseStatus);
 }
 
-fileitem::FiStatus fileitem::WaitForFinish(int *httpCode, unsigned check_interval, const std::function<void()> &check_func)
+std::pair<fileitem::FiStatus, tRemoteStatus> fileitem::WaitForFinish(unsigned check_interval, const std::function<void()> &check_func)
 {
 	lockuniq g(this);
-	while(m_status<FIST_COMPLETE)
+    while (m_status < FIST_COMPLETE)
 	{
-		if(wait_for(g, 1, 1)) // on timeout
+        if(wait_for(g, check_interval, 1)) // on timeout
 			check_func();
 	}
-	if(httpCode)
-		*httpCode=m_head.getStatus();
-	return m_status;
+    return std::pair<fileitem::FiStatus, tRemoteStatus>(m_status, m_responseStatus);
 }
 
 inline void _LogWithErrno(const char *msg, const string & sFile)
@@ -278,34 +249,28 @@ inline void _LogWithErrno(const char *msg, const string & sFile)
 			" storage error [" << msg << "], last errno: " << f);
 }
 
-void fileitem_with_storage::SETERROR(string_view x)
-{
-	m_head.clear();
-	m_head.frontLine = "HTTP/1.1 500 Cache Error, check apt-cacher.err";
-	log::err(tSS() << m_sPathRel << " storage error [" << x
-			<< "], last errno: " << tErrnoFmter());
-};
-
 bool fileitem_with_storage::withError(string_view message, fileitem::EDestroyMode destruction)
 {
-	SETERROR(message);
-	//m_pStorage->DlStarted(move(h), rawHeader);
-	DlSetError(destruction);
+    log::err(tSS() << m_sPathRel << " storage error [" << message
+            << "], last errno: " << tErrnoFmter());
+
+    DlSetError({500, "Cache Error, check apt-cacher.err"}, destruction);
 	return false;
+}
+
+bool fileitem_with_storage::SaveHeader(bool truncatedKeepOnlyOrigInfo)
+{
+	auto headPath = SABSPATHEX(m_sPathRel, ".head");
+	if (truncatedKeepOnlyOrigInfo)
+		return StoreHeadToStorage(headPath, -1, nullptr, &m_responseOrigin);
+	return StoreHeadToStorage(headPath, m_nContentLength, &m_responseModDate, &m_responseOrigin);
 };
 
-bool fileitem_with_storage::DlStarted(acng::header h, acng::string_view rawHeader, off_t bytes2seek)
+bool fileitem::DlStarted(string_view rawHeader, const tHttpDate& modDate, cmstring& origin, tRemoteStatus status, off_t bytes2seek, off_t bytesAnnounced)
 {
+    LOGSTARTFUNCxs( modDate.any(), status.code, status.msg, bytes2seek, bytesAnnounced);
 
-/*bool fileitem_with_storage::DownloadStartedStoreHeader(const header & h, size_t hDataLen,
-		const char *pNextData,
-		bool bForcedRestart, bool &bDoCleanRetry)
-		*/
-
-	LOGSTARTFUNC
-
-	LOG(h.ToString());
-
+    m_nContentLength = -1;
 	m_nTimeDlStarted = GetTime();
 	m_nIncommingCount += rawHeader.size();
 	notifyAll();
@@ -319,22 +284,25 @@ bool fileitem_with_storage::DlStarted(acng::header h, acng::string_view rawHeade
 		return false;
 	}
 
-	m_head = move(h);
-	m_status=FIST_DLGOTHEAD;
+    m_status=FIST_DLGOTHEAD;
 	// if range was confirmed then can already start forwarding that much
 	if (bytes2seek >= 0)
 	{
-		if (bytes2seek < m_nSizeChecked && m_nSizeChecked >= 0)
+        if (m_nSizeChecked >= 0 && bytes2seek < m_nSizeChecked)
 			return false;
-
 		m_nSizeChecked = bytes2seek;
 	}
+
+    m_responseStatus = move(status);
+    m_responseOrigin = move(origin);
+    m_responseModDate = modDate;
+    m_nContentLength = bytesAnnounced;
 	return true;
 }
 
 bool fileitem_with_storage::DlAddData(string_view chunk)
 {
-#warning really needs a lock here all time while doing write operations? or lock around metadata changes?
+#warning check all users to have the lock set!
 	// something might care, most likely... also about BOUNCE action
 	notifyAll();
 
@@ -366,7 +334,7 @@ bool fileitem_with_storage::DlAddData(string_view chunk)
 
 bool fileitem_with_storage::SafeOpenOutFile()
 {
-	LOGSTARTFUNC
+	LOGSTARTFUNC;
 	checkforceclose(m_filefd);
 
 	// using adaptive Delete-Or-Replace-Or-CopyOnWrite strategy
@@ -442,21 +410,14 @@ bool fileitem_with_storage::SafeOpenOutFile()
 		return withError("Filesystem error");
 
 #if 0 // do we care?
-		if(0 != fstat(m_filefd, &stbuf) || !S_ISREG(stbuf.st_mode))
-			return withError("Not a regular file", EDestroyMode::DELETE_KEEP_HEAD);
+	if(0 != fstat(m_filefd, &stbuf) || !S_ISREG(stbuf.st_mode))
+		return withError("Not a regular file", EDestroyMode::DELETE_KEEP_HEAD);
 #endif
 
 	auto sHeadPath(sPathAbs + ".head");
-
 	ldbg("Storing header as " + sHeadPath);
-	auto tempHead(sPathAbs + ".hea%");
-	int count = m_head.StoreToFile(tempHead);
-
-	if (count < 0)
-	{
-		errno = -count;
+	if (!SaveHeader(false))
 		return withError("Cannot store header");
-	}
 
 	// either confirm start at zero or verify the expected file state on disk
 
@@ -468,19 +429,32 @@ bool fileitem_with_storage::SafeOpenOutFile()
 			return withError("Unexpected file change");
 	}
 
-	// this is not supposed to go wrong at this moment
-	if (0 != rename(tempHead.c_str(), sHeadPath.c_str()))
-		return withError("Renaming failure");
-
 	// okay, have the stream open
 	m_status = FIST_DLRECEIVING;
+
+	/** Tweak FS to receive a file of remoteSize in one sequence,
+	 * considering current m_nSizeChecked as well.
+	 */
+	if (cfg::allocspace > 0 && m_nContentLength > 0)
+	{
+		// XXX: we have the stream size parsed before but storing that member all the time just for this purpose isn't exactly great
+		auto preservedSequenceLen = m_nContentLength - m_nSizeChecked;
+		if (preservedSequenceLen > (off_t) cfg::allocspace)
+			preservedSequenceLen = cfg::allocspace;
+		if (preservedSequenceLen > 0)
+		{
+			falloc_helper(m_filefd, m_nSizeChecked, preservedSequenceLen);
+			m_bPreallocated = true;
+		}
+	}
+
 	return true;
 }
 
 void fileitem::MarkFaulty(bool killFile)
 {
 	setLockGuard
-	DlSetError(killFile ? EDestroyMode::DELETE : EDestroyMode::TRUNCATE);
+    DlSetError({500, "Bad Cache Item"}, killFile ? EDestroyMode::DELETE : EDestroyMode::TRUNCATE);
 }
 
 TFileItemHolder::~TFileItemHolder()
@@ -514,7 +488,7 @@ TFileItemHolder::~TFileItemHolder()
 	if (wasGloballyRegistered
 			&& !evabase::in_shutdown
 			&& MAXTEMPDELAY
-			&& m_ptr->m_bVolatile
+            && m_ptr->IsVolatile()
 			&& m_ptr->m_status == fileitem::FIST_COMPLETE)
 	{
 		auto when = m_ptr->m_nTimeDlStarted + MAXTEMPDELAY;
@@ -529,7 +503,8 @@ TFileItemHolder::~TFileItemHolder()
 	// nothing, let's put the item into shutdown state
 	if (m_ptr->m_status < fileitem::FIST_COMPLETE)
 		m_ptr->m_status = fileitem::FIST_DLSTOP;
-	m_ptr->m_head.frontLine = "HTTP/1.1 500 Cache file item expired";
+    m_ptr->m_responseStatus.msg = "Cache file item expired";
+    m_ptr->m_responseStatus.code = 500;
 
 	if (wasGloballyRegistered)
 	{
@@ -539,7 +514,6 @@ TFileItemHolder::~TFileItemHolder()
 	}
 	// make sure it's not double-unregistered accidentally!
 	m_ptr.reset();
-
 }
 
 void TFileItemHolder::AddToProlongedQueue(TFileItemHolder&& p, time_t expTime)
@@ -551,20 +525,21 @@ void TFileItemHolder::AddToProlongedQueue(TFileItemHolder&& p, time_t expTime)
 			cleaner::TYPE_EXFILEITEM);
 }
 
-TFileItemHolder TFileItemHolder::Create(cmstring &sPathUnescaped, ESharingHow how)
+TFileItemHolder TFileItemHolder::Create(cmstring &sPathUnescaped, ESharingHow how, const fileitem::tSpecialPurposeAttr& spattr)
 {
-	LOGSTARTFUNCxs(sPathUnescaped);
+    LOGSTARTFUNCxs(sPathUnescaped, int(how));
 #warning should have UTs for all combinations
 	try
 	{
 		mstring sPathRel(fileitem_with_storage::NormalizePath(sPathUnescaped));
 		lockguard lockGlobalMap(mapItemsMx);
-
+        LOG("Normalized: " << sPathRel );
 		auto regnew = [&]()
 		{
 			LOG("Registering as NEW file item...");
 			auto sp(make_shared<fileitem_with_storage>(sPathRel));
 			sp->usercount++;
+            sp->m_spattr = spattr;
 			auto res = mapItems.emplace(sPathRel, sp);
 			ASSERT(res.second);
 			sp->m_globRef = res.first;
@@ -586,29 +561,49 @@ TFileItemHolder TFileItemHolder::Create(cmstring &sPathUnescaped, ESharingHow ho
 
 		lockguard g(*fi);
 
-		if (how == ESharingHow::ALWAYS_TRY_SHARING)
+        if (how == ESharingHow::ALWAYS_TRY_SHARING || fi->m_bCreateItemMustDisplace)
 			return share();
 
 		// detect items that got stuck somehow and move it out of the way
 		auto now(GetTime());
-		auto makeWay = how == ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY ||
-#warning range-limited item (only those starting from zero) shall set this!
-#warning actually, bad idea, should carry rangelimit again in the item and verify against that in this method
-				fi->m_bCreateItemMustDisplace ||
-				(now > (fi->m_nTimeDlStarted + cfg::stucksecs));
-
+        auto makeWay = false;
+        if (how == ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY)
+            makeWay = true;
+        else
+        {
+            dbgline;
+#warning does this only apply to volatile items? is this value updated while downloading?
+            makeWay = now > (fi->m_nTimeDlStarted + cfg::stucksecs);
+            // check the additional conditions for being perfectly identical
+            if (!makeWay && fi->IsVolatile() != spattr.bVolatile)
+            {
+                // replace if previous was working in solid mode because it does less checks
+                makeWay = ! fi->IsVolatile();
+            }
+            if (!makeWay && spattr.bHeadOnly != fi->IsHeadOnly())
+            {
+                dbgline;
+                makeWay = true;
+            }
+            if (!makeWay && spattr.nRangeLimit != fi->GetRangeLimit())
+            {
+                dbgline;
+                makeWay = true;
+            }
+#warning add validation when remote credentials are supported
+        }
 		if (!makeWay)
-			return share();
+            return share();
 
-		// XXX: this is crap and cannot happen but better double-check!
-		if (fi->m_sPathRel.empty())
-			return TFileItemHolder();
-
-		// okay, needing the evasive maneuver because file might exist
+        // okay, have to move a probably existing cache file out of the way,
+        // therefore needing this evasive maneuver
 		auto replPathRel = fi->m_sPathRel + "." + ltos(now);
 		auto replPathAbs = SABSPATH(replPathRel);
-
 		auto pathAbs = SABSPATH(fi->m_sPathRel);
+
+        // XXX: this check is crap and cannot happen but better double-check!
+        if (AC_UNLIKELY(fi->m_sPathRel.empty()))
+            return TFileItemHolder();
 
 		auto abandon_replace = [&]() {
 			fi->m_sPathRel = replPathAbs;
@@ -651,7 +646,7 @@ TFileItemHolder TFileItemHolder::Create(tFileItemPtr spCustomFileItem, bool isSh
 	if (!spCustomFileItem || spCustomFileItem->m_sPathRel.empty())
 		return ret;
 
-
+    dbgline;
 	if(!isShareable)
 	{
 		ret.m_ptr = spCustomFileItem;
@@ -659,12 +654,13 @@ TFileItemHolder TFileItemHolder::Create(tFileItemPtr spCustomFileItem, bool isSh
 
 	lockguard lockGlobalMap(mapItemsMx);
 
-	auto installed = mapItems.emplace(spCustomFileItem->m_sPathRel,
+    dbgline;
+    auto installed = mapItems.emplace(spCustomFileItem->m_sPathRel,
 			spCustomFileItem);
 
 	if(!installed.second)
 		return ret; // conflict, another agent is already active
-
+    dbgline;
 	spCustomFileItem->m_globRef = installed.first;
 	spCustomFileItem->usercount++;
 	ret.m_ptr = spCustomFileItem;
@@ -698,7 +694,7 @@ ssize_t fileitem_with_storage::SendData(int out_fd, int in_fd, off_t &nSendPos, 
 #ifndef HAVE_LINUX_SENDFILE
 	return sendfile_generic(out_fd, in_fd, &nSendPos, count);
 #else
-	ssize_t r=sendfile(out_fd, in_fd, &nSendPos, count);
+    auto r = sendfile(out_fd, in_fd, &nSendPos, count);
 
 	if(r<0 && (errno == ENOSYS || errno == EINVAL))
 		return sendfile_generic(out_fd, in_fd, &nSendPos, count);
@@ -745,34 +741,53 @@ fileitem_with_storage::~fileitem_with_storage()
 	if (m_sPathRel.empty())
 		return;
 
-	cmstring sPathAbs(SABSPATH(m_sPathRel));
+    mstring sPathAbs, sPathHead;
+    auto calcPath = [&]() {
+        sPathAbs = SABSPATH(m_sPathRel);
+        sPathHead = SABSPATH(m_sPathRel) + ".head";
+    };
 
-	if (m_eDestroy)
-	{
-		cmstring sPathHead(sPathAbs + ".head");
-		if (m_eDestroy >= EDestroyMode::DELETE)
-		{
-			unlink(sPathAbs.c_str());
-			if (m_eDestroy == EDestroyMode::ABANDONED) // no head file there when moved to garbage
-				unlink(sPathHead.c_str());
-		}
-		else
-		{
-			if (0 != ::truncate(sPathAbs.c_str(), 0))
-				unlink(sPathAbs.c_str());
-			// build a clean header where only the source can be remembered from
-			header h;
-			h.frontLine = m_head.frontLine;
-			h.set(header::XORIG, h.h[header::XORIG]);
-			h.StoreToFile(sPathHead);
-		}
-	}
-	else if(m_bPreallocated)
-	{
-		Cstat st(sPathAbs);
-		if (st)
-			truncate(sPathAbs.c_str(), st.st_size); // CHECKED!
-	}
+    switch (m_eDestroy)
+    {
+    case EDestroyMode::KEEP:
+    {
+        if(m_bPreallocated)
+        {
+            Cstat st(sPathAbs);
+            if (st)
+                truncate(sPathAbs.c_str(), st.st_size); // CHECKED!
+            break;
+        }
+    }
+    case EDestroyMode::TRUNCATE:
+    {
+        calcPath();
+        if (0 != ::truncate(sPathAbs.c_str(), 0))
+            unlink(sPathAbs.c_str());
+        SaveHeader(true);
+        break;
+    }
+    case EDestroyMode::ABANDONED:
+    {
+        calcPath();
+        unlink(sPathAbs.c_str());
+        break;
+    }
+    case EDestroyMode::DELETE:
+    {
+        calcPath();
+        unlink(sPathAbs.c_str());
+        unlink(sPathHead.c_str());
+        break;
+    }
+    case EDestroyMode::DELETE_KEEP_HEAD:
+    {
+        calcPath();
+        unlink(sPathAbs.c_str());
+        SaveHeader(true);
+        break;
+    }
+    }
 }
 
 // special file? When it's rewritten from start, save the old version aside
@@ -811,7 +826,7 @@ void fileitem_with_storage::DlFinish(bool asInCache)
 
 	if (asInCache)
 	{
-		m_nSizeChecked = m_nSizeCachedInitial;
+        m_nSizeChecked = m_nContentLength = m_nSizeCachedInitial;
 	}
 
 	// XXX: double-check whether the content length in header matches checked size?
@@ -824,44 +839,21 @@ void fileitem_with_storage::DlFinish(bool asInCache)
 	dbgline;
 
 	// we are done! Fix header after chunked transfers?
-	if (nullptr == m_head.h[header::CONTENT_LENGTH])
+    if (m_nContentLength < 0)
 	{
-		dbgline;
-
-		if (m_nSizeChecked < 0)
-			m_head.del(header::CONTENT_LENGTH);
-		else
-			m_head.set(header::CONTENT_LENGTH, m_nSizeChecked);
-
-		// only update the file on disk if this item is still shared
-		lockguard lockGlobalMap(mapItemsMx);
-		if (m_globRef != mapItems.end())
-			m_head.StoreToFile(SABSPATHEX(m_sPathRel, ".head"));
+        m_nContentLength = m_nSizeChecked;
+        if (m_eDestroy == KEEP)
+            SaveHeader(false);
 	}
 }
 
-void fileitem_with_storage::DlPreAlloc(off_t remoteSize)
-{
-	if (remoteSize < 0)
-		return;
-#warning restore me
-#if false
-	if (m_nSizeCachedInitial < 0)
-		return;
-
-	if (m_nSizeCachedInitial < (off_t) cfg::allocspace)
-	{
-		falloc_helper(m_filefd, 0, min(hint_start + hint_length, (off_t) cfg::allocspace));
-		m_bPreallocated = true;
-	}
-#endif
-}
-
-void fileitem::DlSetError(acng::fileitem::EDestroyMode kmode)
+void fileitem::DlSetError(const tRemoteStatus& errState, fileitem::EDestroyMode kmode)
 {
 	notifyAll();
+    m_responseStatus = errState;
 	m_status = FIST_DLERROR;
-	m_eDestroy = kmode;
+    if (kmode < m_eDestroy)
+        m_eDestroy = kmode;
 }
 
 }

@@ -980,19 +980,6 @@ mstring unEscape(cmstring &s)
 	return ret;
 }
 
-unsigned FormatTime(char *buf, size_t bufLen, const time_t cur)
-{
-	if(bufLen < 26)
-		return 0;
-	struct tm tmp;
-	gmtime_r(&cur, &tmp);
-	asctime_r(&tmp, buf);
-	//memcpy(buf + 24, " GMT", 4); // wrong, only needed for rfc-822 format, not for asctime's
-	//return 28;
-	buf[24]=0;
-	return 24;
-}
-
 bool scaseequals(cmstring& a, cmstring& b)
 {
     auto len = a.size();
@@ -1003,5 +990,27 @@ bool scaseequals(cmstring& a, cmstring& b)
             return false;
     return true;
 }
+
+#if !defined(HAVE_STRLCPY) || !HAVE_STRLCPY
+size_t strlcpy(char *tgt, const char *src, size_t tgtSize)
+{
+    auto p = src;
+    if (tgtSize > 0)
+    {
+        char *const pEnd = tgt + tgtSize - 1;
+        while (tgt < pEnd && *p)
+        {
+            *tgt++ = *p++;
+        }
+        *tgt = '\0';
+    }
+    // count how much we could have copied if not reached
+    while (*p)
+    {
+        ++p;
+    }
+    return p - src;
+}
+#endif
 
 }

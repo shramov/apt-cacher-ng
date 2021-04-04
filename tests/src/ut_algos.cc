@@ -1,5 +1,5 @@
 #include "gtest/gtest.h"
-#include "dbman.h"
+//#include "dbman.h"
 #include "csmapping.h"
 #include "acfg.h"
 
@@ -7,6 +7,12 @@
 
 #include <unordered_map>
 
+namespace acng
+{
+        void check_algos();
+}
+
+#if 0 // those is all new stuff from the next branch - might restore when we use them
 TEST(algorithms, checksumming)
 {
 	ASSERT_NO_THROW(acng::check_algos());
@@ -170,3 +176,5 @@ TEST(strop,splitter)
 	ASSERT_EQ(q.front(), "");
 	ASSERT_EQ(q.back(), "");
 }
+
+#endif

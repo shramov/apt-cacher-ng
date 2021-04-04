@@ -120,25 +120,22 @@ struct tDlJob
 	// input parameters
 	bool m_bIsPassThroughRequest = false;
 	bool m_bAllowStoreData = true;
-	bool m_bHeadOnly = false;
 	bool m_bFileItemAssigned = false;
 
 	int m_nRedirRemaining = cfg::redirmax;
 
+    // most of those attributes are relevant to the downloader, keep a local snapshot of them
+    fileitem::tSpecialPurposeAttr m_fiAttr;
+
 	// state attribute
 	off_t m_nRest = 0;
-
-	// range limit has a special purpose for special kind of jobs, this can override other checks
-	off_t m_nRangeLimit = -1;
 
 	// flag to use ranges and also define start if >= 0
 	off_t m_nUsedRangeStartPos = -1;
 
 	inline tDlJob(dlcon::Impl *p, const tFileItemPtr& pFi, const dlrequest& rq) :
 					m_pStorage(pFi), m_parent(*p),
-					m_bIsPassThroughRequest(rq.isPassThroughRequest),
-					m_bHeadOnly(rq.m_bHeadOnly),
-					m_nRangeLimit(rq.m_nRangeLimit)
+                    m_bIsPassThroughRequest(rq.isPassThroughRequest)
 	{
 		LOGSTARTFUNC
 
@@ -158,6 +155,9 @@ struct tDlJob
 			m_bBackendMode = true;
 		}
 #warning extract custom headers but maybe do this during the initial parsing, also see AddJob
+
+        lockguard g(*pFi);
+        m_fiAttr = pFi->m_spattr;
 	}
 	// Default move ctor is ok despite of pointers, we only need it in the beginning, list-splice operations should not move the object around
 	tDlJob(tDlJob &&other) = default;
@@ -167,8 +167,8 @@ struct tDlJob
 		LOGSTART("tDlJob::~tDlJob");
 		if (m_pStorage)
 		{
-			m_pStorage->DlRefCountDec(sErrorMsg.empty() ?
-					sGenericError : move(sErrorMsg));
+            m_pStorage->DlRefCountDec({503, sErrorMsg.empty() ?
+                    "Download Expired" : move(sErrorMsg)});
 		}
 	}
 
@@ -214,13 +214,13 @@ struct tDlJob
 		LOGSTART("tDlJob::RewriteSource");
 		if (--m_nRedirRemaining <= 0)
 		{
-			sErrorMsg = "500 Bad redirection (loop)";
+            sErrorMsg = "Redirection loop";
 			return false;
 		}
 
 		if (!pNewUrl || !*pNewUrl)
 		{
-			sErrorMsg = "500 Bad redirection (empty)";
+            sErrorMsg = "Bad redirection";
 			return false;
 		}
 
@@ -251,7 +251,7 @@ struct tDlJob
 		{
 			if (!m_pCurBackend)
 			{
-				sErrorMsg = "500 Bad redirection (path)";
+                sErrorMsg = "Bad redirection target";
 				return false;
 			}
 			auto sPathBackup = m_remoteUri.sPath;
@@ -331,7 +331,8 @@ struct tDlJob
 #define H_IFRA "If-Range: "
 #define CRLF "\r\n"
 
-		if (m_bHeadOnly)
+
+        if (m_fiAttr.bHeadOnly)
 		{
 			head << "HEAD ";
 			m_bAllowStoreData = false;
@@ -384,9 +385,8 @@ struct tDlJob
 
 		m_nUsedRangeStartPos = -1;
 
-		lockguard g(*m_pStorage);
-		const header &pHead = m_pStorage->GetHeaderUnlocked();
-		auto lamo = pHead.h[header::LAST_MODIFIED];
+        lockguard g(*m_pStorage);
+
 		m_nUsedRangeStartPos = m_pStorage->m_nSizeChecked >= 0 ?
 				m_pStorage->m_nSizeChecked : m_pStorage->m_nSizeCachedInitial;
 
@@ -398,50 +398,46 @@ struct tDlJob
 		 * on volatile files. Also make sure that Date checks are only used
 		 * in combination with range request, otherwise it doesn't make sense.
 		 */
-		if (m_pStorage->m_bVolatile)
+        if (m_fiAttr.bVolatile)
 		{
 			if (cfg::vrangeops <= 0)
 			{
 				m_nUsedRangeStartPos = -1;
 			}
-			else if (m_nUsedRangeStartPos == m_pStorage->m_nContLenInitial
+            else if (m_nUsedRangeStartPos == m_pStorage->m_nContentLength
 					&& m_nUsedRangeStartPos > 1)
 			{
 				m_nUsedRangeStartPos--; // the probe trick
 			}
 
-			if (!lamo) // date unusable but needed for volatile files?
+            if (!m_pStorage->m_responseModDate.isSet()) // date unusable but needed for volatile files?
 				m_nUsedRangeStartPos = -1;
 		}
-		else
-		{
-			lamo = nullptr;
-		}
 
-		if (m_nRangeLimit >= 0)
+        if (m_fiAttr.nRangeLimit >= 0)
 		{
 			 if(m_nUsedRangeStartPos < 0)
 			 {
-				 m_nRangeLimit = 0;
+                m_fiAttr.nRangeLimit = 0;
 			 }
-			 else if(AC_UNLIKELY(m_nRangeLimit < m_nUsedRangeStartPos))
+             else if(AC_UNLIKELY(m_fiAttr.nRangeLimit < m_nUsedRangeStartPos))
 			{
 				// must be BS, fetch the whole remainder!
-				m_nRangeLimit = -1;
+                m_fiAttr.nRangeLimit = -1;
 			}
 		}
 
 		if (m_nUsedRangeStartPos > 0)
 		{
-			if (lamo)
-				head << H_IFRA << lamo << CRLF;
+            if (m_fiAttr.bVolatile && m_pStorage->m_responseModDate.isSet())
+                head << H_IFRA << m_pStorage->m_responseModDate.isSet() << CRLF;
 			head << "Range: bytes=" << m_nUsedRangeStartPos << "-";
-			if (m_nRangeLimit > 0)
-				head << m_nRangeLimit;
+            if (m_fiAttr.nRangeLimit > 0)
+                head << m_fiAttr.nRangeLimit;
 			head << CRLF;
 		}
 
-		if (m_pStorage->m_bVolatile)
+        if (m_pStorage->IsVolatile())
 			head << "Cache-Control: " /*no-store,no-cache,*/ "max-age=0" CRLF;
 
 		if (cfg::exporigin && !m_xff.empty())
@@ -477,7 +473,7 @@ struct tDlJob
 				ldbg("To store: " <<nToStore);
 				if (!m_pStorage->DlAddData(string_view(inBuf.rptr(), nToStore)))
 				{
-					sErrorMsg = "502 Could not store data";
+                    sErrorMsg = "Cannot store";
 					return HINT_DISCON | EFLAG_JOB_BROKEN;
 				}
 			}
@@ -505,7 +501,7 @@ struct tDlJob
 		LOGSTART("tDlJob::ProcessIncomming");
 		if (!m_pStorage)
 		{
-			sErrorMsg = "502 Bad cache descriptor";
+            sErrorMsg = "Bad cache item";
 			return HINT_DISCON | EFLAG_JOB_BROKEN;
 		}
 
@@ -540,7 +536,7 @@ struct tDlJob
 				if (hDataLen < 0)
 				{
 					dbgline;
-					sErrorMsg = "500 Invalid header";
+                    sErrorMsg = "Invalid header";
 					// can be followed by any junk... drop that mirror, previous file could also contain bad data
 					return EFLAG_MIRROR_BROKEN | HINT_DISCON
 							| HINT_KILL_LAST_FILE;
@@ -551,7 +547,7 @@ struct tDlJob
 				if (h.type != header::ANSWER)
 				{
 					dbgline;
-					sErrorMsg = "500 Unexpected response type";
+                    sErrorMsg = "Unexpected response type";
 					// smells fatal...
 					return EFLAG_MIRROR_BROKEN | HINT_DISCON;
 				}
@@ -596,15 +592,12 @@ struct tDlJob
 					{
 						if (endsWith(m_remoteUri.sPath, kfile))
 						{
-							sErrorMsg =
-									"500 Keyfile missing, mirror blacklisted";
+                            sErrorMsg = "Keyfile N/A, mirror blacklisted";
 							return HINT_DISCON | EFLAG_MIRROR_BROKEN;
 						}
 					}
 				}
-
-				auto sremote = RemoteUri(false);
-				h.set(header::XORIG, sremote);
+#warning BS, set this in the header check method
 
 				auto pCon = h.h[header::CONNECTION];
 				if (!pCon)
@@ -616,17 +609,21 @@ struct tDlJob
 					m_eReconnectASAP = HINT_DISCON;
 				}
 
-				if (m_bHeadOnly)
+                if (m_fiAttr.bHeadOnly)
 				{
 					dbgline;
 					m_DlState = STATE_FINISHJOB;
 				}
+#if 0
+                // this is BS, our strategy shall never produce a 304
 				else if (st == 304 && cfg::vrangeops == 0)
 				{
 					dbgline;
+#warning review, what's the usecase?
 					m_pStorage->SetupComplete();
 					m_DlState = STATE_FINISHJOB;
 				}
+#endif
 				else if (h.h[header::TRANSFER_ENCODING]
 						&& 0
 								== strcasecmp(
@@ -640,7 +637,7 @@ struct tDlJob
 				else if (contentLength < 0)
 				{
 					dbgline;
-					sErrorMsg = "500 Missing Content-Length";
+                    sErrorMsg = "Missing Content-Length";
 					return HINT_DISCON | EFLAG_JOB_BROKEN;
 				}
 				else
@@ -659,7 +656,7 @@ struct tDlJob
 								cfg::badredmime.c_str())
 						&& h.getStatus() < 300) // contains the final data/response
 				{
-					if (m_pStorage->m_bVolatile)
+                    if (m_pStorage->IsVolatile())
 					{
 						// volatile... this is still ok, just make sure time check works next time
 						h.set(header::LAST_MODIFIED, FAKEDATEMARK);
@@ -676,7 +673,7 @@ struct tDlJob
 				}
 
 				// ok, can pass the data to the file handler
-				auto storeResult = CheckAndSaveHeader(move(h),
+                auto storeResult = CheckAndSaveHeader(h,
 						string_view(inBuf.rptr(), hDataLen), contentLength);
 				inBuf.drop(size_t(hDataLen));
 
@@ -687,11 +684,7 @@ struct tDlJob
 				{
 					ldbg("Item dl'ed by others or in error state --> drop it, reconnect");
 					m_DlState = STATE_PROCESS_DATA;
-					sErrorMsg = "502 Cache descriptor busy";
-					/*					header xh = m_pStorage->GetHeader();
-					 if(xh.frontLine.length() > 12)
-					 sErrorMsg = sErrorMsg + " (" + xh.frontLine.substr(12) + ")";
-					 */
+                    sErrorMsg = "Busy Cache Item";
 					return HINT_DISCON | EFLAG_JOB_BROKEN
 							| EFLAG_STORE_COLLISION;
 				}
@@ -735,7 +728,7 @@ struct tDlJob
 				unsigned len(0);
 				if (1 != sscanf(pStart, "%x", &len))
 				{
-					sErrorMsg = "500 Invalid data stream";
+                    sErrorMsg = "Invalid stream";
 					return EFLAG_JOB_BROKEN; // hm...?
 				}
 				inBuf.drop(crlf + 2 - pStart);
@@ -766,51 +759,37 @@ struct tDlJob
 			}
 		}
 		ASSERT(!"unreachable");
-		sErrorMsg = "502 Invalid state";
+        sErrorMsg = "Bad state";
 		return EFLAG_JOB_BROKEN;
 	}
 
-	EResponseEval CheckAndSaveHeader(header h, string_view rawHeader, off_t remoteSize)
+    EResponseEval CheckAndSaveHeader(const header& h, string_view rawHeader, off_t contLen)
 	{
 		LOGSTARTFUNC;
+
+        tRemoteStatus remoteStatus(h.frontLine);
 
 		lockguard g(*m_pStorage);
 
 		auto& sPathRel = m_pStorage->m_sPathRel;
 		auto& fiStatus = m_pStorage->m_status;
 
-		auto compDates = [&](){
-			return header::ParseDate(m_pStorage->m_head.h[header::LAST_MODIFIED], -1)
-				== header::ParseDate(h.h[header::LAST_MODIFIED], -2);
-		};
-
 		auto isHiddenResuming = [&]() {
 			return m_pStorage->m_status > fileitem::FIST_DLPENDING;
-		};
+        };
 
-		auto SETERROR = [&](string_view x) {
-			m_bAllowStoreData = false;
-			h.clear();
-			h.frontLine = "HTTP/1.1 ";
-			h.frontLine += x;
-			log::err(tSS() << sPathRel << " storage error [" << x
-					<< "], last errno: " << tErrnoFmter());
-		};
-
-		auto withError = [&](string_view codeAndMessage,
-				fileitem::EDestroyMode destruction = fileitem::EDestroyMode::KEEP) {
-			SETERROR(codeAndMessage);
-			//m_pStorage->DlStarted(move(h), rawHeader);
-			m_pStorage->DlSetError(destruction);
-			return EResponseEval::BUSY_OR_ERROR;
-		};
-
+        auto withError = [&](string_view message,
+                fileitem::EDestroyMode destruction = fileitem::EDestroyMode::KEEP) {
+            m_bAllowStoreData = false;
+            log::err(tSS() << sPathRel << " response or storage error [" << message
+                     << "], last errno: " << tErrnoFmter());
+            m_pStorage->DlSetError({503, mstring(message)}, destruction);
+            return EResponseEval::BUSY_OR_ERROR;
+        };
 
 		USRDBG( "Download started, storeHeader for " << sPathRel << ", current status: " << (int) fiStatus);
 
 		m_pStorage->m_nIncommingCount += rawHeader.size();
-
-		int serverStatus = h.getStatus();
 
 		if(fiStatus >= fileitem::FIST_COMPLETE)
 		{
@@ -824,15 +803,16 @@ struct tDlJob
 			if (!m_bFileItemAssigned)
 				return EResponseEval::BUSY_OR_ERROR;
 			// OK, resuming, is the remote still valid?
-			if (!compDates())
+            if (m_pStorage->m_responseModDate != tHttpDate(h.h[header::LAST_MODIFIED]))
 			{
-				return withError("500 Remote resource changed while resuming",
+                return withError("Remote resource changed while resuming",
 						fileitem::EDestroyMode::KEEP);
 			}
 		}
 
 		cmstring sPathAbs(SABSPATH(sPathRel));
 		string sHeadPath = sPathAbs + ".head";
+        string sLocation;
 
 	#if 0
 	#warning FIXME
@@ -842,24 +822,26 @@ struct tDlJob
 			serverStatus = 416;
 		}
 	#endif
-		switch(serverStatus)
+        switch(remoteStatus.code)
 		{
 		case 200:
 		{
+            remoteStatus.msg = "OK";
+
 			// Code 200 must start from the beginning, size was already reported
 			if (m_pStorage->m_nSizeChecked > 0)
 			{
 				/* shouldn't be here, and if resuming that would be a 206 instead
 				 */
-				return withError("500 Failed to resume remote download");
+                return withError("Failed to resume remote download");
 			}
 			if (m_nUsedRangeStartPos >= 0)
 			{
 				// might be okay but only if file is newer and file item expects this
-				if (m_pStorage->m_bVolatile)
+                if (m_pStorage->IsVolatile())
 					m_nUsedRangeStartPos = -1;
 				else
-					return withError("500 Cannot resume while previous size already reported");
+                    return withError("Cannot resume while previous size already reported");
 			}
 			break;
 		}
@@ -879,34 +861,34 @@ struct tDlJob
        Content-Length: 26012
        Content-Type: image/gif
 			 */
+            remoteStatus = { 200, "OK" };
 			const char *p=h.h[header::CONTENT_RANGE];
-			h.frontLine="HTTP/1.1 200 OK";
 
 			if(!p)
-				return withError("500 Missing Content-Range in Partial Response");
+                return withError("Missing Content-Range in Partial Response");
 
 			const static std::regex re("bytes(\\s*|=)(\\d+)-(\\d+|\\*)/(\\d+|\\*)");
 
 			std::cmatch reRes;
 			if (!std::regex_search(p, reRes, re))
 			{
-				return withError("500 Bad range format");
+                return withError("Bad range");
 			}
 			auto tcount = reRes.size();
 			if (tcount != 5)
 			{
-				return withError("500 Bad range format");
+                return withError("Bad range format");
 			}
 			// * would mean -1
-			remoteSize = atoofft(reRes[4].first, -1);
+            contLen = atoofft(reRes[4].first, -1);
 			auto startPos = atoofft(reRes[2].first, -1);
 
 			// detect quality of the special probe request which reports what we already knew
-			if (m_pStorage->m_bVolatile &&
+            if (m_pStorage->IsVolatile() &&
 					m_pStorage->m_nSizeCachedInitial > 0 &&
-					remoteSize == m_pStorage->m_nSizeCachedInitial &&
+                    contLen == m_pStorage->m_nSizeCachedInitial &&
 					m_pStorage->m_nSizeCachedInitial - 1 == startPos &&
-					compDates())
+                    m_pStorage->m_responseModDate == h.h[header::LAST_MODIFIED])
 			{
 				m_bAllowStoreData = false;
 				m_pStorage->DlFinish(true);
@@ -917,9 +899,8 @@ struct tDlJob
 					m_nUsedRangeStartPos != startPos ||
 					startPos < m_pStorage->m_nSizeCachedInitial)
 			{
-				return withError("500 Server reports unexpected range");
-			}
-			h.set(header::CONTENT_LENGTH, remoteSize);
+                return withError("Server reports unexpected range");
+            }
 			break;
 		}
 		case 416:
@@ -937,7 +918,7 @@ struct tDlJob
 			{
 				// -> kill cached file ASAP
 				m_bAllowStoreData=false;
-				return withError("503 Server disagrees on file size, cleaning up", fileitem::EDestroyMode::TRUNCATE);
+                return withError("Disagreement on file size, cleaning up", fileitem::EDestroyMode::TRUNCATE);
 			}
 			break;
 		default: //all other codes don't have a useful body
@@ -945,14 +926,20 @@ struct tDlJob
 			{
 				// got an error from the replacement mirror? cannot handle it properly
 				// because some job might already have started returning the data
-				USRDBG( "Cannot restart, HTTP code: " << serverStatus);
-				return withError(h.getCodeMessage());
+                USRDBG( "Cannot restart, HTTP code: " << remoteStatus.code);
+                return withError(h.getMessage());
 			}
+
+            if (remoteStatus.isRedirect())
+            {
+                if (h.h[header::LOCATION] && h.h[header::LOCATION][0])
+                    sLocation = h.h[header::LOCATION];
+                else
+                    return withError("Invalid redirection (missing location)");
+            }
+
 			m_bAllowStoreData = false;
-			remoteSize = -1;
-			// if there was body length, make it zero, otherwise better also drop it
-			if (h.h[header::CONTENT_LENGTH])
-				h.set(header::CONTENT_LENGTH, "0");
+            contLen = -1;
 		}
 
 		if (isHiddenResuming())
@@ -961,24 +948,20 @@ struct tDlJob
 		if(cfg::debug & log::LOG_MORE)
 			log::misc(string("Download of ")+sPathRel+" started");
 
-		// be sure about that!
-		h.del(header::CONTENT_RANGE);
-
-		if (!m_pStorage->DlStarted(move(h), rawHeader, m_nUsedRangeStartPos))
+        if (!m_pStorage->DlStarted(rawHeader, tHttpDate(h.h[header::LAST_MODIFIED]),
+                                   sLocation.empty() ? RemoteUri(false) : sLocation,
+                                   remoteStatus,
+                                   m_nUsedRangeStartPos, contLen))
 		{
 			return EResponseEval::BUSY_OR_ERROR;
 		}
 
 		m_bFileItemAssigned = true;
 
-		if (m_bAllowStoreData)
-		{
-			if(remoteSize > 0)
-				m_pStorage->DlPreAlloc(remoteSize);
-		}
-		else // finish it asap regardless of trailing body garbage
-		{
-			m_pStorage->DlFinish();
+        if (!m_bAllowStoreData)
+        {
+            // finish it asap regardless of trailing body garbage
+            m_pStorage->DlFinish();
 		}
 		return EResponseEval::GOOD;
 	}
@@ -1623,7 +1606,7 @@ void dlcon::Impl::WorkLoop()
 				else
 				{
 					setIfNotEmpty2(it->sErrorMsg, sErrorMsg,
-							"500 Broken mirror or incorrect configuration");
+                            "Broken mirror or incorrect configuration");
 					it = next_jobs.erase(it);
 				}
 			}
@@ -1863,8 +1846,7 @@ void dlcon::Impl::WorkLoop()
 
 			// trying to resume that job secretly, unless user disabled the use of range (we
 			// cannot resync the sending position ATM, throwing errors to user for now)
-			if (cfg::vrangeops <= 0
-					&& active_jobs.front().m_pStorage->m_bVolatile)
+            if (cfg::vrangeops <= 0 && active_jobs.front().m_fiAttr.bVolatile)
 				loopRes |= EFLAG_JOB_BROKEN;
 			else
 				active_jobs.front().m_DlState = tDlJob::STATE_GETHEADER;

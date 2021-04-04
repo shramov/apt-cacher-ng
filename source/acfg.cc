@@ -49,6 +49,7 @@ string tmpDontcache, tmpDontcacheReq, tmpDontcacheTgt, optProxyCheckCmd;
 int optProxyCheckInt = 99;
 
 tStrMap localdirs;
+// cached mime type strings, locked in RAM
 static class : public base_with_mutex, public NoCaseStringMap {} mimemap;
 
 std::bitset<TCP_PORT_MAX> *pUserPorts = nullptr;
@@ -742,8 +743,7 @@ cmstring & GetMimeType(cmstring &path)
 	tStrPos dpos = path.find_last_of('.');
 	if (dpos != stmiss)
 	{
-		NoCaseStringMap::const_iterator it = cfg::mimemap.find(path.substr(
-				dpos + 1));
+        auto it = cfg::mimemap.find(path.substr(dpos + 1));
 		if (it != cfg::mimemap.end())
 			return it->second;
 	}
@@ -752,10 +752,11 @@ cmstring & GetMimeType(cmstring &path)
 	filereader f;
 	if(f.OpenFile(path, true))
 	{
-		size_t maxLen = std::min(size_t(255), f.GetSize());
-		for(unsigned i=0; i< maxLen; ++i)
+#warning testme, short/long file, and mixed/binary/textonly inputs
+        auto sv = f.getView().substr(0, 255);
+        for(char c: sv)
 		{
-			if(!isascii((uint) *(f.GetBuffer()+i)))
+            if(!isascii(unsigned(c)))
 				return os;
 		}
 		return tp;

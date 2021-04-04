@@ -50,7 +50,7 @@ struct tDnsResContext
 unordered_map<string,tDnsResContext*> g_active_resolver_index;
 
 // this shall remain global and forever, for last-resort notifications
-LPCSTR sGenericErrorStatus = "503 Fatal system error within apt-cacher-ng processing";
+LPCSTR sGenericErrorStatus = "Fatal system error within apt-cacher-ng processing";
 auto fail_hint = make_shared<CAddrInfo>(sGenericErrorStatus);
 
 

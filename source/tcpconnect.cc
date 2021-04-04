@@ -231,7 +231,7 @@ std::string tcpconnect::_Connect(int timeout)
 #endif
 			return sEmptyString;
 	};
-	auto withErrnoError = [&]() { return tErrnoFmter("500 Connection failure: ");	};
+    auto withErrnoError = [&]() { return tErrnoFmter("Connection failure: ");	};
 	auto withThisErrno = [&withErrnoError](int myErr) { errno = myErr; return withErrnoError(); };
 
 	// ok, initial condition, one target should be always there, iterator would also hop to the next fallback if allowed
@@ -239,7 +239,7 @@ std::string tcpconnect::_Connect(int timeout)
 	{
 		dbgline;
 		if(cfg::conprotos[0] == PF_UNSPEC)
-			return "523 No such host";
+            return "No such host";
 		else
 			return withThisErrno(EAFNOSUPPORT);
 	}
@@ -304,7 +304,7 @@ std::string tcpconnect::_Connect(int timeout)
 			checkforceclose(prim.fd);
 			break;
 		default: // this should be unreachable
-			return "500 Internal error at " STRINGIFY(__LINE__);
+            return "Internal error at " STRINGIFY(__LINE__);
 		}
 
 		switch(alt.state)
@@ -366,7 +366,7 @@ std::string tcpconnect::_Connect(int timeout)
 			break;
 		}
 		default: // this should be unreachable
-			return "500 Internal error at " STRINGIFY(__LINE__);
+            return "Internal error at " STRINGIFY(__LINE__);
 		}
 
 		select_set_t selset;
@@ -666,7 +666,7 @@ bool tcpconnect::SSLinit(mstring &sErr, cmstring &sHostname, cmstring &sPort)
 
 	auto withSslHeadPfx = [&sErr](const char *perr)
 					{
-		sErr="500 SSL error: ";
+        sErr="SSL error: ";
 		sErr+=(perr?perr:"Generic SSL failure");
 		return false;
 					};
@@ -824,7 +824,7 @@ bool tcpconnect::StartTunnel(const tHttpUrl& realTarget, mstring& sError,
 				return false;
 			if(fmt.freecapa()<=0)
 			{
-				sError = "503 Remote proxy error";
+                sError = "Remote proxy error";
 				return false;
 			}
 
@@ -836,13 +836,13 @@ bool tcpconnect::StartTunnel(const tHttpUrl& realTarget, mstring& sError,
 			auto st = h.getStatus();
 			if (n <= 0 || st == 404 /* just be sure it doesn't send crap */)
 			{
-				sError = "503 Tunnel setup failed";
+                sError = "Tunnel setup failed";
 				return false;
 			}
 
 			if (st < 200 || st >= 300)
 			{
-				sError = h.frontLine;
+                sError = h.getMessage();
 				return false;
 			}
 			break;

@@ -77,7 +77,7 @@ struct ACNG_API CPrintItemFactory : public IFitemFactory
 				tPrintItem()
 				{
 				}
-				virtual FiStatus Setup(bool) override
+                virtual FiStatus Setup() override
 				{
 					return m_status = FIST_INITED;
 				}
@@ -91,15 +91,14 @@ struct ACNG_API CPrintItemFactory : public IFitemFactory
 				}
 
 			protected:
-				bool DlStarted(acng::header h, acng::string_view rawHeader, off_t bytes2seek) override
-				{
-					m_head = h;
+                bool DlStarted(string_view raw, const tHttpDate& dat, cmstring& orig, tRemoteStatus status, off_t nseek, off_t ntotal) override
+                {
 					static auto opt_dbg = getenv("ACNGTOOL_DEBUG_DOWNLOAD");
 					if (opt_dbg && *opt_dbg)
-						std::cerr << (std::string) h.ToString() << std::endl;
-					return true;
+                        std::cerr << raw << std::endl;
+                    return fileitem::DlStarted(raw, dat, orig, status, nseek, ntotal);
 				}
-				void DlFinish(bool asInCache) override
+                void DlFinish(bool) override
 				{
 					m_status = FIST_COMPLETE;
 				}
@@ -164,7 +163,7 @@ SHARED_PTR<fileitem> CreateReportItem()
 			memset(lineBuf.wptr(), 0, 1 << 16);
 		}
 		;
-		virtual FiStatus Setup(bool) override
+        virtual FiStatus Setup() override
 		{
 			return m_status = FIST_INITED;
 		}
@@ -178,11 +177,6 @@ SHARED_PTR<fileitem> CreateReportItem()
 		}
 
 	protected:
-		bool DlStarted(acng::header h, acng::string_view rawHeader, off_t bytes2seek) override
-		{
-			m_head = h;
-			return true;
-		}
 		void DlFinish(bool) override
 		{
 			m_status = FIST_COMPLETE;
@@ -196,9 +190,10 @@ SHARED_PTR<fileitem> CreateReportItem()
 			lineBuf.got(consumed);
 			for (;;)
 			{
+#warning this is a mess. a) document our "wire protocol", b) use string_view operations instead mempbrk and overall no need to copy strings, actually drop mempbrk
 				LPCSTR p = lineBuf.rptr();
-				auto end = mempbrk(p, "\r\n", lineBuf.size());
-				if (!end)
+                auto end = mempbrk(p, "\r\n", lineBuf.size());
+                if (!end)
 					break;
 				string s(p, end - p);
 				lineBuf.drop(s.length() + 1);
@@ -239,15 +234,15 @@ SHARED_PTR<fileitem> CreateReportItem()
 	return make_shared<tRepItem>();
 }
 
-void DownloadItem(const tHttpUrl &url, dlcon &dlConnector, const SHARED_PTR<fileitem> &fi)
+bool DownloadItem(const tHttpUrl &url, dlcon &dlConnector, const SHARED_PTR<fileitem> &fi)
 {
 	dlConnector.AddJob(fi, dlrequest().setSrc(url));
 
-	int st;
-	auto fistatus = fi->WaitForFinish(&st);
+    auto fistatus = fi->WaitForFinish();
+    return fistatus.first == fileitem::FIST_COMPLETE && fistatus.second.code == 200;
 	// just be sure to set a proper error code
-	if(fistatus != fileitem::FIST_COMPLETE && fi->GetHeader().getStatus() < 400)
-		fi->GetHeader().frontLine = "909 Incomplete download";
+//	if(fistatus.first != fileitem::FIST_COMPLETE && fistatus.second.code < 400)
+//		fi->GetHeader().frontLine = "909 Incomplete download";
 }
 int wcat(LPCSTR url, LPCSTR proxy, IFitemFactory*, const IDlConFactory &pdlconfa = g_tcp_con_factory);
 
@@ -637,9 +632,8 @@ int maint_job()
 		auto fi =CreateReportItem();
 		url.sHost = FAKE_UDS_HOSTNAME;
 		TUdsFactory udsFac;
-		evabaseFreeFrunner eb(udsFac);
-		DownloadItem(url, eb.getDownloader(), fi);
-		response_ok = fi->GetHeader().getStatus() == 200;
+        evabaseFreeFrunner eb(udsFac);
+        response_ok = DownloadItem(url, eb.getDownloader(), fi);
 		DBGQLOG("UDS result: " << response_ok)
 	}
 	if(!response_ok && try_tcp)
@@ -656,9 +650,8 @@ int maint_job()
 		{
 			url.sHost = tgt;
 			evabaseFreeFrunner eb(g_tcp_con_factory);
-			auto fi = CreateReportItem();
-			DownloadItem(url, eb.getDownloader(), fi);
-			response_ok = fi->GetHeader().getStatus() == 200;
+            auto fi = CreateReportItem();
+            response_ok = DownloadItem(url, eb.getDownloader(), fi);
 			if (response_ok)
 				break;
 		}
@@ -1108,20 +1101,18 @@ int wcat(LPCSTR surl, LPCSTR proxy, IFitemFactory* fac, const IDlConFactory &pDl
 
 	auto fi=fac->Create();
 	eb.getDownloader().AddJob(fi, dlrequest().setSrc(url));
-	int st;
-	auto fistatus = fi->WaitForFinish(&st);
-	if(fistatus == fileitem::FIST_COMPLETE && st == 200)
+    auto fistatus = fi->WaitForFinish();
+    if(fistatus.first == fileitem::FIST_COMPLETE && fistatus.second.code == 200)
 		return EXIT_SUCCESS;
 
-	auto hh = fi->GetHeader();
 	// don't reveal passwords
 	auto xpos=xurl.find('@');
 	if(xpos!=stmiss)
 		xurl.erase(0, xpos+1);
-	cerr << "Error: cannot fetch " << xurl <<", "  << hh.frontLine << endl;
-	if (st>=500)
+    cerr << "Error: cannot fetch " << xurl <<" : "  << fistatus.second.msg << endl;
+    if (fistatus.second.code >= 500)
 		return EIO;
-	if (st>=400)
+    if (fistatus.second.code >= 400)
 		return EACCES;
 
 	return EXIT_FAILURE;
