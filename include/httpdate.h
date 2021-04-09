@@ -68,11 +68,8 @@ private:
 
 struct ACNG_API tRemoteStatus
 {
-    int code = 0;
+	int code = 500;
     std::string msg;
-
-//    tRemoteStatus() : code(0) {}
-//    tRemoteStatus(string_view internalErrorMessage) : code(500), msg(internalErrorMessage) {}
 
     bool isRedirect() {
         switch(code)
@@ -100,7 +97,7 @@ struct ACNG_API tRemoteStatus
             return (code >= 100 && code < 200);
         }
     }
-    tRemoteStatus(const mstring&); // strip HTTP prefix, extract code, save message
+	tRemoteStatus(string_view); // strip HTTP prefix, extract code, save message
     tRemoteStatus(int code, mstring s) : code(code), msg(move(s)) {}
     tRemoteStatus() =default;
 };

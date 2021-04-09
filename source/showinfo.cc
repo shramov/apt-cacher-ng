@@ -140,7 +140,7 @@ tDeleter::tDeleter(const tRunParms& parms, const mstring& vmode)
 
 	mstring params(m_parms.cmd, qpos+1);
 	mstring blob;
-	for(tSplitWalk split(&params, "&"); split.Next();)
+	for(tSplitWalk split(params, "&"); split.Next();)
 	{
 		mstring tok(split);
 		if(startsWithSz(tok, "kf="))

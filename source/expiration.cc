@@ -321,7 +321,7 @@ inline void expiration::DropExceptionalVersions()
     	inline bool Set(cmstring& fileName, decltype(group) newgroup)
     	{
     		group = newgroup;
-    		tSplitWalk split(&fileName, "_");
+			tSplitWalk split(fileName, "_");
     		if(!split.Next())
     			return false;
     		prevName=split;

@@ -221,7 +221,7 @@ tProperty n2pTbl[] =
 		return false;
 	}
 	int type(-1); // nothing =-1; prefixes =0 ; backends =1; flags =2
-		for(tSplitWalk split(&value); split.Next();)
+		for(tSplitWalk split(value); split.Next();)
 		{
 			cmstring s(split);
 			if(s.empty())
@@ -255,7 +255,7 @@ tProperty n2pTbl[] =
 {
 	if(!pUserPorts)
 	pUserPorts=new bitset<TCP_PORT_MAX>;
-	for(tSplitWalk split(&value); split.Next();)
+	for(tSplitWalk split(value); split.Next();)
 	{
 		cmstring s(split);
 		const char *start(s.c_str());
@@ -284,7 +284,7 @@ tProperty n2pTbl[] =
 { "ConnectProto", [](cmstring& key, cmstring& value) -> bool
 {
 	int *p = conprotos;
-	for (tSplitWalk split(&value); split.Next(); ++p)
+	for (tSplitWalk split(value); split.Next(); ++p)
 	{
 		cmstring val(split);
 		if (val.empty())
@@ -489,8 +489,8 @@ inline bool ParseOptionLine(const string &sLine, string &key, string &val)
 
 	key=sLine.substr(0, pos);
 	val=sLine.substr(pos+1);
-	trimString(key);
-	trimString(val);
+	trimBoth(key);
+	trimBoth(val);
 	if(key.empty())
 		return false; // weird
 
@@ -662,7 +662,7 @@ inline void _AddHooksFile(cmstring& vname)
 			continue;
 
 		const char *p = key.c_str();
-		trimString(val, SPACECHARS "\0");
+		trimBoth(val, SPACECHARS "\0");
 		if (strcasecmp("PreUp", p) == 0)
 		{
 			hs.cmdCon = val;
@@ -684,10 +684,10 @@ inline void _AddHooksFile(cmstring& vname)
 
 inline void _ParseLocalDirs(cmstring &value)
 {
-	for(tSplitWalk splitter(&value, ";"); splitter.Next(); )
+	for(tSplitWalk splitter(value, ";"); splitter.Next(); )
 	{
 		mstring token=splitter.str();
-		trimString(token);
+		trimBoth(token);
 		tStrPos pos = token.find_first_of(SPACECHARS);
 		if(stmiss == pos)
 		{
@@ -695,9 +695,9 @@ inline void _ParseLocalDirs(cmstring &value)
 			continue;
 		}
 		string from(token, 0, pos);
-		trimString(from, "/");
+		trimBoth(from, "/");
 		string what(token, pos);
-		trimString(what, SPACECHARS "'\"");
+		trimBoth(what, SPACECHARS "'\"");
 		if(what.empty())
 		{
 			cerr << "Unsupported target of " << from << ": " << what << ", ignoring it" << endl;
@@ -721,7 +721,7 @@ cmstring & GetMimeType(cmstring &path)
 				// # regular types:
 				// text/plain             asc txt text pot brf  # plain ascii files
 
-				tSplitWalk split(&itor.sLine);
+				tSplitWalk split(itor.sLine);
 				if (!split.Next())
 					continue;
 
@@ -1137,7 +1137,7 @@ void PostProcConfig()
 
    stripPrefixChars(cfg::reportpage, '/');
 
-   trimString(cfg::requestapx);
+   trimBoth(cfg::requestapx);
    if(!cfg::requestapx.empty())
 	   cfg::requestapx = unEscape(cfg::requestapx);
 
@@ -1549,7 +1549,7 @@ inline bool CompileUncachedRex(const string & token, NOCACHE_PATTYPE type, bool 
 
 bool CompileUncExpressions(NOCACHE_PATTYPE type, cmstring& pat)
 {
-	for(tSplitWalk split(&pat); split.Next(); )
+	for(tSplitWalk split(pat); split.Next(); )
 		if (!CompileUncachedRex(split, type, false))
 			return false;
 	return true;

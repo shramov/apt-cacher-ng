@@ -12,7 +12,7 @@ namespace acng
         void check_algos();
 }
 
-#if 0 // those is all new stuff from the next branch - might restore when we use them
+#if 0
 TEST(algorithms, checksumming)
 {
 	ASSERT_NO_THROW(acng::check_algos());
@@ -27,6 +27,7 @@ TEST(algorithms, checksumming)
 
 	ASSERT_NE(csmd, cs2);
 }
+#endif
 
 TEST(algorithms,bin_str_long_match)
 {
@@ -106,7 +107,6 @@ TEST(algorithms,bin_str_long_match)
 TEST(strop,views)
 {
 	using namespace acng;
-	using namespace nonstd::string_view_literals;
 	string_view a = "foo  ", b = "  foo";
 	auto x=a;
 	trimFront(x);
@@ -177,4 +177,3 @@ TEST(strop,splitter)
 	ASSERT_EQ(q.back(), "");
 }
 
-#endif

@@ -897,7 +897,7 @@ mstring offttosH(off_t n)
 
 mstring offttosHdotted(off_t n)
 {
-	mstring ret(to_string(n));
+	mstring ret(std::to_string(n));
 	auto pos = ret.size()-1;
 	for(unsigned i=1; pos > 0; ++i, --pos)
 		if(0 == i%3)

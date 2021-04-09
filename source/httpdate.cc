@@ -226,17 +226,27 @@ bool StoreHeadToStorage(cmstring &path, off_t contLen, tHttpDate *lastModified, 
 
 const std::regex reHttpStatus("(\\s*)(HTTP/1.?)?(\\s+)(.*?)(\\s*)");
 
-tRemoteStatus::tRemoteStatus(const mstring& s)
+tRemoteStatus::tRemoteStatus(string_view s)
 {
-    std::cmatch reRes;
-    if (!std::regex_search(s.c_str(), reRes, reHttpStatus) || reRes.size() != 6 )
-    {
-        // that's not right, mark as failure
-        code = 500;
-        msg = "Invalid header line";
-    }
-    code = atoi(reRes[2].first);
-    msg.assign(reRes[4].first);
+	tSplitWalk split(s);
+	if (split.Next())
+	{
+		char *pe;
+		auto tok = split.view();
+		if (!tok.empty())
+		{
+			code = strtol(tok.data(), &pe, 10);
+			// pointer advanced?
+			if (tok.data() != pe)
+			{
+				msg = split.right();
+				if (!msg.empty())
+					return;
+			}
+		}
+	}
+	code = 500;
+	msg = "Invalid header line";
 }
 
 }

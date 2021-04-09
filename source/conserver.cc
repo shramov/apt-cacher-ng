@@ -396,9 +396,10 @@ int ACNG_API Setup()
 	{
 		bool custom_listen_ip = false;
 		tHttpUrl url;
-		for(const auto& sp: tSplitWalk(&cfg::bindaddr))
+		for(const auto& sp: tSplitWalk(cfg::bindaddr))
 		{
-			auto isUrl = url.SetHttpUrl(sp, false);
+			mstring token(sp);
+			auto isUrl = url.SetHttpUrl(token, false);
 			if(!isUrl && atoi(cfg::port.c_str()) <= 0)
 			{
 				USRDBG("Not creating TCP listening socket for " <<  sp
@@ -407,7 +408,7 @@ int ACNG_API Setup()
 			}
 //	XXX: uri parser accepts anything wihtout shema, good for this situation but maybe bad for strict validation...
 //			USRDBG("Binding as host:port URI? " << isUrl << ", addr: " << url.ToURI(false));
-			nCreated += setup_tcp_listeners(isUrl ? url.sHost.c_str() : sp.c_str(),
+			nCreated += setup_tcp_listeners(isUrl ? url.sHost.c_str() : token.c_str(),
 					isUrl ? url.GetPort(cfg::port) : cfg::port);
 			custom_listen_ip = true;
 		}

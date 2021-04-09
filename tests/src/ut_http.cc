@@ -30,10 +30,16 @@ TEST(http, status)
 	ASSERT_EQ(b.code, 200);
 	ASSERT_EQ(b.msg, "OK");
 	tRemoteStatus c("  200 OK");
-	ASSERT_EQ(b.code, 200);
-	ASSERT_EQ(b.msg, "OK");
+	ASSERT_EQ(c.code, 200);
+	ASSERT_EQ(c.msg, "OK");
 	tRemoteStatus d("  200     OK Is IT  ");
-	ASSERT_EQ(b.code, 200);
-	ASSERT_EQ(b.msg, "OK Is IT");
+	ASSERT_EQ(d.code, 200);
+	ASSERT_EQ(d.msg, "OK Is IT");
 
+	tRemoteStatus e;
+	ASSERT_EQ(e.code, 500);
+
+	e = {1, "X"};
+	ASSERT_EQ(e.code, 1);
+	ASSERT_EQ(e.msg, "X");
 }

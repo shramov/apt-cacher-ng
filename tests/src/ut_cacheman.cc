@@ -14,11 +14,11 @@ using namespace acng;
 struct testman : cacheman
 {
 testman() : cacheman(tSpecialRequest::tRunParms()) {}
-bool ProcessRegular(const std::string &sPath, const struct stat &) {return true;}
-bool ProcessOthers(const std::string &sPath, const struct stat &) {return true;}
-bool ProcessDirAfter(const std::string &sPath, const struct stat &) {return true;}
+bool ProcessRegular(const std::string &sPath, const struct stat &) override {return true;}
+bool ProcessOthers(const std::string &sPath, const struct stat &) override {return true;}
+bool ProcessDirAfter(const std::string &sPath, const struct stat &) override {return true;}
 protected:
-	virtual void Action() {}
+	virtual void Action() override {}
 	virtual bool Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 			eDlMsgPrio msgLevel, tFileItemPtr pForcedItem=tFileItemPtr(),
 			const tHttpUrl *pForcedURL=nullptr, unsigned hints=0, cmstring* sGuessedFrom = nullptr)
@@ -89,7 +89,7 @@ TEST(cacheman, pdiff)
 			{
 				pbase_len = atoi(s.c_str() + 80);
 				pbase_sum = s.substr(16, 64);
-				trimString(pbase_sum);
+				trimBoth(pbase_sum);
 			}
 		}
 		ASSERT_EQ(pbase_sum.size(), 64);

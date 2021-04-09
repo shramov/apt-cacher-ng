@@ -457,10 +457,12 @@ void job::Prepare(const header &h, string_view headBuf) {
     bool bPtMode(false);
 
     if (h.h[header::XFORWARDEDFOR])
-        m_xff = h.h[header::XFORWARDEDFOR];
+	{
+		m_xff = h.h[header::XFORWARDEDFOR];
+	}
 
-    tSplitWalk tokenizer(& h.frontLine, SPACECHARS);
-    // some macros, to avoid goto style
+	tSplitWalk tokenizer(h.frontLine, SPACECHARS);
+	// some macros, to avoid goto style
     auto report_invport = [this]()
     {
         SetEarlyErrorResponse("403 Configuration error (confusing proxy mode) or prohibited port (see AllowUserPorts)");
@@ -884,6 +886,7 @@ job::eJobResult job::SendData(int confd, bool haveMoreJobs)
         return R_AGAIN;
     }
     }
+	return R_DISCON;
 }
 
 inline void job::AddPtHeader(cmstring& remoteHead)

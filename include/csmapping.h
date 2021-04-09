@@ -134,7 +134,7 @@ struct tFingerprint {
 	 * Keeps the splitter pointed at last token, expects splitter be set at previous position.
 	 * @return false if data is crap or wantedType was set but does not fit what's in the first token.
 	 */
-	inline bool Set(const tSplitWalk & splitInput, CSTYPES wantedType = CSTYPE_INVALID)
+	inline bool Set(tSplitWalk splitInput, CSTYPES wantedType = CSTYPE_INVALID)
 	{
 		if(!splitInput.Next())
 			return false;

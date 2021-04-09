@@ -229,7 +229,7 @@ bool cacheman::IsDeprecatedArchFile(cmstring &sFilePathRel)
 		mstring sLine;
 		while(reader.GetOneLine(sLine))
 		{
-			tSplitWalk w(&sLine, SPACECHARS);
+			tSplitWalk w(sLine, SPACECHARS);
 			if(!w.Next() || w.str() != "Architectures:")
 				continue;
 			while(w.Next())
@@ -1189,13 +1189,13 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 	probe, // temp scan object
 	probeOrig; // appropriate patch base stuff
 
-	if(!probeStateWanted.Set(tSplitWalk(& sStateCurrent.front()), CSTYPE_SHA256))
+	if(!probeStateWanted.Set(tSplitWalk(sStateCurrent.front()), CSTYPE_SHA256))
 		return PATCH_FAIL;
 
 	unordered_map<string,tFingerprint> patchSums;
 	for(const auto& line: contents["SHA256-Patches"])
 	{
-		tSplitWalk split(&line);
+		tSplitWalk split(line);
 		tFingerprint probe;
 		if(!probe.Set(split, CSTYPE_SHA256) || !split.Next())
 			continue;
@@ -1220,7 +1220,7 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 				continue;
 
 			// analyze the state line
-			tSplitWalk split(&histLine, SPACECHARS);
+			tSplitWalk split(histLine, SPACECHARS);
 			if(!split.Next() || !split.Next())
 				continue;
 			// at size token
@@ -1229,7 +1229,7 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 			if(!split.Next())
 				continue;
 			pname = split.str();
-			trimString(pname);
+			trimBoth(pname);
 			if (!startsWithSz(pname, "T-2"))
 				return PATCH_FAIL;
 			if (pname.empty())
@@ -1854,16 +1854,16 @@ bool cacheman::ParseAndProcessMetaFile(std::function<void(const tRemoteFileInfo&
 			if(CheckStopSignal())
 				return true;
 
-			unsigned begin(0);
+			string_view input(sLine);
 			if(startsWithSz(sLine, "install: "))
-				begin=9;
+				input.remove_prefix(9);
 			else if(startsWithSz(sLine, "source: "))
-				begin=8;
+				input.remove_prefix(8);
 			else
 				continue;
-			tSplitWalk split(&sLine, SPACECHARS, begin);
+			tSplitWalk split(input, SPACECHARS);
 			if(split.Next() && info.SetFromPath(split, sPkgBaseDir)
-					&& split.Next() && info.SetSize(split.remainder())
+					&& split.Next() && info.SetSize(split.view().data())
 					&& split.Next() && info.fpr.SetCs(split))
 			{
 				ret(info);
@@ -1878,7 +1878,7 @@ bool cacheman::ParseAndProcessMetaFile(std::function<void(const tRemoteFileInfo&
 			if(CheckStopSignal())
 				return true;
 
-			for(tSplitWalk split(&sLine, "\"'><=/"); split.Next(); )
+			for(tSplitWalk split(sLine, "\"'><=/"); split.Next(); )
 			{
 				cmstring tok(split);
 				LOG("testing filename: " << tok);
@@ -1899,7 +1899,7 @@ bool cacheman::ParseAndProcessMetaFile(std::function<void(const tRemoteFileInfo&
 			if(CheckStopSignal())
 				return true;
 
-			for(tSplitWalk split(&sLine, "\"'><=/"); split.Next(); )
+			for(tSplitWalk split(sLine, "\"'><=/"); split.Next(); )
 			{
 				cmstring tok(split);
 				LOG("testing filename: " << tok);
@@ -1925,7 +1925,7 @@ bool cacheman::ParseAndProcessMetaFile(std::function<void(const tRemoteFileInfo&
 			if(CheckStopSignal())
 				return true;
 
-			tSplitWalk split(&sLine, SPACECHARS);
+			tSplitWalk split(sLine, SPACECHARS);
 			info.fpr.size=-1;
 			if( split.Next() && info.fpr.SetCs(split,
 					idxType == EIDX_MD5DILIST ? CSTYPE_MD5 : CSTYPE_SHA256)
@@ -2046,7 +2046,7 @@ bool cacheman::ParseDebianIndexLine(tRemoteFileInfo& info, cmstring& fline)
 {
 	info.sFileName.clear();
 	// ok, read "checksum size filename" into info and check the word count
-	tSplitWalk split(&fline);
+	tSplitWalk split(fline);
 	if (!split.Next()
 			|| !info.fpr.SetCs(split, info.fpr.csType)
 			|| !split.Next())

@@ -353,7 +353,7 @@ void pkgmirror::HandlePkgEntry(const tRemoteFileInfo &entry)
 			// filter dangerous strings, invalid version strings, higher/same version
 			for(const auto& oldeb: oldebs)
 			{
-				tSplitWalk split(&oldeb, "_");
+				tSplitWalk split(oldeb, "_");
 				if(split.Next() && split.Next())
 				{
 					mstring s(split);
