@@ -35,6 +35,8 @@
 #include <experimental/string_view>
 #endif
 
+#include <string>
+
 namespace acng {
 
 #if __cplusplus >= 201703L
@@ -46,6 +48,14 @@ using string_view = std::experimental::basic_string_view;
 
 typedef const char * LPCSTR;
 
+#define MIN_VAL(x) (std::numeric_limits< x >::min())
+#define MAX_VAL(x) (std::numeric_limits< x >::max())
+
+
+using mstring = std::string;
+using cmstring = const std::string;
+typedef mstring::size_type tStrPos;
+constexpr static tStrPos stmiss(cmstring::npos);
 
 }
 #endif // ACTYPES_H

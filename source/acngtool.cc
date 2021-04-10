@@ -153,7 +153,7 @@ SHARED_PTR<fileitem> CreateReportItem()
 	{
 		acbuf lineBuf;
 		string m_key = maark;
-		tStrVec m_errMsg;
+		tStrDeq m_warningCollector;
 
 	public:
 		tRepItem()
@@ -190,37 +190,38 @@ SHARED_PTR<fileitem> CreateReportItem()
 			lineBuf.got(consumed);
 			for (;;)
 			{
-#warning this is a mess. a) document our "wire protocol", b) use string_view operations instead mempbrk and overall no need to copy strings, actually drop mempbrk
+#warning add test for protocol
 				LPCSTR p = lineBuf.rptr();
-                auto end = mempbrk(p, "\r\n", lineBuf.size());
-                if (!end)
+				string_view svLine(p, lineBuf.size());
+				auto nEnd = svLine.find_first_of(svRN);
+				if (nEnd == stmiss)
 					break;
-				string s(p, end - p);
-				lineBuf.drop(s.length() + 1);
+				svLine.remove_prefix(nEnd + 1);
 				vprint.dot();
-				if (startsWith(s, m_key))
+				trimFront(svLine);
+				if (startsWith(svLine, m_key))
 				{
 					// that's for us... "<key><type> content\n"
-					char *endchar = nullptr;
-					p = s.c_str();
-					auto val = strtoul(p + m_key.length(), &endchar, 10);
-					if (!endchar || !*endchar)
-						continue; // heh? shall not finish here
+					svLine.remove_prefix(m_key.size());
+					auto val = svtol(svLine);
+					if (val < 0)
+						break;
 					switch (ControLineType(val))
 					{
 					case ControLineType::BeforeError:
-						m_errMsg.emplace_back(endchar, s.size() - (endchar - p));
-						vprint.msg(m_errMsg.back());
+						m_warningCollector.emplace_back(svLine);
+						vprint.msg(m_warningCollector.back());
 						break;
 					case ControLineType::Error:
 					{
 						if (!g_bVerbose) // printed before
-							for (auto l : m_errMsg)
+						{
+							for (auto l : m_warningCollector)
 								cerr << l << endl;
-						m_errMsg.clear();
-						string msg(endchar, s.size() - (endchar - p));
+						}
+						cerr << svLine << endl;
+						m_warningCollector.clear();
 						vprint.fin();
-						cerr << msg << endl;
 						break;
 					}
 					default:

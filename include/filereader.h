@@ -82,7 +82,7 @@ extern uint_fast16_t hexmap[];
 
 inline bool CsEqual(const char *sz, uint8_t b[], unsigned short binLen)
 {
-	CUCHAR *a=(CUCHAR*)sz;
+	auto* a=(const unsigned char*) sz;
 	if(!a)
 		return false;
 	for(int i=0; i<binLen;i++)

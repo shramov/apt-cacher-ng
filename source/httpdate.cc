@@ -231,18 +231,12 @@ tRemoteStatus::tRemoteStatus(string_view s)
 	tSplitWalk split(s);
 	if (split.Next())
 	{
-		char *pe;
 		auto tok = split.view();
-		if (!tok.empty())
+		if (!tok.empty() && 0 != (code = svtol(tok, 0)))
 		{
-			code = strtol(tok.data(), &pe, 10);
-			// pointer advanced?
-			if (tok.data() != pe)
-			{
-				msg = split.right();
-				if (!msg.empty())
-					return;
-			}
+			msg = split.right();
+			if (!msg.empty())
+				return;
 		}
 	}
 	code = 500;

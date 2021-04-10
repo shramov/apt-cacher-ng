@@ -2,10 +2,11 @@
 #ifndef _acbuf_H
 #define _acbuf_H
 
-#include <limits.h>
-#include <string.h>
-#include <stdio.h>
-#include "meta.h"
+#include "actypes.h"
+#include <limits>
+#include <string>
+#include <cstdlib>
+#include <cstring>
 
 namespace acng
 {
@@ -93,7 +94,7 @@ class ACNG_API tSS : public acbuf
 public:
 // map char array to buffer pointer and size
 	inline tSS & operator<<(const char *val) { return add(val); }
-	inline tSS & operator<<(cmstring& val) { return add(val); };
+	inline tSS & operator<<(const std::string& val) { return add(val); };
 	inline tSS & operator<<(const acbuf& val) { return add(val.rptr(), val.size()); };
 	inline tSS & operator<<(const string_view& val) { return add(val.data(), val.size()); };
 
@@ -111,7 +112,7 @@ public:
     enum fmtflags : bool { hex, dec };
     inline tSS & operator<<(fmtflags mode) { m_fmtmode=mode; return *this;}
 
-    operator mstring() const { return mstring(rptr(), size()); }
+	operator std::string() const { return std::string(rptr(), size()); }
     operator string_view() const { return string_view(rptr(), size()); }
     inline size_t length() const { return size();}
     inline const char * data() const { return rptr();}
@@ -127,14 +128,14 @@ public:
     inline tSS & clean() { clear(); return *this;}
     inline tSS & append(const char *data, size_t len) { add(data,len); return *this; }
     // similar to syswrite but adapted to socket behavior and reports error codes as HTTP status lines
-    bool send(int nConFd, mstring* sErrorStatus=nullptr);
-    bool recv(int nConFd, mstring* sErrorStatus=nullptr);
+	bool send(int nConFd, std::string* sErrorStatus=nullptr);
+	bool recv(int nConFd, std::string* sErrorStatus=nullptr);
 
     inline tSS & add(const char *data, size_t len)
 	{ reserve_atleast(len); memcpy(wptr(), data, len); got(len); return *this;}
 	inline tSS & add(const char *val)
 	{ if(val) return add(val, strlen(val)); else return add("(null)", 6); }
-	inline tSS & add(cmstring& val) { return add((const char*) val.data(), (size_t) val.size());}
+	inline tSS & add(const std::string& val) { return add((const char*) val.data(), (size_t) val.size());}
 
 
 	template <typename Arg>

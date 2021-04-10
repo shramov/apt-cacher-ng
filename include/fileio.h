@@ -8,7 +8,8 @@
 #ifndef FILEIO_H_
 #define FILEIO_H_
 
-#include "meta.h"
+#include "actypes.h"
+#include "actemplates.h"
 
 #include <errno.h>
 #include <sys/types.h>

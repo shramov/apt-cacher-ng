@@ -81,7 +81,6 @@ public:
 	 * @param separators Characters which are considered delimiters (any char in that string)
 	 * @param strictDelimiter By default, a sequence of separator chars are considered as one delimiter. This is normally good for whitespace but bad for specific visible separators. Setting this flag makes them be considered separately, returning empty strings as value is possible then.
 	 */
-#warning check all users, 3rd parameter changed meaning
         inline tSplitWalk(string_view line, const char* separators = SPACECHARS, bool strictDelimiter = false)
 	: m_input(line), m_sliece_len(0), m_seps(separators), m_strict_delimiter(strictDelimiter), m_first(true)
 	{}
@@ -221,17 +220,15 @@ void fish_longest_match(string_view stringToScan, const char sep,
 void replaceChars(std::string &s, const char* szBadChars, char goodChar);
 inline std::string to_string(string_view s) {return std::string(s.data(), s.length());}
 
-// there is memchr and strpbrk but nothing like the last one acting on specified RAW memory range
-inline LPCSTR mempbrk (LPCSTR  membuf, char const * const needles, size_t len)
+inline unsigned long svtol(string_view& sv, long errorValue = -1)
 {
-#warning drop this, use plain stringview operation
-   for(LPCSTR pWhere=membuf ; pWhere<membuf+len ; pWhere++)
-      for(LPCSTR pWhat=needles; *pWhat ; pWhat++)
-         if(*pWhat==*pWhere)
-            return pWhere;
-   return nullptr;
+        char *endchar = nullptr;
+        auto val = strtol(sv.data(), &endchar, 10);
+        if (!endchar || !*endchar)
+                return errorValue;
+        sv.remove_prefix(endchar - sv.data());
+        return val;
 }
-
 
 }
 
