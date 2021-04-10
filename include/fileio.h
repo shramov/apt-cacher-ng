@@ -48,9 +48,10 @@ class Cstat : public stat
 	bool bResult;
 public:
 	Cstat() : bResult(false) {};
-	Cstat(cmstring &s) : bResult(false) { update(s); }
+    Cstat(cmstring &s) : bResult(false) { update(s.c_str()); }
+    Cstat(const char *sz) : bResult(false) { update(sz); }
 	operator bool() const { return bResult; }
-	bool update(cmstring &s) { return (bResult = !::stat(s.c_str(), static_cast<struct stat*>(this))); }
+    bool update(const char *sz) { return (bResult = !::stat(sz, static_cast<struct stat*>(this))); }
 };
 
 bool FileCopy(cmstring &from, cmstring &to, int *pErrnoRet = nullptr);

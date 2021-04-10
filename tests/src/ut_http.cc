@@ -1,5 +1,6 @@
 #include "gtest/gtest.h"
 #include "httpdate.h"
+#include "header.h"
 
 #include "gmock/gmock.h"
 
@@ -42,6 +43,9 @@ TEST(http, status)
 	e = {1, "X"};
 	ASSERT_EQ(e.code, 1);
 	ASSERT_EQ(e.msg, "X");
+
+	tRemoteStatus f("HTTP/1.0 200 OK");
+	ASSERT_EQ(200, f.code);
 }
 
 TEST(http, date)
@@ -86,7 +90,9 @@ TEST(http, date)
 
 TEST(http, cachehead)
 {
-	mstring testHead = "foo.head";
+	mstring testHead = "foo.head", testOrig = "https://nix";
+	off_t testSize = 12345;
+	tHttpDate testDate(1);
 	auto ok = StoreHeadToStorage(testHead, -1, nullptr, nullptr);
 	ASSERT_TRUE(ok);
 	{
@@ -96,7 +102,27 @@ TEST(http, cachehead)
 		ASSERT_FALSE(nix.isSet());
 		ASSERT_TRUE(orig.empty());
 	}
-	tHttpDate date1(1);
+	// play simple loader against the header processor, this should still be valid!
+	header h;
+	ASSERT_TRUE(h.LoadFromFile(testHead));
+	ASSERT_EQ(h.frontLine, "HTTP/1.1 200 OK");
+	ASSERT_FALSE(h.h[header::XORIG]);
+	ASSERT_FALSE(h.h[header::LAST_MODIFIED]);
+	ASSERT_TRUE(StoreHeadToStorage(testHead, testSize, &testDate, &testOrig));
+	ASSERT_TRUE(h.LoadFromFile(testHead));
+	ASSERT_EQ(h.frontLine, "HTTP/1.1 200 OK");
+	ASSERT_EQ(testOrig, h.h[header::XORIG]);
+	ASSERT_EQ(testDate, h.h[header::LAST_MODIFIED]);
+	{
+		tHttpDate nix;
+		mstring orig;
+		off_t sz;
+		ASSERT_TRUE(ParseHeadFromStorage(testHead, &sz, &nix, &orig));
+		ASSERT_EQ(sz, testSize);
+		ASSERT_EQ(nix, testDate);
+		ASSERT_EQ(orig, testOrig);
+	}
+
 #warning TODO: write sample data to it, load it, unlink it, store sample data again with store method, load and compare
 }
 

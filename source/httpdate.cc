@@ -141,18 +141,22 @@ bool tHttpDate::operator==(const char *other) const
 
 bool ParseHeadFromStorage(cmstring &path, off_t *contLen, tHttpDate *lastModified, mstring *origSrc)
 {
-    filereader reader;
-    if (!reader.OpenFile(path, true, 0))
-        return false;
-    auto view = reader.getView();
+    acbuf buf;
+    if(!buf.initFromFile(path.c_str()))
+        return -1;
+
+    auto view = buf.view();
+
     if (!view.starts_with("HTTP/1.1 200") || !view.ends_with('\n'))
         return false;
 #warning optimize when view-based tokenizer is in place
     string sLine;
     auto needValueMask = (contLen != nullptr) + 2*(lastModified != nullptr) + 4*(origSrc != nullptr);
-
+#warning implement this correctly
+#if 0
     while(reader.GetOneLine(sLine) && needValueMask)
     {
+#error crap, does not stop at the end
         trimFront(sLine);
         if (contLen && startsWithSz(sLine, "Content-Length:"))
         {
@@ -177,6 +181,7 @@ bool ParseHeadFromStorage(cmstring &path, off_t *contLen, tHttpDate *lastModifie
             needValueMask &= ~4;
         }
     }
+#endif
     return true;
 }
 
@@ -224,23 +229,31 @@ bool StoreHeadToStorage(cmstring &path, off_t contLen, tHttpDate *lastModified, 
 #endif
 }
 
-const std::regex reHttpStatus("(\\s*)(HTTP/1.?)?(\\s+)(.*?)(\\s*)");
+//const std::regex reHttpStatus("(\\s*)(HTTP/1.?)?(\\s+)(.*?)(\\s*)");
 
 tRemoteStatus::tRemoteStatus(string_view s)
 {
 	tSplitWalk split(s);
-	if (split.Next())
+	bool ok = split.Next();
+	if (ok)
+	{
+		if (startsWithSz(split.view(), "HTTP/1"))
+			ok = split.Next();
+	}
+	if (ok)
 	{
 		auto tok = split.view();
 		if (!tok.empty() && 0 != (code = svtol(tok, 0)))
 		{
 			msg = split.right();
-			if (!msg.empty())
-				return;
+			ok = !msg.empty();
 		}
 	}
-	code = 500;
-	msg = "Invalid header line";
+	if (!ok)
+	{
+		code = 500;
+		msg = "Invalid header line";
+	}
 }
 
 }

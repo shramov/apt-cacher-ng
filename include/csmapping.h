@@ -12,7 +12,8 @@
 namespace acng
 {
 
-class tSplitWalk;
+template<bool StringSeparator, bool Strict>
+class tSplitWalkBase;
 
 typedef enum : char {
    CSTYPE_INVALID=0,
@@ -119,9 +120,9 @@ struct ACNG_API tFingerprint {
 	 * Extracts just first two tokens from splitter, first considered checksum, second the size.
 	 * @return false if data is crap or wantedType was set but does not fit what's in the first token.
 	 */
-	bool Set(tSplitWalk& splitInput, CSTYPES wantedType = CSTYPE_INVALID);
+    bool Set(tSplitWalkBase<false, false>& splitInput, CSTYPES wantedType = CSTYPE_INVALID);
 	// c'mon C++, I need to pass lvalues when I explicitly want it
-	inline bool Set(tSplitWalk&& splitInput, CSTYPES wantedType = CSTYPE_INVALID)
+    inline bool Set(tSplitWalkBase<false, false>&& splitInput, CSTYPES wantedType = CSTYPE_INVALID)
 	{
 		return Set(splitInput, wantedType);
 	}

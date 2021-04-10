@@ -24,20 +24,17 @@ bool acbuf::setsize(unsigned int c) {
     return true;
 }
 
-bool acbuf::initFromFile(const char *szPath)
+bool acbuf::initFromFile(const char *szPath, off_t limit)
 {
-	struct stat statbuf;
+    Cstat st(szPath);
 
-	if (0!=stat(szPath, &statbuf))
-		return false;
-
-	int fd=::open(szPath, O_RDONLY);
+    int fd=::open(szPath, O_RDONLY);
 	if (fd<0)
 		return false;
 
 	clear();
 
-	if(!setsize(statbuf.st_size))
+    if(!setsize(std::min(limit, st.st_size)))
 		return false;
 	
 	while (freecapa()>0)
@@ -49,7 +46,7 @@ bool acbuf::initFromFile(const char *szPath)
 		}
 	}
 	forceclose(fd);
-	return true;
+    return limit < st.st_size;
 }
 
 int acbuf::syswrite(int fd, unsigned int maxlen) {

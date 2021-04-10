@@ -36,6 +36,7 @@
 #endif
 
 #include <string>
+#include <limits>
 
 namespace acng {
 

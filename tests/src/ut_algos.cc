@@ -147,7 +147,7 @@ TEST(strop,splitter)
 	using namespace acng;
 	std::deque<string_view> exp {"foo", "bar", "blalba"};
 
-	tSplitWalk tknzr("  foo bar blalba", SPACECHARS, false);
+    tSplitWalk tknzr("  foo bar blalba", SPACECHARS);
 	std::deque<string_view> result;
 	for(auto it:tknzr) result.emplace_back(it);
 	ASSERT_EQ(result, exp);
@@ -161,7 +161,7 @@ TEST(strop,splitter)
 
 	ASSERT_EQ(result, q);
 
-	tSplitWalk strct("a;bb;;c", ";", true);
+    tSplitWalkStrict strct("a;bb;;c", ";");
 	std::deque<string_view> soll {"a", "bb", "", "c"};
 	ASSERT_EQ(soll, strct.to_deque());
 	strct.reset(";a;bb;;c");
@@ -175,5 +175,30 @@ TEST(strop,splitter)
 	ASSERT_EQ(q.size(), 6);
 	ASSERT_EQ(q.front(), "");
 	ASSERT_EQ(q.back(), "");
+
+    tSplitWalk white("a b");
+    ASSERT_TRUE(white.Next());
+    ASSERT_EQ(white.right(), "b");
+
+    tSplitWalk blue("a b    ");
+    ASSERT_TRUE(blue.Next());
+    ASSERT_EQ(blue.right(), "b");
+
+    tSplitByStr xspliter("!!as!!!df!!gh", "!!");
+    auto sq = xspliter.to_deque();
+    ASSERT_EQ(3, sq.size());
+    ASSERT_EQ(sq[1], "!df");
+    ASSERT_EQ(sq[2], "gh");
+
+    tSplitByStrStrict yspliter("!!as!!!df!!gh", "!!");
+    ASSERT_TRUE(yspliter.Next());
+    ASSERT_TRUE(yspliter.view().empty());
+    ASSERT_TRUE(yspliter.Next());
+    ASSERT_EQ(yspliter.view(), "as");
+    ASSERT_TRUE(yspliter.Next());
+    ASSERT_EQ(yspliter.view(), "!df");
+    ASSERT_TRUE(yspliter.Next());
+    ASSERT_EQ(yspliter.view(), "gh");
+    ASSERT_FALSE(yspliter.Next());
 }
 

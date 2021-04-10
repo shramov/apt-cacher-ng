@@ -42,10 +42,18 @@ class ACNG_API acbuf
         inline const char *c_str() const { m_buf[w]=0x0; return rptr();}
         //! Equivalent to drop(size()), drops all data
         inline void clear() {w=r=0;}
+
+        inline string_view view() { return string_view(rptr(), size());}
         
         //! Allocate needed memory
         bool setsize(unsigned int capa);
-        bool initFromFile(const char *path);
+        /**
+         * @brief initFromFile Load whole file contents
+         * @param path Absolute path of file to read
+         * @param limit Maximum number of bytes to read. If file is larger, read only that much.
+         * @return True if data could be read and limit was not exceeded.
+         */
+        bool initFromFile(const char *path, off_t limit = MAX_VAL(off_t));
 
         /*!
          * Writes to a (non-blocking) file descriptor, cares about EAGAIN and updates
