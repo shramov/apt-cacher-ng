@@ -119,7 +119,7 @@ enum NOCACHE_PATTYPE : bool
 
 enum eMatchType : int8_t
 {
-	FILE_INVALID = -1,
+	FILE_INVALID = -1, // WARNING: this is forward-declared elsewhere!
 	FILE_SOLID = 0, FILE_VOLATILE, FILE_WHITELIST,
 	NASTY_PATH, PASSTHROUGH,
 	FILE_SPECIAL_SOLID,

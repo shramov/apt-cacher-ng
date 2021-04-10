@@ -1,10 +1,8 @@
 #ifndef _HEADER_H
 #define _HEADER_H
 
-#include <string>
 #include <unordered_set>
 #include <map>
-#include "meta.h"
 #include "acbuf.h"
 
 namespace acng

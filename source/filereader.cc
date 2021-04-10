@@ -1,8 +1,10 @@
 
 #include "filereader.h"
+#include "fileio.h"
+#include "meta.h"
+#include "acfg.h"
 
 #include <unistd.h>
-#include "fileio.h"
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <errno.h>

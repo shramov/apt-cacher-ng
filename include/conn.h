@@ -1,7 +1,8 @@
 #ifndef _CON_H
 #define _CON_H
 
-#include "meta.h"
+#include "actypes.h"
+#include "actemplates.h"
 #include "fileio.h"
 
 namespace acng

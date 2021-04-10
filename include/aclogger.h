@@ -1,8 +1,6 @@
 #ifndef _ACLOGGER_H
 #define _ACLOGGER_H
 
-#include "config.h"
-#include "meta.h"
 #include "acbuf.h"
 
 namespace acng

@@ -2,6 +2,7 @@
 #include "meta.h"
 #include "sockio.h"
 #include "debug.h"
+#include "acfg.h"
 
 #include <unordered_map>
 #include <mutex>

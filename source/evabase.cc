@@ -1,6 +1,7 @@
 #include "evabase.h"
 #include "meta.h"
 #include "debug.h"
+#include "acfg.h"
 #include "lockable.h"
 #include "fileio.h"
 

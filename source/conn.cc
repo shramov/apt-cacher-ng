@@ -4,6 +4,7 @@
 
 #include "meta.h"
 #include "conn.h"
+#include "acfg.h"
 #include "job.h"
 #include "header.h"
 #include "dlcon.h"

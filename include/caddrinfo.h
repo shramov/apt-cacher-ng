@@ -1,7 +1,7 @@
 #ifndef CADDRINFO_H_
 #define CADDRINFO_H_
 
-#include "meta.h"
+#include "actypes.h"
 #include "lockable.h"
 
 #include <event2/util.h>

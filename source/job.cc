@@ -1,6 +1,8 @@
 
 //#define LOCAL_DEBUG
 #include "debug.h"
+#include "meta.h"
+#include "acfg.h"
 
 #include "job.h"
 #include <cstdio>
@@ -36,7 +38,12 @@ using namespace std;
 #define DBG_DISCONNECT //std::cerr << "DISCO? " << __LINE__ << std::endl;
 namespace acng
 {
-
+namespace cfg
+{
+namespace rex {
+enum eMatchType : int8_t;
+}
+}
 mstring sHttp11("HTTP/1.1");
 
 tTraceData traceData;

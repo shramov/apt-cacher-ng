@@ -2,9 +2,7 @@
 #ifndef __DEBUG_H__
 #define __DEBUG_H__
 
-#include "acfg.h"
 #include "aclogger.h"
-#include "meta.h"
 
 #include <fstream>
 #include <iostream>

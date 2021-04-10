@@ -31,7 +31,6 @@ public:
 		STATE_SEND_CHUNK_DATA,
 		STATE_DONE
 	} eActivity;
-#warning fix caller, kein move noetig
     job(conn *pParent) : m_pParentCon(pParent) {}
 	~job();
 	//  __attribute__((externally_visible))
@@ -71,7 +70,7 @@ private:
     off_t m_nSendPos = 0;
     off_t m_nChunkEnd = -1;
     off_t m_nAllDataCount = 0;
-    rex::eMatchType m_type = rex::eMatchType::FILE_INVALID;
+	rex::eMatchType m_type = (rex::eMatchType) -1;
 
 	job(const job&);
 	job& operator=(const job&);

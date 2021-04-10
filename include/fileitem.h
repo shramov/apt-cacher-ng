@@ -240,10 +240,7 @@ public:
 	// send helper like wrapper for sendfile. Just declare virtual here to make it better customizable later.
 	virtual ssize_t SendData(int confd, int filefd, off_t &nSendPos, size_t nMax2SendNow) override;
 
-	inline static mstring NormalizePath(cmstring &sPathRaw)
-	{
-		return cfg::stupidfs ? DosEscape(sPathRaw) : sPathRaw;
-    }
+	static mstring NormalizePath(cmstring &sPathRaw);
 
 protected:
 	int MoveRelease2Sidestore();

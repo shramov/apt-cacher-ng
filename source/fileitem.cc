@@ -2,7 +2,7 @@
 //#define LOCAL_DEBUG
 #include "debug.h"
 
-#include "config.h"
+#include "meta.h"
 #include "fileitem.h"
 #include "header.h"
 #include "acfg.h"
@@ -701,6 +701,11 @@ ssize_t fileitem_with_storage::SendData(int out_fd, int in_fd, off_t &nSendPos, 
 
 	return r;
 #endif
+}
+
+mstring fileitem_with_storage::NormalizePath(cmstring &sPathRaw)
+{
+	return cfg::stupidfs ? DosEscape(sPathRaw) : sPathRaw;
 }
 
 void TFileItemHolder::dump_status()
