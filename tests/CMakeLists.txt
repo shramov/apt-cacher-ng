@@ -1,7 +1,7 @@
 
-#include(GTest)
-add_subdirectory(/usr/src/googletest gtest)
+include(GoogleTest)
 
+add_subdirectory(/usr/src/googletest gtest)
 add_definitions(-DUNDER_TEST)
 include_directories(src)
 #set(TEST_LIB_SET gtest_main gmock_main supacngTEST SQLiteCpp sqlite3 ${BaseNetworkLibs} ${ServerLibs} ${CompLibs} ${SSL_LIB_LIST} ${LDFLAGS_DAEMON} ${CMAKE_THREAD_LIBS_INIT} ${EXTRA_LIBS_ACNG})
@@ -34,11 +34,13 @@ add_executable(ut_cacheman
         src/main.cc
         )
 
+target_link_libraries(ut_cacheman ${TEST_LIB_SET})
+
+
 add_executable(ut_http
 	src/ut_http.cc
 	src/main.cc
 	)
 target_link_libraries(ut_http ${TEST_LIB_SET})
 
-
-target_link_libraries(ut_cacheman ${TEST_LIB_SET})
+gtest_discover_tests(ut_http)

@@ -43,3 +43,60 @@ TEST(http, status)
 	ASSERT_EQ(e.code, 1);
 	ASSERT_EQ(e.msg, "X");
 }
+
+TEST(http, date)
+{
+	tHttpDate a;
+	EXPECT_FALSE(a.isSet());
+	EXPECT_EQ(a.any(), "");
+
+	tHttpDate d(1);
+	EXPECT_TRUE(d.isSet());
+	ASSERT_EQ(d.any(), "Thu, 01 Jan 1970 00:00:01 GMT");
+
+	/*
+	 *         "%a, %d %b %Y %H:%M:%S GMT",
+		"%A, %d-%b-%y %H:%M:%S GMT",
+		"%a %b %d %H:%M:%S %Y"
+		*/
+	ASSERT_EQ(d, "Thu, 01 Jan 1970 00:00:01 GMT");
+	ASSERT_EQ(d, tHttpDate("Thu, 01 Jan 1970 00:00:01 GMT"));
+	ASSERT_EQ(d, tHttpDate(1));
+	d.unset();
+	EXPECT_FALSE(d.isSet());
+
+	d = tHttpDate("Sun, 06 Nov 1994 08:49:37 GMT");
+	EXPECT_EQ(true, d.isSet());
+
+	ASSERT_EQ(d, "Sunday, 06-Nov-94 08:49:37 GMT");
+	ASSERT_EQ(d, "Sun Nov  6 08:49:37 1994");
+
+	tHttpDate e(-1);
+	ASSERT_FALSE(e.isSet());
+	ASSERT_EQ(e.any(), "");
+
+	tHttpDate f(time_t(0));
+	ASSERT_EQ(f, "Thu, 01 Jan 1970 00:00:00 GMT");
+
+	auto shortBS = "Short&random BS";
+	f = tHttpDate(shortBS);
+	ASSERT_EQ(f.any(), shortBS);
+}
+
+
+TEST(http, cachehead)
+{
+	mstring testHead = "foo.head";
+	auto ok = StoreHeadToStorage(testHead, -1, nullptr, nullptr);
+	ASSERT_TRUE(ok);
+	{
+		tHttpDate nix;
+		mstring orig;
+		ASSERT_TRUE(ParseHeadFromStorage(testHead, nullptr, &nix, &orig));
+		ASSERT_FALSE(nix.isSet());
+		ASSERT_TRUE(orig.empty());
+	}
+	tHttpDate date1(1);
+#warning TODO: write sample data to it, load it, unlink it, store sample data again with store method, load and compare
+}
+

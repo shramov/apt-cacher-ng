@@ -42,10 +42,10 @@ time_t tHttpDate::ParseDate(const char *s, time_t onError)
 
 unsigned tHttpDate::FormatTime(char *buf, size_t bufLen, const struct tm * src)
 {
-    if(bufLen < 26)
+	if(bufLen < 30)
         return 0;
     //asctime_r(&src, buf);
-    auto len = strftime(buf, sizeof(buf), fmts[0], src);
+	auto len = strftime(buf, bufLen, fmts[0], src);
     if (len >= bufLen || len < 10)
     {
         buf[0] = 0;
@@ -66,8 +66,8 @@ unsigned tHttpDate::FormatTime(char *buf, size_t bufLen, const time_t cur)
 
 tHttpDate::tHttpDate(time_t val) : tHttpDate()
 {
-    if (val)
-        FormatTime(buf, sizeof(buf), val);
+	if (val >= 0)
+		length = FormatTime(buf, sizeof(buf), val);
 }
 /*
 acng::tHttpDate::operator mstring() const
