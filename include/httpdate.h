@@ -32,6 +32,7 @@ public:
      * @param forceNorm Attempt to bring the date to normal form, whatever is inside.
      */
     explicit tHttpDate(const char* szDate, bool forceNorm = false);
+    explicit tHttpDate(string_view svDate, bool forceNorm = false);
     /** Formats straight to GOOD type date */
     explicit tHttpDate(time_t utcDate);
 
@@ -54,6 +55,14 @@ public:
     //tHttpDate& operator=(time_t value);
 
     static unsigned FormatTime(char *buf, size_t bufLen, time_t cur);
+    /**
+     * @brief FormatTime Format the date by recommended format to the desired buffer
+     * The specified buffer must be at least 30 chars long
+     * @param buf Output buffer
+     * @param bufLen Length of the buffer
+     * @param src Date struct
+     * @return Length of the created string or 0 if failed
+     */
     static unsigned FormatTime(char *buf, size_t bufLen, const struct tm *src);
     static bool ParseDate(const char *, struct tm*);
     static time_t ParseDate(const char *, time_t onError);

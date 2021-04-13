@@ -46,7 +46,7 @@ bool acbuf::initFromFile(const char *szPath, off_t limit)
 		}
 	}
 	forceclose(fd);
-    return limit < st.st_size;
+    return size() == st.st_size;
 }
 
 int acbuf::syswrite(int fd, unsigned int maxlen) {

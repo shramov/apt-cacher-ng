@@ -111,7 +111,32 @@ tHttpDate::tHttpDate(const char* val, bool forceNorm) : tHttpDate()
         isnorm = true;
     else
         unset();
+}
 
+tHttpDate::tHttpDate(string_view val, bool forceNorm)
+{
+    unset();
+
+    // easy bad case or regular case
+    if (val.empty())
+        return;
+    if (!forceNorm && val.size() < sizeof(buf))
+    {
+        length = val.size();
+        val.copy(buf, length);
+        buf[(size_t) length] = '\0';
+        return;
+    }
+
+    struct tm tbuf;
+    mstring terminated(val);
+    // too long or forced to normalize :-(
+    if (!ParseDate(terminated.c_str(), &tbuf))
+        return;
+
+    length = FormatTime(buf, sizeof(buf), &tbuf);
+    if (length)
+        isnorm = true;
 }
 
 bool tHttpDate::operator==(const tHttpDate &other) const {
@@ -137,7 +162,7 @@ bool tHttpDate::operator==(const char *other) const
         return !otherSet;
 }
 
-//string_view contLenPfx(WITHLEN("Content-Length: ")), laMoPfx(WITHLEN("Last-Modified: ")), origSrc(WITHLEN("X-Original-Source: "));
+string_view contLenPfx(WITHLEN("Content-Length: ")), laMoPfx(WITHLEN("Last-Modified: ")), origSrcPfx(WITHLEN("X-Original-Source: "));
 
 bool ParseHeadFromStorage(cmstring &path, off_t *contLen, tHttpDate *lastModified, mstring *origSrc)
 {
@@ -145,43 +170,36 @@ bool ParseHeadFromStorage(cmstring &path, off_t *contLen, tHttpDate *lastModifie
     if(!buf.initFromFile(path.c_str()))
         return -1;
 
-    auto view = buf.view();
-
-    if (!view.starts_with("HTTP/1.1 200") || !view.ends_with('\n'))
+    tSplitByStrStrict spliter(buf.view(), svRN);
+    if (!spliter.Next())
         return false;
-#warning optimize when view-based tokenizer is in place
-    string sLine;
-    auto needValueMask = (contLen != nullptr) + 2*(lastModified != nullptr) + 4*(origSrc != nullptr);
-#warning implement this correctly
-#if 0
-    while(reader.GetOneLine(sLine) && needValueMask)
+    if (!startsWithSz(spliter.view(), "HTTP/1.1 200"))
+        return false;
+    for(auto it: spliter)
     {
-#error crap, does not stop at the end
-        trimFront(sLine);
-        if (contLen && startsWithSz(sLine, "Content-Length:"))
+        if (it.empty())
+            return true;
+
+        if (contLen && startsWithSz(it, "Content-Length:"))
         {
-            *contLen = atoofft(sLine.data()+15, -1);
-            needValueMask &= ~1;
+            *contLen = atoofft(it.data()+15, -1);
+            contLen = nullptr;
         }
-        else if (lastModified && startsWithSz(sLine, "Last-Modified: "))
+        else if (lastModified && startsWith(it, laMoPfx))
         {
-#warning optimize with view trimming
-            sLine = sLine.substr(14);
-            while (!sLine.empty() && isspace(unsigned(sLine.front())))
-                sLine = sLine.substr(1);
-            *lastModified = tHttpDate(sLine.c_str());
-            needValueMask &= ~2;
+            it.remove_prefix(laMoPfx.size());
+            trimBoth(it);
+            *lastModified = tHttpDate(it);
+            lastModified = nullptr;
         }
-#warning this and other startsWith things shall be using astrop method - however the built-in method is only available since c++20
-        else if (origSrc && startsWithSz(sLine, "X-Original-Source: "))
+        else if (origSrc && startsWith(it, origSrcPfx))
         {
-            *origSrc = sLine.substr(14);
-#warning optimize with view trimming
-            trimFront(*origSrc);
-            needValueMask &= ~4;
+            it.remove_prefix(origSrcPfx.size());
+            trimBoth(it);
+            *origSrc = it;
+            origSrc = nullptr;
         }
     }
-#endif
     return true;
 }
 
@@ -205,7 +223,7 @@ bool StoreHeadToStorage(cmstring &path, off_t contLen, tHttpDate *lastModified, 
     if (origSrc && !origSrc->empty())
         fmt << "X-Original-Source: "sv << *origSrc << svRN;
     fmt << svRN;
-
+#warning truncate file at the end, or maybe O_TRUNC from the start
     return fmt.dumpall(path.c_str(), O_CREAT, cfg::fileperms);
 
     // that above should be safe enough. The worst risk is that a head file will contain some trailing garbage when rewritten with shorter variant - which we don't really care about.
