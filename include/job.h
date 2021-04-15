@@ -11,29 +11,22 @@
 namespace acng
 {
 
-class conn;
+class ISharedConnectionResources;
+namespace rex {
+enum eMatchType : int8_t;
+}
 
 class job
 {
-
 public:
 
-    typedef enum : short
+    enum eJobResult : short
 	{
 		R_DONE = 0, R_AGAIN = 1, R_DISCON = 2, R_NOTFORUS = 3
-	} eJobResult;
+    };
 
-    typedef enum : short
-	{
-    	STATE_NOT_STARTED,
-		STATE_SEND_DATA,
-		STATE_SEND_CHUNK_HEADER,
-		STATE_SEND_CHUNK_DATA,
-		STATE_DONE
-	} eActivity;
-    job(conn *pParent) : m_pParentCon(pParent) {}
+    job(ISharedConnectionResources &pParent) : m_pParentCon(pParent) {}
 	~job();
-	//  __attribute__((externally_visible))
 
     void Prepare(const header &h, string_view headBuf);
 
@@ -42,13 +35,22 @@ public:
 	 */
 	eJobResult SendData(int confd, bool haveMoreJobs);
 
-private:
+    SUTPRIVATE:
+
+    typedef enum : short
+    {
+        STATE_NOT_STARTED,
+        STATE_SEND_DATA,
+        STATE_SEND_CHUNK_HEADER,
+        STATE_SEND_CHUNK_DATA,
+        STATE_DONE
+    } eActivity;
 
 	TFileItemHolder m_pItem;
 
 	unique_fd m_filefd;    
     bool m_bIsHttp11 = true;
-    conn *m_pParentCon = nullptr;
+    ISharedConnectionResources &m_pParentCon;
 
 	enum EKeepAliveMode : uint8_t
 	{

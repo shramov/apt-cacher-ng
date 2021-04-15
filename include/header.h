@@ -100,6 +100,10 @@ class ACNG_API header {
        */
       // XXX: maybe redesign the unkFunc to just use pointer and length instead of strings
       int Load(const char *src, unsigned length, const std::function<void(cmstring&, cmstring&)> &unkFunc = std::function<void(cmstring&, cmstring&)>());
+      int Load(string_view sv, const std::function<void(cmstring&, cmstring&)> &unkFunc = std::function<void(cmstring&, cmstring&)>())
+      {
+          return Load(sv.data(), sv.length(), unkFunc);
+      }
 };
 }
 

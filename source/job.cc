@@ -243,7 +243,7 @@ job::~job()
 
 	bool bErr = m_sFileLoc.empty() || stcode >= 400;
 
-	m_pParentCon->LogDataCounts(
+    m_pParentCon.LogDataCounts(
 			m_sFileLoc + (bErr ? (miscError + ltos(stcode) + ']') : sEmptyString),
             move(m_xff),
 			(m_pItem.get() ? m_pItem.get()->TakeTransferCount() : 0),
@@ -472,19 +472,19 @@ void job::Prepare(const header &h, string_view headBuf) {
 	// some macros, to avoid goto style
     auto report_invport = [this]()
     {
-        SetEarlyErrorResponse("403 Configuration error (confusing proxy mode) or prohibited port (see AllowUserPorts)");
+        SetEarlyErrorResponse("403 Configuration error (confusing proxy mode) or prohibited port (see AllowUserPorts)"sv);
     };
     auto report_overload = [this]()
     {
-    	SetEarlyErrorResponse("503 Server overload, try later");
+        SetEarlyErrorResponse("503 Server overload, try later"sv);
     };
     auto report_invpath = [this]()
     {
-    	SetEarlyErrorResponse("403 Invalid path specification");
+        SetEarlyErrorResponse("403 Invalid path specification"sv);
     };
     auto report_notallowed = [this]()
     {
-    	SetEarlyErrorResponse("403 Forbidden file type or location");
+        SetEarlyErrorResponse("403 Forbidden file type or location"sv);
     };
 
     if(h.type!=header::GET && h.type!=header::HEAD)
@@ -692,7 +692,7 @@ void job::Prepare(const header &h, string_view headBuf) {
     if( fistate < fileitem::FIST_DLGOTHEAD) // needs a downloader
     {
     	dbgline;
-    	if(!m_pParentCon->SetupDownloader())
+        if(!m_pParentCon.SetupDownloader())
     	{
     		USRDBG( "Error creating download handler for "<<m_sFileLoc);
             return report_overload();
@@ -726,7 +726,7 @@ void job::Prepare(const header &h, string_view headBuf) {
 			if (bPtMode)
                 rq.setRqHeadString(headBuf.data());
 
-			if (m_pParentCon->SetupDownloader()->AddJob(m_pItem.get(), rq))
+            if (m_pParentCon.SetupDownloader()->AddJob(m_pItem.get(), rq))
 			{
 				ldbg("Download job enqueued for " << m_sFileLoc);
 			}

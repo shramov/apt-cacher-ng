@@ -43,4 +43,14 @@ add_executable(ut_http
 	)
 target_link_libraries(ut_http ${TEST_LIB_SET})
 
+
+add_executable(it_job
+        src/it_job.cc
+        src/main.cc
+        )
+target_link_libraries(it_job ${TEST_LIB_SET})
+
+
 gtest_discover_tests(ut_http)
+gtest_discover_tests(ut_algos)
+gtest_discover_tests(ut_cacheman)

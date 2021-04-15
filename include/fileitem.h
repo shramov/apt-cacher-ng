@@ -13,7 +13,7 @@
 
 namespace acng
 {
-
+extern const std::string sEmptyString;
 class fileitem;
 struct tDlJob;
 class cacheman;

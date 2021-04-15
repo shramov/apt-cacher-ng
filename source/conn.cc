@@ -395,7 +395,7 @@ void conn::Impl::WorkLoop() {
 
 				ldbg("Parsed REQUEST:" << h.frontLine);
 				ldbg("Rest: " << (inBuf.size()-nHeadBytes));
-                m_jobs2send.emplace_back(_q);
+                m_jobs2send.emplace_back(*_q);
                 m_jobs2send.back().Prepare(h, inBuf.rptr());
 				if (m_badState)
 					return;
