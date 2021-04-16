@@ -125,32 +125,34 @@ int header::Load(string_view input, std::vector<std::pair<string_view,string_vie
     if(!input.data())
 		return -1;
     type = INVALID;
-    if(startsWith(input, "HTTP/1."sv))
-        type=ANSWER;
-    else if(startsWith(input, "GET "sv))
-        type=GET;
-    else if (startsWith(input, "HEAD "sv))
-        type=HEAD;
-    else if (startsWith(input, "POST "sv))
-        type=POST;
-    else if (startsWith(input, "CONNECT "sv))
-        type=CONNECT;
-    else
-        return -1;
-    input.remove_prefix(5); // plausible length of checked data
+#define IFCUT(s, t) if(startsWith(input, s)) { type=t; input.remove_prefix(s.size()); }
+    IFCUT("HTTP/1."sv, ANSWER)
+            else IFCUT("GET "sv, GET)
+            else IFCUT("HEAD "sv, HEAD)
+            else IFCUT("POST "sv, POST)
+            else IFCUT("CONNECT "sv, CONNECT)
+            else
+            return -1;
+
     tSplitByStrStrict split(input, svRN);
-    bool first = true;
+    bool first = true, endlineFound = false;
     auto lastSetId = HEADPOS_MAX;
     for(auto it: split)
     {
+        if (endlineFound) // whatever came after
+            return it.data() - pStart;
+
         if (first)
         {
             frontLine.assign(pStart, it.data() + it.size() - pStart);
             first = false;
             continue;
         }
-        if (it.empty()) // good end
-            return it.data() + 2 - pStart;
+        if (it.empty()) // good end? Only if there is a newline ahead, otherwise it's not complete
+        {
+            endlineFound = true;
+            continue;
+        }
         if (it == "\r"sv) // rare case of just one byte missing
             return 0;
 
@@ -162,7 +164,7 @@ int header::Load(string_view input, std::vector<std::pair<string_view,string_vie
                 unkHeaderMap->emplace_back(string_view(), sv);
             else if (lastSetId != HEADPOS_MAX)
             {
-                if (!strappend(h[lastSetId], " ", sv))
+                if (!strappend(h[lastSetId], " "sv, sv))
                     return -3;
             }
             // either appended to captured string or to exported extra map

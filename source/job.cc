@@ -44,7 +44,7 @@ namespace rex {
 enum eMatchType : int8_t;
 }
 }
-mstring sHttp11("HTTP/1.1");
+string_view sHttp11("HTTP/1.1");
 
 tTraceData traceData;
 void cfg::dump_trace()
@@ -494,7 +494,8 @@ void job::Prepare(const header &h, string_view headBuf) {
     UrlUnescapeAppend(tokenizer, sReqPath);
     if(!tokenizer.Next()) // at proto
         return report_invpath();
-    m_bIsHttp11 = (sHttp11 != tokenizer.str());
+    auto sProto = tokenizer.view();
+    m_bIsHttp11 = (sProto == sHttp11);
     
     USRDBG( "Decoded request URI: " << sReqPath);
 
