@@ -11,6 +11,7 @@
 #include "actypes.h"
 
 #include <string>
+#include <cstring>
 #include <vector>
 #include <deque>
 #include <functional>
@@ -80,6 +81,20 @@ inline void trimBoth(string_view &s, const string_view junk = SPACECHARS)
 {
 	trimBack(s, junk);
 	trimFront(s, junk);
+}
+
+/** Not so efficient function which appends a string extension to a string already allocated on heap.
+ *  */
+inline bool strappend(char* &p, string_view appendix)
+{
+    auto l = strlen(p);
+    auto pEx = (char*) realloc(p, l + appendix.length() + 1);
+    if (!pEx)
+        return false;
+    p = pEx;
+    memcpy(pEx + l, appendix.data(), appendix.length());
+    pEx[l + appendix.length()] = 0;
+    return true;
 }
 
 //! iterator-like helper for string splitting, for convenient use with for-loops
@@ -251,6 +266,7 @@ std::string GetDirPart(const std::string &in);
 std::pair<std::string,std::string> SplitDirPath(const std::string& in);
 std::string PathCombine(string_view a, string_view b);
 
+bool scaseequals(string_view a, string_view b);
 
 void fish_longest_match(string_view stringToScan, const char sep,
 		std::function<bool(string_view)> check_ex);

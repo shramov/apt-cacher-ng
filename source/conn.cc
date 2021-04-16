@@ -324,7 +324,7 @@ void conn::Impl::WorkLoop() {
 			try
 			{
                 h.clear();
-				int nHeadBytes=h.Load(inBuf.rptr(), inBuf.size());
+                int nHeadBytes = h.Load(inBuf.view());
 				ldbg("header parsed how? " << nHeadBytes);
 				if(nHeadBytes == 0)
 				{ // Either not enough data received, or buffer full; make space and retry

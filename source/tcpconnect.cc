@@ -829,7 +829,7 @@ bool tcpconnect::StartTunnel(const tHttpUrl& realTarget, mstring& sError,
 			}
 
 			header h;
-			auto n = h.Load(fmt.rptr(), fmt.size());
+            auto n = h.Load(fmt.view());
 			if(!n)
 				continue;
 

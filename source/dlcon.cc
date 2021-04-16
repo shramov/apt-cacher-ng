@@ -42,14 +42,6 @@ namespace acng
 
 static cmstring sGenericError("502 Bad Gateway");
 
-// those are not allowed to be forwarded ever
-static const auto tabooHeadersForCaching =
-{ string("Host"), string("Cache-Control"), string("Proxy-Authorization"),
-		string("Accept"), string("User-Agent"), string("Accept-Encoding") };
-static const auto tabooHeadersPassThrough =
-{ string("Host"), string("Cache-Control"), string("Proxy-Authorization"),
-		string("Accept"), string("User-Agent") };
-
 std::atomic_uint g_nDlCons(0);
 using tRemoteBlacklist = std::map<std::pair<cmstring, cmstring>, mstring>;
 
@@ -170,32 +162,6 @@ struct tDlJob
             m_pStorage->DlRefCountDec({503, sErrorMsg.empty() ?
                     "Download Expired" : move(sErrorMsg)});
 		}
-	}
-
-	inline void ExtractCustomHeaders(LPCSTR reqHead)
-	{
-		if (!reqHead)
-			return;
-		header h;
-		// continuation of header line
-		bool forbidden = false;
-		h.Load(reqHead, (unsigned) std::numeric_limits<int>::max(),
-				[this, &forbidden](cmstring &key, cmstring &rest)
-				{
-					// heh, continuation of ignored stuff or without start?
-						if(key.empty() && (m_extraHeaders.empty() || forbidden))
-						{
-							return;
-						}
-						const auto& taboo = m_bIsPassThroughRequest ? tabooHeadersPassThrough : tabooHeadersForCaching;
-
-						forbidden = taboo.end() != std::find_if(taboo.begin(), taboo.end(),
-								[&](cmstring &x)
-								{	return scaseequals(x,key);});
-						if(!forbidden)
-						m_extraHeaders += key + rest;
-					}
-					);
 	}
 
 	inline string RemoteUri(bool bUrlEncoded)
@@ -518,8 +484,7 @@ struct tDlJob
 
 				dbgline;
 
-				auto hDataLen =
-						h.Load(inBuf.rptr(), inBuf.size());
+                auto hDataLen = h.Load(inBuf.view());
 				// XXX: find out why this was ever needed; actually we want the opposite,
 				// download the contents now and store the reported file as XORIG for future
 				// https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Location
@@ -1162,18 +1127,21 @@ bool dlcon::Impl::AddJob(tFileItemPtr fi, const dlrequest& rq)
 			return false;
 		if (rq.repoSrc.sRestPath.empty())
 			return false;
-	}
-	tDlJob xnew(this, fi, rq);
-#warning TODO: should pickup unknown lines earlier when parsing original header
-	xnew.ExtractCustomHeaders(rq.reqHead);
+    }
+    tDlJob xnew(this, fi, rq);
 
-	if (cfg::exporigin && !m_ownersHostname.empty())
-	{
-		if (rq.szHeaderXff)
-		{
-			xnew.m_xff = rq.szHeaderXff;
-			xnew.m_xff += ", ";
-		}
+    // XXX: not sure this is the right place, could also run this as part of request analysis
+    // However, the prerequisites are the same, not much difference for the runtime.
+    if(rq.reqHead)
+        xnew.m_extraHeaders = ExtractCustomHeaders(rq.reqHead, rq.isPassThroughRequest);
+
+    if (cfg::exporigin && !m_ownersHostname.empty())
+    {
+        if (rq.szHeaderXff)
+        {
+            xnew.m_xff = rq.szHeaderXff;
+            xnew.m_xff += ", ";
+        }
 		xnew.m_xff += m_ownersHostname;
 	}
 	{

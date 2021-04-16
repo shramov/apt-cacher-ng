@@ -109,6 +109,8 @@ TEST(http, cachehead)
 	ASSERT_FALSE(h.h[header::XORIG]);
 	ASSERT_FALSE(h.h[header::LAST_MODIFIED]);
 	ASSERT_TRUE(StoreHeadToStorage(testHead, testSize, &testDate, &testOrig));
+    h.clear();
+    ASSERT_TRUE(h.frontLine.empty());
 	ASSERT_TRUE(h.LoadFromFile(testHead));
 	ASSERT_EQ(h.frontLine, "HTTP/1.1 200 OK");
 	ASSERT_EQ(testOrig, h.h[header::XORIG]);
@@ -126,3 +128,21 @@ TEST(http, cachehead)
 #warning TODO: write sample data to it, load it, unlink it, store sample data again with store method, load and compare
 }
 
+TEST(http, header)
+{
+    header h;
+    ASSERT_TRUE(h.type == header::INVALID);
+    string_view hdata = "GET /na/asdfasdfsadf\r\n\rfoo:bar\n";
+    ASSERT_LT(h.Load(hdata), 0);
+    hdata = "GET /na/asdfasdfsadf\r\nfoo:bar\r\n\r\n";
+    ASSERT_EQ(hdata.length(), h.Load(hdata));
+    hdata = "GET /na/asdfasdfsadf HTTP/1.1\r\n\r\n";
+    ASSERT_EQ(hdata.length(), h.Load(hdata));
+    hdata = "GET /na/asdfasdfsadf HTTP/1.1\r\nLast-Modified: Sunday, \r\n 06-Nov-94 08:49:37 GMT\r\n\r\n";
+    auto l = h.Load(hdata);
+    ASSERT_EQ(hdata.length(), l);
+    string_view refDateS = "Sunday, 06-Nov-94 08:49:37 GMT";
+    ASSERT_EQ(refDateS, h.h[header::LAST_MODIFIED]);
+    tHttpDate refDate(refDateS, true);
+    ASSERT_TRUE(refDate == h.h[header::LAST_MODIFIED]);
+}

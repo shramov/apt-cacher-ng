@@ -2,7 +2,7 @@
 #define _HEADER_H
 
 #include <unordered_set>
-#include <map>
+#include <vector>
 #include "acbuf.h"
 
 namespace acng
@@ -36,18 +36,21 @@ class ACNG_API header {
     	  IF_MODIFIED_SINCE,
     	  RANGE,
     	  IFRANGE,				// 4
+
     	  CONTENT_RANGE,
     	  LAST_MODIFIED,
     	  PROXY_CONNECTION,
     	  TRANSFER_ENCODING,
     	  XORIG,
-    	  AUTHORIZATION,		// 10
+
+    	  AUTHORIZATION,		// 10          
     	  XFORWARDEDFOR,
     	  LOCATION,
     	  CONTENT_TYPE,
     	  // unreachable entry and size reference
-    	  HEADPOS_MAX,
-		  HEADPOS_NOTFORUS
+          HEADPOS_MAX,
+          // special value, only a flag to remember that data is stored to external header
+          HEADPOS_UNK_EXPORT
       };
 #define ACNGFSMARK XORIG
 
@@ -55,7 +58,7 @@ class ACNG_API header {
       mstring frontLine;
       
       char *h[HEADPOS_MAX] = {0};
-                           
+
       inline header(){};
       ~header();
       header(const header &);
@@ -85,26 +88,23 @@ class ACNG_API header {
       void clear();
       
       tSS ToString() const;
-      static std::vector<string_view> GetKnownHeaders();
+
       /**
        * Read buffer to parse one string. Optional offset where to begin to
        * scan.
        *
        * @param src Pointer to raw input
        * @param length Maximum considered input length
-       * @param unkFunc Optional callback for ignored headers (called with key name and rest of the line including CRLF)
-       * @return Length of processed data,
-       * 0: incomplete, needs more data
-       * <0: error
-       * >0: length of the processed data
+       * @param unkHeaderMap Optional, series of string_view pairs containing key and values. If key is empty, record's value is a continuation of the previous value.
+       * @return Length of processed data, 0: incomplete, needs more data, <0: error, >0: length of the processed data
        */
-      // XXX: maybe redesign the unkFunc to just use pointer and length instead of strings
-      int Load(const char *src, unsigned length, const std::function<void(cmstring&, cmstring&)> &unkFunc = std::function<void(cmstring&, cmstring&)>());
-      int Load(string_view sv, const std::function<void(cmstring&, cmstring&)> &unkFunc = std::function<void(cmstring&, cmstring&)>())
-      {
-          return Load(sv.data(), sv.length(), unkFunc);
-      }
+      int Load(string_view sv, std::vector<std::pair<string_view,string_view> > *unkHeaderMap = nullptr);
+
+private:
+      eHeadPos resolvePos(string_view key);
 };
+
+mstring ExtractCustomHeaders(string_view reqHead, bool isPassThrough);
 }
 
 #endif

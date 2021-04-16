@@ -980,7 +980,7 @@ mstring unEscape(cmstring &s)
 	return ret;
 }
 
-bool scaseequals(cmstring& a, cmstring& b)
+bool scaseequals(string_view a, string_view b)
 {
     auto len = a.size();
     if (b.size() != len)

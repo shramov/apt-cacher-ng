@@ -3,14 +3,14 @@
 #include "debug.h"
 
 #include "acfg.h"
-
+#include "astrop.h"
 #include "header.h"
 #include "config.h"
 #include <acbuf.h>
 
 #include <cstdio>
 #include <iostream>
-#include <string.h>
+#include <strings.h>
 #include <unistd.h>
 
 #include "fileio.h"
@@ -23,55 +23,27 @@ using namespace std;
 
 namespace acng
 {
-struct eHeadPos2label
+
+// Order matches the enum order!
+constexpr string_view mapId2Headname[] =
 {
-	header::eHeadPos pos;
-	const char *str;
-	size_t len;
+    "Connection"sv,
+    "Content-Length"sv,
+    "If-Modified-Since"sv,
+    "Range"sv,
+    "If-Range"sv,
+
+    "Content-Range"sv,
+    "Last-Modified"sv,
+    "Proxy-Connection"sv,
+    "Transfer-Encoding"sv,
+    "X-Original-Source"sv,
+
+    "Authorization"sv,
+    "X-Forwarded-For"sv,
+    "Location"sv,
+    "Content-Type"sv,
 };
-
-eHeadPos2label mapId2Headname[] =
-{
-		{ header::LAST_MODIFIED, WITHLEN("Last-Modified")},
-		{ header::CONTENT_LENGTH, WITHLEN("Content-Length")},
-		{ header::CONNECTION, WITHLEN("Connection")},
-		{ header::CONTENT_TYPE, WITHLEN("Content-Type")},
-		{ header::IF_MODIFIED_SINCE, WITHLEN("If-Modified-Since")},
-		{ header::RANGE, WITHLEN("Range")},
-		{ header::IFRANGE, WITHLEN("If-Range")},
-		{ header::CONTENT_RANGE, WITHLEN("Content-Range")},
-		{ header::PROXY_CONNECTION, WITHLEN("Proxy-Connection")},
-		{ header::TRANSFER_ENCODING, WITHLEN("Transfer-Encoding")},
-		{ header::AUTHORIZATION, WITHLEN("Authorization")},
-		{ header::LOCATION, WITHLEN("Location")},
-		{ header::XFORWARDEDFOR, WITHLEN("X-Forwarded-For")},
-		{ header::XORIG, WITHLEN("X-Original-Source")}
-};
-
-std::vector<string_view> header::GetKnownHeaders()
-{
-	std::vector<string_view> ret;
-	ret.reserve(_countof(mapId2Headname));
-	for (auto& x : mapId2Headname)
-		ret.emplace_back(x.str, x.len);
-	return ret;
-}
-
-#if 0 // nonsense... save a penny, waste an hour
-struct tHeadLabelMap
-{
-	class noCaseComp
-	{
-	//	bool operator<(const tStringRef &a) { return strncasecmp(a.first, first, second)<0; }
-	};
-	map<pair<const char*,size_t>, header::eHeadPos> lookup;
-	tHeadLabelMap()
-	{
-		//tHeadLabelMap &x=*this;
-		insert(make_pair(tStringRef(NAMEWLEN("foo")), header::XORIG));
-	}
-} label_map;
-#endif
 
 header::header(const header &s)
 :type(s.type),
@@ -129,7 +101,7 @@ void header::clear()
 void header::del(eHeadPos i)
 {
 	free(h[i]);
-    h[i]=0;
+    h[i] = nullptr;
 }
 
 string header::getMessage() const
@@ -144,113 +116,96 @@ string header::getMessage() const
     return string(p, frontLine.length() - (p - frontLine.c_str()));
 }
 
-int header::Load(LPCSTR const in, unsigned maxlen,
-		const std::function<void(cmstring&, cmstring&)> &unkHandler)
+int header::Load(string_view input, std::vector<std::pair<string_view,string_view> > *unkHeaderMap)
 {
-	if(maxlen<9)
+    auto pStart = input.data();
+
+    if(input.length() < 9)
 		return 0;
-
-	if(!in)
+    if(!input.data())
 		return -1;
-	if(!strncmp(in,  "HTTP/1.", 7))
-		type=ANSWER;
-	else if(!strncmp(in, "GET ", 4))
-		type=GET;
-	else if (!strncmp(in, "HEAD ", 5))
-		type=HEAD;
-	else if (!strncmp(in, "POST ", 5))
-		type=POST;
-	else if (!strncmp(in, "CONNECT ", 8))
-		type=CONNECT;
-	else
-		return -1;
+    type = INVALID;
+    if(startsWith(input, "HTTP/1."sv))
+        type=ANSWER;
+    else if(startsWith(input, "GET "sv))
+        type=GET;
+    else if (startsWith(input, "HEAD "sv))
+        type=HEAD;
+    else if (startsWith(input, "POST "sv))
+        type=POST;
+    else if (startsWith(input, "CONNECT "sv))
+        type=CONNECT;
+    else
+        return -1;
+    input.remove_prefix(5); // plausible length of checked data
+    tSplitByStrStrict split(input, svRN);
+    bool first = true;
+    auto lastSetId = HEADPOS_MAX;
+    for(auto it: split)
+    {
+        if (first)
+        {
+            frontLine.assign(pStart, it.data() + it.size() - pStart);
+            first = false;
+            continue;
+        }
+        if (it.empty()) // good end
+            return it.data() + 2 - pStart;
+        if (it == "\r"sv) // rare case of just one byte missing
+            return 0;
 
-	auto posNext=in;
-	auto lastLineIdx = HEADPOS_MAX;
+        string_view sv(it);
+        trimBoth(sv);
+        if (sv.data() != it.data())
+        {
+            // ok, a continuation? let's include one space char, though
+            sv = string_view(sv.data() - 1, sv.length() + 1);
 
-	while (true)
-	{
-		auto szBegin=posNext;
-		unsigned pos=szBegin-in;
-		auto end=(LPCSTR) memchr(szBegin, '\r', maxlen-pos);
-		if (!end)
-			return 0;
-		if (end+1>=in+maxlen)
-			return 0; // one newline must fit there, always
+            if (lastSetId == HEADPOS_UNK_EXPORT)
+                unkHeaderMap->emplace_back(string_view(), sv);
+            else if (lastSetId != HEADPOS_MAX)
+            {
+                if (!strappend(h[lastSetId], sv))
+                    return -3;
+            }
+            // either appended to captured string or to exported extra map
+            continue;
+        }
+        auto pos = sv.find(':');
+        if (pos == stmiss)
+            return -4;
+        string_view value(sv.substr(pos + 1)), key(sv.substr(0, pos));
+        trimBack(key);
+        if (key.empty())
+            return -5;
+        trimFront(value);
+        lastSetId = resolvePos(key);
+        if (lastSetId == HEADPOS_MAX)
+        {
+            if (unkHeaderMap)
+                unkHeaderMap->emplace_back(key, value);
+            else
+                continue;
+        }
+        if (value.empty()) // heh?
+            del(lastSetId);
+        else
+            set(lastSetId, value.data(), value.length());
+    }
+    return -2;
+}
 
-		if (szBegin==end)
-		{
-			if (end[1]=='\n') // DONE HERE!
-				return end+2-in;
-
-			return -1; // looks like crap
-		}
-		posNext=end+2;
-
-		while (isspace((uint)*end))	end--;
-		end++;
-		
-		if (frontLine.empty())
-		{
-			frontLine.assign(in, string::size_type(end-in));
-			trimBack(frontLine);
-			continue;
-		}
-
-		if(*szBegin == ' ' || *szBegin == '\t') // oh, a multiline?
-		{
-			auto nlen=end-szBegin;
-			if(nlen<2) // empty but prefixed line, there might be continuation
-				continue;
-
-			if(lastLineIdx == HEADPOS_NOTFORUS)
-			{
-				if(unkHandler)
-					unkHandler("", string(szBegin, nlen+2));
-				continue;
-			}
-			else if(lastLineIdx == HEADPOS_MAX || !h[lastLineIdx])
-				return -4;
-			auto xl=strlen(h[lastLineIdx]);
-			if( ! (h[lastLineIdx] = (char*) realloc(h[lastLineIdx], xl+nlen + 1)))
-				continue;
-			memcpy(h[lastLineIdx]+xl, szBegin, nlen);
-			h[lastLineIdx][xl]=' ';
-			h[lastLineIdx][xl+nlen]='\0';
-			continue;
-		}
-
-		// end is on the last relevant char now
-		const char *sep=(const char*) memchr(szBegin, ':', end-szBegin);
-		if (!sep)
-			return -1;
-		
-		auto key = szBegin;
-		size_t keyLen=sep-szBegin;
-
-		sep++;
-		while (sep<end && isspace((uint)*sep))
-			sep++;
-		
-		lastLineIdx = HEADPOS_NOTFORUS;
-
-		for(const auto& xh : mapId2Headname)
-		{
-			if (xh.len != keyLen || key[xh.len] != ':' || strncasecmp(xh.str, key, keyLen))
-				continue;
-			unsigned l=end-sep;
-			lastLineIdx = xh.pos;
-			if( ! (h[xh.pos] = (char*) realloc(h[xh.pos], l+1)))
-				return -3;
-			memcpy(h[xh.pos], sep, l);
-			h[xh.pos][l]='\0';
-			break;
-		}
-		if(unkHandler && lastLineIdx == HEADPOS_NOTFORUS)
-			unkHandler(string(key,keyLen),
-					string(szBegin+keyLen, end+2-(szBegin+keyLen)));
-	}
-	return -2;
+header::eHeadPos header::resolvePos(string_view key)
+{
+    for(unsigned i = 0; i < eHeadPos::HEADPOS_MAX; ++i)
+    {
+        if (key.length() == mapId2Headname[i].length() &&
+                0 == strncasecmp(mapId2Headname[i].data(), key.data(), key.length()))
+        {
+            return eHeadPos(i);
+        }
+    }
+    return HEADPOS_MAX;
 }
 
 int header::LoadFromFile(const string &sPath)
@@ -263,7 +218,7 @@ int header::LoadFromFile(const string &sPath)
 	acbuf buf;
 	if(!buf.initFromFile(sPath.c_str()))
 		return -1;
-	return Load(buf.rptr(), buf.size());
+    return Load(buf.view());
 }
 
 
@@ -318,9 +273,11 @@ tSS header::ToString() const
 {
 	tSS s;
 	s<<frontLine << "\r\n";
-	for(const auto& pos2key : mapId2Headname)
-		if (h[pos2key.pos])
-			s << pos2key.str << ": " << h[pos2key.pos] << "\r\n";
+    for(unsigned i = 0; i < eHeadPos::HEADPOS_MAX; ++i)
+    {
+        if (h[i])
+            s << mapId2Headname[i] << ": " << h[i] << "\r\n";
+    }
     s<< "Date: " << tHttpDate(GetTime()).any() << "\r\n\r\n";
 	return s;
 }
@@ -332,7 +289,7 @@ int header::StoreToFile(cmstring &sPath) const
 	int fd=open(szPath, O_WRONLY|O_CREAT|O_TRUNC, cfg::fileperms);
 	if(fd<0)
 	{
-		fd=-errno;
+        fd =- errno;
 		// maybe there is something in the way which can be removed?
 		if(::unlink(szPath))
 			return fd;
@@ -370,6 +327,53 @@ int header::StoreToFile(cmstring &sPath) const
 	}
 	
 	return nByteCount;
+}
+
+// those are not allowed to be forwarded ever
+static const auto tabooHeadersForCaching =
+{ string("Host"), string("Cache-Control"), string("Proxy-Authorization"),
+        string("Accept"), string("User-Agent"), string("Accept-Encoding") };
+static const auto tabooHeadersPassThrough =
+{ string("Host"), string("Cache-Control"), string("Proxy-Authorization"),
+        string("Accept"), string("User-Agent") };
+
+mstring ExtractCustomHeaders(string_view reqHead, bool isPassThrough)
+{
+    if (reqHead.empty())
+        return sEmptyString;
+    header h;
+    string ret;
+    // continuation of header line
+    std::vector<std::pair<string_view,string_view> > unkHeaderMap;
+    h.Load(reqHead, &unkHeaderMap);
+
+    bool forbidden = false;
+    const auto& taboo = isPassThrough ? tabooHeadersPassThrough : tabooHeadersForCaching;
+    for(auto& it: unkHeaderMap)
+    {
+        if (it.first.empty())
+        {
+            if (forbidden) continue;
+            ret.erase(ret.size()-2);
+            ret += it.second;
+            continue;
+        }
+
+        forbidden = taboo.end() != std::find_if(taboo.begin(),
+                                                taboo.end(),
+                                                [&](cmstring &x)
+        { return scaseequals(x, it.first.data()); }
+                );
+
+        if(!forbidden)
+        {
+            ret += it.first;
+            ret += ": ";
+            ret += it.second;
+            ret += svRN;
+        }
+    }
+    return ret;
 }
 
 }
