@@ -145,4 +145,23 @@ TEST(http, header)
     ASSERT_EQ(refDateS, h.h[header::LAST_MODIFIED]);
     tHttpDate refDate(refDateS, true);
     ASSERT_TRUE(refDate == h.h[header::LAST_MODIFIED]);
+
+    hdata = "GET /na/asdfasdfsadf HTTP/1.1\r\na: b\r\nc:d\r\ne:f\r\n\tffffuuuu\r\n\r\n";
+    std::vector<std::pair<string_view,string_view> > unkollector;
+    l = h.Load(hdata, &unkollector);
+    ASSERT_EQ(hdata.length(), l);
+    ASSERT_EQ(unkollector.size(), 4);
+    ASSERT_EQ(unkollector[0].first, "a");
+    ASSERT_EQ(unkollector[0].second, "b");
+    ASSERT_EQ(unkollector[1].first, "c");
+    ASSERT_EQ(unkollector[1].second, "d");
+    ASSERT_EQ(unkollector[2].first, "e");
+    ASSERT_EQ(unkollector[2].second, "f");
+    ASSERT_EQ(unkollector[3].first, "");
+    ASSERT_EQ(unkollector[3].second, "ffffuuuu");
+
+    h.clear();
+    auto extra = header::ExtractCustomHeaders(hdata, true);
+    ASSERT_GT(extra.size(), 10);
+    ASSERT_EQ(extra, "a: b\r\nc: d\r\ne: f ffffuuuu\r\n");
 }

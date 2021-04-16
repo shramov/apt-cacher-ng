@@ -156,16 +156,13 @@ int header::Load(string_view input, std::vector<std::pair<string_view,string_vie
 
         string_view sv(it);
         trimBoth(sv);
-        if (sv.data() != it.data())
+        if (sv.data() != it.data()) // ok, a continuation?
         {
-            // ok, a continuation? let's include one space char, though
-            sv = string_view(sv.data() - 1, sv.length() + 1);
-
             if (lastSetId == HEADPOS_UNK_EXPORT)
                 unkHeaderMap->emplace_back(string_view(), sv);
             else if (lastSetId != HEADPOS_MAX)
             {
-                if (!strappend(h[lastSetId], sv))
+                if (!strappend(h[lastSetId], " ", sv))
                     return -3;
             }
             // either appended to captured string or to exported extra map
@@ -183,9 +180,11 @@ int header::Load(string_view input, std::vector<std::pair<string_view,string_vie
         if (lastSetId == HEADPOS_MAX)
         {
             if (unkHeaderMap)
+            {
                 unkHeaderMap->emplace_back(key, value);
-            else
-                continue;
+                lastSetId = HEADPOS_UNK_EXPORT;
+            }
+            continue;
         }
         if (value.empty()) // heh?
             del(lastSetId);
@@ -337,7 +336,7 @@ static const auto tabooHeadersPassThrough =
 { string("Host"), string("Cache-Control"), string("Proxy-Authorization"),
         string("Accept"), string("User-Agent") };
 
-mstring ExtractCustomHeaders(string_view reqHead, bool isPassThrough)
+mstring header::ExtractCustomHeaders(string_view reqHead, bool isPassThrough)
 {
     if (reqHead.empty())
         return sEmptyString;
@@ -355,7 +354,9 @@ mstring ExtractCustomHeaders(string_view reqHead, bool isPassThrough)
         {
             if (forbidden) continue;
             ret.erase(ret.size()-2);
+            ret += ' ';
             ret += it.second;
+            ret += svRN;
             continue;
         }
 

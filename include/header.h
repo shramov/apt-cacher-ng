@@ -79,6 +79,8 @@ class ACNG_API header {
       void del(eHeadPos);
       inline void copy(const header &src, eHeadPos pos) { set(pos, src.h[pos]); };
 
+      static mstring ExtractCustomHeaders(string_view reqHead, bool isPassThrough);
+
       inline const char * getCodeMessage() const {
     	  return frontLine.length()>9 ? frontLine.c_str()+9 : "";
       }
@@ -104,7 +106,6 @@ private:
       eHeadPos resolvePos(string_view key);
 };
 
-mstring ExtractCustomHeaders(string_view reqHead, bool isPassThrough);
 }
 
 #endif

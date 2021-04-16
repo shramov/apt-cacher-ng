@@ -85,17 +85,7 @@ inline void trimBoth(string_view &s, const string_view junk = SPACECHARS)
 
 /** Not so efficient function which appends a string extension to a string already allocated on heap.
  *  */
-inline bool strappend(char* &p, string_view appendix)
-{
-    auto l = strlen(p);
-    auto pEx = (char*) realloc(p, l + appendix.length() + 1);
-    if (!pEx)
-        return false;
-    p = pEx;
-    memcpy(pEx + l, appendix.data(), appendix.length());
-    pEx[l + appendix.length()] = 0;
-    return true;
-}
+bool strappend(char* &p, string_view appendix, string_view app2 = string_view());
 
 //! iterator-like helper for string splitting, for convenient use with for-loops
 // Intended for a single run-through, not repeatable

@@ -60,6 +60,20 @@ void fish_longest_match(string_view stringToScan, const char sep,
 	}
 }
 
+bool strappend(char *&p, string_view appendix, string_view app2)
+{
+    auto l = strlen(p);
+    auto xlen = appendix.size() + app2.size();
+    auto pEx = (char*) realloc(p, l + xlen + 1);
+    if (!pEx)
+        return false;
+    p = pEx;
+    memcpy(pEx + l, appendix.data(), appendix.length());
+    memcpy(pEx + l + appendix.length(), app2.data(), app2.length());
+    pEx[l + xlen] = 0;
+    return true;
+}
+
 }
 
 

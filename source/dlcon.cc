@@ -1133,7 +1133,7 @@ bool dlcon::Impl::AddJob(tFileItemPtr fi, const dlrequest& rq)
     // XXX: not sure this is the right place, could also run this as part of request analysis
     // However, the prerequisites are the same, not much difference for the runtime.
     if(rq.reqHead)
-        xnew.m_extraHeaders = ExtractCustomHeaders(rq.reqHead, rq.isPassThroughRequest);
+        xnew.m_extraHeaders = header::ExtractCustomHeaders(rq.reqHead, rq.isPassThroughRequest);
 
     if (cfg::exporigin && !m_ownersHostname.empty())
     {
