@@ -62,7 +62,7 @@ bool LinkOrCopy(const mstring &from, const mstring &to);
 void set_nb(int fd);
 void set_block(int fd);
 
-inline void forceclose(int& fd) { while(0 != ::close(fd)) { if(errno != EINTR) break; }; fd=-1; }
+inline bool forceclose(int& fd) { bool ret = true; while(0 != ::close(fd)) { if(errno != EINTR) { ret = false; break; }}; fd=-1; return ret;}
 inline void justforceclose(int fd) { while(0 != ::close(fd)) { if(errno != EINTR) break; }; }
 inline void checkforceclose(int &fd)
 {

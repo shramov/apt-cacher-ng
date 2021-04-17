@@ -45,16 +45,16 @@ bool FileCopy(cmstring &from, cmstring &to, int* pErrno)
 {
 	acbuf buf;
 	buf.setsize(50000);
-	int in(-1), out(-1);
+	unique_fd in, out;
 
-	in=::open(from.c_str(), O_RDONLY);
-	if (in<0) // error, here?!
+	in.m_p = ::open(from.c_str(), O_RDONLY);
+	if (!in.valid()) // error, here?!
 		return false;
 
 	while (true)
 	{
 		int err;
-		err=buf.sysread(in);
+		err=buf.sysread(in.m_p);
 		if (err<0)
 		{
 			if (err==-EAGAIN || err==-EINTR)
@@ -65,13 +65,13 @@ bool FileCopy(cmstring &from, cmstring &to, int* pErrno)
 		else if (err==0)
 			break;
 		// don't open unless the input is readable, for sure
-		if (out<0)
+		if (!out.valid())
 		{
-			out=open(to.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 00644);
-			if (out<0)
+			out.m_p = open(to.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 00644);
+			if (out.valid())
 				goto error_copying;
 		}
-		err=buf.syswrite(out);
+		err=buf.syswrite(out.m_p);
 		if (err<=0)
 		{
 			if (err==-EAGAIN || err==-EINTR)
@@ -82,15 +82,13 @@ bool FileCopy(cmstring &from, cmstring &to, int* pErrno)
 
 	}
 
-	forceclose(in);
-	forceclose(out);
-	return true;
+	return forceclose(in.m_p) && forceclose(out.m_p);
 
 	error_copying:
 	auto backupErr = errno;
 
-	checkforceclose(in);
-	checkforceclose(out);
+	checkforceclose(in.m_p);
+	checkforceclose(out.m_p);
 
 	if (pErrno) *pErrno = backupErr;
 	return false;
