@@ -43,7 +43,10 @@ public:
         STATE_SEND_DATA,
         STATE_SEND_CHUNK_HEADER,
         STATE_SEND_CHUNK_DATA,
-        STATE_DONE
+		STATE_DONE,
+		// special states for custom behavior notification
+		STATE_DISCO_ASAP, // full failure
+		STATE_SEND_HEAD_NO_BODY // send sendbuf and finish
     } eActivity;
 
 	TFileItemHolder m_pItem;
@@ -77,10 +80,10 @@ public:
 	job(const job&);
 	job& operator=(const job&);
 
-    void CookResponseHeader();
+	void CookResponseHeader();
     void AddPtHeader(cmstring& remoteHead);
 	fileitem::FiStatus _SwitchToPtItem();
-    void SetEarlyErrorResponse(string_view message);
+	void SetEarlySimpleResponse(string_view message, bool nobody = false);
 	void PrepareLocalDownload(const mstring &visPath, const mstring &fsBase,
 			const mstring &fsSubpath);
 

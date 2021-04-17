@@ -261,24 +261,24 @@ inline void job::PrepareLocalDownload(const string &visPath,
 		switch(errno)
 		{
 		case EACCES:
-            SetEarlyErrorResponse("403 Permission denied");
+			SetEarlySimpleResponse("403 Permission denied");
 			break;
 		case EBADF:
 		case EFAULT:
 		case ENOMEM:
 		case EOVERFLOW:
 		default:
-            SetEarlyErrorResponse("500 Internal server error");
+			SetEarlySimpleResponse("500 Internal server error");
 			break;
 		case ELOOP:
-            SetEarlyErrorResponse("500 Infinite link recursion");
+			SetEarlySimpleResponse("500 Infinite link recursion");
 			break;
 		case ENAMETOOLONG:
-            SetEarlyErrorResponse("500 File name too long");
+			SetEarlySimpleResponse("500 File name too long");
 			break;
 		case ENOENT:
 		case ENOTDIR:
-            SetEarlyErrorResponse("404, File or directory not found");
+			SetEarlySimpleResponse("404, File or directory not found");
 			break;
 		}
 		return;
@@ -375,7 +375,7 @@ inline void job::PrepareLocalDownload(const string &visPath,
 	}
 	if(!S_ISREG(stbuf.st_mode))
 	{
-        SetEarlyErrorResponse("403 Unsupported data type");
+		SetEarlySimpleResponse("403 Unsupported data type");
 		return;
 	}
 	/*
@@ -472,31 +472,34 @@ void job::Prepare(const header &h, string_view headBuf) {
 	// some macros, to avoid goto style
     auto report_invport = [this]()
     {
-        SetEarlyErrorResponse("403 Configuration error (confusing proxy mode) or prohibited port (see AllowUserPorts)"sv);
+		SetEarlySimpleResponse("403 Configuration error (confusing proxy mode) or prohibited port (see AllowUserPorts)"sv);
     };
     auto report_overload = [this]()
     {
-        SetEarlyErrorResponse("503 Server overload, try later"sv);
+		SetEarlySimpleResponse("503 Server overload, try later"sv);
     };
     auto report_invpath = [this]()
     {
-        SetEarlyErrorResponse("403 Invalid path specification"sv);
+		SetEarlySimpleResponse("403 Invalid path specification"sv);
     };
     auto report_notallowed = [this]()
     {
-        SetEarlyErrorResponse("403 Forbidden file type or location"sv);
+		SetEarlySimpleResponse("403 Forbidden file type or location"sv);
     };
 
-    if(h.type!=header::GET && h.type!=header::HEAD)
-        return report_invpath();
-    if(!tokenizer.Next() || !tokenizer.Next()) // at path...
-        return report_invpath();
-    UrlUnescapeAppend(tokenizer, sReqPath);
-    if(!tokenizer.Next()) // at proto
-        return report_invpath();
+	if(h.type!=header::GET && h.type!=header::HEAD)
+		return report_invpath();
+	if(!tokenizer.Next() || !tokenizer.Next()) // at path...
+		return report_invpath();
+	UrlUnescapeAppend(tokenizer, sReqPath);
+
+	if(!tokenizer.Next()) // at proto
+	{
+		return report_invpath();
+	}
 	auto sProto = tokenizer.view();
 	m_bIsHttp11 = (sProto == sHttp11);
-    
+
     USRDBG( "Decoded request URI: " << sReqPath);
 
     if(h.h[header::CONNECTION])
@@ -669,7 +672,7 @@ void job::Prepare(const header &h, string_view headBuf) {
     }
 
     if(cfg::DegradedMode())
-        return SetEarlyErrorResponse("403 Cache server in degraded mode");
+		return SetEarlySimpleResponse("403 Cache server in degraded mode");
     
     fistate = m_pItem.get()->Setup();
 	LOG("Got initial file status: " << (int) fistate);
@@ -687,7 +690,7 @@ void job::Prepare(const header &h, string_view headBuf) {
 
     if(cfg::offlinemode) { // make sure there will be no problems later in SendData or prepare a user message
     	// error or needs download but freshness check was disabled, so it's really not complete.
-        return SetEarlyErrorResponse("503 Unable to download in offline mode");
+		return SetEarlySimpleResponse("503 Unable to download in offline mode");
     }
     dbgline;
     if( fistate < fileitem::FIST_DLGOTHEAD) // needs a downloader
@@ -840,9 +843,23 @@ job::eJobResult job::SendData(int confd, bool haveMoreJobs)
         // decide where to go, unless changed by response analysis already
         if (m_activity == STATE_NOT_STARTED)
             m_activity = STATE_SEND_DATA;
-        // prebuf was filled -> come back to send header  and continue with activity
+		else if (m_activity == STATE_DISCO_ASAP)
+			return R_DISCON;
+
+		// prebuf was filled -> come back to send header  and continue with the selected activity
         return R_AGAIN;
     }
+	case (STATE_SEND_HEAD_NO_BODY):
+	{
+		// got here when our head and optional data was send via sendbuf
+		return return_stream_ok();
+		break;
+	}
+	case (STATE_DISCO_ASAP):
+	{
+		return R_DISCON;
+		break;
+	}
     case (STATE_SEND_DATA):
     {
         if (!AwaitSendableState())
@@ -926,42 +943,49 @@ job::eJobResult job::HandleSuddenError()
         return R_DISCON;
     m_activity = STATE_DONE;
     if (!m_pItem.get())
-        return SetEarlyErrorResponse("500 Error creating cache object"), R_AGAIN;
+		return SetEarlySimpleResponse("500 Error creating cache object"), R_AGAIN;
     lockguard g(*m_pItem.get());
     auto st = m_pItem.get()->m_responseStatus;
     if (st.code < 400) // that's too strange, this should not cause a fatal error in item, report something generic instead
-        return SetEarlyErrorResponse("500 Fatal cache object error"), R_AGAIN;
+		return SetEarlySimpleResponse("500 Fatal cache object error"), R_AGAIN;
 
-    return SetEarlyErrorResponse(ltos(st.code) + " " + st.msg), R_AGAIN;
+	return SetEarlySimpleResponse(ltos(st.code) + " " + st.msg), R_AGAIN;
 }
 
 inline void job::CookResponseHeader()
 {
     LOGSTARTFUNC;
 
-	auto& remoteHead = m_pItem.get()->GetRawResponseHeader();
+	auto quickResponse = [this] (string_view msg, bool nobody = false, decltype(m_activity) nextActivity = STATE_SEND_HEAD_NO_BODY)
+	{
+		SetEarlySimpleResponse(msg, nobody);
+		m_activity = nextActivity;
+	};
+	auto fi = m_pItem.get();
+	if (!fi)
+		return quickResponse("500 Invalid cache object", false, STATE_DISCO_ASAP);
+
+	lockguard g(*fi);
+
+	auto& remoteHead = fi->GetRawResponseHeader();
 	if(!remoteHead.empty())
-        return AddPtHeader(remoteHead);
+		return AddPtHeader(remoteHead);
+#warning Can assume to have body for pass-through? Work around actual state later?
 
     m_sendbuf.clean() << tSS::dec;
 
-    auto fi = m_pItem.get();
-    if (!fi)
-        return SetEarlyErrorResponse("500 Invalid cache object");
-
-    lockguard g(*fi);
     // we might need to massage this before responding
     auto status = fi->m_responseStatus;
     off_t ds;
     auto fist = fi->GetStatusUnlocked(ds);
 
-    auto firstLineFromStatus = [&] ()
+	auto addStatusLineFromItem = [&] ()
     {
         return PrependHttpVariant() << status.code << " " << status.msg << svRN;
     };
     auto firstLineCoTypeCoDate = [&] ()
     {
-        firstLineFromStatus()
+		addStatusLineFromItem()
                 << "Content-Type: " << fi->m_contentType << svRN;
         if (fi->m_responseModDate.isSet())
             m_sendbuf << "Last-Modified: " << fi->m_responseModDate.any() << svRN;
@@ -970,20 +994,21 @@ inline void job::CookResponseHeader()
     auto isRedir = status.isRedirect();
     if (isRedir || status.mustNotHaveBody())
     {
-        firstLineFromStatus();
+		addStatusLineFromItem();
         if (isRedir)
             m_sendbuf << "Location: " << fi->m_responseOrigin << svRN;
-        return AppendMetaHeaders();
+		m_activity = STATE_SEND_HEAD_NO_BODY;
+		return AppendMetaHeaders();
     }
     // everything else is either an error, or not-modified, or must have content
     if (status.code != 200)
     {
-        return SetEarlyErrorResponse(ltos(status.code) + " " + status.msg);
+		return quickResponse(ltos(status.code) + " " + status.msg);
     }
 
 	if (m_ifMoSince.isSet() && fi->m_responseModDate.isSet() && m_ifMoSince >= fi->m_responseModDate)
     {
-        return SetEarlyErrorResponse("304 Not Modified");
+		return quickResponse("304 Not Modified", true);
     }
     auto src = fi->m_responseOrigin.empty() ? "" : (string("X-Original-Source: ") + fi->m_responseOrigin + "\r\n");
 
@@ -1001,11 +1026,11 @@ inline void job::CookResponseHeader()
         m_nReqRangeFrom = 0;
         firstLineCoTypeCoDate() << "Transfer-Encoding: chunked\r\n" << src;
         AppendMetaHeaders();
-        return;
+		return;
     }
     // also check whether it's a sane range (if set)
     if (contLen >= 0 && (m_nReqRangeFrom >= contLen || m_nReqRangeTo + 1 >= contLen))
-        return SetEarlyErrorResponse("416 Requested Range Not Satisfiable");
+		return quickResponse("416 Requested Range Not Satisfiable");
     // okay, date is good, no chunking needed, can serve a range request smoothly (beginning is available) or fall back to 200?
     if (m_nReqRangeFrom >= 0 && ds > m_nReqRangeFrom)
     {
@@ -1015,7 +1040,7 @@ inline void job::CookResponseHeader()
                              << "Content-Range: " << m_nReqRangeFrom << "-" << m_nReqRangeTo << "/" << contLen << svRN
                              << src;
         AppendMetaHeaders();
-        return;
+		return;
     }
     // everything else is plain full-body response
     m_nReqRangeTo = -1;
@@ -1023,162 +1048,10 @@ inline void job::CookResponseHeader()
     PrependHttpVariant() << "200 OK" << svRN
                          << "Content-Type: " << fi->m_contentType << svRN
                          << "Last-Modified: " << fi->m_responseModDate.any() << svRN
-                         << "Content-Length:" << contLen << svRN
+						 << "Content-Length: " << contLen << svRN
                          << src;
     AppendMetaHeaders();
-    return;
-
-#if 0
-
-
-
-	// make sure that header has consistent state and there is data to send which is expected by the client
-    LOG("State: " << status.code);
-	// nothing to send for special codes (like not-unmodified) or w/ GUARANTEED empty body
-    bool forbiddenBody = status.mustNotHaveBody();
-
-    bool bHasSendableData = !forbiddenBody;
-#error murks, kein atoofften überall
-    if (!respHead.h[header::CONTENT_LENGTH]) // not set, maybe chunked data
-        {
-            bHasSendableData = true;
-        }
-        if (atoofft(respHead.h[header::CONTENT_LENGTH])) // set, to non-0
-            bHasSendableData = true;
-
-	tSS &sb=m_sendbuf;
-	sb.clear();
-	sb << respHead.frontLine <<"\r\n";
-
-	bool bLenWasPrinted(false);
-
-	if(bHasSendableData)
-	{
-		LOG("has sendable content");
-		if( ! respHead.h[header::CONTENT_LENGTH]
-#ifdef DEBUG // might have been defined before for testing purposes
-		                 || m_bChunkMode
-#endif
-				)
-		{
-			// unknown length but must have data, will have to improvise: prepare chunked transfer
-			if ( m_proto != HTTP_11 ) // you cannot process this? go away
-				return "505 HTTP version not supported for this file";
-			m_bChunkMode=true;
-			sb << "Transfer-Encoding: chunked\r\n";
-		}
-		else if(200==httpstatus) // state: good data response with known length, can try some optimizations
-		{
-			LOG("has known content length, optimizing response...");
-
-			// Handle If-Modified-Since and Range headers;
-			// we deal with them equally but need to know which to use
-			const char *pIfmo = m_reqHead.h[header::RANGE] ?
-					m_reqHead.h[header::IFRANGE] : m_reqHead.h[header::IF_MODIFIED_SINCE];
-			const char *pLastMo = respHead.h[header::LAST_MODIFIED];
-
-			// consider contents "fresh" for non-volatile data, or when "our" special client is there, or the client simply doesn't care
-			bool bDataIsFresh = (m_type != rex::FILE_VOLATILE
-				|| m_reqHead.h[header::ACNGFSMARK] || !pIfmo);
-
-			auto tm1=tm(), tm2=tm();
-			bool bIfModSeenAndChecked=false;
-			if(pIfmo && header::ParseDate(pIfmo, &tm1) && header::ParseDate(pLastMo, &tm2))
-			{
-				time_t a(mktime(&tm1)), b(mktime(&tm2));
-				LOG("if-mo-since: " << a << " vs. last-mo: " << b);
-				bIfModSeenAndChecked = (a==b);
-			}
-
-			// is it fresh? or is this relevant? or is range mode forced?
-			if(  bDataIsFresh || bIfModSeenAndChecked)
-			{
-				off_t nContLen=atoofft(respHead.h[header::CONTENT_LENGTH]);
-
-				// Client requested with Range* spec?
-				if(m_nReqRangeFrom >=0)
-				{
-					if(m_nReqRangeTo<0 || m_nReqRangeTo>=nContLen) // open-end? set the end to file length. Also when request range would be too large
-						m_nReqRangeTo=nContLen-1;
-
-					// or simply don't care within that rage
-					bool bPermitPartialStart = (
-							fistate >= fileitem::FIST_DLGOTHEAD
-							&& fistate <= fileitem::FIST_COMPLETE
-                            && nBodySizeSoFar >= ( m_nReqRangeFrom - cfg::maxredlsize));
-
-					/*
-					 * make sure that our client doesn't just hang here while the download thread is
-					 * fetching from 0 to start position for many minutes. If the resumed position
-					 * is beyond of what we already have, fall back to 200 (complete download).
-					 */
-					if(fistate==fileitem::FIST_COMPLETE
-							// or can start sending within this range (positive range-from)
-							|| bPermitPartialStart	// don't care since found special hint from acngfs (kludge...)
-							|| m_reqHead.h[header::ACNGFSMARK] )
-					{
-						// detect errors, out-of-range case
-						if(m_nReqRangeFrom>=nContLen || m_nReqRangeTo<m_nReqRangeFrom)
-							return "416 Requested Range Not Satisfiable";
-
-						m_nSendPos = m_nReqRangeFrom;
-						m_nCurrentRangeLast = m_nReqRangeTo;
-						// replace with partial-response header
-						sb.clear();
-						sb << "HTTP/1.1 206 Partial Response\r\nContent-Length: "
-						 << (m_nCurrentRangeLast-m_nSendPos+1) <<
-								"\r\nContent-Range: bytes " << m_nSendPos
-								<< "-" << m_nCurrentRangeLast << "/" << nContLen << "\r\n";
-						bLenWasPrinted = true;
-					}
-				}
-				else if(bIfModSeenAndChecked)
-				{
-					// file is fresh, and user sent if-mod-since -> fine
-					return "304 Not Modified";
-				}
-			}
-		}
-
-		// has cont-len available but this header was not set yet in the code above
-		if( !bLenWasPrinted && !m_bChunkMode)
-		{
-			sb << "Content-Length: " << respHead.h[header::CONTENT_LENGTH] << "\r\n";
-		}
-
-		// OK, has data for user and has set content-length and/or range or chunked transfer mode, now add various meta headers...
-		if(respHead.h[header::LAST_MODIFIED])
-		{
-			sb<<"Last-Modified: "<<respHead.h[header::LAST_MODIFIED]<<"\r\n";
-		}
-
-		sb<<"Content-Type: ";
-		if(respHead.h[header::CONTENT_TYPE])
-			sb<<respHead.h[header::CONTENT_TYPE]<<"\r\n";
-		else
-			sb<<"application/octet-stream\r\n";
-	}
-	else
-	{
-		sb<<"Content-Length: 0\r\n";
-		bLenWasPrinted = true;
-		m_backstate=STATE_ALLDONE;
-	}
-#warning remap from origsource field only for 30x, check by method in status struct
-	if(respHead.h[header::LOCATION])
-		sb<<"Location: "<<respHead.h[header::LOCATION]<<"\r\n";
-
-	if(!m_sOrigUrl.empty())
-		sb<<"X-Original-Source: "<< m_sOrigUrl <<"\r\n";
-
-
-	LOG("response prepared:" << sb);
-
-	if(m_reqHead.type==header::HEAD)
-		m_backstate=STATE_ALLDONE; // simulated head is prepared but don't send stuff
-
-	return nullptr;
-#endif
+	return;
 }
 
 fileitem::FiStatus job::_SwitchToPtItem()
@@ -1195,10 +1068,18 @@ tSS& job::PrependHttpVariant()
     return m_sendbuf << tSS::dec << (m_bIsHttp11 ? "HTTP/1.1 " : "HTTP/1.0 ");
 }
 
-void job::SetEarlyErrorResponse(string_view message)
+void job::SetEarlySimpleResponse(string_view message, bool nobody)
 {
     LOGSTARTFUNC
     m_sendbuf.clear();
+
+	if (nobody)
+	{
+		PrependHttpVariant() << message << svRN;
+		AppendMetaHeaders();
+		return;
+	}
+
     tSS body;
 
     body << "<!DOCTYPE html>\n<html lang=\"en\"><head><title>" << message
