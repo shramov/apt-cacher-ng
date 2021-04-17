@@ -13,10 +13,24 @@
 #endif
 #include <unistd.h>
 
+#if __cplusplus >= 201703L
+#include <filesystem>
+using namespace std::filesystem;
+#else
+#include <experimental/filesystem>
+using namespace std::experimental::filesystem;
+#endif
+
+#ifndef BUFSIZ
+#define BUFSIZ 8192
+#endif
+
 using namespace std;
 
 namespace acng
 {
+
+#define citer const_iterator
 
 #ifdef HAVE_LINUX_FALLOCATE
 
@@ -41,95 +55,16 @@ int fdatasync_helper(int fd)
 }
 
 // linking not possible? different filesystems?
-bool FileCopy(cmstring &from, cmstring &to, int* pErrno)
+std::error_code FileCopy(cmstring &from, cmstring &to)
 {
-	acbuf buf;
-	buf.setsize(50000);
-	unique_fd in, out;
-
-	in.m_p = ::open(from.c_str(), O_RDONLY);
-	if (!in.valid()) // error, here?!
-		return false;
-
-	while (true)
-	{
-		int err;
-		err=buf.sysread(in.m_p);
-		if (err<0)
-		{
-			if (err==-EAGAIN || err==-EINTR)
-				continue;
-			else
-				goto error_copying;
-		}
-		else if (err==0)
-			break;
-		// don't open unless the input is readable, for sure
-		if (!out.valid())
-		{
-			out.m_p = open(to.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 00644);
-			if (out.valid())
-				goto error_copying;
-		}
-		err=buf.syswrite(out.m_p);
-		if (err<=0)
-		{
-			if (err==-EAGAIN || err==-EINTR)
-				continue;
-			else
-				goto error_copying;
-		}
-
-	}
-
-	return forceclose(in.m_p) && forceclose(out.m_p);
-
-	error_copying:
-	auto backupErr = errno;
-
-	checkforceclose(in.m_p);
-	checkforceclose(out.m_p);
-
-	if (pErrno) *pErrno = backupErr;
-	return false;
+	std::error_code ec;
+	copy(from, to, copy_options::overwrite_existing, ec);
+	return ec;
 }
-
-/*
-#if defined(HAVE_LINUX_SPLICE) && defined(HAVE_PREAD)
-bool FileCopy(cmstring &from, cmstring &to)
-{
-	int in(-1), out(-1);
-
-	in=::open(from.c_str(), O_RDONLY);
-	if (in<0) // error, here?!
-		return false;
-
-	// don't open target unless the input is readable, for sure
-	uint8_t oneByte;
-	ssize_t err = pread(in, &oneByte, 1, 0);
-	if (err < 0 || (err == 0 && errno != EINTR))
-	{
-		forceclose(in);
-		return false;
-	}
-	out = open(to.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 00644);
-	if (out < 0)
-	{
-		forceclose(in);
-		return false;
-	}
-
-
-	return FileCopy_generic(from, to);
-}
-#endif
-*/
-
-
 
 ssize_t sendfile_generic(int out_fd, int in_fd, off_t *offset, size_t count)
 {
-	char buf[8192];
+	char buf[BUFSIZ];
 	ssize_t totalcnt=0;
 	
 	if(!offset)

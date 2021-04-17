@@ -243,7 +243,7 @@ public:
 	static mstring NormalizePath(cmstring &sPathRaw);
 
 protected:
-	int MoveRelease2Sidestore();
+	void MoveRelease2Sidestore();
 	int m_filefd = -1;
 
 	bool DlAddData(string_view chunk) override;

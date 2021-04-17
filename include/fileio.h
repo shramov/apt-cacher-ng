@@ -20,6 +20,7 @@
 #include <inttypes.h>
 #include <climits>
 #include <memory>
+#include <system_error>
 
 #ifdef HAVE_LINUX_SENDFILE
 #include <sys/sendfile.h>
@@ -54,7 +55,7 @@ public:
     bool update(const char *sz) { return (bResult = !::stat(sz, static_cast<struct stat*>(this))); }
 };
 
-bool FileCopy(cmstring &from, cmstring &to, int *pErrnoRet = nullptr);
+std::error_code FileCopy(cmstring &from, cmstring &to);
 
 bool LinkOrCopy(const mstring &from, const mstring &to);
 

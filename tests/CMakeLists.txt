@@ -40,6 +40,7 @@ target_link_libraries(ut_cacheman ${TEST_LIB_SET})
 add_executable(ut_http
 	src/ut_http.cc
 	src/main.cc
+        src/ut_io.cpp
 	)
 target_link_libraries(ut_http ${TEST_LIB_SET})
 
@@ -49,7 +50,6 @@ add_executable(it_job
         src/main.cc
         )
 target_link_libraries(it_job ${TEST_LIB_SET})
-
 
 gtest_discover_tests(ut_http)
 gtest_discover_tests(ut_algos)

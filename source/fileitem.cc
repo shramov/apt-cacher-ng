@@ -388,8 +388,9 @@ bool fileitem_with_storage::SafeOpenOutFile()
 		if (m_nSizeChecked > 0) // OOOH CRAP! CANNOT APPEND HERE! Do what's still possible.
 		{
 			string temp = sPathAbs + ".tmp";
-			if (!FileCopy(sPathAbs, temp, &errno))
-				return withError("Cannot make file copies");
+			auto err = FileCopy(sPathAbs, temp);
+			if (err)
+				return withError(err.message());
 
 			if (0 != unlink(sPathAbs.c_str()))
 				return withError("Cannot remove file in folder");
@@ -796,12 +797,12 @@ fileitem_with_storage::~fileitem_with_storage()
 }
 
 // special file? When it's rewritten from start, save the old version aside
-int fileitem_with_storage::MoveRelease2Sidestore()
+void fileitem_with_storage::MoveRelease2Sidestore()
 {
 	if(m_nSizeChecked)
-		return 0;
+		return;
 	if(!endsWithSzAr(m_sPathRel, "/InRelease") && !endsWithSzAr(m_sPathRel, "/Release"))
-		return 0;
+		return;
 	auto srcAbs = CACHE_BASE + m_sPathRel;
 	Cstat st(srcAbs);
 	if(st)
@@ -810,10 +811,8 @@ int fileitem_with_storage::MoveRelease2Sidestore()
 		mkdirhier(tgtDir);
 		auto sideFileAbs = tgtDir + ltos(st.st_ino) + ltos(st.st_mtim.tv_sec)
 				+ ltos(st.st_mtim.tv_nsec);
-		return FileCopy(srcAbs, sideFileAbs);
-		//return rename(srcAbs.c_str(), sideFileAbs.c_str());
+		FileCopy(srcAbs, sideFileAbs);
 	}
-	return 0;
 }
 
 
