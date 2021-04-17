@@ -494,8 +494,8 @@ void job::Prepare(const header &h, string_view headBuf) {
     UrlUnescapeAppend(tokenizer, sReqPath);
     if(!tokenizer.Next()) // at proto
         return report_invpath();
-    auto sProto = tokenizer.view();
-    m_bIsHttp11 = (sProto == sHttp11);
+	auto sProto = tokenizer.view();
+	m_bIsHttp11 = (sProto == sHttp11);
     
     USRDBG( "Decoded request URI: " << sReqPath);
 
@@ -981,7 +981,7 @@ inline void job::CookResponseHeader()
         return SetEarlyErrorResponse(ltos(status.code) + " " + status.msg);
     }
 
-    if (m_ifMoSince.isSet() && m_ifMoSince >= fi->m_responseModDate)
+	if (m_ifMoSince.isSet() && fi->m_responseModDate.isSet() && m_ifMoSince >= fi->m_responseModDate)
     {
         return SetEarlyErrorResponse("304 Not Modified");
     }

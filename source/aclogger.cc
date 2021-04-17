@@ -126,19 +126,20 @@ decltype(oldCounters) GetOldCountersInOut(bool calcIncomming, bool calcOutgoing)
 	return oldCounters;
 }
 
-bool open()
+mstring open()
 {
 	// only called in the beginning or when reopening, already locked...
 	// lockguard g(&mx);
 
 	if(cfg::logdir.empty())
-		return true;
+		return sEmptyString;
 	
 	logIsEnabled = true;
 
-	string apath(cfg::logdir+"/apt-cacher.log"),
-			epath(cfg::logdir+"/apt-cacher.err"),
-			dpath(cfg::logdir+"/apt-cacher.dbg");
+
+	string apath = PathCombine(cfg::logdir, "/apt-cacher.log"),
+			epath = PathCombine(cfg::logdir, "/apt-cacher.err"),
+			dpath = PathCombine(cfg::logdir, "/apt-cacher.dbg");
 	
 	mkbasedir(apath);
 
@@ -150,10 +151,15 @@ bool open()
 		fDbg.close();
 
 	fErr.open(epath.c_str(), ios::out | ios::app);
+	if (!fErr.is_open())
+		return tErrnoFmter("Cannot open apt-cacher.err - ");
 	fStat.open(apath.c_str(), ios::out | ios::app);
+	if (!fStat.is_open())
+		return tErrnoFmter("Cannot open apt-cacher.log - ");
 	fDbg.open(dpath.c_str(), ios::out | ios::app);
-
-	return fStat.is_open() && fErr.is_open() && fDbg.is_open();
+	if (!fStat.is_open())
+		return tErrnoFmter("Cannot open apt-cacher.dbg - ");
+	return sEmptyString;
 }
 
 void transfer(uint64_t bytesIn,
@@ -448,6 +454,7 @@ inline void add_msg(const char *msg, int , const char* , mstring *p)
 	p->append(msg);
 }
 
+// XXX: use string_view? or use string and move it?
 tErrnoFmter::tErrnoFmter(const char *prefix)
 {
 	int err=errno;

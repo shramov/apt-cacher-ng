@@ -259,11 +259,14 @@ struct tAppStartStop
 
 		parse_options(argc, argv, bRunCleanup);
 
-		if (!log::open())
+		auto lerr = log::open();
+		if (!lerr.empty())
 		{
 			cerr
-					<< "Problem creating log files. Check permissions of the log directory, "
-					<< cfg::logdir << endl;
+					<< "Problem creating log files in "
+					<< cfg::logdir
+					<< ". " << lerr << ".\n";
+
 			exit(EXIT_FAILURE);
 		}
 

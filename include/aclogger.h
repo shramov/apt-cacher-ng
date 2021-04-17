@@ -65,7 +65,7 @@ std::pair<off_t, off_t> GetCurrentCountersInOut();
 void ResetOldCounters();
 std::pair<off_t, off_t> GetOldCountersInOut(bool calcIncomming = true, bool calcOutgoing = true);
 
-bool ACNG_API open();
+mstring ACNG_API open();
 void ACNG_API close(bool bReopen);
 void transfer(uint64_t bytesIn, uint64_t bytesOut, cmstring& sClient, cmstring& sPath,
 		bool bAsError);
