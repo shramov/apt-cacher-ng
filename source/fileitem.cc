@@ -309,7 +309,7 @@ bool fileitem_with_storage::DlAddData(string_view chunk)
 	m_nIncommingCount += chunk.size();
 
 	// is this the beginning of the stream?
-	if(m_status == FIST_DLGOTHEAD && !SafeOpenOutFile())
+	if(m_filefd == -1 && !SafeOpenOutFile())
 		return false;
 
 	if (AC_UNLIKELY(m_filefd == -1 || m_status < FIST_DLGOTHEAD))

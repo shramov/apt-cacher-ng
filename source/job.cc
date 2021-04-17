@@ -847,8 +847,8 @@ job::eJobResult job::SendData(int confd, bool haveMoreJobs)
     {
         if (!AwaitSendableState())
             return HandleSuddenError();
-
-        m_filefd.reset(fi->GetFileFd());
+		if (!m_filefd.valid())
+			m_filefd.reset(fi->GetFileFd());
         if (!m_filefd.valid())
             return HandleSuddenError();
 

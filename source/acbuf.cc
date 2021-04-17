@@ -28,24 +28,17 @@ bool acbuf::initFromFile(const char *szPath, off_t limit)
 {
     Cstat st(szPath);
 
-    int fd=::open(szPath, O_RDONLY);
-	if (fd<0)
+	unique_fd fd(open(szPath, O_RDONLY));
+	if (!fd.valid())
 		return false;
-
 	clear();
-
     if(!setsize(std::min(limit, st.st_size)))
 		return false;
-	
-	while (freecapa()>0)
+	while (freecapa() > 0)
 	{
-		if (sysread(fd) < 0)
-		{
-			forceclose(fd);
+		if (sysread(fd.m_p) < 0)
 			return false;
-		}
 	}
-	forceclose(fd);
     return size() == st.st_size;
 }
 
