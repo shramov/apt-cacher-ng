@@ -22,12 +22,15 @@ string_view zeroDateBuf = "Do, 01 Jan 1970 01:00:00 GMT";
 
 bool tHttpDate::ParseDate(const char *s, struct tm *tm)
 {
+#warning add ut for valid, invalid, etc.
     if(!s || !tm)
         return false;
     for(const auto& fmt : fmts)
     {
-        if(::strptime(s, fmt, tm))
-            return true;
+		memset(tm, 0, sizeof(struct tm));
+		auto pEnd = ::strptime(s, fmt, tm);
+		if(pEnd && (pEnd - s) > 23)
+			return true;
     }
     return false;
 }
@@ -35,9 +38,9 @@ bool tHttpDate::ParseDate(const char *s, struct tm *tm)
 time_t tHttpDate::ParseDate(const char *s, time_t onError)
 {
     struct tm t;
-    if (!ParseDate(s, &t))
-        return onError;
-    return mktime(&t);
+	if (ParseDate(s, &t))
+		return mktime(&t);
+	return onError;
 }
 
 unsigned tHttpDate::FormatTime(char *buf, size_t bufLen, const struct tm * src)
