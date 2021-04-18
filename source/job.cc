@@ -35,7 +35,8 @@ using namespace std;
 #define PT_BUF_MAX 16000
 
 // hunting Bug#955793: [Heisenbug] evbuffer_write_atmost returns -1 w/o updating errno
-#define DBG_DISCONNECT //std::cerr << "DISCO? " << __LINE__ << std::endl;
+//#define DBG_DISCONNECT //std::cerr << "DISCO? " << __LINE__ << std::endl;
+
 namespace acng
 {
 namespace cfg
@@ -171,8 +172,7 @@ public:
 		{
 			if (errno == EAGAIN || errno == EWOULDBLOCK || errno == -42)
 				return 0;
-			DBG_DISCONNECT
-					//std::cerr << errno << " for ret: " << ret << endl;
+			LOG("evbuffer error");
 		}
 		return ret;
 	}
@@ -234,19 +234,36 @@ static const string miscError(" [HTTP error, code: ");
 job::~job()
 {
 	LOGSTART("job::~job");
+
+#if 0 // this is pointless if the parent decides to kill the job in random state
+	// bug hunting - check legal protocol states when the job is terminating
+	if (m_nAllDataCount)
+	{
+		// must either have finished cleanly or caused a disconnect
+		ASSERT(m_activity == STATE_DISCO_ASAP || m_activity == STATE_DONE);
+	}
+	else
+	{
+		// canceled or died without sending anything
+		ASSERT(m_activity == STATE_NOT_STARTED || m_activity == STATE_SEND_BUF_NOT_FITEM
+			   || (!m_sendbuf.empty() && (m_activity == STATE_SEND_DATA || m_activity == STATE_SEND_CHUNK_HEADER || m_activity == STATE_SEND_BUF_NOT_FITEM))
+			   );
+	}
+#endif
 	int stcode = 200;
+	off_t inCount = 0;
 	if (m_pItem.get())
 	{
 		lockguard g(* m_pItem.get());
 		stcode = m_pItem.get()->m_responseStatus.code;
+		inCount = m_pItem.get()->TakeTransferCount();
 	}
 
 	bool bErr = m_sFileLoc.empty() || stcode >= 400;
 
 	m_pParentCon.LogDataCounts(
 				m_sFileLoc + (bErr ? (miscError + ltos(stcode) + ']') : sEmptyString),
-				move(m_xff),
-				(m_pItem.get() ? m_pItem.get()->TakeTransferCount() : 0),
+				move(m_xff), inCount,
 				m_nAllDataCount, bErr);
 }
 
@@ -751,16 +768,36 @@ job::eJobResult job::SendData(int confd, bool haveMoreJobs)
 {
 	LOGSTARTFUNCx(m_activity, confd, haveMoreJobs);
 
+	// use this return helper for better tracking, actually the caller should never return
+	auto return_discon = [&]()
+	{
+		LOG("EXPLICIT DISCONNECT");
+		m_activity = STATE_DISCO_ASAP;
+		return R_DISCON;
+	};
+	auto return_stream_ok = [&]()
+	{
+		LOG("CLEAN JOB FINISH");
+		if(m_keepAlive == KEEP)
+			return m_activity = STATE_DONE, R_DONE;
+		if(m_keepAlive == CLOSE)
+		{
+			return return_discon();
+		}
+		// unspecified?
+		if (m_bIsHttp11)
+			return m_activity = STATE_DONE, R_DONE;
+		return return_discon();
+	};
+
 	if (confd < 0)
 	{
-		DBG_DISCONNECT
-				return R_DISCON; // shouldn't be here
+		return return_discon(); // shouldn't be here
 	}
 	if (m_eMaintWorkType != tSpecialRequest::eMaintWorkType::workNotSpecial)
 	{
 		tSpecialRequest::RunMaintWork(m_eMaintWorkType, m_sFileLoc, confd);
-		DBG_DISCONNECT
-				return R_DISCON; // just stop and close connection
+		return return_discon(); // just stop and close connection
 	}
 
 	if (!m_sendbuf.empty())
@@ -769,12 +806,11 @@ job::eJobResult job::SendData(int confd, bool haveMoreJobs)
 		auto r = send(confd, m_sendbuf.rptr(), m_sendbuf.size(),
 					  MSG_MORE * (m_activity == STATE_NOT_STARTED || haveMoreJobs));
 
-		if (r < 0)
+		if (r == -1)
 		{
-			if (errno == EAGAIN || errno == EINTR || errno == ENOBUFS)
+			if (errno == EAGAIN || errno == EINTR || errno == EWOULDBLOCK)
 				return R_AGAIN;
-			else
-				return R_DISCON;
+			return return_discon();
 		}
 		m_nAllDataCount += r;
 		m_sendbuf.drop(r);
@@ -788,21 +824,6 @@ job::eJobResult job::SendData(int confd, bool haveMoreJobs)
 	fileitem::FiStatus fistate(fileitem::FIST_DLERROR);
 
 	auto fi = m_pItem.get();
-
-	auto return_stream_ok = [&]()
-	{
-		if(m_keepAlive == KEEP)
-			return R_DONE;
-		if(m_keepAlive == CLOSE)
-		{
-			DBG_DISCONNECT;
-			return R_DISCON;
-		}
-		// unspecified?
-		if (m_bIsHttp11)
-			return R_DONE;
-		return R_DISCON;
-	};
 
 	/**
 	 * this is left only by a) item state mutating to error (returns false) or b) enough data becomes available (returns true)
@@ -841,17 +862,10 @@ job::eJobResult job::SendData(int confd, bool haveMoreJobs)
 
 		dbgline;
 		CookResponseHeader();
-
-		// decide where to go, unless changed by response analysis already
-		if (m_activity == STATE_NOT_STARTED)
-			m_activity = STATE_SEND_DATA;
-		else if (m_activity == STATE_DISCO_ASAP)
-			return R_DISCON;
-
-		// prebuf was filled -> come back to send header  and continue with the selected activity
+		// prebuf was filled OR state was changed -> come back to send header and continue with the selected activity
 		return R_AGAIN;
 	}
-	case (STATE_SEND_HEAD_NO_BODY):
+	case (STATE_SEND_BUF_NOT_FITEM):
 	{
 		// got here when our head and optional data was send via sendbuf
 		return return_stream_ok();
@@ -871,10 +885,11 @@ job::eJobResult job::SendData(int confd, bool haveMoreJobs)
 		if (!m_filefd.valid())
 			return HandleSuddenError();
 
+		ldbg("~senddata: to " << nBodySizeSoFar << ", OLD m_nSendPos: " << m_nSendPos);
 		int n = fi->SendData(confd, m_filefd.get(), m_nSendPos, nBodySizeSoFar - m_nSendPos);
 		ldbg("~senddata: " << n << " new m_nSendPos: " << m_nSendPos);
 		if (n < 0)
-			return HandleSuddenError();
+			return return_discon();
 		m_nAllDataCount += n;
 		if (fistate == fileitem::FIST_COMPLETE && m_nSendPos == nBodySizeSoFar)
 			return return_stream_ok();
@@ -887,6 +902,7 @@ job::eJobResult job::SendData(int confd, bool haveMoreJobs)
 
 		if (fistate == fileitem::FIST_COMPLETE && m_nSendPos == nBodySizeSoFar)
 		{
+#warning test it
 			m_sendbuf << "0\r\n\r\n";
 			m_activity = STATE_DONE;
 			return R_AGAIN;
@@ -913,7 +929,7 @@ job::eJobResult job::SendData(int confd, bool haveMoreJobs)
 		return R_AGAIN;
 	}
 	}
-	return R_DISCON;
+	return return_discon();
 }
 
 inline void job::AddPtHeader(cmstring& remoteHead)
@@ -941,24 +957,40 @@ inline void job::AddPtHeader(cmstring& remoteHead)
 
 job::eJobResult job::HandleSuddenError()
 {
+	LOGSTARTFUNC;
+	// response ongoing, can only reject the client now?
 	if (m_nAllDataCount)
+	{
+		m_activity = STATE_DISCO_ASAP;
 		return R_DISCON;
-	m_activity = STATE_DONE;
+	}
+	m_activity = STATE_SEND_BUF_NOT_FITEM;
+
 	if (!m_pItem.get())
 		return SetEarlySimpleResponse("500 Error creating cache object"), R_AGAIN;
-	lockguard g(*m_pItem.get());
-	auto st = m_pItem.get()->m_responseStatus;
-	if (st.code < 400) // that's too strange, this should not cause a fatal error in item, report something generic instead
-		return SetEarlySimpleResponse("500 Fatal cache object error"), R_AGAIN;
 
-	return SetEarlySimpleResponse(ltos(st.code) + " " + st.msg), R_AGAIN;
+	tRemoteStatus st;
+	{
+		lockguard g(*m_pItem.get());
+		st = m_pItem.get()->m_responseStatus;
+	}
+
+	// do we have anything harmles useful to tell the user here?
+	if (st.code < 500) // that's too strange, this should not cause a fatal error in item, report something generic instead
+		SetEarlySimpleResponse("500 Remote or cache error");
+	else
+		SetEarlySimpleResponse(ltos(st.code) + " " + (st.msg.empty() ? "Unknown internal error" : st.msg));
+	return R_AGAIN;
 }
 
 inline void job::CookResponseHeader()
 {
 	LOGSTARTFUNC;
 
-	auto quickResponse = [this] (string_view msg, bool nobody = false, decltype(m_activity) nextActivity = STATE_SEND_HEAD_NO_BODY)
+	// the default continuation unless changed
+	m_activity = STATE_SEND_DATA;
+
+	auto quickResponse = [this] (string_view msg, bool nobody = false, decltype(m_activity) nextActivity = STATE_SEND_BUF_NOT_FITEM)
 	{
 		SetEarlySimpleResponse(msg, nobody);
 		m_activity = nextActivity;
@@ -999,7 +1031,7 @@ inline void job::CookResponseHeader()
 		addStatusLineFromItem();
 		if (isRedir)
 			m_sendbuf << "Location: " << fi->m_responseOrigin << svRN;
-		m_activity = STATE_SEND_HEAD_NO_BODY;
+		m_activity = STATE_SEND_BUF_NOT_FITEM;
 		return AppendMetaHeaders();
 	}
 	// everything else is either an error, or not-modified, or must have content
@@ -1075,6 +1107,8 @@ void job::SetEarlySimpleResponse(string_view message, bool nobody)
 	LOGSTARTFUNC
 			m_sendbuf.clear();
 
+	m_activity = STATE_SEND_BUF_NOT_FITEM;
+
 	if (nobody)
 	{
 		PrependHttpVariant() << message << svRN;
@@ -1088,7 +1122,6 @@ void job::SetEarlySimpleResponse(string_view message, bool nobody)
 		 << "</title>\n</head>\n<body><h1>" << message
 		 << "</h1></body>" << GetFooter() << "</html>";
 
-	m_activity = STATE_DONE;
 	PrependHttpVariant() << message
 						 << "\r\nContent-Length: " << body.size()
 						 << "\r\nContent-Type: text/html\r\n";
@@ -1102,7 +1135,10 @@ void job::AppendMetaHeaders()
 		m_sendbuf << "Connection: Keep-Alive\r\n";
 	else if(m_keepAlive == CLOSE)
 		m_sendbuf << "Connection: close\r\n";
-
+#ifdef DEBUG
+	static atomic_int genHeadId(0);
+	m_sendbuf << "X-Debug: " << int(genHeadId++) << svRN;
+#endif
 	/*
 	if (contentType.empty() && m_pItem.get())
 		contentType = m_pItem.get()->m_contentType;

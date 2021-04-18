@@ -46,7 +46,7 @@ public:
 		STATE_DONE,
 		// special states for custom behavior notification
 		STATE_DISCO_ASAP, // full failure
-		STATE_SEND_HEAD_NO_BODY // send sendbuf and finish
+		STATE_SEND_BUF_NOT_FITEM // send sendbuf and finish
     } eActivity;
 
 	TFileItemHolder m_pItem;

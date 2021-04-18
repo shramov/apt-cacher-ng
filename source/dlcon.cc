@@ -125,9 +125,12 @@ struct tDlJob
 	// flag to use ranges and also define start if >= 0
 	off_t m_nUsedRangeStartPos = -1;
 
-	inline tDlJob(dlcon::Impl *p, const tFileItemPtr& pFi, const dlrequest& rq) :
+	inline tDlJob(dlcon::Impl *p, const tFileItemPtr& pFi, const dlrequest& rq,
+				  mstring extraHeaders, mstring xff) :
 					m_pStorage(pFi), m_parent(*p),
-                    m_bIsPassThroughRequest(rq.isPassThroughRequest)
+					m_extraHeaders(move(extraHeaders)),
+					m_xff(move(xff)),
+					m_bIsPassThroughRequest(rq.isPassThroughRequest)
 	{
 		LOGSTARTFUNC
 
@@ -146,8 +149,6 @@ struct tDlJob
 			m_pRepoDesc = rq.repoSrc.repodata;
 			m_bBackendMode = true;
 		}
-#warning extract custom headers but maybe do this during the initial parsing, also see AddJob
-
         lockguard g(*pFi);
         m_fiAttr = pFi->m_spattr;
 	}
@@ -500,8 +501,10 @@ struct tDlJob
 					return HINT_MORE;
 				if (hDataLen < 0)
 				{
-					dbgline;
-                    sErrorMsg = "Invalid header";
+					sErrorMsg = "Invalid header";
+#ifdef DEBUG
+					auto wtf = inBuf.view();
+#endif
 					// can be followed by any junk... drop that mirror, previous file could also contain bad data
 					return EFLAG_MIRROR_BROKEN | HINT_DISCON
 							| HINT_KILL_LAST_FILE;
@@ -1128,28 +1131,30 @@ bool dlcon::Impl::AddJob(tFileItemPtr fi, const dlrequest& rq)
 		if (rq.repoSrc.sRestPath.empty())
 			return false;
     }
-    tDlJob xnew(this, fi, rq);
+//    tDlJob xnew(this, fi, rq);
 
     // XXX: not sure this is the right place, could also run this as part of request analysis
     // However, the prerequisites are the same, not much difference for the runtime.
-    if(rq.reqHead)
-        xnew.m_extraHeaders = header::ExtractCustomHeaders(rq.reqHead, rq.isPassThroughRequest);
+
+	auto xHeaders = rq.reqHead ?
+						header::ExtractCustomHeaders(rq.reqHead, rq.isPassThroughRequest)
+					  : sEmptyString;
+	mstring xFF;
 
     if (cfg::exporigin && !m_ownersHostname.empty())
     {
         if (rq.szHeaderXff)
         {
-            xnew.m_xff = rq.szHeaderXff;
-            xnew.m_xff += ", ";
+			xFF = rq.szHeaderXff;
+			xFF += ", ";
         }
-		xnew.m_xff += m_ownersHostname;
+		xFF += m_ownersHostname;
 	}
 	{
 		lockguard g(m_handover_mutex);
-		m_new_jobs.emplace_back(move(xnew));
+		m_new_jobs.emplace_back(this, fi, rq, move(xHeaders), move(xFF));
 	}
 	m_ctrl_hint++;
-
 	wake();
 	return true;
 }
@@ -1376,6 +1381,31 @@ inline unsigned dlcon::Impl::ExchangeData(mstring &sErrorMsg,
 			else if (r == 0)
 			{
 				dbgline;
+#warning FIXME: there should be recovery, even a transparent one, but it doesn't work. Simulate those errors and debug
+				/*
+Fehl:175 http://download.mono-project.com/repo/debian stretch/main amd64 libmono-2.0-dev amd64 6.12.0.122-0xamarin1+debian9b1
+  503  502 Connection closed [IP: ::1 3145]
+Fehl:176 http://download.mono-project.com/repo/debian stretch/main amd64 libmonosgen-2.0-dev amd64 6.12.0.122-0xamarin1+debian9b1
+  503  502 Connection closed [IP: ::1 3145]
+Fehl:177 http://download.mono-project.com/repo/debian stretch/main amd64 libmonosgen-2.0-1 amd64 6.12.0.122-0xamarin1+debian9b1
+  503  502 Connection closed [IP: ::1 3145]
+Ign:178 http://download.mono-project.com/repo/debian stretch/main amd64 ca-certificates-mono all 6.12.0.122-0xamarin1+debian9b1
+Fehl:179 http://download.mono-project.com/repo/debian stretch/main amd64 libmono-btls-interface4.0-cil amd64 6.12.0.122-0xamarin1+debian9b1
+  503  502 Connection closed [IP: ::1 3145]
+Ign:180 http://download.mono-project.com/repo/debian stretch/main amd64 mono-csharp-shell all 6.12.0.122-0xamarin1+debian9b1
+Ign:181 http://download.mono-project.com/repo/debian stretch/main amd64 monodoc-manual all 6.12.0.122-0xamarin1+debian9b1
+Ign:182 http://download.mono-project.com/repo/debian stretch/main amd64 msbuild-sdkresolver all 1:16.6+xamarinxplat.2021.01.15.16.11-0xamarin1+debian9b1
+Ign:183 http://download.mono-project.com/repo/debian stretch/main amd64 msbuild all 1:16.6+xamarinxplat.2021.01.15.16.11-0xamarin1+debian9b1
+Fehl:138 http://download.mono-project.com/repo/debian stretch/main amd64 libmono-system-reactive-platformservices2.2-cil all 6.12.0.122-0xamarin1+debian9b1
+  503  502 Connection closed [IP: ::1 3145]
+Fehl:139 http://download.mono-project.com/repo/debian stretch/main amd64 libmono-system-reactive-runtime-remoting2.2-cil all 6.12.0.122-0xamarin1+debian9b1
+  503  502 Connection closed [IP: ::1 3145]
+Fehl:140 http://download.mono-project.com/repo/debian stretch/main amd64 libmono-system-reactive-windows-forms2.2-cil all 6.12.0.122-0xamarin1+debian9b1
+  503  502 Connection closed [IP: ::1 3145]
+Fehl:141 http://download.mono-project.com/repo/debian stretch/main amd64 libmono-system-xaml4.0-cil all 6.12.0.122-0xamarin1+debian9b1
+  503  502 Connection closed [IP: ::1 3145]
+				 *
+				 * */
 				sErrorMsg = "502 Connection closed";
 				return EFLAG_LOST_CON;
 			}

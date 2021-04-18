@@ -81,8 +81,6 @@ void fileitem::DlRefCountDec(tRemoteStatus reason)
 
 uint64_t fileitem::TakeTransferCount()
 {
-	setLockGuard
-
 	uint64_t ret = m_nIncommingCount;
 	m_nIncommingCount = 0;
 	return ret;
@@ -142,13 +140,12 @@ fileitem::FiStatus fileitem_with_storage::Setup()
 	m_status = FIST_INITED;
 
 	cmstring sPathAbs(CACHE_BASE + m_sPathRel);
+	m_nSizeCachedInitial = GetFileSize(sPathAbs, -1);
 
-    if (!ParseHeadFromStorage(SABSPATHEX(sPathAbs, ".head"), &m_nContentLength, &m_responseModDate, &m_responseOrigin))
+	if (!ParseHeadFromStorage(sPathAbs + ".head", &m_nContentLength, &m_responseModDate, &m_responseOrigin))
     {
         if (IsVolatile()) //that's too risky
             return error_clean();
-        // no head or missing? Whatever, assume it's ok for solid files for now
-        m_nSizeCachedInitial = GetFileSize(sPathAbs, -1);
     }
     else
     {
@@ -168,6 +165,7 @@ fileitem::FiStatus fileitem_with_storage::Setup()
                 if (m_nSizeCachedInitial == m_nContentLength)
                 {
                     m_nSizeChecked = m_nSizeCachedInitial;
+					m_responseStatus = {200, "OK"};
                     m_status = FIST_COMPLETE;
                 }
                 else
@@ -178,8 +176,8 @@ fileitem::FiStatus fileitem_with_storage::Setup()
             }
             else
             {
-                // no content length known, assume that it's ok
-                m_nSizeChecked = m_nSizeCachedInitial;
+				// no content length known, let's double-check!
+				m_spattr.bVolatile = true;
             }
         }
     }
@@ -695,7 +693,7 @@ ssize_t fileitem_with_storage::SendData(int out_fd, int in_fd, off_t &nSendPos, 
 #ifndef HAVE_LINUX_SENDFILE
 	return sendfile_generic(out_fd, in_fd, &nSendPos, count);
 #else
-    auto r = sendfile(out_fd, in_fd, &nSendPos, count);
+	auto r = sendfile(out_fd, in_fd, &nSendPos, count);
 
 	if(r<0 && (errno == ENOSYS || errno == EINVAL))
 		return sendfile_generic(out_fd, in_fd, &nSendPos, count);
@@ -762,9 +760,9 @@ fileitem_with_storage::~fileitem_with_storage()
             Cstat st(sPathAbs);
             if (st)
                 truncate(sPathAbs.c_str(), st.st_size); // CHECKED!
-            break;
-        }
-    }
+		}
+		break;
+	}
     case EDestroyMode::TRUNCATE:
     {
         calcPath();
