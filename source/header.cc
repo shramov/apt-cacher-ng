@@ -135,12 +135,15 @@ int header::Load(string_view input, std::vector<std::pair<string_view,string_vie
             return -1;
 
     tSplitByStrStrict split(input, svRN);
-    bool first = true, endlineFound = false;
+	auto restHasTerminator = [&input] (string_view whereAmI){
+		return (string_view(whereAmI.data(), input.data() + input.size() - whereAmI.data())
+				   .find("\r\n\r\n"sv) != stmiss);
+	};
+	bool first = true;
     auto lastSetId = HEADPOS_MAX;
-    for(auto it: split)
+	while (split.Next())
     {
-        if (endlineFound) // whatever came after
-            return it.data() - pStart;
+		auto it = split.view();
 
         if (first)
         {
@@ -150,11 +153,13 @@ int header::Load(string_view input, std::vector<std::pair<string_view,string_vie
         }
         if (it.empty()) // good end? Only if there is a newline ahead, otherwise it's not complete
         {
-            endlineFound = true;
-            continue;
+			if (split.Next()) // good, we are beyond it or the end
+			{
+				return split.view().data() - pStart;
+			}
+			// end is unreachable
+			return 0;
         }
-        if (it == "\r"sv) // rare case of just one byte missing
-            return 0;
 
         string_view sv(it);
         trimBoth(sv);
@@ -164,20 +169,28 @@ int header::Load(string_view input, std::vector<std::pair<string_view,string_vie
                 unkHeaderMap->emplace_back(string_view(), sv);
             else if (lastSetId != HEADPOS_MAX)
             {
-                if (!strappend(h[lastSetId], " "sv, sv))
+				if (!strappend(h[lastSetId], " "sv, sv)) // OOM?
                     return -3;
             }
+			else // garbage in the second line?
+				return -2;
             // either appended to captured string or to exported extra map
             continue;
         }
         auto pos = sv.find(':');
         if (pos == stmiss)
-            return -4;
+		{
+			// is this because of EOF or because of garbage?
+			return split.Next() ? -4 : 0;
+		}
         string_view value(sv.substr(pos + 1)), key(sv.substr(0, pos));
         trimBack(key);
         if (key.empty())
-            return -5;
-        trimFront(value);
+		{
+			// EOF or garbage?
+			return split.Next() ? -5 : 0;
+		}
+		trimFront(value);
         lastSetId = resolvePos(key);
         if (lastSetId == HEADPOS_MAX)
         {
@@ -193,7 +206,8 @@ int header::Load(string_view input, std::vector<std::pair<string_view,string_vie
         else
             set(lastSetId, value.data(), value.length());
     }
-    return -2;
+	// regular finish but termination was not found?
+	return 0;
 }
 
 header::eHeadPos header::resolvePos(string_view key)

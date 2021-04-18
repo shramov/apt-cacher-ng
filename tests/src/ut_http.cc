@@ -132,9 +132,11 @@ TEST(http, header)
 {
     header h;
     ASSERT_TRUE(h.type == header::INVALID);
-    string_view hdata = "GET /na/asdfasdfsadf\r\n\rfoo:bar\n";
-    ASSERT_LT(h.Load(hdata), 0);
-    hdata = "GET /na/asdfasdfsadf\r\nfoo:bar\r\n\r\n";
+	string_view hdata = "GET /na/asdfasdfsadf\r\n\rfoo:bar\r";
+	ASSERT_EQ(h.Load(hdata), -2); // bad continuatin in first k=v line
+	hdata = "GET /na/asdfasdfsadf\r\nfoo:bar\r";
+	ASSERT_EQ(h.Load(hdata), 0);
+	hdata = "GET /na/asdfasdfsadf\r\nfoo:bar\r\n\r\n";
     ASSERT_EQ(hdata.length(), h.Load(hdata));
     hdata = "GET /na/asdfasdfsadf HTTP/1.1\r\n\r\n";
     ASSERT_EQ(hdata.length(), h.Load(hdata));
@@ -164,4 +166,18 @@ TEST(http, header)
     auto extra = header::ExtractCustomHeaders(hdata, true);
     ASSERT_GT(extra.size(), 10);
     ASSERT_EQ(extra, "a: b\r\nc: d\r\ne: f ffffuuuu\r\n");
+
+	hdata = "HTTP/1.1 ";
+	ASSERT_EQ(0, h.Load(hdata));
+
+	hdata = "HTTP/1.1 200 OK\r\nServer: nginx/1.14.2\r\nDate: Sun, 18 Apr 2021 16:17:39 GMT\r\nContent-Type";
+	ASSERT_EQ(0, h.Load(hdata));
+
+	hdata = "HTTP/1.1 200 OK\r\nServer: nginx/1.14.2\r\nDate: Sun, 18 Apr 2021 16:17:39 GMT\r\nContent-Type: foo";
+	ASSERT_EQ(0, h.Load(hdata));
+
+	hdata = "HTTP/1.1 200 OK\r\nAccept-Ranges: bytes\r\nAge: 230115\r\nContent-Type: application/x-debian-package\r\n"
+"Date: Sun, 18 Apr 2021 16:29:32 GMT\r\nEtag: \"841c-5bbf2fe7c319f\"\r\nLast-Modified: Mon, 22 Feb 2021 20:53:29 GMT\r\n";
+	ASSERT_EQ(207, hdata.length());
+	ASSERT_EQ(0, h.Load(hdata));
 }
