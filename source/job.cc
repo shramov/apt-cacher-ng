@@ -316,7 +316,7 @@ inline void job::PrepareLocalDownload(const string &visPath,
 					seal();
 				}
 			};
-			m_pItem = TFileItemHolder::Create(make_shared<dirredirect>(visPath), false);
+			m_pItem = m_pParentCon.GetItemRegistry()->Create(make_shared<dirredirect>(visPath), false);
 			return;
 		}
 
@@ -330,7 +330,7 @@ inline void job::PrepareLocalDownload(const string &visPath,
 			}
 		};
 		auto p = make_shared<listing>(visPath);
-		m_pItem = TFileItemHolder::Create(p, false);
+		m_pItem = m_pParentCon.GetItemRegistry()->Create(p, false);
 		tSS & page = p->m_data;
 
 		page << "<!DOCTYPE html>\n<html lang=\"en\"><head><title>Index of "
@@ -426,7 +426,7 @@ inline void job::PrepareLocalDownload(const string &visPath,
 			return unique_fd(fd);
 		}
 	};
-	m_pItem = TFileItemHolder::Create(make_shared<tLocalGetFitem>(absPath, stbuf), false);
+	m_pItem = m_pParentCon.GetItemRegistry()->Create(make_shared<tLocalGetFitem>(absPath, stbuf), false);
 }
 
 inline bool job::ParseRange(const header& h)
@@ -672,7 +672,7 @@ void job::Prepare(const header &h, string_view headBuf) {
 
 		ParseRange(h);
 
-		m_pItem = TFileItemHolder::Create(m_sFileLoc,
+		m_pItem = m_pParentCon.GetItemRegistry()->Create(m_sFileLoc,
 										  attr.bVolatile ?
 											  ESharingHow::AUTO_MOVE_OUT_OF_THE_WAY :
 											  ESharingHow::ALWAYS_TRY_SHARING, attr);
@@ -1093,7 +1093,7 @@ fileitem::FiStatus job::_SwitchToPtItem()
 	// Changing to local pass-through file item
 	LOGSTART("job::_SwitchToPtItem");
 	// exception-safe sequence
-	m_pItem = TFileItemHolder::Create(make_shared<tPassThroughFitem>(m_sFileLoc), false);
+	m_pItem = m_pParentCon.GetItemRegistry()->Create(make_shared<tPassThroughFitem>(m_sFileLoc), false);
 	return m_pItem.get()->Setup();
 }
 

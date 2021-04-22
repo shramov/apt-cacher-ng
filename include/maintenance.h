@@ -22,6 +22,8 @@ static const std::string sBRLF("<br>\n");
 
 namespace acng
 {
+class ISharedConnectionResources;
+
 class ACNG_API tSpecialRequest
 {
 public:
@@ -58,6 +60,7 @@ public:
 		int fd;
 		tSpecialRequest::eMaintWorkType type;
 		cmstring cmd;
+		ISharedConnectionResources* pDlResProvider;
 	};
 	/*!
 	 *  @brief Main execution method for maintenance tasks.

@@ -37,7 +37,7 @@ using namespace std;
 
 namespace acng
 {
-
+extern std::shared_ptr<IFileItemRegistry> g_registry;
 namespace conserver
 {
 
@@ -226,7 +226,7 @@ void SetupConAndGo(unique_fd man_fd, const char *szClientName, const char *portN
 
 	try
 	{
-		g_freshConQueue.emplace_back(make_unique<conn>(move(man_fd), szClientName));
+		g_freshConQueue.emplace_back(make_unique<conn>(move(man_fd), szClientName, g_registry));
 		LOG("Connection to backlog, total count: " << g_freshConQueue.size());
 	}
 	catch (const std::bad_alloc&)

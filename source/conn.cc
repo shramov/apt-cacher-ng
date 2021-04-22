@@ -60,9 +60,12 @@ class conn::Impl
 	mstring logFile, logClient;
 	off_t fileTransferIn = 0, fileTransferOut = 0;
 	bool m_bLogAsError = false;
+
+	std::shared_ptr<IFileItemRegistry> m_itemRegistry;
+
+
 	void writeAnotherLogRecord(const mstring &pNewFile,
 			const mstring &pNewClient);
-
 	// This method collects the logged data counts for certain file.
 	// Since the user might restart the transfer again and again, the counts are accumulated (for each file path)
     void LogDataCounts(cmstring &file, std::string xff, off_t countIn,
@@ -72,10 +75,10 @@ class conn::Impl
       unsigned m_nProcessedJobs;
 #endif
 
-  	Impl(unique_fd fd, const char *c) :
+	Impl(unique_fd fd, const char *c, std::shared_ptr<IFileItemRegistry> ireg) :
 		m_fd(move(fd)),
-		m_confd(m_fd.get())
-
+		m_confd(m_fd.get()),
+		m_itemRegistry(ireg)
   	{
   		if(c) // if nullptr, pick up later when sent by the wrapper
   			m_sClientHost=c;
@@ -109,7 +112,9 @@ class conn::Impl
 };
 
 // call forwarding
-conn::conn(unique_fd fd, const char *c) : _p(new Impl(move(fd), move(c))) { _p->_q = this;};
+conn::conn(unique_fd fd, const char *c, std::shared_ptr<IFileItemRegistry> ireg) : _p(new Impl(move(fd), move(c), move(ireg))) { _p->_q = this;}
+
+std::shared_ptr<IFileItemRegistry> conn::GetItemRegistry() { return _p->m_itemRegistry; };
 conn::~conn() { delete _p; }
 void conn::WorkLoop() {	return _p->WorkLoop(); }
 void conn::LogDataCounts(cmstring &file, mstring xff, off_t countIn, off_t countOut,

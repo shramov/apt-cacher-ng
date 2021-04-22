@@ -27,9 +27,16 @@ struct lockguard {
 
 struct lockuniq {
 	std::unique_lock<std::mutex> _guard;
+	lockuniq() =default;
 	lockuniq(std::mutex& mx) : _guard(mx) {}
 	lockuniq(base_with_mutex& mbase) : _guard(mbase.m_obj_mutex) {}
 	lockuniq(base_with_mutex* mbase) : _guard(mbase->m_obj_mutex) {}
+	void assign(base_with_mutex& mbase, bool andLock = true) {
+		if (andLock)
+			_guard = std::unique_lock<std::mutex>(mbase.m_obj_mutex);
+		else
+			_guard = std::unique_lock<std::mutex>(mbase.m_obj_mutex, andLock ? std::defer_lock : std::defer_lock);
+	}
 	void unLock() { _guard.unlock();}
 	void reLock() { _guard.lock(); }
 	void reLockSafe() { if(!_guard.owns_lock()) _guard.lock(); }

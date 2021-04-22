@@ -104,6 +104,7 @@ cmstring& cacheman::GetFirstPresentPath(const tFileGroups& groups, const tConten
 
 cacheman::cacheman(const tSpecialRequest::tRunParms& parms) :
 	tSpecOpDetachable(parms),
+	m_dlRes(* parms.pDlResProvider),
 	m_bErrAbort(false), m_bVerbose(false), m_bForceDownload(false),
 	m_bScanInternals(false), m_bByPath(false), m_bByChecksum(false), m_bSkipHeaderChecks(false),
 	m_bTruncateDamaged(false),
@@ -310,7 +311,7 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 		dbgline;
         fileitem::tSpecialPurposeAttr attr;
         attr.bVolatile = bIsVolatileFile;
-        fiaccess = fiaccess.Create(sFilePathRel, mode, attr);
+		fiaccess = m_dlRes.GetItemRegistry()->Create(sFilePathRel, mode, attr);
 		pFi=fiaccess.get();
 	}
 	if (!pFi)
@@ -349,7 +350,7 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
             << sFilePathRel	<< "...\n";
     }
 
-	if(!StartDlder())
+	if(!m_dlRes.GetItemRegistry())
 		return false;
 
 	if (pForcedURL)
@@ -542,7 +543,7 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 							if(tu.SetHttpUrl(url, false))
 							{
 								SendChunkSZ("Restarting download... ");
-                                fiaccess = fiaccess.Create(sFilePathRel,
+								fiaccess = m_dlRes.GetItemRegistry()->Create(sFilePathRel,
                                                            ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY,
                                                            fileitem::tSpecialPurposeAttr());
 								return Download(sFilePathRel, bIsVolatileFile,
@@ -851,7 +852,7 @@ bool cacheman::Inject(cmstring &fromRel, cmstring &toRel,
 
     fileitem::tSpecialPurposeAttr attr;
     attr.bVolatile = rex::GetFiletype(toRel) == rex::FILE_VOLATILE;
-    auto fiUser = TFileItemHolder::Create(toRel, ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY, attr);
+	auto fiUser = m_dlRes.GetItemRegistry()->Create(toRel, ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY, attr);
     if (!fiUser.get())
         return false;
     auto fi = fiUser.get();
@@ -881,34 +882,6 @@ bool cacheman::Inject(cmstring &fromRel, cmstring &toRel,
         atts.uptodate = atts.vfile_ondisk = true;
     }
     return true;
-}
-
-bool cacheman::StartDlder()
-{
-	try
-	{
-		if (m_pDlcon)
-			return true;
-		m_pDlcon = new dlcon("INTERNAL");
-	}
-	catch(...)
-	{
-		SendFmt << "<span class=\"ERROR\">Internal resource error (remote connection)</span>\n";
-		return false;
-	}
-	try
-	{
-		m_dlThread = std::thread([this]()
-		{
-			m_pDlcon->WorkLoop();
-		});
-	} catch (...)
-	{
-		m_pDlcon->SignalStop();
-		SendFmt << "<span class=\"ERROR\">Internal resource error (remote thread)</span>\n";
-		return false;
-	}
-	return true;
 }
 
 void cacheman::ExtractAllRawReleaseDataFixStrandedPatchIndex(tFileGroups& idxGroups,
@@ -2306,7 +2279,8 @@ void cacheman::PrintStats(cmstring &title)
 			SendFmt << "</div>";
 }
 
-#ifdef DEBUG
+#warning move to UTs?
+#if 0
 int parseidx_demo(LPCSTR file)
 {
 

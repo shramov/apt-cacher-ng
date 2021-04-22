@@ -23,11 +23,15 @@ using namespace std;
 
 namespace acng
 {
+ACNG_API std::shared_ptr<cleaner> g_victor;
 
 // forward declation, see caddrinfo.cc
 //time_t expireDnsCache();
 
-cleaner::cleaner(bool noop) : m_thr(0), m_noop(noop)
+cleaner::cleaner(bool noop, std::shared_ptr<IFileItemRegistry> itemRegistry) :
+	m_itemRegistry(itemRegistry),
+	m_thr(0),
+	m_noop(noop)
 {
 	Init();
 }
@@ -68,8 +72,7 @@ void cleaner::WorkLoop()
 			{
 			case TYPE_ACFGHOOKS:
 				time_cand = cfg::BackgroundCleanup();
-				USRDBG("acng::cfg:ExecutePostponed, nextRunTime now: " << time_cand)
-				;
+				USRDBG("acng::cfg:ExecutePostponed, nextRunTime now: " << time_cand);
 				break;
 
 			case TYPE_EXCONNS:
@@ -77,14 +80,12 @@ void cleaner::WorkLoop()
 				USRDBG("tcpconnect::ExpireCache, nextRunTime now: " << time_cand);
 				break;
 			case TYPE_EXFILEITEM:
-				time_cand = TFileItemHolder::BackgroundCleanup();
+				if(m_itemRegistry)
+					time_cand = m_itemRegistry->BackgroundCleanup();
+				else
+					time_cand = END_OF_TIME;
 				USRDBG("fileitem::DoDelayedUnregAndCheck, nextRunTime now: " << time_cand);
 				break;
-		/*	case DNS_CACHE:
-				time_cand = expireDnsCache();
-				USRDBG("dnsExpiration, nextRunTime now: " << time_cand);
-				break;
-				*/
 			case ETYPE_MAX:
 				return; // heh?
 			}
@@ -171,16 +172,15 @@ void cleaner::dump_status()
 }
 
 void ACNG_API dump_handler(evutil_socket_t fd, short what, void *arg) {
-	TFileItemHolder::dump_status();
+	// XXX: access the global instance? TFileItemHolder::dump_status();
 	cleaner::GetInstance().dump_status();
 	g_tcp_con_factory.dump_status();
 	cfg::dump_trace();
 }
 
-cleaner& cleaner::GetInstance(bool initAsNoop)
+cleaner& cleaner::GetInstance()
 {
-	static cleaner g_victor(initAsNoop);
-	return g_victor;
+	return *g_victor;
 }
 
 }

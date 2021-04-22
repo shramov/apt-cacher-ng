@@ -16,6 +16,9 @@
 namespace acng
 {
 
+class IFileItemRegistry;
+struct tAppStartStop;
+
 /**
  * @brief Primitive task scheduler for internal helper functions
  *
@@ -31,8 +34,9 @@ namespace acng
  */
 class ACNG_API cleaner : public base_with_condition
 {
+	friend class tAppStartStop;
 public:
-	void Init();
+	cleaner(bool noop, std::shared_ptr<IFileItemRegistry>);
 	virtual ~cleaner();
 
 	void WorkLoop();
@@ -46,10 +50,12 @@ public:
 	};
 	void ScheduleFor(time_t when, eType what);
 	void dump_status();
-	static cleaner& GetInstance(bool initAsNoop=false);
+	static cleaner& GetInstance();
 
 private:
-	cleaner(bool noop=false);
+	void Init();
+
+	std::shared_ptr<IFileItemRegistry> m_itemRegistry;
 	pthread_t m_thr;
 	std::array<time_t,cleaner::ETYPE_MAX> stamps;
 	bool m_terminating = false;

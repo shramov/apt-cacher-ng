@@ -9,7 +9,8 @@
 #include "lockable.h"
 #include "csmapping.h"
 #include "bgtask.h"
-#include "fileitem.h"
+#include "conn.h"
+
 #include <unordered_map>
 #include <unordered_set>
 #include <thread>
@@ -38,10 +39,11 @@ extern time_t m_gMaintTimeNow;
 void DelTree(const string &what);
 
 class cacheman :
-	public IFileHandler,
-	public tSpecOpDetachable
+		public IFileHandler,
+		public tSpecOpDetachable
 {
-
+protected:
+	ISharedConnectionResources &m_dlRes;
 public:
 	cacheman(const tSpecialRequest::tRunParms& parms);
 	virtual ~cacheman();
@@ -123,8 +125,6 @@ SUTPROTECTED:
 	 * */
 
 	void ProcessSeenIndexFiles(std::function<void(tRemoteFileInfo)> pkgHandler);
-
-	bool StartDlder();
 
 	enum eDlMsgPrio
 	{

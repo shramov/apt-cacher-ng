@@ -22,6 +22,7 @@
 #include "fileio.h"
 #include "conserver.h"
 #include "cleaner.h"
+#include "fileitem.h"
 
 #include <iostream>
 using namespace std;
@@ -245,9 +246,14 @@ void term_handler(evutil_socket_t signum, short what, void *arg)
 
 void CloseAllCachedConnections();
 
+// NOT supposed to be accessed from anywhere directly except from the conserver
+extern std::shared_ptr<cleaner> g_victor;
+extern std::shared_ptr<IFileItemRegistry> g_registry;
+
 struct tAppStartStop
 {
 	evabase m_base;
+	std::shared_ptr<cleaner> m_victor;
 
 	tAppStartStop(int argc, const char**argv)
 	{
@@ -277,6 +283,8 @@ struct tAppStartStop
 		SetupCacheDir();
 
 		//DelTree(cfg::cacheDirSlash + sReplDir);
+		g_registry = acng::MakeRegularItemRegistry();
+		g_victor.reset(new cleaner(false, g_registry));
 
 		if (conserver::Setup() <= 0)
 		{
@@ -320,6 +328,8 @@ struct tAppStartStop
 			unlink(cfg::pidfile.c_str());
 		conserver::Shutdown();
 		CloseAllCachedConnections();
+		g_victor.reset();
+		g_registry.reset();
 		log::close(false);
 		globalSslDeInit();
 	}

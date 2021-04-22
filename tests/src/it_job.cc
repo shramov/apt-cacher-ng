@@ -20,6 +20,10 @@ public:
     void LogDataCounts(cmstring &, mstring , off_t , off_t , bool ) override
     {
     }
+	std::shared_ptr<IFileItemRegistry> GetItemRegistry() override
+	{
+		return std::shared_ptr<IFileItemRegistry>();
+	}
 } conn_dummy;
 
 TEST(job, create)

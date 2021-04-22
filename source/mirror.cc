@@ -92,7 +92,7 @@ void pkgmirror::Action()
 	}
 	if(m_bUseDelta)
 	{
-		if(!StartDlder())
+		if(!m_dlRes.SetupDownloader())
 			return;
 	}
 	BuildCacheFileList();
