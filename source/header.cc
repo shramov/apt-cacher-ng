@@ -293,7 +293,7 @@ tSS header::ToString() const
         if (h[i])
             s << mapId2Headname[i] << ": " << h[i] << "\r\n";
     }
-    s<< "Date: " << tHttpDate(GetTime()).any() << "\r\n\r\n";
+    s<< "Date: " << tHttpDate(GetTime()).view() << "\r\n\r\n";
 	return s;
 }
 

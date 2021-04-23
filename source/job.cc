@@ -818,6 +818,7 @@ job::eJobResult job::SendData(int confd, bool haveMoreJobs)
 	 */
 	auto AwaitSendableState = [&]()
 	{
+		dbgline;
 		if (!fi)
 			return false;
 
@@ -825,6 +826,7 @@ job::eJobResult job::SendData(int confd, bool haveMoreJobs)
 		lockuniq g(*fi);
 		while(true)
 		{
+			dbgline;
 			fistate = fi->GetStatusUnlocked(nBodySizeSoFar);
 			if (fistate >= fileitem::FIST_COMPLETE)
 				break;
@@ -834,9 +836,10 @@ job::eJobResult job::SendData(int confd, bool haveMoreJobs)
 			fi->wait(g);
 #warning add a 5s timeout and send a 102 or so for waiting?
 		}
+		LOG(int(fistate));
 		return fistate <= fileitem::FIST_COMPLETE;
 	};
-
+	LOG(int(m_activity));
 	switch (m_activity)
 	{
 	case (STATE_DONE):
@@ -1005,12 +1008,12 @@ inline void job::CookResponseHeader()
 	{
 		return PrependHttpVariant() << status.code << " " << status.msg << svRN;
 	};
-	auto firstLineCoTypeCoDate = [&] ()
+	auto frontLineCode200ContTypeContDate = [&] ()
 	{
 		addStatusLineFromItem()
 				<< "Content-Type: " << fi->m_contentType << svRN;
 		if (fi->m_responseModDate.isSet())
-			m_sendbuf << "Last-Modified: " << fi->m_responseModDate.any() << svRN;
+			m_sendbuf << "Last-Modified: " << fi->m_responseModDate.view() << svRN;
 		return m_sendbuf;
 	};
 	auto isRedir = status.isRedirect();
@@ -1046,7 +1049,7 @@ inline void job::CookResponseHeader()
 		m_activity = STATE_SEND_CHUNK_HEADER;
 		m_nReqRangeTo = -1;
 		m_nReqRangeFrom = 0;
-		firstLineCoTypeCoDate() << "Transfer-Encoding: chunked\r\n" << src;
+		frontLineCode200ContTypeContDate() << "Transfer-Encoding: chunked\r\n" << src;
 		AppendMetaHeaders();
 		return;
 	}
@@ -1054,12 +1057,16 @@ inline void job::CookResponseHeader()
 	if (contLen >= 0 && (m_nReqRangeFrom >= contLen || m_nReqRangeTo + 1 >= contLen))
 		return quickResponse("416 Requested Range Not Satisfiable");
 	// okay, date is good, no chunking needed, can serve a range request smoothly (beginning is available) or fall back to 200?
-	if (m_nReqRangeFrom >= 0 && ds > m_nReqRangeFrom)
+	if (m_nReqRangeFrom >= 0 && ds > m_nReqRangeFrom && contLen > 0)
 	{
+		m_nSendPos = m_nReqRangeFrom;
+
 		PrependHttpVariant() << "206 Partial Content" << svRN
 							 << "Content-Type: " << fi->m_contentType << svRN
-							 << "Last-Modified: " << fi->m_responseModDate.any() << svRN
-							 << "Content-Range: " << m_nReqRangeFrom << "-" << m_nReqRangeTo << "/" << contLen << svRN
+							 << "Last-Modified: " << fi->m_responseModDate.view() << svRN
+							 << "Content-Range: bytes " << m_nReqRangeFrom << "-" <<
+								(m_nReqRangeTo > 0 ? m_nReqRangeTo : (contLen - 1))
+							 << "/" << contLen << svRN
 							 << src;
 		AppendMetaHeaders();
 		return;
@@ -1069,7 +1076,7 @@ inline void job::CookResponseHeader()
 	m_nReqRangeFrom = 0;
 	PrependHttpVariant() << "200 OK" << svRN
 						 << "Content-Type: " << fi->m_contentType << svRN
-						 << "Last-Modified: " << fi->m_responseModDate.any() << svRN
+						 << "Last-Modified: " << fi->m_responseModDate.view() << svRN
 						 << "Content-Length: " << contLen << svRN
 						 << src;
 	AppendMetaHeaders();
@@ -1133,7 +1140,7 @@ void job::AppendMetaHeaders()
 	if (!contentType.empty())
 		m_sendbuf << "Content-Type: " << contentType << "\r\n";
 	*/
-	m_sendbuf << "Date: " << tHttpDate(GetTime()).any()
+	m_sendbuf << "Date: " << tHttpDate(GetTime()).view()
 			  << "\r\nServer: Debian Apt-Cacher NG/" ACVERSION "\r\n"
 	"\r\n";
 }

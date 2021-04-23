@@ -257,16 +257,16 @@ void conn::Impl::WorkLoop() {
 
 	signal(SIGPIPE, SIG_IGN);
 
-	auto disconnected = [this, &__logobj]()
-	{
 #ifdef DEBUG
+	tDtorEx defuseGuards([this, &__logobj]()
+	{
 		for(auto& j: m_jobs2send)
 		{
 			LOG("FIXME: disconnecting while job not processed");
 			j.Dispose();
 		}
+	});
 #endif
-	};
 
 	acbuf inBuf;
 	inBuf.setsize(32*1024);
@@ -299,7 +299,7 @@ void conn::Impl::WorkLoop() {
 			if(GetTime() > client_timeout)
 			{
 				USRDBG("Timeout occurred, apt client disappeared silently?");
-				return disconnected(); // yeah, time to leave
+				return; // yeah, time to leave
 			}
 			continue;
 		}
@@ -309,7 +309,7 @@ void conn::Impl::WorkLoop() {
 				continue;
 
 			ldbg("select error in con, errno: " << errno);
-			return disconnected(); // FIXME: good error message?
+			return; // FIXME: good error message?
 		}
 		else
 		{
@@ -330,7 +330,7 @@ void conn::Impl::WorkLoop() {
 				else
 				{
 					ldbg("client closed connection");
-					return disconnected();
+					return;
 				}
 			}
         }

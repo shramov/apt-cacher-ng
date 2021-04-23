@@ -248,7 +248,7 @@ bool fileitem_with_storage::SaveHeader(bool truncatedKeepOnlyOrigInfo)
 
 bool fileitem::DlStarted(string_view rawHeader, const tHttpDate& modDate, cmstring& origin, tRemoteStatus status, off_t bytes2seek, off_t bytesAnnounced)
 {
-	LOGSTARTFUNCxs( modDate.any(), status.code, status.msg, bytes2seek, bytesAnnounced);
+	LOGSTARTFUNCxs( modDate.view(), status.code, status.msg, bytes2seek, bytesAnnounced);
 
 	m_nContentLength = -1;
 	m_nTimeDlStarted = GetTime();

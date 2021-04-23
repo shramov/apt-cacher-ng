@@ -294,10 +294,7 @@ struct tDlJob
 	{
 		LOGSTART("tDlJob::AppendRequest");
 
-#define H_IFMO "If-Modified-Since: "
-#define H_IFRA "If-Range: "
 #define CRLF "\r\n"
-
 
         if (m_fiAttr.bHeadOnly)
 		{
@@ -397,7 +394,7 @@ struct tDlJob
 		if (m_nUsedRangeStartPos > 0)
 		{
             if (m_fiAttr.bVolatile && m_pStorage->m_responseModDate.isSet())
-                head << H_IFRA << m_pStorage->m_responseModDate.isSet() << CRLF;
+				head << "If-Range: " << m_pStorage->m_responseModDate.view() << CRLF;
 			head << "Range: bytes=" << m_nUsedRangeStartPos << "-";
             if (m_fiAttr.nRangeLimit > 0)
                 head << m_fiAttr.nRangeLimit;

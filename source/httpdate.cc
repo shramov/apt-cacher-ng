@@ -222,7 +222,7 @@ bool StoreHeadToStorage(cmstring &path, off_t contLen, tHttpDate *lastModified, 
 	if (contLen >= 0)
 		fmt << "Content-Length: "sv << contLen << svRN;
     if (lastModified && lastModified->isSet())
-        fmt << "Last-Modified: "sv << lastModified->any() << svRN;
+        fmt << "Last-Modified: "sv << lastModified->view() << svRN;
     if (origSrc && !origSrc->empty())
         fmt << "X-Original-Source: "sv << *origSrc << svRN;
     fmt << svRN;

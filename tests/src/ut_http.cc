@@ -52,11 +52,11 @@ TEST(http, date)
 {
 	tHttpDate a;
 	EXPECT_FALSE(a.isSet());
-	EXPECT_EQ(a.any(), "");
+	EXPECT_EQ(a.view(), "");
 
 	tHttpDate d(1);
 	EXPECT_TRUE(d.isSet());
-	ASSERT_EQ(d.any(), "Thu, 01 Jan 1970 00:00:01 GMT");
+	ASSERT_EQ(d.view(), "Thu, 01 Jan 1970 00:00:01 GMT");
 
 	/*
 	 *         "%a, %d %b %Y %H:%M:%S GMT",
@@ -77,14 +77,14 @@ TEST(http, date)
 
 	tHttpDate e(-1);
 	ASSERT_FALSE(e.isSet());
-	ASSERT_EQ(e.any(), "");
+	ASSERT_EQ(e.view(), "");
 
 	tHttpDate f(time_t(0));
 	ASSERT_EQ(f, "Thu, 01 Jan 1970 00:00:00 GMT");
 
 	auto shortBS = "Short&random BS";
 	f = tHttpDate(shortBS);
-	ASSERT_EQ(f.any(), shortBS);
+	ASSERT_EQ(f.view(), shortBS);
 }
 
 
