@@ -469,7 +469,7 @@ public:
 	}
 };
 
-std::shared_ptr<IFileItemRegistry> MakeRegularItemRegistry()
+std::shared_ptr<IFileItemRegistry> ACNG_API MakeRegularItemRegistry()
 {
 	return std::make_shared<TFileItemRegistry>();
 }

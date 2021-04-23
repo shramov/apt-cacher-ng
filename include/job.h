@@ -91,7 +91,11 @@ public:
 	eJobResult HandleSuddenError();
     void AppendMetaHeaders();
     tSS& PrependHttpVariant();
-
+public:
+#ifdef DEBUG
+	// mark as somehow successfull prior to deletion
+	void Dispose() { m_nAllDataCount++; }
+#endif
 };
 
 class tTraceData: public tStrSet, public base_with_mutex

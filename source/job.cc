@@ -235,21 +235,9 @@ job::~job()
 {
 	LOGSTART("job::~job");
 
-#if 0 // this is pointless if the parent decides to kill the job in random state
-	// bug hunting - check legal protocol states when the job is terminating
-	if (m_nAllDataCount)
-	{
-		// must either have finished cleanly or caused a disconnect
-		ASSERT(m_activity == STATE_DISCO_ASAP || m_activity == STATE_DONE);
-	}
-	else
-	{
-		// canceled or died without sending anything
-		ASSERT(m_activity == STATE_NOT_STARTED || m_activity == STATE_SEND_BUF_NOT_FITEM
-			   || (!m_sendbuf.empty() && (m_activity == STATE_SEND_DATA || m_activity == STATE_SEND_CHUNK_HEADER || m_activity == STATE_SEND_BUF_NOT_FITEM))
-			   );
-	}
-#endif
+	// shall have sent ANYTHING in response
+	ASSERT(m_nAllDataCount != 0);
+
 	int stcode = 200;
 	off_t inCount = 0;
 	if (m_pItem.get())

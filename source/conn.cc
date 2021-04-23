@@ -116,7 +116,7 @@ conn::conn(unique_fd fd, const char *c, std::shared_ptr<IFileItemRegistry> ireg)
 
 std::shared_ptr<IFileItemRegistry> conn::GetItemRegistry() { return _p->m_itemRegistry; };
 conn::~conn() { delete _p; }
-void conn::WorkLoop() {	return _p->WorkLoop(); }
+void conn::WorkLoop() {	_p->WorkLoop(); }
 void conn::LogDataCounts(cmstring &file, mstring xff, off_t countIn, off_t countOut,
         bool bAsError) {return _p->LogDataCounts(file, move(xff), countIn, countOut, bAsError); }
 dlcon* conn::SetupDownloader()
@@ -257,6 +257,17 @@ void conn::Impl::WorkLoop() {
 
 	signal(SIGPIPE, SIG_IGN);
 
+	auto disconnected = [this, &__logobj]()
+	{
+#ifdef DEBUG
+		for(auto& j: m_jobs2send)
+		{
+			LOG("FIXME: disconnecting while job not processed");
+			j.Dispose();
+		}
+#endif
+	};
+
 	acbuf inBuf;
 	inBuf.setsize(32*1024);
 
@@ -288,7 +299,7 @@ void conn::Impl::WorkLoop() {
 			if(GetTime() > client_timeout)
 			{
 				USRDBG("Timeout occurred, apt client disappeared silently?");
-				return; // yeah, time to leave
+				return disconnected(); // yeah, time to leave
 			}
 			continue;
 		}
@@ -298,7 +309,7 @@ void conn::Impl::WorkLoop() {
 				continue;
 
 			ldbg("select error in con, errno: " << errno);
-			return; // FIXME: good error message?
+			return disconnected(); // FIXME: good error message?
 		}
 		else
 		{
@@ -319,7 +330,7 @@ void conn::Impl::WorkLoop() {
 				else
 				{
 					ldbg("client closed connection");
-					return;
+					return disconnected();
 				}
 			}
         }
@@ -425,18 +436,21 @@ void conn::Impl::WorkLoop() {
 				switch(m_jobs2send.front().SendData(m_confd, hasMoreJobs))
 				{
 				case(job::R_DISCON):
-					{
-						ldbg("Disconnect advise received, stopping connection");
-						return;
-					}
+				{
+					ldbg("Disconnect advise received, stopping connection");
+					return;
+				}
 				case(job::R_DONE):
-					{
-						m_jobs2send.pop_front();
-						ldbg("Remaining jobs to send: " << m_jobs2send.size());
-						break;
-					}
-				case(job::R_AGAIN):
+				{
+#ifdef DEBUG
+					m_jobs2send.front().Dispose();
+#endif
+					m_jobs2send.pop_front();
+
+					ldbg("Remaining jobs to send: " << m_jobs2send.size());
 					break;
+				}
+				case(job::R_AGAIN):
 				default:
 					break;
 				}
