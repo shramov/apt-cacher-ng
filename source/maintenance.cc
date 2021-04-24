@@ -325,13 +325,13 @@ tSpecialRequest* tSpecialRequest::MakeMaintWorker(tRunParms&& parms)
 	return nullptr;
 }
 
-void tSpecialRequest::RunMaintWork(eMaintWorkType jobType, cmstring& cmd, int fd)
+void tSpecialRequest::RunMaintWork(eMaintWorkType jobType, cmstring& cmd, int fd, ISharedConnectionResources *dlResProvider)
 {
 	LOGSTARTFUNCsx(jobType, cmd, fd);
 
 	try {
 		SHARED_PTR<tSpecialRequest> p;
-		p.reset(MakeMaintWorker({fd, jobType, cmd}));
+		p.reset(MakeMaintWorker({fd, jobType, cmd, dlResProvider}));
 		if(p)
 			p->Run();
 	}

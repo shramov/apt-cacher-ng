@@ -1,5 +1,10 @@
 apt-cacher-ng (3.7) AND-SOMETIMES-THE-BEAR-EATS-YOU; urgency=low
 
+  * Breaking changes:
+    - "just cleanup" parameter -e was removed. This has been troublesome to
+    implement long time ago and is most likely not used in the wild. This
+    can be replaced easily and with better privilege separation using a
+    shell script which starts apt-cacher-ng in foreground and calls acngtool.
   * Overhauling download client state machine, now:
     a) using less CPU cycles, fewer locks
     b) supporting open-end range responses

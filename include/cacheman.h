@@ -43,7 +43,8 @@ class cacheman :
 		public tSpecOpDetachable
 {
 protected:
-	ISharedConnectionResources &m_dlRes;
+	ISharedConnectionResources &GetDlRes() { return * m_parms.pDlResProvider; }
+
 public:
 	cacheman(const tSpecialRequest::tRunParms& parms);
 	virtual ~cacheman();
@@ -133,8 +134,8 @@ SUTPROTECTED:
 		eMsgShow
 	};
 	virtual bool Download(cmstring& sFilePathRel, bool bIsVolatileFile,
-			eDlMsgPrio msgLevel, tFileItemPtr pForcedItem=tFileItemPtr(),
-			const tHttpUrl *pForcedURL=nullptr, unsigned hints=0, cmstring* sGuessedFrom = nullptr);
+			eDlMsgPrio msgLevel,
+			const tHttpUrl *pForcedURL=nullptr, unsigned hints=0, cmstring* sGuessedFrom = nullptr, bool bForceReDownload = false);
 #define DL_HINT_GUESS_REPLACEMENT 0x1
 #define DL_HINT_NOTAG 0x2
 
@@ -194,8 +195,6 @@ SUTPRIVATE:
 	cacheman(const cacheman&);
 	cacheman& operator=(const cacheman&);
 
-	dlcon *m_pDlcon = nullptr;
-	std::thread m_dlThread;
 	cmstring& GetFirstPresentPath(const tFileGroups& groups, const tContentKey& ckey);
 
 	/*

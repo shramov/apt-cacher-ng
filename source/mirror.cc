@@ -92,7 +92,7 @@ void pkgmirror::Action()
 	}
 	if(m_bUseDelta)
 	{
-		if(!m_dlRes.SetupDownloader())
+		if(!GetDlRes().SetupDownloader())
 			return;
 	}
 	BuildCacheFileList();
@@ -401,7 +401,7 @@ void pkgmirror::HandlePkgEntry(const tRemoteFileInfo &entry)
 				::unlink(sDeltaPathAbs.c_str());
 				::unlink((sDeltaPathAbs+".head").c_str());
 
-				if(Download(TEMPDELTA, false, eMsgHideAll, nullptr, &uri))
+				if(Download(TEMPDELTA, false, eMsgHideAll, &uri))
 				{
 					::setenv("delta", SZABSPATH(TEMPDELTA), true);
 					::setenv("from", srcAbs.c_str(), true);

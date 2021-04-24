@@ -784,7 +784,7 @@ job::eJobResult job::SendData(int confd, bool haveMoreJobs)
 	}
 	if (m_eMaintWorkType != tSpecialRequest::eMaintWorkType::workNotSpecial)
 	{
-		tSpecialRequest::RunMaintWork(m_eMaintWorkType, m_sFileLoc, confd);
+		tSpecialRequest::RunMaintWork(m_eMaintWorkType, m_sFileLoc, confd, &m_pParentCon);
 		return return_discon(); // just stop and close connection
 	}
 

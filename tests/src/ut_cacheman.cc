@@ -20,8 +20,8 @@ bool ProcessDirAfter(const std::string &sPath, const struct stat &) override {re
 protected:
 	virtual void Action() override {}
 	virtual bool Download(cmstring& sFilePathRel, bool bIsVolatileFile,
-			eDlMsgPrio msgLevel, tFileItemPtr pForcedItem=tFileItemPtr(),
-			const tHttpUrl *pForcedURL=nullptr, unsigned hints=0, cmstring* sGuessedFrom = nullptr)
+			eDlMsgPrio msgLevel,
+			const tHttpUrl *pForcedURL=nullptr, unsigned hints=0, cmstring* sGuessedFrom = nullptr, bool replace = false)
 	override {
 		auto exBeg = mstring(TEST_DIR "T-20");
 		auto beg = sFilePathRel.substr(0,  exBeg.size());

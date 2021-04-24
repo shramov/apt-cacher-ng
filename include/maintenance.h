@@ -128,7 +128,7 @@ public:
 	tSS m_fmtHelper;
 
 	static eMaintWorkType DispatchMaintWork(cmstring &cmd, const char *auth);
-	static void RunMaintWork(eMaintWorkType jobType, cmstring& cmd, int fd);
+	static void RunMaintWork(eMaintWorkType jobType, cmstring& cmd, int fd, ISharedConnectionResources* dlResProvider);
 
 protected:
 	static tSpecialRequest* MakeMaintWorker(tRunParms&& parms);

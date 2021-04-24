@@ -248,7 +248,7 @@ void expiration::HandlePkgEntry(const tRemoteFileInfo &entry)
 				{
 					SendFmt << WCLASS << " incomplete download, truncating (as requested): "
 					<< sPathRel;
-					auto hodler = m_dlRes.GetItemRegistry()->Create(sPathRel,
+					auto hodler = GetDlRes().GetItemRegistry()->Create(sPathRel,
                                                           ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY,
                                                           fileitem::tSpecialPurposeAttr());
 					if (hodler.get())
@@ -460,6 +460,10 @@ inline void expiration::RemoveAndStoreStatus(bool bPurgeNow)
 						(unsigned long) desc.nLostAt,
 						dir_props.first.c_str(),
 						fileGroup.first.c_str());
+			}
+			else if(m_bVerbose)
+			{
+				SendFmt << "Keeping " << sPathRel;
 			}
 		}
 	}
@@ -673,7 +677,7 @@ void expiration::TrimFiles()
 			continue;
 
 		// this is just probing, make sure not to interact with DL
-		auto user = m_dlRes.GetItemRegistry()->Create(fil, ESharingHow::ALWAYS_TRY_SHARING, fileitem::tSpecialPurposeAttr());
+		auto user = GetDlRes().GetItemRegistry()->Create(fil, ESharingHow::ALWAYS_TRY_SHARING, fileitem::tSpecialPurposeAttr());
 		if ( ! user.get())
 			continue;
 		auto pFi = user.get();
@@ -705,7 +709,7 @@ void expiration::HandleDamagedFiles()
 			if(this->m_parms.type == workExPurgeDamaged)
 			{
 				SendFmt << "Removing " << s << sBRLF;
-				auto holder = m_dlRes.GetItemRegistry()->Create(s, ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY, fileitem::tSpecialPurposeAttr());
+				auto holder = GetDlRes().GetItemRegistry()->Create(s, ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY, fileitem::tSpecialPurposeAttr());
 				if (holder.get())
 				{
 					holder.get()->MarkFaulty(true);
@@ -720,7 +724,7 @@ void expiration::HandleDamagedFiles()
 			else if(this->m_parms.type == workExTruncDamaged)
 			{
 				SendFmt << "Truncating " << s << sBRLF;
-				auto holder = m_dlRes.GetItemRegistry()->Create(s, ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY, fileitem::tSpecialPurposeAttr());
+				auto holder = GetDlRes().GetItemRegistry()->Create(s, ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY, fileitem::tSpecialPurposeAttr());
 				if (holder.get())
 					holder.get()->MarkFaulty();
 			}

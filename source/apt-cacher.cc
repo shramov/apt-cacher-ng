@@ -87,7 +87,7 @@ inline bool fork_away()
 }
 #endif
 
-void parse_options(int argc, const char **argv, bool& bStartCleanup)
+void parse_options(int argc, const char **argv)
 {
 	bool bExtraVerb=false;
 	LPCSTR szCfgDir=nullptr;
@@ -104,8 +104,6 @@ void parse_options(int argc, const char **argv, bool& bStartCleanup)
 			ignoreCfgErrors = true;
 		else if (!strncmp(*p, "-v", 2))
 			bExtraVerb = true;
-		else if (!strncmp(*p, "-e", 2))
-			bStartCleanup=true;
 		else if (!strcmp(*p, "-c"))
 		{
 			++p;
@@ -153,7 +151,6 @@ static void usage(int retCode) {
 		"Options:\n"
 		"-h: this help message\n"
 		"-c: configuration directory\n"
-		"-e: on startup, run expiration once\n"
 		"-i: ignore configuration loading errors\n"
 		"-v: extra verbosity in logging\n"
 #if SUPPWHASH
@@ -261,9 +258,7 @@ struct tAppStartStop
 			acng::globalSslInit();
 		#endif
 
-		bool bRunCleanup = false;
-
-		parse_options(argc, argv, bRunCleanup);
+		parse_options(argc, argv);
 
 		auto lerr = log::open();
 		if (!lerr.empty())
@@ -292,14 +287,6 @@ struct tAppStartStop
 					<< "No listening socket(s) could be created/prepared. "
 							"Check the network, check or unset the BindAddress directive.\n";
 			exit(EXIT_FAILURE);
-		}
-
-		if (bRunCleanup)
-		{
-			tSpecialRequest::RunMaintWork(tSpecialRequest::workExExpire,
-					cfg::reportpage + "?abortOnErrors=aOe&doExpire=Start",
-					fileno(stdout));
-			exit(0);
 		}
 
 		if (!cfg::foreground && !fork_away())

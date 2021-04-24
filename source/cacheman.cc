@@ -104,13 +104,13 @@ cmstring& cacheman::GetFirstPresentPath(const tFileGroups& groups, const tConten
 
 cacheman::cacheman(const tSpecialRequest::tRunParms& parms) :
 	tSpecOpDetachable(parms),
-	m_dlRes(* parms.pDlResProvider),
 	m_bErrAbort(false), m_bVerbose(false), m_bForceDownload(false),
 	m_bScanInternals(false), m_bByPath(false), m_bByChecksum(false), m_bSkipHeaderChecks(false),
 	m_bTruncateDamaged(false),
 	m_nErrorCount(0),
-	m_nProgIdx(0), m_nProgTell(1), m_pDlcon(nullptr)
+	m_nProgIdx(0), m_nProgTell(1)
 {
+	ASSERT(parms.pDlResProvider);
 	m_szDecoFile="maint.html";
 	m_gMaintTimeNow=GetTime();
 
@@ -127,13 +127,6 @@ cacheman::cacheman(const tSpecialRequest::tRunParms& parms) :
 
 cacheman::~cacheman()
 {
-	if(m_pDlcon)
-	{
-		m_pDlcon->SignalStop();
-		m_dlThread.join();
-		delete m_pDlcon;
-		m_pDlcon=nullptr;
-	}
 }
 
 bool cacheman::ProcessOthers(const string &, const struct stat &)
@@ -257,8 +250,8 @@ mstring FindCommonPath(cmstring& a, cmstring& b)
 
 bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 		cacheman::eDlMsgPrio msgVerbosityLevel,
-		tFileItemPtr pFi, const tHttpUrl * pForcedURL, unsigned hints,
-		cmstring* sGuessedFrom)
+		const tHttpUrl * pForcedURL, unsigned hints,
+		cmstring* sGuessedFrom, bool bForceReDownload)
 {
 
 	LOGSTART("tCacheMan::Download");
@@ -270,6 +263,9 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 
 	cfg::tRepoResolvResult repinfo;
 	dlrequest rq;
+	auto dler = GetDlRes().SetupDownloader();
+	if (!dler)
+		return false;
 
 //	bool holdon = sFilePathRel == "debrep/dists/experimental/contrib/binary-amd64/Packages";
 
@@ -291,7 +287,6 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 
 	//uint64_t prog_before = 0;
 
-	TFileItemHolder fiaccess;
 	tHttpUrl parserPath, parserHead;
 	const tHttpUrl *pResolvedDirectUrl=nullptr;
     std::pair<fileitem::FiStatus, tRemoteStatus> dlres;
@@ -302,18 +297,15 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 	hor.LoadFromFile(sFilePathAbs + ".head");
 
 	dbgline;
-	auto mode = m_bForceDownload ? ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY :
-			(bIsVolatileFile ? ESharingHow::AUTO_MOVE_OUT_OF_THE_WAY :
-			ESharingHow::ALWAYS_TRY_SHARING);
+	auto mode = (m_bForceDownload | bForceReDownload) ? ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY :
+								   (bIsVolatileFile ? ESharingHow::AUTO_MOVE_OUT_OF_THE_WAY :
+													  ESharingHow::ALWAYS_TRY_SHARING);
 
-	if(!pFi)
-	{
-		dbgline;
-        fileitem::tSpecialPurposeAttr attr;
-        attr.bVolatile = bIsVolatileFile;
-		fiaccess = m_dlRes.GetItemRegistry()->Create(sFilePathRel, mode, attr);
-		pFi=fiaccess.get();
-	}
+	fileitem::tSpecialPurposeAttr attr;
+	attr.bVolatile = bIsVolatileFile;
+	auto fiaccess = GetDlRes().GetItemRegistry()->Create(sFilePathRel, mode, attr);
+	auto pFi=fiaccess.get();
+
 	if (!pFi)
 	{
 		if (NEEDED_VERBOSITY_ALL_BUT_ERRORS)
@@ -350,7 +342,7 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
             << sFilePathRel	<< "...\n";
     }
 
-	if(!m_dlRes.GetItemRegistry())
+	if(!GetDlRes().GetItemRegistry())
 		return false;
 
 	if (pForcedURL)
@@ -440,7 +432,7 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 	if (pResolvedDirectUrl)
 		rq.setSrc(*pResolvedDirectUrl);
 
-	m_pDlcon->AddJob(pFi, rq);
+	dler->AddJob(pFi, rq);
     dlres = pFi->WaitForFinish(1, [&](){ SendChunk("."); } );
     if (dlres.first == fileitem::FIST_COMPLETE && dlres.second.code == 200)
 	{
@@ -451,21 +443,16 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 	}
 	else
 	{
+		ASSERT(!(dlres.second.code == 500 && dlres.second.msg.empty())); // catch a strange condition
 		LOG("having alternative url and fitem was created here anyway")
-		if(fallbackUrl && fiaccess.get())
+		if(fallbackUrl && fiaccess.get() && (!rq.pForcedUrl || fallbackUrl != rq.pForcedUrl))
 		{
-#if 0			// this is brute-force but in this condition probably the only sensible thing
-			auto p=fiaccess.get();
-			fiaccess.reset();
-			p->SetupClean(true);
-			p.reset();
-
 			dbgline;
 			SendChunkSZ("<i>(download error, ignored, guessing alternative URL by path)</i>\n");
 			return Download(sFilePathRel, bIsVolatileFile,
 					msgVerbosityLevel,
-					pFi, fallbackUrl, hints, sGuessedFrom);
-#endif
+					fallbackUrl, hints, sGuessedFrom, true);
+
 			SendFmt << "<i>Remote peer is not usable but the alternative source might be guessed from the path as "
 					<< fallbackUrl->ToURI(true) << " . If this is the better option, please remove the file "
 					<< sFilePathRel << ".head manually from the cache folder or remove the whole index file with the Delete button below.</i>\n";
@@ -543,12 +530,8 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 							if(tu.SetHttpUrl(url, false))
 							{
 								SendChunkSZ("Restarting download... ");
-								fiaccess = m_dlRes.GetItemRegistry()->Create(sFilePathRel,
-                                                           ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY,
-                                                           fileitem::tSpecialPurposeAttr());
 								return Download(sFilePathRel, bIsVolatileFile,
-										msgVerbosityLevel, fiaccess.get(),
-										&tu);
+										msgVerbosityLevel, &tu, 0, nullptr, true);
 							}
 						}
 					}
@@ -594,8 +577,8 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 				newurl.sPath.replace(newurl.sPath.size()-fix.fromEnd.size(), fix.fromEnd.size(),
 						fix.toEnd);
 				if(Download(sFilePathRel.substr(0, sFilePathRel.size() - fix.fromEnd.size())
-						+ fix.toEnd, bIsVolatileFile, msgVerbosityLevel, tFileItemPtr(), &newurl,
-				hints&~DL_HINT_GUESS_REPLACEMENT ))
+						+ fix.toEnd, bIsVolatileFile, msgVerbosityLevel, &newurl,
+				hints &~ DL_HINT_GUESS_REPLACEMENT ))
 				{
 					MarkObsolete(sFilePathRel);
 					return true;
@@ -852,7 +835,7 @@ bool cacheman::Inject(cmstring &fromRel, cmstring &toRel,
 
     fileitem::tSpecialPurposeAttr attr;
     attr.bVolatile = rex::GetFiletype(toRel) == rex::FILE_VOLATILE;
-	auto fiUser = m_dlRes.GetItemRegistry()->Create(toRel, ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY, attr);
+	auto fiUser = GetDlRes().GetItemRegistry()->Create(toRel, ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY, attr);
     if (!fiUser.get())
         return false;
     auto fi = fiUser.get();
@@ -960,7 +943,7 @@ void cacheman::ExtractAllRawReleaseDataFixStrandedPatchIndex(tFileGroups& idxGro
 						else
 						{
 							SendFmt << "No base file to use patching on " << cid.first << ", trying to fetch " << cand << hendl;
-							if(Download(cand, true, eMsgHideErrors, tFileItemPtr(), 0, 0, &cid.first))
+							if(Download(cand, true, eMsgHideErrors, 0, 0, &cid.first))
 							{
 								SetFlags(cand).vfile_ondisk=true;
 								goto found_base;
@@ -1226,7 +1209,7 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 		string patchPathRel(pindexPathRel.substr(0, pindexPathRel.size()-5) +
 				pname + ".gz");
 		if(!Download(patchPathRel, false, eDlMsgPrio::eMsgHideErrors,
-				tFileItemPtr(), nullptr, DL_HINT_NOTAG, &pindexPathRel))
+				nullptr, DL_HINT_NOTAG, &pindexPathRel))
 		{
 			return PATCH_FAIL;
 		}
@@ -1447,7 +1430,7 @@ bool cacheman::UpdateVolatileFiles()
 
 		if(!Download(sPathRel, true,
 				m_metaFilesRel[sPathRel].hideDlErrors ? eMsgHideErrors : eMsgShow,
-						tFileItemPtr(), 0, DL_HINT_GUESS_REPLACEMENT))
+						0, DL_HINT_GUESS_REPLACEMENT))
 		{
 			if(!m_metaFilesRel[sPathRel].hideDlErrors)
 			{
@@ -1577,7 +1560,7 @@ bool cacheman::UpdateVolatileFiles()
 		string sErr;
 		if(Download(idx2att.first, true,
 				idx2att.second.hideDlErrors ? eMsgHideErrors : eMsgShow,
-						tFileItemPtr(), 0, DL_HINT_GUESS_REPLACEMENT))
+						0, DL_HINT_GUESS_REPLACEMENT))
 		{
 			continue;
 		}

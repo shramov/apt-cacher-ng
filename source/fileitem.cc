@@ -163,6 +163,7 @@ fileitem::FiStatus fileitem_with_storage::Setup()
 			}
 		}
 	}
+	m_responseStatus = { 200, "OK" };
 	LOG("resulting status: " << (int) m_status);
 	return m_status;
 }
@@ -841,9 +842,8 @@ void fileitem_with_storage::MoveRelease2Sidestore()
 
 void fileitem_with_storage::DlFinish(bool asInCache)
 {
-	LOGSTARTFUNC
-
-			notifyAll();
+	LOGSTARTFUNC;
+	notifyAll();
 
 	if (m_status >= FIST_COMPLETE)
 	{
@@ -854,6 +854,8 @@ void fileitem_with_storage::DlFinish(bool asInCache)
 	if (asInCache)
 	{
 		m_nSizeChecked = m_nContentLength = m_nSizeCachedInitial;
+		// to be on the safe side
+		m_responseStatus = {200, "OK"};
 	}
 
 	// XXX: double-check whether the content length in header matches checked size?
