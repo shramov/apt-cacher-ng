@@ -205,7 +205,7 @@ static void SetupCacheDir()
 
 void log_handler(evutil_socket_t, short, void*)
 {
-	log::close(true);
+	log::close(true, false);
 }
 
 void noop_handler(evutil_socket_t, short, void*)
@@ -317,7 +317,7 @@ struct tAppStartStop
 		CloseAllCachedConnections();
 		g_victor.reset();
 		g_registry.reset();
-		log::close(false);
+		log::close(false, false);
 		globalSslDeInit();
 	}
 };

@@ -390,6 +390,7 @@ struct ltstring {
 typedef std::map<mstring, mstring, ltstring> NoCaseStringMap;
 
 static constexpr string_view svRN = szRN;
+static constexpr string_view svLF = "\n";
 
 #if !defined(HAVE_STRLCPY) || !HAVE_STRLCPY
 size_t strlcpy(char *tgt, const char *src, size_t tgtSize);

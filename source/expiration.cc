@@ -384,15 +384,15 @@ inline void expiration::RemoveAndStoreStatus(bool bPurgeNow)
         f.p = fopen(sDbFileAbs.c_str(), "w");
         if(!f)
         {
-            SendChunk(WITHLEN("Unable to open " FNAME_PENDING
+			SendChunk(WITHLEN("Unable to open " FNAME_PENDING
             		" for writing, attempting to recreate... "));
             ::unlink(sDbFileAbs.c_str());
             f.p=::fopen(sDbFileAbs.c_str(), "w");
             if(f)
-                SendChunk(WITHLEN("OK\n<br>\n"));
+				SendChunk(WITHLEN("OK\n<br>\n"));
             else
             {
-                SendChunk(WITHLEN(
+				SendChunk(WITHLEN(
                 		"<span class=\"ERROR\">"
                 		"FAILED. ABORTING. Check filesystem and file permissions."
                 		"</span>"));

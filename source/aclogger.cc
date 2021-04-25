@@ -36,6 +36,8 @@ bool logIsEnabled = false;
 ACNG_API bool logIsEnabled = true;
 #endif
 
+#define MAX_DBG_LIMIT 500*1000000
+
 std::atomic<off_t> totalIn(0), totalOut(0);
 
 std::pair<off_t,off_t> GetCurrentCountersInOut()
@@ -137,9 +139,9 @@ mstring open()
 	logIsEnabled = true;
 
 
-	string apath = PathCombine(cfg::logdir, "/apt-cacher.log"),
-			epath = PathCombine(cfg::logdir, "/apt-cacher.err"),
-			dpath = PathCombine(cfg::logdir, "/apt-cacher.dbg");
+	string apath = PathCombine(cfg::logdir, "apt-cacher.log"),
+			epath = PathCombine(cfg::logdir, "apt-cacher.err"),
+			dpath = PathCombine(cfg::logdir, "apt-cacher.dbg");
 	
 	mkbasedir(apath);
 
@@ -248,12 +250,19 @@ void dbg(const char *msg, size_t len)
 		auto tm=time(nullptr);
 		ctime_r(&tm, buf);
 		buf[24]='|';
-		fDbg.write(buf, 25).write(msg, len).write(szNEWLINE, 1);
+		fDbg.write(buf, 25).write(msg, len);
+		if (cfg::debug & LOG_FLUSH)
+			fDbg << endl; // this auto-flushes
+		else
+			fDbg << szNEWLINE;
 	}
 
 	if (cfg::debug & LOG_DEBUG_CONSOLE)
-	{
-		cerr.write(msg, len).write(szNEWLINE, 1);
+	{	
+		if (cfg::debug & LOG_FLUSH)
+			cerr << endl; // auto-flushes
+		else
+			cerr.write(msg, len) << szNEWLINE;
 	}
 }
 
@@ -269,9 +278,16 @@ void ACNG_API flush()
 		if(h->is_open())
 			h->flush();
 	}
+
+	if (fDbg.is_open())
+	{
+		auto pos = fDbg.tellp();
+		if (pos > MAX_DBG_LIMIT)
+			close(true, true);
+	}
 }
 
-void close(bool bReopen)
+void close(bool bReopen, bool truncateDebugLog)
 {
 	// let's try to store a snapshot of the current stats
 	auto snapIn = offttos(totalIn.exchange(0));
@@ -286,16 +302,19 @@ void close(bool bReopen)
 	ignore_value(symlink(snapOut.c_str(), outLinkPath.c_str()));
 
 
-	if(!logIsEnabled)
+	if (!logIsEnabled)
 		return;
 
 	lockguard g(mx);
 	if(cfg::debug >= LOG_MORE) cerr << (bReopen ? "Reopening logs...\n" : "Closing logs...\n");
 	for (auto* h: {&fErr, &fStat, &fDbg})
 	{
-		if(h->is_open())
+		if (h->is_open())
 			h->close();
 	}
+	if (truncateDebugLog)
+		truncate(PathCombine(cfg::logdir, "apt-cacher.dbg").c_str(), 0);
+
 	if(bReopen)
 		log::open();
 }

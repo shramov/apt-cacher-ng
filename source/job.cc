@@ -515,9 +515,11 @@ void job::Prepare(const header &h, string_view headBuf) {
 			m_keepAlive = KEEP;
 	}
 
+	constexpr string_view fname = "/_actmp";
+
 	// "clever" file system browsing attempt?
 	if(rex::Match(sReqPath, rex::NASTY_PATH)
-	   || stmiss != sReqPath.find(MAKE_PTR_0_LEN("/_actmp"))
+	   || stmiss != sReqPath.find(fname.data(), 0, fname.size())
 	   || startsWithSz(sReqPath, "/_"))
 	{
 		LOG("ERROR: internal path or FS break-out attempt");

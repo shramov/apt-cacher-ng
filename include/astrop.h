@@ -35,7 +35,7 @@
 #define setIfNotEmpty2(where, cand, alt) { if(where.empty()) { if(!cand.empty()) where = cand; else where = alt; } }
 
 #define WITHLEN(x) x, (_countof(x)-1)
-#define MAKE_PTR_0_LEN(x) x, 0, (_countof(x)-1)
+#define WLsv(x) x.data(), x.size()
 
 namespace acng
 {
