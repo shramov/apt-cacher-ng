@@ -271,20 +271,20 @@ void ACNG_API flush()
 {
 	if(!logIsEnabled)
 		return;
-
-	lockguard g(mx);
-	for (auto* h: {&fErr, &fStat, &fDbg})
+	off_t curSize(-1);
 	{
-		if(h->is_open())
-			h->flush();
+		lockguard g(mx);
+		for (auto* h: {&fErr, &fStat, &fDbg})
+		{
+			if(h->is_open())
+				h->flush();
+		}
+		if (fDbg.is_open())
+			curSize = fDbg.tellp();
 	}
+	if (curSize > MAX_DBG_LIMIT)
+		close(true, true);
 
-	if (fDbg.is_open())
-	{
-		auto pos = fDbg.tellp();
-		if (pos > MAX_DBG_LIMIT)
-			close(true, true);
-	}
 }
 
 void close(bool bReopen, bool truncateDebugLog)
