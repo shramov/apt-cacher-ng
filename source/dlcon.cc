@@ -77,7 +77,7 @@ struct tDlJob
 
 #define HINT_MORE 0
 #define HINT_DONE 1
-#define HINT_DISCON 2
+#define HINT_RECONNECT_NOW 2
 #define EFLAG_JOB_BROKEN 4
 #define EFLAG_MIRROR_BROKEN 8
 #define EFLAG_STORE_COLLISION 16
@@ -85,6 +85,7 @@ struct tDlJob
 #define EFLAG_LOST_CON 64
 #define HINT_KILL_LAST_FILE 128
 #define HINT_TGTCHANGE 256
+#define HINT_RECONNECT_SOON 512
 
 	const cfg::tRepoData *m_pRepoDesc = nullptr;
 
@@ -107,7 +108,6 @@ struct tDlJob
 	tHttpUrl m_remoteUri;
 	const tHttpUrl *m_pCurBackend = nullptr;
 
-	uint_fast8_t m_eReconnectASAP = 0;
 	bool m_bBackendMode = false;
 	// input parameters
 	bool m_bIsPassThroughRequest = false;
@@ -438,7 +438,7 @@ struct tDlJob
 				if (!m_pStorage->DlAddData(string_view(inBuf.rptr(), nToStore)))
 				{
                     sErrorMsg = "Cannot store";
-					return HINT_DISCON | EFLAG_JOB_BROKEN;
+					return HINT_RECONNECT_NOW | EFLAG_JOB_BROKEN;
 				}
 			}
 			m_nRest -= nToStore;
@@ -463,10 +463,10 @@ struct tDlJob
 	unsigned ProcessIncomming(acbuf &inBuf, bool bOnlyRedirectionActivity)
 	{
 		LOGSTART("tDlJob::ProcessIncomming");
-		if (!m_pStorage)
+		if (AC_UNLIKELY(!m_pStorage))
 		{
             sErrorMsg = "Bad cache item";
-			return HINT_DISCON | EFLAG_JOB_BROKEN;
+			return HINT_RECONNECT_NOW | EFLAG_JOB_BROKEN;
 		}
 
 		for (;;) // returned by explicit error (or get-more) return
@@ -499,11 +499,8 @@ struct tDlJob
 				if (hDataLen < 0)
 				{
 					sErrorMsg = "Invalid header";
-#ifdef DEBUG
-					auto wtf = inBuf.view();
-#endif
 					// can be followed by any junk... drop that mirror, previous file could also contain bad data
-					return EFLAG_MIRROR_BROKEN | HINT_DISCON
+					return EFLAG_MIRROR_BROKEN | HINT_RECONNECT_NOW
 							| HINT_KILL_LAST_FILE;
 				}
 
@@ -514,9 +511,21 @@ struct tDlJob
 					dbgline;
                     sErrorMsg = "Unexpected response type";
 					// smells fatal...
-					return EFLAG_MIRROR_BROKEN | HINT_DISCON;
+					return EFLAG_MIRROR_BROKEN | HINT_RECONNECT_NOW;
 				}
 				ldbg("GOT, parsed: " << h.frontLine);
+
+				unsigned ret = 0;
+
+				auto pCon = h.h[header::CONNECTION];
+				if (!pCon)
+					pCon = h.h[header::PROXY_CONNECTION];
+
+				if (pCon && 0 == strcasecmp(pCon, "close"))
+				{
+					ldbg("Peer wants to close connection after request");
+					ret |= HINT_RECONNECT_SOON;
+				}
 
 				int st = h.getStatus();
 
@@ -524,14 +533,14 @@ struct tDlJob
 
 				// processing hint 102, or something like 103 which we can ignore
 				if (st < 200)
-					return HINT_MORE;
+					return ret | HINT_MORE;
 
 				if (cfg::redirmax) // internal redirection might be disabled
 				{
 					if (IS_REDIRECT(st))
 					{
 						if (!RewriteSource(h.h[header::LOCATION]))
-							return EFLAG_JOB_BROKEN;
+							return ret | EFLAG_JOB_BROKEN;
 
 						// drop the redirect page contents if possible so the outer loop
 						// can scan other headers
@@ -539,7 +548,7 @@ struct tDlJob
 								0);
 						if (contLen <= inBuf.size())
 							inBuf.drop(contLen);
-						return HINT_TGTCHANGE; // no other flags, caller will evaluate the state
+						return ret | HINT_TGTCHANGE; // no other flags, caller will evaluate the state
 					}
 
 					// for non-redirection responses process as usual
@@ -547,7 +556,7 @@ struct tDlJob
 					// unless it's a probe run from the outer loop, in this case we
 					// should go no further
 					if (bOnlyRedirectionActivity)
-						return EFLAG_LOST_CON | HINT_DISCON;
+						return ret | EFLAG_LOST_CON | HINT_RECONNECT_NOW;
 				}
 
 				// explicitly blacklist mirror if key file is missing
@@ -558,20 +567,9 @@ struct tDlJob
 						if (endsWith(m_remoteUri.sPath, kfile))
 						{
                             sErrorMsg = "Keyfile N/A, mirror blacklisted";
-							return HINT_DISCON | EFLAG_MIRROR_BROKEN;
+							return ret | HINT_RECONNECT_NOW | EFLAG_MIRROR_BROKEN;
 						}
 					}
-				}
-#warning BS, set this in the header check method
-
-				auto pCon = h.h[header::CONNECTION];
-				if (!pCon)
-					pCon = h.h[header::PROXY_CONNECTION];
-
-				if (pCon && 0 == strcasecmp(pCon, "close"))
-				{
-					ldbg("Peer wants to close connection after request");
-					m_eReconnectASAP = HINT_DISCON;
 				}
 
                 if (m_fiAttr.bHeadOnly)
@@ -603,7 +601,7 @@ struct tDlJob
 				{
 					dbgline;
                     sErrorMsg = "Missing Content-Length";
-					return HINT_DISCON | EFLAG_JOB_BROKEN;
+					return ret | HINT_RECONNECT_NOW | EFLAG_JOB_BROKEN;
 				}
 				else
 				{
@@ -643,14 +641,14 @@ struct tDlJob
 				inBuf.drop(size_t(hDataLen));
 
 				if (storeResult == EResponseEval::RESTART_NEEDED)
-					return EFLAG_LOST_CON | HINT_DISCON; // recoverable
+					return ret | EFLAG_LOST_CON | HINT_RECONNECT_NOW; // recoverable
 
 				if (storeResult == EResponseEval::BUSY_OR_ERROR)
 				{
 					ldbg("Item dl'ed by others or in error state --> drop it, reconnect");
 					m_DlState = STATE_PROCESS_DATA;
                     sErrorMsg = "Busy Cache Item";
-					return HINT_DISCON | EFLAG_JOB_BROKEN
+					return ret | HINT_RECONNECT_NOW | EFLAG_JOB_BROKEN
 							| EFLAG_STORE_COLLISION;
 				}
 
@@ -670,7 +668,7 @@ struct tDlJob
 				lockguard g(*m_pStorage);
 				m_pStorage->DlFinish();
 				m_DlState = STATE_GETHEADER;
-				return HINT_DONE | m_eReconnectASAP;
+				return HINT_DONE;
 			}
 			else if (m_DlState == STATE_GETCHUNKHEAD)
 			{
@@ -792,21 +790,10 @@ struct tDlJob
 		case 200:
 		{
             remoteStatus.msg = "OK";
-
-			// Code 200 must start from the beginning, size was already reported
+			// Code 200 must start from the beginning! Size was already reported to users
 			if (m_pStorage->m_nSizeChecked > 0)
 			{
-				/* shouldn't be here, and if resuming that would be a 206 instead
-				 */
                 return withError("Failed to resume remote download");
-			}
-			if (m_nUsedRangeStartPos >= 0)
-			{
-				// might be okay but only if file is newer and file item expects this
-                if (m_pStorage->IsVolatile())
-					m_nUsedRangeStartPos = -1;
-				else
-                    return withError("Cannot resume while previous size already reported");
 			}
 			break;
 		}
@@ -963,6 +950,7 @@ class dlcon::Impl
 #define fdWakeRead m_wakepipe[0]
 #define fdWakeWrite m_wakepipe[1]
 #endif
+	// cheaper way to trigger wake flag checks and also notify about termination request, without locking mutex all the time
 	atomic_int m_ctrl_hint = ATOMIC_VAR_INIT(0);
 	mutex m_handover_mutex;
 
@@ -997,7 +985,7 @@ class dlcon::Impl
 	unsigned m_nLastDlCount = 0;
 
 	void wake();
-	void awaken_check();
+	void drain_event_stream();
 
 	void WorkLoop();
 	bool AddJob(tFileItemPtr m_pItem, const dlrequest& rq);
@@ -1010,11 +998,9 @@ public:
 	{
 		LOGSTART("dlcon::Impl::dlcon");
 #ifdef HAVE_LINUX_EVENTFD
-		m_wakeventfd = eventfd(0, 0);
+		m_wakeventfd = eventfd(0, EFD_NONBLOCK);
 		if (m_wakeventfd == -1)
 			m_ctrl_hint = -1;
-		else
-			set_nb(m_wakeventfd);
 #else
 	if (0 == pipe(m_wakepipe))
 	{
@@ -1088,7 +1074,7 @@ inline void dlcon::Impl::wake()
 
 }
 
-inline void dlcon::Impl::awaken_check()
+inline void dlcon::Impl::drain_event_stream()
 {
 	LOGSTARTFUNC
 	eventfd_t xtmp;
@@ -1183,7 +1169,7 @@ inline unsigned dlcon::Impl::ExchangeData(mstring &sErrorMsg,
 		FD_SET(fdWakeRead, &rfds);
 		int nMaxFd = fdWakeRead;
 
-		if (fd >= 0)
+		if (fd != -1)
 		{
 			FD_SET(fd, &rfds);
 			nMaxFd = std::max(fd, nMaxFd);
@@ -1216,22 +1202,22 @@ inline unsigned dlcon::Impl::ExchangeData(mstring &sErrorMsg,
 				CTimeVal().ForNetTimeout());
 		ldbg("returned: " << r << ", errno: " << errno);
 		if (m_ctrl_hint < 0)
-			return HINT_DISCON;
+			return HINT_RECONNECT_NOW;
 
 		if (r == -1)
 		{
 			if (EINTR == errno)
 				continue;
 			if (EBADF == errno) // that some times happen for no obvious reason
-				return HINT_DISCON;
+				return HINT_RECONNECT_NOW;
 			tErrnoFmter fer("FAILURE: select, ");
 			LOG(fer);
-			sErrorMsg = string("500 Internal malfunction, ") + fer;
-			return HINT_DISCON | EFLAG_JOB_BROKEN | EFLAG_MIRROR_BROKEN;
+			sErrorMsg = string("Internal malfunction, ") + fer;
+			return HINT_RECONNECT_NOW | EFLAG_JOB_BROKEN | EFLAG_MIRROR_BROKEN;
 		}
 		else if (r == 0) // looks like a timeout
 		{
-			sErrorMsg = "500 Connection timeout";
+			sErrorMsg = "Connection timeout";
 			LOG(sErrorMsg);
 
 			// was there anything to do at all?
@@ -1241,12 +1227,12 @@ inline unsigned dlcon::Impl::ExchangeData(mstring &sErrorMsg,
 			if (inpipe.front().IsRecoverableState())
 				return EFLAG_LOST_CON;
 			else
-				return (HINT_DISCON | EFLAG_JOB_BROKEN);
+				return (HINT_RECONNECT_NOW| EFLAG_JOB_BROKEN);
 		}
 
 		if (FD_ISSET(fdWakeRead, &rfds))
 		{
-			awaken_check();
+			drain_event_stream();
 			return HINT_SWITCH;
 		}
 
@@ -1279,7 +1265,7 @@ inline unsigned dlcon::Impl::ExchangeData(mstring &sErrorMsg,
 						// EAGAIN is weird but let's retry later, otherwise reconnect
 						if (errno != EAGAIN && errno != EINTR)
 						{
-							sErrorMsg = "502 Send failed";
+							sErrorMsg = "Send failed";
 							return EFLAG_LOST_CON;
 						}
 					}
@@ -1378,43 +1364,14 @@ inline unsigned dlcon::Impl::ExchangeData(mstring &sErrorMsg,
 			else if (r == 0)
 			{
 				dbgline;
-#warning FIXME: there should be recovery, even a transparent one, but it doesn't work. Simulate those errors and debug
-				/*
-Fehl:175 http://download.mono-project.com/repo/debian stretch/main amd64 libmono-2.0-dev amd64 6.12.0.122-0xamarin1+debian9b1
-  503  502 Connection closed [IP: ::1 3145]
-Fehl:176 http://download.mono-project.com/repo/debian stretch/main amd64 libmonosgen-2.0-dev amd64 6.12.0.122-0xamarin1+debian9b1
-  503  502 Connection closed [IP: ::1 3145]
-Fehl:177 http://download.mono-project.com/repo/debian stretch/main amd64 libmonosgen-2.0-1 amd64 6.12.0.122-0xamarin1+debian9b1
-  503  502 Connection closed [IP: ::1 3145]
-Ign:178 http://download.mono-project.com/repo/debian stretch/main amd64 ca-certificates-mono all 6.12.0.122-0xamarin1+debian9b1
-Fehl:179 http://download.mono-project.com/repo/debian stretch/main amd64 libmono-btls-interface4.0-cil amd64 6.12.0.122-0xamarin1+debian9b1
-  503  502 Connection closed [IP: ::1 3145]
-Ign:180 http://download.mono-project.com/repo/debian stretch/main amd64 mono-csharp-shell all 6.12.0.122-0xamarin1+debian9b1
-Ign:181 http://download.mono-project.com/repo/debian stretch/main amd64 monodoc-manual all 6.12.0.122-0xamarin1+debian9b1
-Ign:182 http://download.mono-project.com/repo/debian stretch/main amd64 msbuild-sdkresolver all 1:16.6+xamarinxplat.2021.01.15.16.11-0xamarin1+debian9b1
-Ign:183 http://download.mono-project.com/repo/debian stretch/main amd64 msbuild all 1:16.6+xamarinxplat.2021.01.15.16.11-0xamarin1+debian9b1
-Fehl:138 http://download.mono-project.com/repo/debian stretch/main amd64 libmono-system-reactive-platformservices2.2-cil all 6.12.0.122-0xamarin1+debian9b1
-  503  502 Connection closed [IP: ::1 3145]
-Fehl:139 http://download.mono-project.com/repo/debian stretch/main amd64 libmono-system-reactive-runtime-remoting2.2-cil all 6.12.0.122-0xamarin1+debian9b1
-  503  502 Connection closed [IP: ::1 3145]
-Fehl:140 http://download.mono-project.com/repo/debian stretch/main amd64 libmono-system-reactive-windows-forms2.2-cil all 6.12.0.122-0xamarin1+debian9b1
-  503  502 Connection closed [IP: ::1 3145]
-Fehl:141 http://download.mono-project.com/repo/debian stretch/main amd64 libmono-system-xaml4.0-cil all 6.12.0.122-0xamarin1+debian9b1
-  503  502 Connection closed [IP: ::1 3145]
-				 *
-				 * */
-				sErrorMsg = "502 Connection closed";
+				sErrorMsg = "Connection closed, check DlMaxRetries";
 				return EFLAG_LOST_CON;
 			}
 			else if (r < 0) // other error, might reconnect
 			{
 				dbgline;
-#ifdef MINIBUILD
-				sErrorMsg = "502 EPIC FAIL";
-#else
 				// pickup the error code for later and kill current connection ASAP
-				sErrorMsg = tErrnoFmter("502 ");
-#endif
+				sErrorMsg = tErrnoFmter();
 				return EFLAG_LOST_CON;
 			}
 
@@ -1423,7 +1380,7 @@ Fehl:141 http://download.mono-project.com/repo/debian stretch/main amd64 libmono
 			if (inpipe.empty())
 			{
 				ldbg("FIXME: unexpected data returned?");
-				sErrorMsg = "500 Unexpected data";
+				sErrorMsg = "Unexpected data";
 				return EFLAG_LOST_CON;
 			}
 
@@ -1432,8 +1389,7 @@ Fehl:141 http://download.mono-project.com/repo/debian stretch/main amd64 libmono
 
 				ldbg("Processing job for " << inpipe.front().RemoteUri(false));
 				unsigned res = inpipe.front().ProcessIncomming(m_inBuf, false);
-				ldbg(
-						"... incoming data processing result: " << res << ", emsg: " << inpipe.front().sErrorMsg);
+				ldbg("... incoming data processing result: " << res << ", emsg: " << inpipe.front().sErrorMsg);
 
 				if (res & EFLAG_MIRROR_BROKEN)
 				{
@@ -1446,12 +1402,11 @@ Fehl:141 http://download.mono-project.com/repo/debian stretch/main amd64 libmono
 				if (HINT_DONE & res)
 				{
 					// just in case that server damaged the last response body
-					con->KnowLastFile(
-							WEAK_PTR<fileitem>(inpipe.front().m_pStorage));
+					con->KnowLastFile(WEAK_PTR<fileitem>(inpipe.front().m_pStorage));
 
 					inpipe.pop_front();
-					if (HINT_DISCON & res)
-						return HINT_DISCON; // with cleaned flags
+					if (HINT_RECONNECT_NOW & res)
+						return HINT_RECONNECT_NOW; // with cleaned flags
 
 					LOG(
 							"job finished. Has more? " << inpipe.size() << ", remaining data? " << m_inBuf.size());
@@ -1481,11 +1436,11 @@ Fehl:141 http://download.mono-project.com/repo/debian stretch/main amd64 libmono
 						{
 							// not internal redirection or some failure doing it
 							m_nTempPipelineDisable = 30;
-							return (HINT_TGTCHANGE | HINT_DISCON);
+							return (HINT_TGTCHANGE | HINT_RECONNECT_NOW);
 						}
 					}
 					// processed all inpipe stuff but if the buffer is still not empty then better disconnect
-					return HINT_TGTCHANGE | (m_inBuf.empty() ? 0 : HINT_DISCON);
+					return HINT_TGTCHANGE | (m_inBuf.empty() ? 0 : HINT_RECONNECT_NOW);
 				}
 
 				// else case: error handling, pass to main loop
@@ -1500,7 +1455,7 @@ Fehl:141 http://download.mono-project.com/repo/debian stretch/main amd64 libmono
 
 	ASSERT(!"Unreachable");
 	sErrorMsg = "500 Internal failure";
-	return EFLAG_JOB_BROKEN | HINT_DISCON;
+	return EFLAG_JOB_BROKEN | HINT_RECONNECT_NOW;
 }
 
 void dlcon::Impl::WorkLoop()
@@ -1530,7 +1485,7 @@ void dlcon::Impl::WorkLoop()
 	unsigned loopRes = 0;
 
 	bool bStopRequesting = false; // hint to stop adding request headers until the connection is restarted
-
+	bool bExpectRemoteClosing = false;
 	int nLostConTolerance = MAX_RETRY;
 
 	auto BlacklistMirror = [&](tDlJob &job)
@@ -1616,6 +1571,8 @@ void dlcon::Impl::WorkLoop()
 			ASSERT(!next_jobs.empty());
 			auto doconnect = [&](const tHttpUrl &tgt, int timeout, bool fresh)
 			{
+				bExpectRemoteClosing = false;
+
 				return m_conFactory.CreateConnected(tgt.sHost,
 						tgt.GetPort(),
 						sErrorMsg,
@@ -1759,20 +1716,25 @@ void dlcon::Impl::WorkLoop()
 
 		// inner loop: plain communication until something happens. Maybe should use epoll here?
 		loopRes = ExchangeData(sErrorMsg, con, active_jobs);
-		ldbg("loopRes: "<< loopRes << " = " << tSS::BitPrint(" | ", loopRes,
-				BITNNAME(HINT_DISCON)
-		, BITNNAME(HINT_DONE)
-		, BITNNAME(HINT_KILL_LAST_FILE)
-		, BITNNAME(HINT_MORE)
-		, BITNNAME(HINT_SWITCH)
-		, BITNNAME(HINT_TGTCHANGE)
-		, BITNNAME(EFLAG_JOB_BROKEN)
-		, BITNNAME(EFLAG_LOST_CON)
-		, BITNNAME(EFLAG_STORE_COLLISION)
-		, BITNNAME(EFLAG_MIRROR_BROKEN)
 
-
+		ldbg("loopRes: "<< loopRes
+			 << " = " << tSS::BitPrint(" | ",
+									   loopRes,
+									   BITNNAME(HINT_RECONNECT_NOW)
+									   , BITNNAME(HINT_DONE)
+									   , BITNNAME(HINT_KILL_LAST_FILE)
+									   , BITNNAME(HINT_MORE)
+									   , BITNNAME(HINT_SWITCH)
+									   , BITNNAME(HINT_TGTCHANGE)
+									   , BITNNAME(EFLAG_JOB_BROKEN)
+									   , BITNNAME(EFLAG_LOST_CON)
+									   , BITNNAME(EFLAG_STORE_COLLISION)
+									   , BITNNAME(EFLAG_MIRROR_BROKEN)
+									   , BITNNAME(HINT_RECONNECT_SOON)
 		) );
+
+		bExpectRemoteClosing |= (loopRes & HINT_RECONNECT_SOON);
+
 		if (m_ctrl_hint < 0 || evabase::in_shutdown)
 			return;
 
@@ -1791,7 +1753,7 @@ void dlcon::Impl::WorkLoop()
 			bStopRequesting = false;
 
 			// no error bits set, not busy -> this connection is still good, recycle properly
-			unsigned all_err = HINT_DISCON | EFLAG_JOB_BROKEN | EFLAG_LOST_CON
+			constexpr auto all_err = HINT_RECONNECT_NOW | HINT_RECONNECT_SOON | EFLAG_JOB_BROKEN | EFLAG_LOST_CON
 					| EFLAG_MIRROR_BROKEN;
 			if (con && !(loopRes & all_err))
 			{
@@ -1806,7 +1768,7 @@ void dlcon::Impl::WorkLoop()
 		 * needing special handling.
 		 */
 
-		if ((HINT_DISCON | EFLAG_LOST_CON) & loopRes)
+		if ((HINT_RECONNECT_NOW | EFLAG_LOST_CON) & loopRes)
 		{
 			dbgline;
 			con.reset();
@@ -1827,24 +1789,25 @@ void dlcon::Impl::WorkLoop()
 		if ((EFLAG_LOST_CON & loopRes) && !active_jobs.empty())
 		{
 			// disconnected by OS... give it a chance, or maybe not...
-			if (--nLostConTolerance <= 0)
+			if (! bExpectRemoteClosing)
 			{
-				BlacklistMirror(active_jobs.front());
-				nLostConTolerance = MAX_RETRY;
+				if (--nLostConTolerance <= 0)
+				{
+					BlacklistMirror(active_jobs.front());
+					nLostConTolerance = MAX_RETRY;
+				}
 			}
-
 			con.reset();
 
-			timespec sleeptime =
-			{ 0, 325000000 };
-			nanosleep(&sleeptime, nullptr);
-
-			// trying to resume that job secretly, unless user disabled the use of range (we
-			// cannot resync the sending position ATM, throwing errors to user for now)
-            if (cfg::vrangeops <= 0 && active_jobs.front().m_fiAttr.bVolatile)
-				loopRes |= EFLAG_JOB_BROKEN;
-			else
-				active_jobs.front().m_DlState = tDlJob::STATE_GETHEADER;
+			if (! (HINT_DONE & loopRes))
+			{
+				// trying to resume that job secretly, unless user disabled the use of range (we
+				// cannot resync the sending position ATM, throwing errors to user for now)
+				if (cfg::vrangeops <= 0 && active_jobs.front().m_fiAttr.bVolatile)
+					loopRes |= EFLAG_JOB_BROKEN;
+				else
+					active_jobs.front().m_DlState = tDlJob::STATE_GETHEADER;
+			}
 		}
 
 		if (loopRes & (HINT_DONE | HINT_MORE))
