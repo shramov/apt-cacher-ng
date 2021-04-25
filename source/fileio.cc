@@ -64,8 +64,7 @@ std::error_code FileCopy(cmstring &from, cmstring &to)
 
 ssize_t sendfile_generic(int out_fd, int in_fd, off_t *offset, size_t count)
 {
-	char buf[BUFSIZ];
-	ssize_t totalcnt=0;
+	char buf[6*BUFSIZ];
 	
 	if(!offset)
 	{
@@ -74,35 +73,31 @@ ssize_t sendfile_generic(int out_fd, int in_fd, off_t *offset, size_t count)
 	}
 	if(lseek(in_fd, *offset, SEEK_SET)== (off_t)-1)
 		return -1;
-	while(count>0)
+
+	ssize_t totalcnt=0;
+
+	if(count > sizeof(buf))
+		count = sizeof(buf);
+	auto readcount=read(in_fd, buf, count);
+	if(readcount<=0)
 	{
-		auto maxlen=sizeof(buf);
-		if(count<maxlen) maxlen=count;
-		auto readcount=read(in_fd, buf, maxlen);
-		if(readcount<=0)
+		if(errno==EINTR || errno==EAGAIN)
+			return 0;
+		else
+			return readcount;
+	}
+	for(decltype(readcount) nPos(0);nPos<readcount;)
+	{
+		auto r = write(out_fd, buf+nPos, readcount-nPos);
+		if (r<0)
 		{
-			if(errno==EINTR || errno==EAGAIN)
+			if(errno==EAGAIN || errno==EINTR)
 				continue;
-			else
-				return readcount;
+			return r;
 		}
-		
-		*offset+=readcount;
-		totalcnt+=readcount;
-		count-=readcount;
-		
-		for(decltype(readcount) nPos(0);nPos<readcount;)
-		{
-			auto r=write(out_fd, buf+nPos, readcount-nPos);
-			if(r==0) continue; // not nice but needs to deliver it
-			if(r<0)
-			{
-				if(errno==EAGAIN || errno==EINTR)
-					continue;
-				return r;
-			}
-			nPos+=r;
-		}
+		nPos+=r;
+		*offset+=r;
+		totalcnt+=r;
 	}
 	return totalcnt;
 }

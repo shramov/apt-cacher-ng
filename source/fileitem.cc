@@ -719,6 +719,9 @@ ssize_t fileitem_with_storage::SendData(int out_fd, int in_fd, off_t &nSendPos, 
 #ifndef HAVE_LINUX_SENDFILE
 	return sendfile_generic(out_fd, in_fd, &nSendPos, count);
 #else
+	//if (m_status <= FIST_DLRECEIVING)
+	//	return sendfile_generic(out_fd, in_fd, &nSendPos, count);
+
 	auto r = sendfile(out_fd, in_fd, &nSendPos, count);
 
 	if(r<0 && (errno == ENOSYS || errno == EINVAL))
