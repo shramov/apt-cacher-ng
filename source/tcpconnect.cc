@@ -833,7 +833,7 @@ bool tcpconnect::StartTunnel(const tHttpUrl& realTarget, mstring& sError,
 			if(!n)
 				continue;
 
-			auto st = h.getStatus();
+			auto st = h.getStatusCode();
 			if (n <= 0 || st == 404 /* just be sure it doesn't send crap */)
 			{
                 sError = "Tunnel setup failed";
@@ -842,7 +842,7 @@ bool tcpconnect::StartTunnel(const tHttpUrl& realTarget, mstring& sError,
 
 			if (st < 200 || st >= 300)
 			{
-                sError = h.getMessage();
+				sError = h.getStatusMessage();
 				return false;
 			}
 			break;

@@ -252,11 +252,11 @@ bool StoreHeadToStorage(cmstring &path, off_t contLen, tHttpDate *lastModified, 
 
 //const std::regex reHttpStatus("(\\s*)(HTTP/1.?)?(\\s+)(.*?)(\\s*)");
 
-tRemoteStatus::tRemoteStatus(string_view s)
+tRemoteStatus::tRemoteStatus(string_view s, int errorCode, bool stripHttpPrefix)
 {
 	tSplitWalk split(s);
 	bool ok = split.Next();
-	if (ok)
+	if (ok && stripHttpPrefix)
 	{
 		if (startsWithSz(split.view(), "HTTP/1"))
 			ok = split.Next();
@@ -264,15 +264,16 @@ tRemoteStatus::tRemoteStatus(string_view s)
 	if (ok)
 	{
 		auto tok = split.view();
-		if (!tok.empty() && 0 != (code = svtol(tok, 0)))
-		{
-			msg = split.right();
-			ok = !msg.empty();
-		}
+		ok = !tok.empty() && 0 != (code = svtol(tok, 0));
+	}
+	if (ok)
+	{
+		msg = split.right();
+		ok = !msg.empty();
 	}
 	if (!ok)
 	{
-		code = 500;
+		code = errorCode;
 		msg = "Invalid header line";
 	}
 }

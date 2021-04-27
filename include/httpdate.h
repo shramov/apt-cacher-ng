@@ -80,7 +80,8 @@ struct ACNG_API tRemoteStatus
 	int code = 500;
     std::string msg;
 
-    bool isRedirect() {
+	bool isRedirect() const
+	{
         switch(code)
         {
         case 301:
@@ -94,7 +95,7 @@ struct ACNG_API tRemoteStatus
         }
     }
 
-    bool mustNotHaveBody()
+	bool mustNotHaveBody() const
     {
         // no response for not-modified or similar, following http://www.w3.org/Protocols/rfc2616/rfc2616-sec4.html#sec4.4
         switch(code)
@@ -106,8 +107,9 @@ struct ACNG_API tRemoteStatus
             return (code >= 100 && code < 200);
         }
     }
-	tRemoteStatus(string_view); // strip HTTP prefix, extract code, save message
+	tRemoteStatus(string_view, int errorCode, bool stripHttpPrefix);
     tRemoteStatus(int code, mstring s) : code(code), msg(move(s)) {}
+//	tRemoteStatus(tRemoteStatus &&src) : code(src.code), msg(move(src.msg)) {}
     tRemoteStatus() =default;
 };
 

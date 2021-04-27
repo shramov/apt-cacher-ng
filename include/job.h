@@ -2,7 +2,6 @@
 #define _JOB_H
 
 #include "config.h"
-#include "header.h"
 #include "acbuf.h"
 #include <sys/types.h>
 #include "fileitem.h"
@@ -12,6 +11,8 @@ namespace acng
 {
 
 class ISharedConnectionResources;
+class header;
+
 namespace rex {
 enum eMatchType : int8_t;
 }

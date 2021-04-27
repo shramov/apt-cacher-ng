@@ -473,7 +473,6 @@ void job::Prepare(const header &h, string_view headBuf) {
 		m_xff = h.h[header::XFORWARDEDFOR];
 	}
 
-	tSplitWalk tokenizer(h.frontLine, SPACECHARS);
 	// some macros, to avoid goto style
 	auto report_invport = [this]()
 	{
@@ -494,16 +493,10 @@ void job::Prepare(const header &h, string_view headBuf) {
 
 	if(h.type!=header::GET && h.type!=header::HEAD)
 		return report_invpath();
-	if(!tokenizer.Next() || !tokenizer.Next()) // at path...
-		return report_invpath();
-	UrlUnescapeAppend(tokenizer, sReqPath);
 
-	if(!tokenizer.Next()) // at proto
-	{
-		return report_invpath();
-	}
-	auto sProto = tokenizer.view();
-	m_bIsHttp11 = (sProto == sHttp11);
+	UrlUnescapeAppend(h.getRequestUrl(), sReqPath);
+
+	m_bIsHttp11 = h.proto == header::HTTP_11;
 
 	USRDBG( "Decoded request URI: " << sReqPath);
 
@@ -644,7 +637,7 @@ void job::Prepare(const header &h, string_view headBuf) {
 		}
 		
 		// got something valid, has type now, trace it
-		USRDBG("Processing new job, " << h.frontLine);
+		USRDBG("Processing new job, " << h.getRequestUrl());
 		rq.repoSrc = cfg::GetRepNameAndPathResidual(theUrl);
 		if(rq.repoSrc.psRepoName && !rq.repoSrc.psRepoName->empty())
 			m_sFileLoc=*rq.repoSrc.psRepoName+SZPATHSEP+rq.repoSrc.sRestPath;
@@ -1096,7 +1089,7 @@ fileitem::FiStatus job::_SwitchToPtItem()
 
 tSS& job::PrependHttpVariant()
 {
-	return m_sendbuf << tSS::dec << (m_bIsHttp11 ? "HTTP/1.1 " : "HTTP/1.0 ");
+	return m_sendbuf << tSS::dec << (m_bIsHttp11 ? "HTTP/1.1 "sv : "HTTP/1.0 "sv);
 }
 
 void job::SetEarlySimpleResponse(string_view message, bool nobody)

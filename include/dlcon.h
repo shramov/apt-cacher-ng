@@ -28,7 +28,6 @@ class fileitem;
 struct dlrequest;
 struct tDlJob;
 class fileitem;
-#define IS_REDIRECT(st) (st == 301 || st == 302 || st == 307)
 
 class ACNG_API dlcon
 {

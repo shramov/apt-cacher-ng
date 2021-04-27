@@ -46,8 +46,7 @@ constexpr string_view mapId2Headname[] =
 };
 
 header::header(const header &s)
-:type(s.type),
- frontLine(s.frontLine)
+:type(s.type), m_status(s.m_status)
 {
 	for (unsigned i = 0; i < HEADPOS_MAX; i++)
 		h[i] = s.h[i] ? strdup(s.h[i]) : nullptr;
@@ -56,15 +55,15 @@ header::header(const header &s)
 header::header(header &&s)
 :type(s.type)
 {
-	frontLine.swap(s.frontLine);
+	m_status = move(s.m_status);
 	std::swap(h, s.h);
 }
 
 
 header& header::operator=(const header& s)
 {
-	type=s.type;
-	frontLine=s.frontLine;
+	type = s.type;
+	m_status =s.m_status;
 	for (unsigned i = 0; i < HEADPOS_MAX; ++i)
 	{
 		if (h[i])
@@ -78,7 +77,7 @@ header& header::operator=(const header& s)
 header& header::operator=(header&& s)
 {
 	type = s.type;
-	frontLine.swap(s.frontLine);
+	m_status = move(s.m_status);
 	std::swap(h, s.h);
 	return *this;
 }
@@ -94,7 +93,8 @@ void header::clear()
 {
 	for(unsigned i=0; i<HEADPOS_MAX; i++)
 		del((eHeadPos) i);
-	frontLine.clear();
+	m_status.code = -1;
+	m_status.msg.clear();
 	type=INVALID;
 }
 
@@ -102,18 +102,6 @@ void header::del(eHeadPos i)
 {
 	free(h[i]);
     h[i] = nullptr;
-}
-
-string header::getMessage() const
-{
-    auto p = frontLine.c_str();
-    while (isspace((unsigned) *p))
-        ++p;
-    while (isdigit((unsigned) *p))
-        ++p;
-    while (isspace((unsigned) *p))
-        ++p;
-    return string(p, frontLine.length() - (p - frontLine.c_str()));
 }
 
 int header::Load(string_view input, std::vector<std::pair<string_view,string_view> > *unkHeaderMap)
@@ -126,19 +114,20 @@ int header::Load(string_view input, std::vector<std::pair<string_view,string_vie
 		return -1;
     type = INVALID;
 #define IFCUT(s, t) if(startsWith(input, s)) { type=t; input.remove_prefix(s.size()); }
-    IFCUT("HTTP/1."sv, ANSWER)
-            else IFCUT("GET "sv, GET)
-            else IFCUT("HEAD "sv, HEAD)
-            else IFCUT("POST "sv, POST)
-            else IFCUT("CONNECT "sv, CONNECT)
-            else
-            return -1;
+	if(input.starts_with("HTTP/1."sv) && input.length() > 7)
+	{
+		type = ANSWER;
+		proto = (eHttpType) input[7];
+		input.remove_prefix(8);
+	}
+	else IFCUT("GET "sv, GET)
+			else IFCUT("HEAD "sv, HEAD)
+			else IFCUT("POST "sv, POST)
+			else IFCUT("CONNECT "sv, CONNECT)
+			else
+			return -1;
 
     tSplitByStrStrict split(input, svRN);
-	auto restHasTerminator = [&input] (string_view whereAmI){
-		return (string_view(whereAmI.data(), input.data() + input.size() - whereAmI.data())
-				   .find("\r\n\r\n"sv) != stmiss);
-	};
 	bool first = true;
     auto lastSetId = HEADPOS_MAX;
 	while (split.Next())
@@ -147,7 +136,26 @@ int header::Load(string_view input, std::vector<std::pair<string_view,string_vie
 
         if (first)
         {
-            frontLine.assign(pStart, it.data() + it.size() - pStart);
+			if (type == ANSWER)
+			{
+				m_status = tRemoteStatus(it, -1, false);
+				if (m_status.code < 0)
+					return false;
+			}
+			else
+			{
+				trimBoth(it);
+				if (it.size() < 10)
+					return false;
+				proto = (eHttpType) it.back();
+				it.remove_suffix(9);
+				trimBack(it);
+				if (it.empty())
+					return false;
+				m_status.msg = it;
+				m_status.code = -1;
+			}
+
             first = false;
             continue;
         }
@@ -287,7 +295,7 @@ void header::set(eHeadPos key, off_t nValue)
 tSS header::ToString() const
 {
 	tSS s;
-	s<<frontLine << "\r\n";
+	s << "HTTP/1." << proto << " " << m_status.code << " " << m_status.msg << "\r\n";
     for(unsigned i = 0; i < eHeadPos::HEADPOS_MAX; ++i)
     {
         if (h[i])
@@ -314,8 +322,8 @@ int header::StoreToFile(cmstring &sPath) const
 			return -errno;
 	}
 	
-	auto hstr=ToString();
-	const char *p=hstr.rptr();
+	auto hstr = ToString();
+	const char *p = hstr.rptr();
 	nByteCount=hstr.length();
 	
 	for(string::size_type pos=0; pos<(uint)nByteCount;)

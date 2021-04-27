@@ -125,16 +125,17 @@ dlcon* conn::SetupDownloader()
 namespace RawPassThrough
 {
 
-#define POSTMARK "POST http://bugs.debian.org:80/"
+#define BDOURL "http://bugs.debian.org:80/"
+#define POSTMARK "POST " BDOURL
 
 inline static bool CheckListbugs(const header &ph)
 {
-	return (0 == ph.frontLine.compare(0, _countof(POSTMARK) - 1, POSTMARK));
+	return ph.type == header::POST && startsWithSz(ph.getRequestUrl(), BDOURL);
 }
 inline static void RedirectBto2https(int fdClient, cmstring& uri)
 {
 	tSS clientBufOut;
-	clientBufOut << "HTTP/1.1 302 Redirect\r\nLocation: " << "https://bugs.debian.org:443/";
+	clientBufOut << "HTTP/1.1 302 Redirect\r\nLocation: https://bugs.debian.org:443/";
 	constexpr auto offset = _countof(POSTMARK) - 6;
 	clientBufOut.append(uri.c_str() + offset, uri.size() - offset);
 	clientBufOut << "\r\nConnection: close\r\n\r\n";
@@ -336,7 +337,8 @@ void conn::Impl::WorkLoop() {
         }
         header h;
 		// split new data into requests
-		while(inBuf.size()>0) {
+		while (inBuf.size() > 0)
+		{
 			try
 			{
                 h.clear();
@@ -360,9 +362,7 @@ void conn::Impl::WorkLoop() {
 					{
 						if (RawPassThrough::CheckListbugs(h))
 						{
-							tSplitWalk iter(h.frontLine);
-							if(iter.Next() && iter.Next())
-								RawPassThrough::RedirectBto2https(m_confd, iter);
+							RawPassThrough::RedirectBto2https(m_confd, h.getRequestUrl());
 						}
 						else
 						{
@@ -377,21 +377,17 @@ void conn::Impl::WorkLoop() {
 
 				if(h.type == header::CONNECT)
 				{
+					const auto& tgt = h.getRequestUrl();
 					inBuf.drop(nHeadBytes);
-					tSplitWalk iter(h.frontLine);
-					if(iter.Next() && iter.Next())
+					if(rex::Match(tgt, rex::PASSTHROUGH))
+						RawPassThrough::PassThrough(inBuf, m_confd, tgt);
+					else
 					{
-						cmstring tgt(iter);
-						if(rex::Match(tgt, rex::PASSTHROUGH))
-							RawPassThrough::PassThrough(inBuf, m_confd, tgt);
-						else
-						{
-							tSS response;
-							response << "HTTP/1.0 403 CONNECT denied (ask the admin to allow HTTPS tunnels)\r\n\r\n";
-							while(!response.empty())
-								response.syswrite(m_confd);
-						}
+						tSS response;
+						response << "HTTP/1.0 403 CONNECT denied (ask the admin to allow HTTPS tunnels)\r\n\r\n";
+						response.dumpall(m_confd);
 					}
+
 					return;
 				}
 
@@ -409,7 +405,7 @@ void conn::Impl::WorkLoop() {
 						return;
 				}
 
-				ldbg("Parsed REQUEST:" << h.frontLine);
+				ldbg("Parsed REQUEST: " << h.type << " " << h.getRequestUrl());
 				ldbg("Rest: " << (inBuf.size()-nHeadBytes));
                 m_jobs2send.emplace_back(*_q);
 				m_jobs2send.back().Prepare(h, inBuf.view());
@@ -420,7 +416,7 @@ void conn::Impl::WorkLoop() {
 				m_nProcessedJobs++;
 #endif
 			}
-			catch(bad_alloc&)
+			catch(const bad_alloc&)
 			{
 				return;
 			}

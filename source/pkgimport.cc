@@ -10,6 +10,7 @@
 #include "filereader.h"
 #include "dlcon.h"
 #include "csmapping.h"
+#include "httpdate.h"
 
 #include <string>
 #include <iostream>
@@ -301,7 +302,7 @@ void pkgimport::HandlePkgEntry(const tRemoteFileInfo &entry)
 	// linking and moving would shred them when the link leads to the same target
 	struct stat tmp1, tmp2;
 
-	if (0==stat(sDestAbs.c_str(), &tmp1) && 0==stat(sFromAbs.c_str(), &tmp2)
+	if (0 == stat(sDestAbs.c_str(), &tmp1) && 0==stat(sFromAbs.c_str(), &tmp2)
 			&& tmp1.st_ino==tmp2.st_ino&& tmp1.st_dev==tmp2.st_dev)
 	{
 		//cerr << "Same target file, ignoring."<<endl;
@@ -317,7 +318,7 @@ void pkgimport::HandlePkgEntry(const tRemoteFileInfo &entry)
 
 	unlink(sDestAbs.c_str());
 
-	// XXX: maybe use inject instead
+	// XXX: maybe use inject code instead
 
 	if (!LinkOrCopy(sFromAbs, sDestAbs))
 	{
@@ -326,30 +327,14 @@ void pkgimport::HandlePkgEntry(const tRemoteFileInfo &entry)
 	}
 
 	gen_header:
-	unlink(sDestHeadAbs.c_str());
 
-	header h;
-	h.frontLine="HTTP/1.1 200 OK";
-	/*
-	if(entry.fpr.bUnpack)
-	{
-		static struct stat stbuf;
-		if(0!=stat(sFrom.c_str(), &stbuf))
-			return; // weird...
-		h.set(header::CONTENT_LENGTH, stbuf.st_size);
-	}
-	else
-	*/
-		h.set(header::CONTENT_LENGTH, entry.fpr.size);
-	
-	h.type=header::ANSWER;
-	if (h.StoreToFile(sDestAbs+".head")<=0)
+	unlink(sDestHeadAbs.c_str());
+	if (!StoreHeadToStorage(sDestAbs+".head", entry.fpr.size, nullptr, nullptr))
 	{
 		log::err("Unable to store generated header");
 		return; // junk may remain but that's a job for cleanup later
 	}
 	hit->second.bFileUsed=true;
-
 	SetFlags(m_processedIfile).space+=entry.fpr.size;
 }
 

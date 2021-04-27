@@ -513,7 +513,7 @@ struct tDlJob
 					// smells fatal...
 					return EFLAG_MIRROR_BROKEN | HINT_RECONNECT_NOW;
 				}
-				ldbg("GOT, parsed: " << h.frontLine);
+				dbgline;
 
 				unsigned ret = 0;
 
@@ -527,25 +527,24 @@ struct tDlJob
 					ret |= HINT_RECONNECT_SOON;
 				}
 
-				int st = h.getStatus();
-
 				off_t contentLength = atoofft(h.h[header::CONTENT_LENGTH], -1);
 
 				// processing hint 102, or something like 103 which we can ignore
-				if (st < 200)
+				if (h.getStatusCode() < 200)
 					return ret | HINT_MORE;
 
+#warning test with disabled/enabled/endless-redirect
 				if (cfg::redirmax) // internal redirection might be disabled
 				{
-					if (IS_REDIRECT(st))
+					if (h.getStatus().isRedirect())
 					{
+#warning push the calculated target into status message... but where?
 						if (!RewriteSource(h.h[header::LOCATION]))
 							return ret | EFLAG_JOB_BROKEN;
 
 						// drop the redirect page contents if possible so the outer loop
 						// can scan other headers
-						off_t contLen = atoofft(h.h[header::CONTENT_LENGTH],
-								0);
+						off_t contLen = atoofft(h.h[header::CONTENT_LENGTH], 0);
 						if (contLen <= inBuf.size())
 							inBuf.drop(contLen);
 						return ret | HINT_TGTCHANGE; // no other flags, caller will evaluate the state
@@ -560,7 +559,7 @@ struct tDlJob
 				}
 
 				// explicitly blacklist mirror if key file is missing
-				if (st >= 400 && m_pRepoDesc && m_remoteUri.sHost.empty())
+				if (h.getStatusCode() >= 400 && m_pRepoDesc && m_remoteUri.sHost.empty())
 				{
 					for (const auto &kfile : m_pRepoDesc->m_keyfiles)
 					{
@@ -617,7 +616,7 @@ struct tDlJob
 						&& h.h[header::CONTENT_TYPE]
 						&& strstr(h.h[header::CONTENT_TYPE],
 								cfg::badredmime.c_str())
-						&& h.getStatus() < 300) // contains the final data/response
+						&& h.getStatusCode() < 300) // contains the final data/response
 				{
                     if (m_pStorage->IsVolatile())
 					{
@@ -627,8 +626,7 @@ struct tDlJob
 					else
 					{
 						// this was redirected and the destination is BAD!
-						h.frontLine =
-								"HTTP/1.1 501 Redirected to invalid target";
+						h.setStatus(501, "Redirected to invalid target");
 						// XXX: not sure this is the right attribution
 						//void DropDnsCache();
 						//DropDnsCache();
@@ -636,7 +634,7 @@ struct tDlJob
 				}
 
 				// ok, can pass the data to the file handler
-                auto storeResult = CheckAndSaveHeader(h,
+				auto storeResult = CheckAndSaveHeader(move(h),
 						string_view(inBuf.rptr(), hDataLen), contentLength);
 				inBuf.drop(size_t(hDataLen));
 
@@ -726,11 +724,11 @@ struct tDlJob
 		return EFLAG_JOB_BROKEN;
 	}
 
-    EResponseEval CheckAndSaveHeader(const header& h, string_view rawHeader, off_t contLen)
+	EResponseEval CheckAndSaveHeader(header&& h, string_view rawHeader, off_t contLen)
 	{
 		LOGSTARTFUNC;
 
-        tRemoteStatus remoteStatus(h.frontLine);
+		auto& remoteStatus = h.getStatus();
 
 		lockguard g(*m_pStorage);
 
@@ -789,7 +787,6 @@ struct tDlJob
 		{
 		case 200:
 		{
-            remoteStatus.msg = "OK";
 			// Code 200 must start from the beginning! Size was already reported to users
 			if (m_pStorage->m_nSizeChecked > 0)
 			{
@@ -813,7 +810,7 @@ struct tDlJob
        Content-Length: 26012
        Content-Type: image/gif
 			 */
-            remoteStatus = { 200, "OK" };
+			h.setStatus(200, "OK");
 			const char *p=h.h[header::CONTENT_RANGE];
 
 			if(!p)
@@ -879,7 +876,7 @@ struct tDlJob
 				// got an error from the replacement mirror? cannot handle it properly
 				// because some job might already have started returning the data
                 USRDBG( "Cannot restart, HTTP code: " << remoteStatus.code);
-                return withError(h.getMessage());
+				return withError(remoteStatus.msg);
 			}
 
             if (remoteStatus.isRedirect())

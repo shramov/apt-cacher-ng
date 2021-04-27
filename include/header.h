@@ -4,6 +4,7 @@
 #include <unordered_set>
 #include <vector>
 #include "acbuf.h"
+#include "httpdate.h"
 
 namespace acng
 {
@@ -19,91 +20,94 @@ namespace acng
 bool ParseHeadFromStorage(cmstring& path, off_t* contLen, time_t* lastModified, mstring* origSrc);
 
 class ACNG_API header {
-   public:
-      enum eHeadType : char
-	  {
-         INVALID,
-         HEAD,
-         GET,
-         POST,
-         CONNECT,
-         ANSWER
-      };
-      enum eHeadPos : char
-	  {
-    	  CONNECTION,			// 0
-    	  CONTENT_LENGTH,
-    	  IF_MODIFIED_SINCE,
-    	  RANGE,
-    	  IFRANGE,				// 4
+public:
+	enum eHeadType : char
+	{
+		INVALID = 'I',
+		HEAD = 'H',
+		GET = 'G',
+		POST = 'P',
+		CONNECT = 'C',
+		ANSWER = 'A'
+	};
+	enum eHttpType : char
+	{
+		HTTP_10 = '0',
+		HTTP_11 = '1'
+	};
+	enum eHeadPos : char
+	{
+		CONNECTION,			// 0
+		CONTENT_LENGTH,
+		IF_MODIFIED_SINCE,
+		RANGE,
+		IFRANGE,				// 4
 
-    	  CONTENT_RANGE,
-    	  LAST_MODIFIED,
-    	  PROXY_CONNECTION,
-    	  TRANSFER_ENCODING,
-    	  XORIG,
+		CONTENT_RANGE,
+		LAST_MODIFIED,
+		PROXY_CONNECTION,
+		TRANSFER_ENCODING,
+		XORIG,
 
-    	  AUTHORIZATION,		// 10          
-    	  XFORWARDEDFOR,
-    	  LOCATION,
-    	  CONTENT_TYPE,
-    	  // unreachable entry and size reference
-          HEADPOS_MAX,
-          // special value, only a flag to remember that data is stored to external header
-          HEADPOS_UNK_EXPORT
-      };
-#define ACNGFSMARK XORIG
+		AUTHORIZATION,		// 10
+		XFORWARDEDFOR,
+		LOCATION,
+		CONTENT_TYPE,
+		// unreachable entry and size reference
+		HEADPOS_MAX,
+		// special value, only a flag to remember that data is stored to external header
+		HEADPOS_UNK_EXPORT
+	};
 
-      eHeadType type = INVALID;
-      mstring frontLine;
-      
-      char *h[HEADPOS_MAX] = {0};
+	char *h[HEADPOS_MAX] = {0};
+	eHeadType type = INVALID;
+	eHttpType proto = HTTP_11;
 
-      inline header(){};
-      ~header();
-      header(const header &);
-      header(header &&);
-      header& operator=(const header&); 
-      header& operator=(header&&);
+	header() =default;
+	~header();
+	header(const header &);
+	header(header &&);
+	header& operator=(const header&);
+	header& operator=(header&&);
 
-      int LoadFromFile(const mstring & sPath);
-      
-      //! returns byte count or negative errno value
-      int StoreToFile(cmstring &sPath) const;
-      
-      void set(eHeadPos, const mstring &value);
-      void set(eHeadPos, const char *val);
-      void set(eHeadPos, const char *s, size_t len);
-      void set(eHeadPos, off_t nValue);
-      void prep(eHeadPos, size_t length);
-      void del(eHeadPos);
-      inline void copy(const header &src, eHeadPos pos) { set(pos, src.h[pos]); };
+	int LoadFromFile(const mstring & sPath);
 
-      static mstring ExtractCustomHeaders(string_view reqHead, bool isPassThrough);
+	//! returns byte count or negative errno value
+	int StoreToFile(cmstring &sPath) const;
 
-      inline const char * getCodeMessage() const {
-    	  return frontLine.length()>9 ? frontLine.c_str()+9 : "";
-      }
-      inline int getStatus() const { int r=atoi(getCodeMessage()); return r ? r : 500; }
+	void set(eHeadPos, const mstring &value);
+	void set(eHeadPos, const char *val);
+	void set(eHeadPos, const char *s, size_t len);
+	void set(eHeadPos, off_t nValue);
+	void prep(eHeadPos, size_t length);
+	void del(eHeadPos);
+	void copy(const header &src, eHeadPos pos) { set(pos, src.h[pos]); };
 
-      std::string getMessage() const;
-      void clear();
-      
-      tSS ToString() const;
+	static mstring ExtractCustomHeaders(string_view reqHead, bool isPassThrough);
+	const std::string& getStatusMessage() const { return m_status.msg; }
+	const std::string& getRequestUrl() const { return m_status.msg; }
+	const tRemoteStatus& getStatus() const { return m_status; }
+	int getStatusCode() const { return m_status.code; }
+	bool isAnswer() const { return m_status.code >= 0; }
+	void setStatus(int cod, string_view msg) { m_status = {cod, std::string(msg)}; }
+	void clear();
 
-      /**
-       * Read buffer to parse one string. Optional offset where to begin to
-       * scan.
-       *
-       * @param src Pointer to raw input
-       * @param length Maximum considered input length
-       * @param unkHeaderMap Optional, series of string_view pairs containing key and values. If key is empty, record's value is a continuation of the previous value.
-       * @return Length of processed data, 0: incomplete, needs more data, <0: error, >0: length of the processed data
-       */
-      int Load(string_view sv, std::vector<std::pair<string_view,string_view> > *unkHeaderMap = nullptr);
+	tSS ToString() const;
+
+	/**
+	   * Read buffer to parse one string. Optional offset where to begin to
+	   * scan.
+	   *
+	   * @param src Pointer to raw input
+	   * @param length Maximum considered input length
+	   * @param unkHeaderMap Optional, series of string_view pairs containing key and values. If key is empty, record's value is a continuation of the previous value.
+	   * @return Length of processed data, 0: incomplete, needs more data, <0: error, >0: length of the processed data
+	   */
+	int Load(string_view sv, std::vector<std::pair<string_view,string_view> > *unkHeaderMap = nullptr);
 
 private:
-      eHeadPos resolvePos(string_view key);
+	eHeadPos resolvePos(string_view key);
+	tRemoteStatus m_status;
 };
 
 }

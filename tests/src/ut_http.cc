@@ -24,16 +24,16 @@ using namespace acng;
 
 TEST(http, status)
 {
-	tRemoteStatus a("200 OK");
+	tRemoteStatus a("200 OK", -1, false);
 	ASSERT_EQ(a.code, 200);
 	ASSERT_EQ(a.msg, "OK");
-	tRemoteStatus b("200 OK  ");
+	tRemoteStatus b("200 OK  ", -1, false);
 	ASSERT_EQ(b.code, 200);
 	ASSERT_EQ(b.msg, "OK");
-	tRemoteStatus c("  200 OK");
+	tRemoteStatus c("  200 OK", -1, false);
 	ASSERT_EQ(c.code, 200);
 	ASSERT_EQ(c.msg, "OK");
-	tRemoteStatus d("  200     OK Is IT  ");
+	tRemoteStatus d("  200     OK Is IT  ", -1, false);
 	ASSERT_EQ(d.code, 200);
 	ASSERT_EQ(d.msg, "OK Is IT");
 
@@ -44,8 +44,11 @@ TEST(http, status)
 	ASSERT_EQ(e.code, 1);
 	ASSERT_EQ(e.msg, "X");
 
-	tRemoteStatus f("HTTP/1.0 200 OK");
-	ASSERT_EQ(200, f.code);
+	tRemoteStatus f("HTTP/1.0 200 OK", -1, false);
+	ASSERT_NE(200, f.code);
+
+	tRemoteStatus g("HTTP/1.0 200 OK", -1, true);
+	ASSERT_EQ(200, g.code);
 }
 
 TEST(http, date)
@@ -105,14 +108,17 @@ TEST(http, cachehead)
 	// play simple loader against the header processor, this should still be valid!
 	header h;
 	ASSERT_TRUE(h.LoadFromFile(testHead));
-	ASSERT_EQ(h.frontLine, "HTTP/1.1 200 OK");
+	ASSERT_EQ(h.getStatusCode(), 200);
+	ASSERT_EQ(h.getStatusMessage(), "OK");
 	ASSERT_FALSE(h.h[header::XORIG]);
 	ASSERT_FALSE(h.h[header::LAST_MODIFIED]);
 	ASSERT_TRUE(StoreHeadToStorage(testHead, testSize, &testDate, &testOrig));
     h.clear();
-    ASSERT_TRUE(h.frontLine.empty());
+	ASSERT_TRUE(h.getStatusCode() < 0);
 	ASSERT_TRUE(h.LoadFromFile(testHead));
-	ASSERT_EQ(h.frontLine, "HTTP/1.1 200 OK");
+	ASSERT_EQ(h.getStatusCode(), 200);
+	ASSERT_EQ(h.getStatusMessage(), "OK");
+	ASSERT_NE(h.proto, header::HTTP_10);
 	ASSERT_EQ(testOrig, h.h[header::XORIG]);
 	ASSERT_EQ(testDate, h.h[header::LAST_MODIFIED]);
 	{
@@ -133,13 +139,14 @@ TEST(http, header)
     header h;
     ASSERT_TRUE(h.type == header::INVALID);
 	string_view hdata = "GET /na/asdfasdfsadf\r\n\rfoo:bar\r";
-	ASSERT_EQ(h.Load(hdata), -2); // bad continuatin in first k=v line
+	ASSERT_EQ(h.Load(hdata), -2); // bad continuation in first k=v line
 	hdata = "GET /na/asdfasdfsadf\r\nfoo:bar\r";
 	ASSERT_EQ(h.Load(hdata), 0);
 	hdata = "GET /na/asdfasdfsadf\r\nfoo:bar\r\n\r\n";
     ASSERT_EQ(hdata.length(), h.Load(hdata));
-    hdata = "GET /na/asdfasdfsadf HTTP/1.1\r\n\r\n";
+	hdata = "GET /na/asdfasdfsadf HTTP/1.0\r\n\r\n";
     ASSERT_EQ(hdata.length(), h.Load(hdata));
+	ASSERT_EQ(h.proto, header::HTTP_10);
     hdata = "GET /na/asdfasdfsadf HTTP/1.1\r\nLast-Modified: Sunday, \r\n 06-Nov-94 08:49:37 GMT\r\n\r\n";
     auto l = h.Load(hdata);
     ASSERT_EQ(hdata.length(), l);
