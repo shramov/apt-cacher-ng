@@ -22,7 +22,7 @@
 #include "fileio.h"
 #include "conserver.h"
 #include "cleaner.h"
-#include "fileitem.h"
+#include "acregistry.h"
 
 #include <iostream>
 using namespace std;

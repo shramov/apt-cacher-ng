@@ -5,6 +5,7 @@
 #include "meta.h"
 #include "filereader.h"
 #include "fileio.h"
+#include "acregistry.h"
 
 #include <fstream>
 

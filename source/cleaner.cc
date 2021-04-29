@@ -10,7 +10,7 @@
 
 #include "cleaner.h"
 #include "evabase.h"
-#include "fileitem.h"
+#include "acregistry.h"
 #include "acfg.h"
 #include "caddrinfo.h"
 #include "tcpconnect.h"

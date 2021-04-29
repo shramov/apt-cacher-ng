@@ -4,7 +4,7 @@
 #include "config.h"
 #include "acbuf.h"
 #include <sys/types.h>
-#include "fileitem.h"
+#include "acregistry.h"
 #include "maintenance.h"
 
 namespace acng

@@ -30,48 +30,10 @@ std::string ACNG_API sDefPortHTTP = "80", sDefPortHTTPS = "443";
 #endif
 
 cmstring PROT_PFX_HTTPS(WITHLEN("https://")), PROT_PFX_HTTP(WITHLEN("http://"));
-cmstring FAKEDATEMARK(WITHLEN("Sat, 26 Apr 1986 01:23:39 GMT+3"));
+cmstring FAKEDATEMARK(WITHLEN("Sat, 26 Apr 1986 01:23:39 GMT"));
 cmstring hendl("<br>\n");
 
 ACNG_API std::atomic<bool> g_global_shutdown;
-
-/*
-int getUUID() {
-    lfd=(lfd+1)%65536;
-   //cerr << "UUID: " << lfd <<endl;
-    return lfd;
-}
-*/
-void set_nb(int fd) {
-    int flags = fcntl(fd, F_GETFL);
-    //ASSERT(flags != -1);
-    flags |= O_NONBLOCK;
-    flags = fcntl(fd, F_SETFL, flags);
-}
-void set_block(int fd) {
-    int flags = fcntl(fd, F_GETFL);
-    //ASSERT(flags != -1);
-    flags &= ~O_NONBLOCK;
-    flags = fcntl(fd, F_SETFL, flags);
-}
-
-
-/*
-inline tStrPos findHostStart(const std::string & sUri)
-{
-	tStrPos p=0, l=sUri.size();
-	if (0==sUri.compare(0, 7, "http://"))
-		p=7;
-	while(p<l && sUri[p]=='/') p++;
-	return p;
-}
-
-void trimProto(std::string & sUri)
-{
-	sUri.erase(findHostStart(sUri));
-}
-*/
-
 
 mstring GetBaseName(const string &in)
 {

@@ -14,7 +14,6 @@
 #include <list>
 #include <regex>
 
-#define LOCAL_DEBUG
 #include "debug.h"
 
 #include "config.h"
@@ -627,9 +626,6 @@ struct tDlJob
 					{
 						// this was redirected and the destination is BAD!
 						h.setStatus(501, "Redirected to invalid target");
-						// XXX: not sure this is the right attribution
-						//void DropDnsCache();
-						//DropDnsCache();
 					}
 				}
 
@@ -649,7 +645,6 @@ struct tDlJob
 					return ret | HINT_RECONNECT_NOW | EFLAG_JOB_BROKEN
 							| EFLAG_STORE_COLLISION;
 				}
-
 			}
 			else if (m_DlState == STATE_PROCESS_CHUNKDATA
 					|| m_DlState == STATE_PROCESS_DATA)
@@ -735,10 +730,6 @@ struct tDlJob
 		auto& sPathRel = m_pStorage->m_sPathRel;
 		auto& fiStatus = m_pStorage->m_status;
 
-		auto isHiddenResuming = [&]() {
-			return m_pStorage->m_status > fileitem::FIST_DLPENDING;
-        };
-
         auto withError = [&](string_view message,
                 fileitem::EDestroyMode destruction = fileitem::EDestroyMode::KEEP) {
             m_bAllowStoreData = false;
@@ -758,40 +749,20 @@ struct tDlJob
 			return EResponseEval::BUSY_OR_ERROR;
 		}
 
-		// conflict with another thread's download attempt? Deny, except for a forced restart
-		if (isHiddenResuming())
+		if (!m_bFileItemAssigned && fiStatus > fileitem::FIST_DLPENDING)
 		{
-			if (!m_bFileItemAssigned)
-				return EResponseEval::BUSY_OR_ERROR;
-			// OK, resuming, is the remote still valid?
-            if (m_pStorage->m_responseModDate != tHttpDate(h.h[header::LAST_MODIFIED]))
-			{
-                return withError("Remote resource changed while resuming",
-						fileitem::EDestroyMode::KEEP);
-			}
+			// it's active but not served by us
+			return EResponseEval::BUSY_OR_ERROR;
 		}
 
-		cmstring sPathAbs(SABSPATH(sPathRel));
-		string sHeadPath = sPathAbs + ".head";
-        string sLocation;
+		string sLocation;
 
-	#if 0
-	#warning FIXME
-		static UINT fc=1;
-		if(!(++fc % 4))
-		{
-			serverStatus = 416;
-		}
-	#endif
         switch(remoteStatus.code)
 		{
 		case 200:
 		{
-			// Code 200 must start from the beginning! Size was already reported to users
-			if (m_pStorage->m_nSizeChecked > 0)
-			{
-                return withError("Failed to resume remote download");
-			}
+			// forget the offset!!
+			m_nUsedRangeStartPos = 0;
 			break;
 		}
 		case 206:
@@ -871,31 +842,29 @@ struct tDlJob
 			}
 			break;
 		default: //all other codes don't have a useful body
-			if (isHiddenResuming()) // resuming case
+			if (m_bFileItemAssigned) // resuming case
 			{
 				// got an error from the replacement mirror? cannot handle it properly
 				// because some job might already have started returning the data
-                USRDBG( "Cannot restart, HTTP code: " << remoteStatus.code);
+				USRDBG( "Cannot resume, HTTP code: " << remoteStatus.code);
 				return withError(remoteStatus.msg);
 			}
 
             if (remoteStatus.isRedirect())
             {
-                if (h.h[header::LOCATION] && h.h[header::LOCATION][0])
-                    sLocation = h.h[header::LOCATION];
-                else
-                    return withError("Invalid redirection (missing location)");
+				if (!h.h[header::LOCATION] || !h.h[header::LOCATION][0])
+					return withError("Invalid redirection (missing location)");
+				sLocation = h.h[header::LOCATION];
             }
-
+			// don't tell clients anything about the body
 			m_bAllowStoreData = false;
             contLen = -1;
 		}
 
-		if (isHiddenResuming())
-			return EResponseEval::GOOD;
-
 		if(cfg::debug & log::LOG_MORE)
 			log::misc(string("Download of ")+sPathRel+" started");
+
+		m_bFileItemAssigned = true;
 
         if (!m_pStorage->DlStarted(rawHeader, tHttpDate(h.h[header::LAST_MODIFIED]),
                                    sLocation.empty() ? RemoteUri(false) : sLocation,
@@ -904,8 +873,6 @@ struct tDlJob
 		{
 			return EResponseEval::BUSY_OR_ERROR;
 		}
-
-		m_bFileItemAssigned = true;
 
         if (!m_bAllowStoreData)
         {
@@ -1384,9 +1351,11 @@ inline unsigned dlcon::Impl::ExchangeData(mstring &sErrorMsg,
 			while (!m_inBuf.empty())
 			{
 
-				ldbg("Processing job for " << inpipe.front().RemoteUri(false));
+				//ldbg("Processing job for " << inpipe.front().RemoteUri(false));
+				dbgline;
 				unsigned res = inpipe.front().ProcessIncomming(m_inBuf, false);
-				ldbg("... incoming data processing result: " << res << ", emsg: " << inpipe.front().sErrorMsg);
+				//ldbg("... incoming data processing result: " << res << ", emsg: " << inpipe.front().sErrorMsg);
+				LOG("res = " << res);
 
 				if (res & EFLAG_MIRROR_BROKEN)
 				{

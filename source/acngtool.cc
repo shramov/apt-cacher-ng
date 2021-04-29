@@ -33,7 +33,7 @@
 #include "debug.h"
 #include "dlcon.h"
 #include "fileio.h"
-#include "fileitem.h"
+#include "acregistry.h"
 #include "sockio.h"
 #ifdef HAVE_SSL
 #include "openssl/bio.h"

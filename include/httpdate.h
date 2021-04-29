@@ -49,6 +49,7 @@ public:
     bool operator<=(const tHttpDate& other) const { return value(-1) <= other.value(-2); }
     bool operator>=(const tHttpDate& other) const { return value(-1) >= other.value(-2); };
     bool operator==(const tHttpDate& other) const;
+	bool operator!=(const tHttpDate& other) const { return !(other == *this); }
     bool operator==(const char* other) const;
 
     //tHttpDate& operator=(const char*);

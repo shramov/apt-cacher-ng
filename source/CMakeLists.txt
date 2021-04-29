@@ -3,7 +3,7 @@ FILE(GLOB ALL_HEADERS "*.h")
 set(SHAREDSRCS astrop.cc sockio.cc acbuf.cc acfg.cc acfg_defaults.cc aclogger.cc caddrinfo.cc dirwalk.cc dlcon.cc fileio.cc
     fileitem.cc filereader.cc header.cc meta.cc tcpconnect.cc cleaner.cc job.cc bgtask.cc cacheman.cc conn.cc conserver.cc
     expiration.cc lockable.cc maintenance.cc mirror.cc pkgimport.cc showinfo.cc evabase.cc dnsiter.cc ebrunner.cc httpdate.cc
-    csmapping.cc
+    csmapping.cc acregistry.cc
     ${ALL_HEADERS})
 set(ACNG_SRCS apt-cacher.cc)
 

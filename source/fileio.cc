@@ -146,4 +146,17 @@ void ACNG_API mkdirhier(cmstring& path)
 	}
 }
 
+void set_nb(int fd) {
+	int flags = fcntl(fd, F_GETFL);
+	//ASSERT(flags != -1);
+	flags |= O_NONBLOCK;
+	fcntl(fd, F_SETFL, flags);
+}
+void set_block(int fd) {
+	int flags = fcntl(fd, F_GETFL);
+	//ASSERT(flags != -1);
+	flags &= ~O_NONBLOCK;
+	fcntl(fd, F_SETFL, flags);
+}
+
 }
