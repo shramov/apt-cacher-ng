@@ -274,7 +274,7 @@ struct tDlJob
 				}
 			}
 			if (sReasonMsg.empty())
-				sReasonMsg = "502 Mirror blocked due to repeated errors";
+				sReasonMsg = "Mirror blocked due to repeated errors";
 			LOGRET(false);
 		}
 
@@ -485,14 +485,6 @@ struct tDlJob
 				// XXX: find out why this was ever needed; actually we want the opposite,
 				// download the contents now and store the reported file as XORIG for future
 				// https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Location
-#if 0
-				,
-								[&h](cmstring &key,
-										cmstring &rest)
-										{	if(scaseequals(key, "Content-Location"))
-											h.frontLine = "HTTP/1.1 500 Apt-Cacher NG does not like that data";
-										});
-#endif
 				if (0 == hDataLen)
 					return HINT_MORE;
 				if (hDataLen < 0)
@@ -1420,7 +1412,7 @@ inline unsigned dlcon::Impl::ExchangeData(mstring &sErrorMsg,
 	}
 
 	ASSERT(!"Unreachable");
-	sErrorMsg = "500 Internal failure";
+	sErrorMsg = "Internal failure";
 	return EFLAG_JOB_BROKEN | HINT_RECONNECT_NOW;
 }
 
@@ -1432,7 +1424,7 @@ void dlcon::Impl::WorkLoop()
 
 	if (!m_inBuf.setsize(cfg::dlbufsize))
 	{
-		log::err("500 Out of memory");
+		log::err("Out of memory");
 		return;
 	}
 

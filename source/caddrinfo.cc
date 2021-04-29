@@ -25,7 +25,7 @@ namespace acng
 {
 static const unsigned DNS_CACHE_MAX = 255;
 static const unsigned DNS_ERROR_KEEP_MAX_TIME = 15;
-static const string dns_error_status_prefix("503 DNS error - ");
+static const string dns_error_status_prefix("DNS error, ");
 
 static string make_dns_key(const string & sHostname, const string &sPort)
 {
@@ -90,7 +90,7 @@ void CAddrInfo::cb_dns(int rc, struct evutil_addrinfo *results, void *arg)
 		case EAI_MEMORY:
 		case EAI_SYSTEM:
 			ret->m_expTime = 0; // expire this ASAP and retry
-			ret->m_sError = "504 Temporary DNS resolution error";
+			ret->m_sError = "Temporary DNS resolution error";
 			return;
 		default:
 			ret->m_expTime = GetTime() + std::min(cfg::dnscachetime, (int) DNS_ERROR_KEEP_MAX_TIME);

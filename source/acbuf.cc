@@ -143,19 +143,14 @@ bool tSS::send(int nConFd, mstring* sErrorStatus)
 				if(!r && errno != EINTR)
 				{
 					if(sErrorStatus)
-						*sErrorStatus = "502 Socket timeout";
+						*sErrorStatus = "Socket timeout";
 					return false;
 				}
 				continue;
 			}
 
-#ifdef MINIBUILD
 			if(sErrorStatus)
-				*sErrorStatus = "502 Socket error";
-#else
-			if(sErrorStatus)
-				*sErrorStatus = tErrnoFmter("502 Socket error, ");
-#endif
+				*sErrorStatus = tErrnoFmter("Socket error, ");
 			return false;
 		}
 	}
@@ -174,45 +169,19 @@ bool tSS::recv(int nConFd, mstring* sErrorStatus)
 			return true;
 
 		if(sErrorStatus)
-			*sErrorStatus = "502 Socket timeout";
+			*sErrorStatus = "Socket timeout";
 		return false;
 	}
 	// must be readable
 	r = ::recv(nConFd, wptr(), freecapa(), 0);
 	if(r<=0)
 	{
-#ifdef MINIBUILD
 		if(sErrorStatus)
-			*sErrorStatus = "502 Socket error";
-#else
-			if(sErrorStatus)
-				*sErrorStatus = tErrnoFmter("502 Socket error, ");
-#endif
-			return false;
+			*sErrorStatus = tErrnoFmter("Socket error, ");
+		return false;
 	}
 	got(r);
 	return true;
 }
-
-/*
-tSS & tSS::addEscaped(const char *fmt)
-{
-	if(!fmt || !*fmt)
-		return *this;
-	int nl=strlen(fmt);
-	reserve(length()+nl);
-	char *p=wptr();
-
-	for(;*fmt;fmt++)
-	{
-		if(*fmt=='\\')
-			*(p++)=unEscape(*(++fmt));
-		else
-			*(p++)=*fmt;
-	}
-	got(p-wptr());
-	return *this;
-}
-*/
 
 }

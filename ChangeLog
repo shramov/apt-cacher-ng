@@ -1,14 +1,23 @@
 apt-cacher-ng (3.7) AND-SOMETIMES-THE-BEAR-EATS-YOU; urgency=low
 
-  * Breaking changes:
-    - "just cleanup" parameter -e was removed. This has been troublesome to
+  [ BREAKING CHANGES ]
+  * "just cleanup" parameter -e was removed. This has been troublesome to
     implement long time ago and is most likely not used in the wild. This
     can be replaced easily and with better privilege separation using a
     shell script which starts apt-cacher-ng in foreground and calls acngtool.
-  * Overhauling download client state machine, now:
-    a) using less CPU cycles, fewer locks
-    b) supporting open-end range responses
+
+  [ INTERNAL REFACTORING ]
+  * Overhauling download, delivery and cache management code:
+    a) supposedly using less CPU cycles and fewer critical sections
+    b) supposedly using less memory for regular data serving
     c) almost never truncating files, only appending
+    d) more consistent error codes
+    e) separate debug logging into apt-cacher.dbg file
+
+  [ NEW FEATURES ]
+  * Support for open-end responses with range
+  * 
+
   * TODO: 
 Subject: [Bug 1915713] [NEW] support for Cache-Control
 curl -H 'Cache-Control: no-cache'
