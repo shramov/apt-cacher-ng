@@ -434,6 +434,7 @@ struct tDlJob
 			if (m_bAllowStoreData)
 			{
 				ldbg("To store: " <<nToStore);
+				lockguard g(*m_pStorage);
 				if (!m_pStorage->DlAddData(string_view(inBuf.rptr(), nToStore)))
 				{
                     sErrorMsg = "Cannot store";

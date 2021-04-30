@@ -18,7 +18,7 @@
 
 using namespace std;
 
-#warning Review all usages of Dl* methods, need to do locks properly
+#define ASSERT_HAVE_LOCK ASSERT(m_obj_mutex.try_lock() == false);
 
 namespace acng
 {
@@ -247,7 +247,7 @@ bool fileitem_with_storage::SaveHeader(bool truncatedKeepOnlyOrigInfo)
 bool fileitem::DlStarted(string_view rawHeader, const tHttpDate& modDate, cmstring& origin, tRemoteStatus status, off_t bytes2seek, off_t bytesAnnounced)
 {
 	LOGSTARTFUNCxs( modDate.view(), status.code, status.msg, bytes2seek, bytesAnnounced);
-
+	ASSERT_HAVE_LOCK
 	m_nIncommingCount += rawHeader.size();
 	notifyAll();
 
@@ -291,7 +291,7 @@ bool fileitem::DlStarted(string_view rawHeader, const tHttpDate& modDate, cmstri
 
 bool fileitem_with_storage::DlAddData(string_view chunk)
 {
-#warning check all users to have the lock set!
+	ASSERT_HAVE_LOCK
 	// something might care, most likely... also about BOUNCE action
 	notifyAll();
 
@@ -556,6 +556,7 @@ void fileitem_with_storage::MoveRelease2Sidestore()
 void fileitem_with_storage::DlFinish(bool asInCache)
 {
 	LOGSTARTFUNC;
+	ASSERT_HAVE_LOCK
 	notifyAll();
 
 	if (m_status >= FIST_COMPLETE)
@@ -591,6 +592,7 @@ void fileitem_with_storage::DlFinish(bool asInCache)
 
 void fileitem::DlSetError(const tRemoteStatus& errState, fileitem::EDestroyMode kmode)
 {
+	ASSERT_HAVE_LOCK
 	notifyAll();
 	m_responseStatus = errState;
 	m_status = FIST_DLERROR;
