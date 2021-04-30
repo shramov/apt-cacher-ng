@@ -26,7 +26,7 @@ char crapbuf[40];
 void termsocket_now(int fd, void *p = nullptr)
 {
 	::shutdown(fd, SHUT_RD);
-	forceclose(fd);
+	checkforceclose(fd);
 	g_discoTimeouts.erase(fd);
 	if(p) event_free((event*)p);
 }

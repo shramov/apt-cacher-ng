@@ -63,18 +63,14 @@ bool LinkOrCopy(const mstring &from, const mstring &to);
 void set_nb(int fd);
 void set_block(int fd);
 
-inline bool forceclose(int& fd) { bool ret = true; while(0 != ::close(fd)) { if(errno != EINTR) { ret = false; break; }}; fd=-1; return ret;}
 inline void justforceclose(int fd) { while(0 != ::close(fd)) { if(errno != EINTR) break; }; }
 inline void checkforceclose(int &fd)
 {
-	if (fd == -1)
-		return;
-	while (0 != ::close(fd))
+	while (fd != -1)
 	{
-		if (errno != EINTR)
-			break;
-	};
-	fd = -1;
+		if (0 == ::close(fd) || errno != EINTR)
+			fd = -1;
+	}
 }
 
 
@@ -85,7 +81,7 @@ inline void checkForceFclose(FILE* &fh)
 		int fd = fileno(fh);
 		if (0 != ::fclose(fh) && errno != EBADF)
 		{
-			forceclose(fd);
+			checkforceclose(fd);
 		}
 		fh = nullptr;
 	}

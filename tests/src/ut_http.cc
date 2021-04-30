@@ -93,11 +93,10 @@ TEST(http, date)
 
 TEST(http, cachehead)
 {
-	mstring testHead = "foo.head", testOrig = "https://nix";
-	off_t testSize = 12345;
-	tHttpDate testDate(1);
+	mstring testHead = "foo.head";
 	auto ok = StoreHeadToStorage(testHead, -1, nullptr, nullptr);
 	ASSERT_TRUE(ok);
+
 	{
 		tHttpDate nix;
 		mstring orig;
@@ -105,6 +104,11 @@ TEST(http, cachehead)
 		ASSERT_FALSE(nix.isSet());
 		ASSERT_TRUE(orig.empty());
 	}
+
+	mstring testOrig = "https://nix";
+	off_t testSize = 12345;
+	tHttpDate testDate(1);
+
 	// play simple loader against the header processor, this should still be valid!
 	header h;
 	ASSERT_TRUE(h.LoadFromFile(testHead));

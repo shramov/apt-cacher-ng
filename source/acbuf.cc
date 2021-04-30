@@ -42,70 +42,76 @@ bool acbuf::initFromFile(const char *szPath, off_t limit)
     return size() == st.st_size;
 }
 
-int acbuf::syswrite(int fd, unsigned int maxlen) {
-    size_t todo(std::min(maxlen, size()));
-#warning this is errorprone, might be interrupted with eintr but does not retry with eagain - drop this method, use other
-	int n;
-	do
-	{
-		n=::write(fd, rptr(), todo);
-	} while(n<0 && errno==EINTR);
-	
-	if(n<0 && errno==EAGAIN)
-		n=0;
-    if(n<0)
-        return -errno;
-    drop(n);
-    return n;
-}
+ssize_t acbuf::dumpall(int fd, ssize_t limit) {
 
-bool acbuf::dumpall(int fd, ssize_t limit) {
-    if (limit > size())
+	if (limit > size())
         limit = size();
+
+	auto ret = limit;
+
     while (limit)
     {
         errno = 0;
         auto n = ::write(fd, rptr(), limit);
+
         if (n > limit) // heh?
-            return false;
-        if (n == ssize_t(limit))
-            return true;
+		{
+			errno = EOVERFLOW;
+			return -1;
+		}
+
         if (n <= 0)
         {
             if (errno == EINTR || errno == EAGAIN)
                 continue;
-            return false;
+			ret = -1;
+			break;
         }
+
         drop(n);
         limit -= n;
+
+		if (limit <=0)
+			break;
     }
-    return true;
+	return ret;
 }
 
-bool acbuf::dumpall(const char *path, int flags, int perms, ssize_t limit)
+ssize_t acbuf::dumpall(const char *path, int flags, int perms, ssize_t limit, bool doTruncate)
 {
     unique_fd tmp(open(path, O_WRONLY | O_BINARY | flags, perms));
-    if (!tmp.valid())
-        return false; // keep the errno
-    if (!dumpall(tmp.m_p, limit))
-    {
-        // rescue the errno of the original error
-        auto e = errno;
-        checkforceclose(tmp.m_p);
-        errno = e;
-        return false;
+	if (!tmp.valid())
+		return -1; // keep the errno
+
+	auto ret = dumpall(tmp.m_p, limit);
+	if (ret == -1)
+	{
+		// rescue the errno of the original error
+		auto e = errno;
+		checkforceclose(tmp.m_p);
+		errno = e;
+		return -1;
     }
     while (tmp.valid())
     {
+		if (doTruncate)
+		{
+			auto pos = lseek(tmp.m_p, 0, SEEK_CUR);
+			if (pos < 0)
+				return -1;
+			pos = ftruncate(tmp.m_p, pos);
+			if (pos < 0)
+				return pos;
+		}
         if (0 == ::close(tmp.m_p))
         {
             tmp.release();
-            return true;
+			return ret;
         }
         if (errno != EINTR)
-            return false;
+			return -1;
     };
-    return true;
+	return ret;
 }
 
 int acbuf::sysread(int fd, unsigned int maxlen)

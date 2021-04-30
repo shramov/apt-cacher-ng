@@ -226,28 +226,7 @@ bool StoreHeadToStorage(cmstring &path, off_t contLen, tHttpDate *lastModified, 
     if (origSrc && !origSrc->empty())
         fmt << "X-Original-Source: "sv << *origSrc << svRN;
     fmt << svRN;
-#warning truncate file at the end, or maybe O_TRUNC from the start
-    return fmt.dumpall(path.c_str(), O_CREAT, cfg::fileperms);
-
-    // that above should be safe enough. The worst risk is that a head file will contain some trailing garbage when rewritten with shorter variant - which we don't really care about.
-
-#if 0
-    // exclusively saving to a new file
-    if (fmt.dumpall(head.c_str(), O_CREAT | O_EXCL, cfg::fileperms))
-    {
-        return true;
-
-    }
-
-    if (link(path.c_str(), temp1.c_str()) != 0)
-    {
-        if (errno == EEXIST)
-        return ;
-        // ok, try safe swap
-    {
-
-    }
-#endif
+	return fmt.dumpall(path.c_str(), O_CREAT, cfg::fileperms, INT_MAX, true);
 }
 
 //const std::regex reHttpStatus("(\\s*)(HTTP/1.?)?(\\s+)(.*?)(\\s*)");

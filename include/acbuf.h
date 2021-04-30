@@ -55,24 +55,13 @@ class ACNG_API acbuf
          */
         bool initFromFile(const char *path, off_t limit = MAX_VAL(off_t));
 
-        /*!
-         * Writes to a (non-blocking) file descriptor, cares about EAGAIN and updates
-         * position indexes. Optional chunklen variable specifies
-         * the maximum of data to write.
-         *
-         * \param fd File descriptor to write to
-         * \param maxlen Maximum amount of data to write
-         * \return Number of written bytes, negative on failures, see write(2)
+		/**
+		 * Write all data (or limited range) to specified descriptor, draining the buffer.
+		 * @return Number of bytes written, -1 on errors (and sets the errno)
          */
-        int syswrite(int fd, unsigned int maxlen=MAX_VAL(unsigned int));
+		ssize_t dumpall(int fd, ssize_t limit = MAX_VAL(ssize_t));
 
-        /**
-         * Write all data (or limited range) to specified descriptor, draining the buffer.
-         * @return True if succeeded, false otherwise (and sets the errno)
-         */
-        bool dumpall(int fd, ssize_t limit = MAX_VAL(ssize_t));
-
-        bool dumpall(const char *path, int flags, int perms, ssize_t limit = MAX_VAL(ssize_t));
+		ssize_t dumpall(const char *path, int flags, int perms, ssize_t limit = MAX_VAL(ssize_t), bool doTruncate = false);
 
         /*
          * Reads from a file descriptor and append to buffered data, update position indexes.

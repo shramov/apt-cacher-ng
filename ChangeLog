@@ -6,19 +6,37 @@ apt-cacher-ng (3.7) AND-SOMETIMES-THE-BEAR-EATS-YOU; urgency=low
     can be replaced easily and with better privilege separation using a
     shell script which starts apt-cacher-ng in foreground and calls acngtool.
 
+  [ BUGFIXES ]
+  * Fixes for potential bugfixes with error checking for corner cases all over
+    the place
+  * Cleans up with potential bug sources for incorrect transmission to the
+    client while the item content was sent to cache and to caller
+    simultaneously
+  * Fix potentially incorrect over-insisting file descriptor closing which
+    might have impacted libevent descriptors (Debian bug ...
+
   [ INTERNAL REFACTORING ]
-  * Overhauling download, delivery and cache management code:
+  * Overhauling download, delivery and cache management code, biggest change
+    in the last 7 years:
+
     a) supposedly using less CPU cycles and fewer critical sections
     b) supposedly using less memory for regular data serving
     c) almost never truncating files, only appending
     d) more consistent error codes
     e) separate debug logging into apt-cacher.dbg file
+    f) precise separation into type classes of the active cache items,
+       therefore better efficiency in case of volatile/non-volatile mixup,
+       also preparing to support cached requests with protected access and
+       individual credentials (Salsa issues...)
 
   [ NEW FEATURES ]
   * Support for open-end responses with range
   * 
 
+
   * TODO: 
+int. test for pass-through
+
 Subject: [Bug 1915713] [NEW] support for Cache-Control
 curl -H 'Cache-Control: no-cache'
 http://192.168.33.1:3142/repo.percona.com/tools/apt/dists/buster/Release

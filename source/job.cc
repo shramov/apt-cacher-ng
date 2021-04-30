@@ -214,11 +214,20 @@ public:
 	ssize_t SendData(int out_fd, int, off_t &nSendPos, size_t nMax2SendNow)
 	override
 	{
-		if (m_status > FIST_COMPLETE || out_fd < 0)
+		if (AC_UNLIKELY(m_status > FIST_COMPLETE || out_fd < 0))
+		{
+			errno = EBADFD;
 			return -1;
-		auto r = m_data.syswrite(out_fd, nMax2SendNow);
-		if(r>0) nSendPos+=r;
-		return r;
+		}
+		if (AC_UNLIKELY(nMax2SendNow > m_data.size()))
+		{
+			errno = EOVERFLOW;
+			return -1;
+		}
+		auto ret = m_data.dumpall(out_fd, nMax2SendNow);
+		if (AC_LIKELY(ret > 0))
+			nSendPos += ret;
+		return ret;
 	}
 	inline void seal()
 	{

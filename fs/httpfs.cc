@@ -166,6 +166,7 @@ public:
 		uri.sPath += baseUrl.sHost
 		// + ":" + ( baseUrl.sPort.empty() ? baseUrl.sPort : "80")
 				+ baseUrl.sPath + m_path;
+#error zuerst cache-control implementen
 		class tFitem: public fileitem
 		{
 		public:

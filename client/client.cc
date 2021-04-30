@@ -100,7 +100,7 @@ int main(int argc, char **argv)
 		return 5;
 	}
 	
-	int maxfd=1+std::max(in, std::max(out, s));
+	int maxfd = 1 + std::max(in, std::max(out, s));
 
 	while (true)
 	{
@@ -129,31 +129,31 @@ int main(int argc, char **argv)
 		
 		if(FD_ISSET(s, &wfds))
 		{
-			if(bufToD.syswrite(s)<0)
+			if(bufToD.dumpall(s) < 0)
 				return 1;
 		}
 		
 		if(FD_ISSET(out, &wfds))
 		{
-			if(bufFromD.syswrite(out)<0)
+			if(bufFromD.dumpall(out) < 0)
 				return 1;
 		}
 		
 		if(FD_ISSET(s, &rfds))
 		{
-			if(bufFromD.sysread(s)<=0)
+			if(bufFromD.sysread(s) <= 0)
 				goto finished;
 		}
 		
 		if(FD_ISSET(in, &rfds))
 		{
-			if(bufToD.sysread(in)<=0)
+			if(bufToD.sysread(in) <= 0)
 				goto finished;
 		}
 	}
     
 	finished:
-	forceclose(s);
+	checkforceclose(s);
 	::shutdown(s, SHUT_RDWR);
 
 	return 0;

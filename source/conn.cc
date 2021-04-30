@@ -233,20 +233,28 @@ void PassThrough(acbuf &clientBufIn, int fdClient, cmstring& uri)
 			return;
 
 		if (FD_ISSET(ofd, &wfds))
-			if (serverBufOut.syswrite(ofd) < 0)
+		{
+			if (serverBufOut.dumpall(ofd) < 0)
 				return;
+		}
 
 		if (FD_ISSET(fdClient, &wfds))
-			if (clientBufOut.syswrite(fdClient) < 0)
+		{
+			if (clientBufOut.dumpall(fdClient) < 0)
 				return;
+		}
 
 		if (FD_ISSET(ofd, &rfds))
+		{
 			if (serverBufIn.sysread(ofd) <= 0)
 				return;
+		}
 
 		if (FD_ISSET(fdClient, &rfds))
+		{
 			if (clientBufIn.sysread(fdClient) <= 0)
 				return;
+		}
 	}
 	return;
 }
