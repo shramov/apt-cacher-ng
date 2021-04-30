@@ -93,11 +93,16 @@ public:
 	string m_sHeader;
 	const std::string& GetRawResponseHeader() override { return m_sHeader; }
 
-	void DlFinish(bool) override
+	void DlFinish(bool updateFromStatus) override
 	{
+		LOGSTARTFUNC;
 		lockuniq g(this);
-		LOGSTARTFUNC
-				notifyAll();
+		dbgline;
+		notifyAll();
+
+		if (updateFromStatus && m_nSizeChecked > 0)
+			m_nContentLength = m_nSizeChecked;
+
 		m_status = FIST_COMPLETE;
 	}
 
@@ -499,8 +504,12 @@ void job::Prepare(const header &h, string_view headBuf) {
 		SetEarlySimpleResponse("403 Forbidden file type or location"sv);
 	};
 
-	if(h.type!=header::GET && h.type!=header::HEAD)
-		return report_invpath();
+	if(h.type!=header::GET)
+	{
+		m_bIsHeadOnly = h.type == header::eHeadType::HEAD;
+		if(!m_bIsHeadOnly)
+			return report_invpath();
+	}
 
 	UrlUnescapeAppend(h.getRequestUrl(), sReqPath);
 
@@ -654,7 +663,7 @@ void job::Prepare(const header &h, string_view headBuf) {
 
 		fileitem::tSpecialPurposeAttr attr {
 			! cfg::offlinemode && m_type == FILE_VOLATILE,
-					h.type == header::eHeadType::HEAD,
+					m_bIsHeadOnly,
 					false,
 					m_nReqRangeTo,
 					""
@@ -688,7 +697,6 @@ void job::Prepare(const header &h, string_view headBuf) {
 
 	if (bPtMode && fistate != fileitem::FIST_COMPLETE)
 		fistate = _SwitchToPtItem();
-
 
 	// might need to update the filestamp because nothing else would trigger it
 	if(cfg::trackfileuse && fistate >= fileitem::FIST_DLGOTHEAD && fistate < fileitem::FIST_DLERROR)
@@ -873,6 +881,9 @@ job::eJobResult job::SendData(int confd, bool haveMoreJobs)
 	}
 	case (STATE_SEND_DATA):
 	{
+		if (m_bIsHeadOnly) // there is no data!
+			return return_stream_ok();
+
 		if (!AwaitSendableState())
 			return HandleSuddenError();
 		if (!m_filefd.valid())

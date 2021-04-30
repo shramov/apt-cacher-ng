@@ -568,16 +568,6 @@ struct tDlJob
 					dbgline;
 					m_DlState = STATE_FINISHJOB;
 				}
-#if 0
-                // this is BS, our strategy shall never produce a 304
-				else if (st == 304 && cfg::vrangeops == 0)
-				{
-					dbgline;
-#warning review, what's the usecase?
-					m_pStorage->SetupComplete();
-					m_DlState = STATE_FINISHJOB;
-				}
-#endif
 				else if (h.h[header::TRANSFER_ENCODING]
 						&& 0
 								== strcasecmp(

@@ -54,6 +54,7 @@ public:
 
 	unique_fd m_filefd;    
     bool m_bIsHttp11 = true;
+	bool m_bIsHeadOnly = false;
     ISharedConnectionResources &m_pParentCon;
 
 	enum EKeepAliveMode : uint8_t
