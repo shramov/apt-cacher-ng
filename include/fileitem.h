@@ -9,7 +9,7 @@
 #include "header.h"
 #include "fileio.h"
 #include "httpdate.h"
-#include <unordered_map>
+#include <map>
 
 namespace acng
 {
@@ -18,7 +18,7 @@ class fileitem;
 struct tDlJob;
 class cacheman;
 typedef std::shared_ptr<fileitem> tFileItemPtr;
-typedef std::unordered_map<mstring, tFileItemPtr> tFiGlobMap;
+typedef std::map<mstring, tFileItemPtr> tFiGlobMap;
 struct tAppStartStop;
 
 class IFileItemRegistry;
@@ -36,7 +36,12 @@ public:
     struct tSpecialPurposeAttr
     {
         bool bVolatile = false;
-        bool bHeadOnly = false;
+		bool bHeadOnly = false;
+				/**
+				 * @brief bNoStore Don't store metadata or attempt to touch cached data in the aftermath
+				 * Most useful in combination with bHeadOnly
+				 */
+		bool bNoStore = false;
         off_t nRangeLimit = -1;
         mstring credentials;
     };
@@ -67,6 +72,7 @@ public:
         , DELETE
     };
 
+	fileitem(cmstring& sPathRel);
 	virtual ~fileitem() =default;
 	
 	// initialize file item, return the status
@@ -76,7 +82,11 @@ public:
 	uint64_t TakeTransferCount();
 	uint64_t GetTransferCountUnlocked() { return m_nIncommingCount; }
 	// send helper like wrapper for sendfile. Just declare virtual here to make it better customizable later.
-	virtual ssize_t SendData(int confd, int filefd, off_t &nSendPos, size_t nMax2SendNow)=0;
+	virtual ssize_t SendData(int confd, int filefd, off_t &nSendPos, size_t nMax2SendNow)
+	{
+		(void) confd; (void) filefd; (void) nSendPos; (void) nMax2SendNow;
+		return -1;
+	};
 
 	FiStatus GetStatus() { setLockGuard; return m_status; }
 	FiStatus GetStatusUnlocked(off_t &nGoodDataSize) { nGoodDataSize = m_nSizeChecked; return m_status; }
@@ -131,8 +141,6 @@ protected:
 
     tSpecialPurposeAttr m_spattr;
 
-	fileitem();
-
 	off_t m_nSizeChecked = -1;
 	std::atomic_int usercount = ATOMIC_VAR_INIT(0);
 	FiStatus m_status = FIST_FRESH;
@@ -182,9 +190,9 @@ protected:
 
     virtual void DlSetError(const tRemoteStatus& errState, EDestroyMode);
 
-	// serves as flag for shared objects and a self-reference for fast and exact deletion
-	tFiGlobMap::iterator m_globRef;
+	// flag for shared objects and a self-reference for fast and exact deletion, together with m_globRef
 	std::weak_ptr<IFileItemRegistry> m_owner;
+	tFiGlobMap::iterator m_globRef;
 
 	friend class TFileItemHolder;
 
@@ -206,7 +214,7 @@ enum class ESharingHow
 class fileitem_with_storage : public fileitem
 {
 public:
-	inline fileitem_with_storage(cmstring &s) {m_sPathRel=s;};
+	inline fileitem_with_storage(cmstring &s) : fileitem(s) {}
     virtual ~fileitem_with_storage();
 
     FiStatus Setup() override;

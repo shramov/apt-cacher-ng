@@ -73,12 +73,11 @@ protected:
 	evbuffer* m_q;
 
 public:
-	tPassThroughFitem(std::string s) : m_q(evbuffer_new())
+	tPassThroughFitem(std::string s) : fileitem(s), m_q(evbuffer_new())
 	{
 		LOGSTARTFUNC;
 		if(!m_q)
 			throw std::bad_alloc();
-		m_sPathRel = s;
 		m_nSizeChecked = m_nSizeCachedInitial = -1;
 	};
 	~tPassThroughFitem()
@@ -203,10 +202,10 @@ public:
 
 	tSS m_data;
 
-	tGeneratedFitemBase(const string &sFitemId, tRemoteStatus status, cmstring& origUrl = sEmptyString) : m_data(256)
+	tGeneratedFitemBase(const string &sFitemId, tRemoteStatus status, cmstring& origUrl = sEmptyString)
+		: fileitem(sFitemId), m_data(256)
 	{
 		m_status=FIST_DLRECEIVING;
-		m_sPathRel=sFitemId;
 		m_responseOrigin = origUrl;
 		m_responseStatus = status;
 		m_contentType = "text/html";
@@ -462,7 +461,7 @@ inline bool job::ParseRange(const header& h)
 
 void job::Prepare(const header &h, string_view headBuf) {
 
-	LOGSTART("job::PrepareDownload");
+	LOGSTARTFUNC;
 
 #ifdef DEBUGLOCAL
 	cfg::localdirs["stuff"]="/tmp/stuff";
@@ -656,6 +655,7 @@ void job::Prepare(const header &h, string_view headBuf) {
 		fileitem::tSpecialPurposeAttr attr {
 			! cfg::offlinemode && m_type == FILE_VOLATILE,
 					h.type == header::eHeadType::HEAD,
+					false,
 					m_nReqRangeTo,
 					""
         };

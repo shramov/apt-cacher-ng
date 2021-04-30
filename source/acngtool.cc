@@ -66,7 +66,7 @@ bool isUdsAccessible(cmstring& path)
 	return s && S_ISSOCK(s.st_mode) && 0 == access(path.c_str(), W_OK);
 }
 
-#warning todo: print error log to console for curl mode because the code is there. maybe patch the error string to, make it a global static?
+#warning todo: print error log to STDERR for curl mode because the code is there. maybe patch the error string too, make it a global static?
 
 struct ACNG_API IFitemFactory
 {
@@ -80,7 +80,7 @@ struct ACNG_API CPrintItemFactory : public IFitemFactory
 		class tPrintItem: public fileitem
 			{
 			public:
-				tPrintItem()
+				tPrintItem() : fileitem("<STREAM>")
 				{
 				}
                 virtual FiStatus Setup() override
@@ -162,7 +162,7 @@ SHARED_PTR<fileitem> CreateReportItem()
 		tStrDeq m_warningCollector;
 
 	public:
-		tRepItem()
+		tRepItem() : fileitem("<STREAM>")
 		{
 			m_nSizeChecked = m_nSizeCachedInitial = 0;
 			lineBuf.setsize(1 << 16);

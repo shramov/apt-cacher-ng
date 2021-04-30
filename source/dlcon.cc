@@ -723,9 +723,16 @@ struct tDlJob
 		auto& sPathRel = m_pStorage->m_sPathRel;
 		auto& fiStatus = m_pStorage->m_status;
 
+		auto mark_assigned = [&]() {
+
+			m_bFileItemAssigned = true;
+			m_pStorage->m_nTimeDlStarted = GetTime();
+		};
+
         auto withError = [&](string_view message,
                 fileitem::EDestroyMode destruction = fileitem::EDestroyMode::KEEP) {
             m_bAllowStoreData = false;
+			mark_assigned();
             log::err(tSS() << sPathRel << " response or storage error [" << message
                      << "], last errno: " << tErrnoFmter());
             m_pStorage->DlSetError({503, mstring(message)}, destruction);
@@ -804,6 +811,7 @@ struct tDlJob
                     m_pStorage->m_responseModDate == h.h[header::LAST_MODIFIED])
 			{
 				m_bAllowStoreData = false;
+				mark_assigned();
 				m_pStorage->DlFinish(true);
 				return EResponseEval::GOOD;
 			}
@@ -857,7 +865,7 @@ struct tDlJob
 		if(cfg::debug & log::LOG_MORE)
 			log::misc(string("Download of ")+sPathRel+" started");
 
-		m_bFileItemAssigned = true;
+		mark_assigned();
 
         if (!m_pStorage->DlStarted(rawHeader, tHttpDate(h.h[header::LAST_MODIFIED]),
                                    sLocation.empty() ? RemoteUri(false) : sLocation,

@@ -24,9 +24,10 @@ namespace acng
 {
 ACNG_API std::shared_ptr<IFileItemRegistry> g_registry;
 
-fileitem::fileitem() :
+fileitem::fileitem(cmstring& sPathRel) :
 	// good enough to not trigger the makeWay check but also not cause overflows
-	m_nTimeDlStarted(END_OF_TIME-acng::cfg::maxtempdelay*3)
+		m_sPathRel(sPathRel),
+		m_nTimeDlStarted(END_OF_TIME-acng::cfg::maxtempdelay*3)
 {
 }
 
@@ -127,8 +128,16 @@ fileitem::FiStatus fileitem_with_storage::Setup()
 	}
 
 	LOG("good head");
+	// report this for all good loading; for volatile items, only becomes relevant when volatile check is performed
+	m_responseStatus = { 200, "OK" };
+
 	if (!IsVolatile())
 	{
+		if (m_spattr.bHeadOnly)
+		{
+			return m_status = FIST_DLGOTHEAD;
+		}
+
 		// non-volatile files, so could accept the length, do some checks first
 		if (m_nContentLength >= 0)
 		{
@@ -154,41 +163,9 @@ fileitem::FiStatus fileitem_with_storage::Setup()
 			m_spattr.bVolatile = true;
 		}
 	}
-
-	// report this for all good loading; for volatile items, only becomes relevant when volatile check is performed
-	m_responseStatus = { 200, "OK" };
 	LOG("resulting status: " << (int) m_status);
 	return m_status;
 }
-
-#warning dead code?
-#if 0
-bool fileitem::CheckUsableRange_unlocked(off_t nRangeLastByte)
-{
-#warning wer braucht das?
-	if (m_status == FIST_COMPLETE)
-		return true;
-	if (m_status < FIST_INITED || m_status > FIST_COMPLETE)
-		return false;
-	if (m_status >= FIST_DLGOTHEAD)
-		return nRangeLastByte > m_nSizeChecked;
-
-	// special exceptions for solid files
-	return (m_status == FIST_INITED && !m_bVolatile
-			&& m_nSizeCachedInitial>0 && nRangeLastByte >=0 && nRangeLastByte <m_nSizeCachedInitial
-			&& atoofft(m_head.h[header::CONTENT_LENGTH], -255) > nRangeLastByte);
-}
-#endif
-
-#if 0
-void fileitem::SetupComplete()
-{
-	setLockGuard;
-	notifyAll();
-	m_nSizeChecked = m_nSizeCachedInitial;
-	m_status = FIST_COMPLETE;
-}
-#endif
 
 void fileitem::UpdateHeadTimestamp()
 {
@@ -265,7 +242,6 @@ bool fileitem::DlStarted(string_view rawHeader, const tHttpDate& modDate, cmstri
 	else
 	{
 		m_nContentLength = -1;
-		m_nTimeDlStarted = GetTime();
 	}
 	dbgline;
 
@@ -321,6 +297,9 @@ bool fileitem_with_storage::SafeOpenOutFile()
 {
 	LOGSTARTFUNC;
 	checkforceclose(m_filefd);
+
+	if (AC_UNLIKELY(m_spattr.bNoStore))
+		return false;
 
 	// using adaptive Delete-Or-Replace-Or-CopyOnWrite strategy
 
@@ -474,6 +453,9 @@ mstring fileitem_with_storage::NormalizePath(cmstring &sPathRaw)
 
 fileitem_with_storage::~fileitem_with_storage()
 {
+	if (AC_UNLIKELY(m_spattr.bNoStore))
+		return;
+
 	checkforceclose(m_filefd);
 
 	// done if empty, otherwise might need to perform pending self-destruction
@@ -552,7 +534,11 @@ void fileitem_with_storage::MoveRelease2Sidestore()
 void fileitem_with_storage::DlFinish(bool asInCache)
 {
 	LOGSTARTFUNC;
-	ASSERT_HAVE_LOCK
+	ASSERT_HAVE_LOCK;
+
+	if (AC_UNLIKELY(m_spattr.bNoStore))
+		return;
+
 	notifyAll();
 
 	if (m_status >= FIST_COMPLETE)

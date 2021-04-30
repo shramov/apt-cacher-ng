@@ -117,10 +117,13 @@ inline void * CleanerThreadAction(void *pVoid)
 
 void cleaner::ScheduleFor(time_t when, eType what)
 {
+	LOGSTARTFUNCx(when, (int) what);
+
 	if(m_noop || evabase::in_shutdown)
 		return;
 
 	setLockGuard;
+
 	if(m_thr == 0)
 	{
 		if(evabase::in_shutdown)

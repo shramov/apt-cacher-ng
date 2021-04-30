@@ -264,7 +264,7 @@ void fish_longest_match(string_view stringToScan, const char sep,
 void replaceChars(std::string &s, const char* szBadChars, char goodChar);
 inline std::string to_string(string_view s) {return std::string(s.data(), s.length());}
 
-inline unsigned long svtol(string_view& sv, long errorValue = -1)
+inline long svtol(string_view& sv, long errorValue = -1)
 {
         char *endchar = nullptr;
         auto val = strtol(sv.data(), &endchar, 10);

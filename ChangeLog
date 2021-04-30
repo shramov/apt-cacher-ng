@@ -1,16 +1,18 @@
 apt-cacher-ng (3.7) AND-SOMETIMES-THE-BEAR-EATS-YOU; urgency=low
 
   [ BREAKING CHANGES ]
+
   * "just cleanup" parameter -e was removed. This has been troublesome to
     implement long time ago and is most likely not used in the wild. This
     can be replaced easily and with better privilege separation using a
     shell script which starts apt-cacher-ng in foreground and calls acngtool.
-  * cache processor is more paranoid with regards to file metadata. Manually
+  * cache processor is now more stric with regards to file metadata. Manually
     imported files (without use of the official Import function) will no
     longer be considered valid without at least a timestamp check on the
     server.
 
   [ BUGFIXES ]
+
   * Fixes for potential bugfixes with error checking for corner cases all over
     the place
   * Cleans up with potential bug sources for incorrect transmission to the
@@ -20,6 +22,7 @@ apt-cacher-ng (3.7) AND-SOMETIMES-THE-BEAR-EATS-YOU; urgency=low
     might have impacted libevent descriptors (Debian bug ...
 
   [ INTERNAL REFACTORING ]
+
   * Overhauling download, delivery and cache management code, biggest change
     in the last 7 years:
 
@@ -34,6 +37,7 @@ apt-cacher-ng (3.7) AND-SOMETIMES-THE-BEAR-EATS-YOU; urgency=low
        individual credentials (Salsa issues...)
 
   [ NEW FEATURES ]
+
   * Support for open-end responses with range
   * 
 
