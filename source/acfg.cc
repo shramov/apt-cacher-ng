@@ -153,7 +153,6 @@ MapNameToInt n2iTbl[] = {
 		,{  "FreshIndexMaxAge",                  &maxtempdelay,     nullptr,    10, false}
 		,{  "RedirMax",                          &redirmax,         nullptr,    10, false}
 		,{  "VfileUseRangeOps",                  &vrangeops,        nullptr,    10, false}
-#warning FIXME, Beschreibung mist, eher: "Period at which to decide that a volatile remote item is blocked very slow local downloader."
 		,{  "ResponseFreezeDetectTime",          &stucksecs,        nullptr,    10, false}
 		,{  "ReuseConnections",                  &persistoutgoing,  nullptr,    10, false}
 		,{  "PipelineDepth",                     &pipelinelen,      nullptr,    10, false}
@@ -180,7 +179,7 @@ MapNameToInt n2iTbl[] = {
 
 tProperty n2pTbl[] =
 {
-{ "Proxy", [](cmstring& key, cmstring& value)
+{ "Proxy", [](cmstring&, cmstring& value)
 {
 	if(value.empty()) proxy_info=tHttpUrl();
 	else
@@ -195,7 +194,7 @@ tProperty n2pTbl[] =
 		return string("#");
 	return proxy_info.sHost.empty() ? sEmptyString : proxy_info.ToURI(false);
 } },
-{ "LocalDirs", [](cmstring& key, cmstring& value) -> bool
+{ "LocalDirs", [](cmstring&, cmstring& value) -> bool
 {
 	if(g_bNoComplex)
 	return true;
@@ -251,7 +250,7 @@ tProperty n2pTbl[] =
 	{
 		return "# mixed options";
 	} },
-{ "AllowUserPorts", [](cmstring& key, cmstring& value) -> bool
+{ "AllowUserPorts", [](cmstring&, cmstring& value) -> bool
 {
 	if(!pUserPorts)
 	pUserPorts=new bitset<TCP_PORT_MAX>;
@@ -281,7 +280,7 @@ tProperty n2pTbl[] =
 		}
 	return (string) ret;
 } },
-{ "ConnectProto", [](cmstring& key, cmstring& value) -> bool
+{ "ConnectProto", [](cmstring&, cmstring& value) -> bool
 {
 	int *p = conprotos;
 	for (tSplitWalk split(value); split.Next(); ++p)
@@ -308,7 +307,7 @@ tProperty n2pTbl[] =
 		ret += string(" ") + (conprotos[1] == PF_INET6 ? "v6" : "v4");
 	return ret;
 } },
-{ "AdminAuth", [](cmstring& key, cmstring& value) -> bool
+{ "AdminAuth", [](cmstring&, cmstring& value) -> bool
 {
 	adminauth=value;
 	adminauthB64=EncodeBase64Auth(value);
@@ -318,7 +317,7 @@ tProperty n2pTbl[] =
 	return "#"; // TOP SECRET";
 } }
 ,
-{ "ExStartTradeOff", [](cmstring& key, cmstring& value) -> bool
+{ "ExStartTradeOff", [](cmstring&, cmstring& value) -> bool
 {
 	exstarttradeoff = strsizeToOfft(value.c_str());
 	return true;
@@ -752,7 +751,6 @@ cmstring & GetMimeType(cmstring &path)
 	filereader f;
 	if(f.OpenFile(path, true))
 	{
-#warning testme, short/long file, and mixed/binary/textonly inputs
         auto sv = f.getView().substr(0, 255);
         for(char c: sv)
 		{

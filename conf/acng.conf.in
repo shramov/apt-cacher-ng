@@ -447,12 +447,11 @@ LocalDirs: acng-doc @CMAKE_INSTALL_FULL_DOCDIR@
 # Default: ^(bugs\.debian\.org|changelogs\.ubuntu\.com):443$
 # PassThroughPattern: ^(bugs\.debian\.org|changelogs\.ubuntu\.com):443$
 
-# It's possible that an evil client requests a volatile file but does not
-# retrieve the response and keeps the connection effectively stuck over
-# many hours, blocking the particular file for other download attempts (which
-# leads to not reporting file changes on server side to other users). In such
-# case the file descriptor can be moved aside although this might reduce cache
-# efficiency.
+# Interval an overaged local cache item (i.e. active file descriptor) can be
+# considered broken so that a new forced download can be started. Such
+# situation can happen when a very slow clients keeps a hot cache item active
+# for extended amounts of time so that even the remote freshness checks
+# intervals might become overrun.
 #
 # Default time is based on the value of FreshIndexMaxAge with a safety factor.
 #
