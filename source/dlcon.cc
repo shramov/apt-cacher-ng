@@ -392,7 +392,7 @@ struct tDlJob
 
 		if (m_nUsedRangeStartPos > 0)
 		{
-            if (m_fiAttr.bVolatile && m_pStorage->m_responseModDate.isSet())
+			if (m_pStorage->m_responseModDate.isSet())
 				head << "If-Range: " << m_pStorage->m_responseModDate.view() << CRLF;
 			head << "Range: bytes=" << m_nUsedRangeStartPos << "-";
             if (m_fiAttr.nRangeLimit > 0)

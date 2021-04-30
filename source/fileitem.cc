@@ -123,42 +123,38 @@ fileitem::FiStatus fileitem_with_storage::Setup()
 
 	if (!ParseHeadFromStorage(sPathAbs + ".head", &m_nContentLength, &m_responseModDate, &m_responseOrigin))
 	{
-		if (IsVolatile()) //that's too risky
-			return error_clean();
+		return error_clean();
 	}
-	else
-	{
-		LOG("good head");
-		if (!IsVolatile())
-		{
-#warning for range-limited, consider the range limit to be good enough to set FIST_COMPLETE
-#warning that only works with not head-only
-			// non-volatile files, so could accept the length, do some checks first
-			if (m_nContentLength >= 0)
-			{
-				// file larger than it could ever be?
-				if (m_nContentLength < m_nSizeCachedInitial)
-					return error_clean();
 
-				// is it complete? and 0 value also looks weird, try to verify later
-				if (m_nSizeCachedInitial == m_nContentLength)
-				{
-					m_nSizeChecked = m_nSizeCachedInitial;
-					m_status = FIST_COMPLETE;
-				}
-				else
-				{
-					// otherwise wait for remote to confirm its presence too
-					m_spattr.bVolatile = true;
-				}
+	LOG("good head");
+	if (!IsVolatile())
+	{
+		// non-volatile files, so could accept the length, do some checks first
+		if (m_nContentLength >= 0)
+		{
+			// file larger than it could ever be?
+			if (m_nContentLength < m_nSizeCachedInitial)
+				return error_clean();
+
+			// is it complete? and 0 value also looks weird, try to verify later
+			if (m_nSizeCachedInitial == m_nContentLength)
+			{
+				m_nSizeChecked = m_nSizeCachedInitial;
+				m_status = FIST_COMPLETE;
 			}
 			else
 			{
-				// no content length known, let's check the remote size
+				// otherwise wait for remote to confirm its presence too
 				m_spattr.bVolatile = true;
 			}
 		}
+		else
+		{
+			// no content length known, let's check the remote size
+			m_spattr.bVolatile = true;
+		}
 	}
+
 	// report this for all good loading; for volatile items, only becomes relevant when volatile check is performed
 	m_responseStatus = { 200, "OK" };
 	LOG("resulting status: " << (int) m_status);

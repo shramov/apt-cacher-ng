@@ -5,6 +5,10 @@ apt-cacher-ng (3.7) AND-SOMETIMES-THE-BEAR-EATS-YOU; urgency=low
     implement long time ago and is most likely not used in the wild. This
     can be replaced easily and with better privilege separation using a
     shell script which starts apt-cacher-ng in foreground and calls acngtool.
+  * cache processor is more paranoid with regards to file metadata. Manually
+    imported files (without use of the official Import function) will no
+    longer be considered valid without at least a timestamp check on the
+    server.
 
   [ BUGFIXES ]
   * Fixes for potential bugfixes with error checking for corner cases all over

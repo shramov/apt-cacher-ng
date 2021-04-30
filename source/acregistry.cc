@@ -179,6 +179,7 @@ TFileItemHolder TFileItemRegistry::Create(cmstring &sPathUnescaped, ESharingHow 
 						}
 						if (!makeWay && spattr.bHeadOnly != fi->IsHeadOnly())
 						{
+#warning FIXME this is BS. If the new is head-only, mark the new as HeadOnlyNoStore item and do not register and also dtor shall not touch any files
 								dbgline;
 								makeWay = true;
 						}
