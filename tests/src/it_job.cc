@@ -32,15 +32,8 @@ TEST(job, create)
     header h;
     j.Prepare(h, ""sv);
     ASSERT_TRUE(j.m_sendbuf.view().find("403 Invalid path") != stmiss);
-    auto hdata = "GET /na/asdfasdfsadf"sv;
-    h.Load(hdata);
-    j.Prepare(h, hdata);
-    ASSERT_TRUE(j.m_sendbuf.view().find("403 Invalid path") != stmiss);
-    hdata = "GET /na/asdfasdfsadf HTTP/1.1\r\n";
-    auto res = h.Load(hdata);
-    ASSERT_LE(res, 0);
-    hdata = "GET /na/asdfasdfsadf HTTP/1.1\r\n\r\n";
-    res = h.Load(hdata);
+	auto hdata = "GET /na/asdfasdfsadf HTTP/1.1\r\n\r\n";
+	auto res = h.Load(hdata);
     ASSERT_GT(res, 0);
     j.Prepare(h, hdata);
     ASSERT_TRUE(j.m_sendbuf.view().find("HTTP/1.1 403 Forbidden file type or location") != stmiss);

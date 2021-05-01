@@ -21,7 +21,7 @@ TEST(algorithms, checksumming)
 }
 #endif
 using namespace acng;
-
+using namespace std;
 TEST(http, status)
 {
 	tRemoteStatus a("200 OK", -1, false);
@@ -134,8 +134,6 @@ TEST(http, cachehead)
 		ASSERT_EQ(nix, testDate);
 		ASSERT_EQ(orig, testOrig);
 	}
-
-#warning TODO: write sample data to it, load it, unlink it, store sample data again with store method, load and compare
 }
 
 TEST(http, header)
@@ -191,4 +189,14 @@ TEST(http, header)
 "Date: Sun, 18 Apr 2021 16:29:32 GMT\r\nEtag: \"841c-5bbf2fe7c319f\"\r\nLast-Modified: Mon, 22 Feb 2021 20:53:29 GMT\r\n";
 	ASSERT_EQ(207, hdata.length());
 	ASSERT_EQ(0, h.Load(hdata));
+
+	hdata = "GET /na/asdfasdfsadf"sv;
+	auto r = h.Load(hdata);
+	ASSERT_EQ(r, 0);
+	hdata = "GET /na/asdfasdfsadf HTTP/1.1\r\n";
+	r = h.Load(hdata);
+	ASSERT_EQ(r, 0);
+	hdata = "GET /na/asdfasdfsadf HTTP/1.1\r\n\r\n";
+	r = h.Load(hdata);
+	ASSERT_EQ(r, hdata.size());
 }

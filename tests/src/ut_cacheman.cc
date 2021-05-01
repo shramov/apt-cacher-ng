@@ -1,7 +1,7 @@
 #include "gtest/gtest.h"
 #include "cacheman.h"
 #include "acfg.h"
-
+#include "acregistry.h"
 #include "gmock/gmock.h"
 
 #include <unordered_map>
@@ -13,10 +13,10 @@ using namespace acng;
 
 struct testman : cacheman
 {
-testman() : cacheman(tSpecialRequest::tRunParms()) {}
-bool ProcessRegular(const std::string &sPath, const struct stat &) override {return true;}
-bool ProcessOthers(const std::string &sPath, const struct stat &) override {return true;}
-bool ProcessDirAfter(const std::string &sPath, const struct stat &) override {return true;}
+testman(tSpecialRequest::tRunParms p) : cacheman(p) {}
+bool ProcessRegular(const std::string &, const struct stat &) override {return true;}
+bool ProcessOthers(const std::string &, const struct stat &) override {return true;}
+bool ProcessDirAfter(const std::string &, const struct stat &) override {return true;}
 protected:
 	virtual void Action() override {}
 	virtual bool Download(cmstring& sFilePathRel, bool bIsVolatileFile,
@@ -47,7 +47,27 @@ protected:
 
 TEST(cacheman, pdiff)
 {
-	testman tm;
+	struct tConnStuff : public ISharedConnectionResources
+	{
+	public:
+		virtual dlcon* SetupDownloader() override {return nullptr;}
+		virtual void LogDataCounts(cmstring & , mstring , off_t ,
+								   off_t , bool ) override
+		{}
+		virtual std::shared_ptr<IFileItemRegistry> GetItemRegistry() override
+		{
+			return acng::MakeRegularItemRegistry();
+		};
+	} connStuff;
+
+	tSpecialRequest::tRunParms opts
+	{
+		-1,
+		tSpecialRequest::eMaintWorkType::workSTYLESHEET,
+		"?noop",
+		&connStuff
+	};
+	testman tm(opts);
 	tStrDeq input { "_tmp/base.doesntexist.Packages.xz" };
 
 	// those files are not registered, should bounce
@@ -64,10 +84,10 @@ TEST(cacheman, pdiff)
 	twoDaysAgo -= twoDaysAgo % 86400;
 	auto s2dago = ltos(twoDaysAgo);
 	auto pbase = cmstring("_tmp/") + s2dago;
-	auto cmd = cmstring("test -e ") + pbase + " || wget $(date -d @" + s2dago
+	auto cmd = cmstring("set -xe ; test -e ") + pbase + ".orig || wget $(date -d @" + s2dago
 			+ " +http://snapshot.debian.org/archive/debian/"
-			+ "%Y%m%dT%H%M%SZ/dists/sid/main/binary-amd64/Packages.xz) -O- | "
-			+ "xzcat > " + pbase;
+			+ "%Y%m%dT%H%M%SZ/dists/sid/main/binary-amd64/Packages.xz) -O "+ pbase +  ".orig; "
+			+ "xzcat " + pbase + ".orig > " + pbase;
 	ASSERT_EQ(0, system(cmd.c_str()));
 	{
 		Cstat info(pbase);
@@ -78,7 +98,6 @@ TEST(cacheman, pdiff)
 
 	input.emplace_back(pbase);
 	ASSERT_EQ(0, tm.PatchOne(IPATH, input));
-
 
 	{
 		filereader rd;
@@ -95,6 +114,5 @@ TEST(cacheman, pdiff)
 		ASSERT_EQ(pbase_sum.size(), 64);
 		ASSERT_TRUE(pbase_len > 0);
 	}
-
 }
 #warning FIXME, check the auto-linking of by-hash files Release -> by-hash/SHA256/07cb692d133dce21dabb9e42201b8e632a7c6a069b53f9ae8173a4ea24606da9 	2017-07-21 03:22:26

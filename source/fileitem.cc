@@ -314,8 +314,8 @@ bool fileitem_with_storage::SafeOpenOutFile()
 		// special case where the file needs be replaced in the most careful way
 		m_bWriterMustReplaceFile = false;
 		auto dir = GetDirPart(sPathAbs) + "./";
-		auto tname = dir + ltos(rand());
-		auto tname2 = dir + ltos(rand());
+		auto tname = dir + ltos(rand()) + ltos(rand()) + ltos(rand());
+		auto tname2 = dir + ltos(rand()) + ltos(rand()) +ltos(rand());
 		// keep the file descriptor later if needed
 		unique_fd tmp(open(tname.c_str(), flags, cfg::fileperms));
 		if (tmp.m_p == -1)

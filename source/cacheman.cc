@@ -779,47 +779,6 @@ tFingerprint * BuildPatchList(string sFilePathAbs, deque<tPatchEntry> &retList)
 	return ret.csType != CSTYPE_INVALID ? &ret : nullptr;
 }
 
-
-#if 0
-bool cacheman::GetAndCheckHead(cmstring & sTempDataRel, cmstring &sReferencePathRel,
-		off_t nWantedSize)
-{
-
-
-	class tHeadOnlyStorage: public fileitem_with_storage
-	{
-	public:
-
-		cmstring & m_sTempDataRel, &m_sReferencePathRel;
-		off_t m_nGotSize;
-
-		tHeadOnlyStorage(cmstring & sTempDataRel, cmstring &sReferencePathRel) :
-
-			fileitem_with_storage(sTempDataRel) // storage ref to physical data file
-					,
-			m_sTempDataRel(sTempDataRel),
-			m_sReferencePathRel(sReferencePathRel), m_nGotSize(-1)
-
-
-		{
-			m_bAllowStoreData = false;
-			m_bHeadOnly = true;
-			m_head.LoadFromFile(SABSPATH(m_sReferencePathRel+".head"));
-		}
-		~tHeadOnlyStorage()
-		{
-			m_head.StoreToFile( CACHE_BASE + m_sPathRel + ".head");
-			m_nGotSize = atoofft(m_head.h[header::CONTENT_LENGTH], -17);
-		}
-	};
-
-	auto p(make_shared<tHeadOnlyStorage>(sTempDataRel, sReferencePathRel));
-	return (Download(sReferencePathRel, true, eMsgHideAll, p)
-			&& ( (tHeadOnlyStorage*) p.get())->m_nGotSize == nWantedSize);
-}
-#endif
-
-
 bool cacheman::Inject(cmstring &fromRel, cmstring &toRel,
         bool bSetIfileFlags, off_t checkSize, LPCSTR forceOrig)
 {
@@ -1162,7 +1121,7 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 	cmstring sPatchCombinedAbs(SABSPATH(sPatchCombinedRel));
 
 	// returns true if a new patched file was created
-	auto tryPatch = [&](cmstring& pbaseRel) -> int
+	auto tryPatch = [&]() -> int
 			{
 		// XXX: use smarter line matching or regex
 		auto probeCS = probeOrig.GetCsAsString();
@@ -1191,6 +1150,9 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 			if (pname.empty())
 				return PATCH_FAIL;
 		}
+
+		if (pname.empty())
+			return PATCH_FAIL;
 
 		// ok, first patch of the sequence found
 		if(!pf.p)
@@ -1306,10 +1268,10 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 			{
 				SetFlags(pb).uptodate = true;
 				SyncSiblings(pb, siblings);
-				return PATCH_FAIL; // the file is uptodate already...
+				return 0; // the file is uptodate already...
 			}
 
-			if(tryPatch(pb))
+			if(tryPatch())
 				continue;
 
 			// install to one of uncompressed locations, let SyncSiblings handle the rest
@@ -1984,16 +1946,16 @@ void cacheman::ParseGenericRfc822File(filereader& reader,
 			if (!sExtListFilter.empty() && sExtListFilter != lastKey)
 				continue;
 
-			trimFront(sLine);
+			trimBoth(sLine);
 			pLastVal->push_back(sLine);
 		}
 		else if (ParseKeyValLine(sLine, key, val))
 		{
-			// override the old key if existing, we don't merge
-			auto ins = contents.insert(make_pair(key, std::deque<std::string>
-			{ val }));
 			lastKey = key;
-			pLastVal = &ins.first->second;
+			pLastVal = & contents[key];
+			// we don't merge
+			pLastVal->clear();
+			pLastVal->emplace_back(val);
 		}
 	}
 }
