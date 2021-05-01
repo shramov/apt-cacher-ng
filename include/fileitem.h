@@ -128,7 +128,7 @@ protected:
 
 	bool m_bPreallocated = false;
 	/**
-	 * The item is usable but data file must be removed/replaced on opening.
+	 * The item is usable but data might be fishy, so that file must be removed/replaced on opening.
 	 */
 	bool m_bWriterMustReplaceFile = false;
 	/**

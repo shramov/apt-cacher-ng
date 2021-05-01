@@ -44,4 +44,8 @@ TEST(job, create)
     ASSERT_GT(res, 0);
     j.Prepare(h, hdata);
     ASSERT_TRUE(j.m_sendbuf.view().find("HTTP/1.1 403 Forbidden file type or location") != stmiss);
+
+#ifdef DEBUG
+	j.Dispose();
+#endif
 }

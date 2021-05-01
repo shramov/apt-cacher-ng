@@ -111,7 +111,6 @@ fileitem::FiStatus fileitem_with_storage::Setup()
 	auto error_clean = [this]()
 	{
 		m_nSizeCachedInitial = m_nSizeChecked = m_nContentLength = -1;
-#warning Users must consider this flag and act accordingly
 		m_bWriterMustReplaceFile = true;
 		return m_status = FIST_INITED;
 	};
@@ -301,100 +300,85 @@ bool fileitem_with_storage::SafeOpenOutFile()
 	if (AC_UNLIKELY(m_spattr.bNoStore))
 		return false;
 
-	// using adaptive Delete-Or-Replace-Or-CopyOnWrite strategy
-
 	MoveRelease2Sidestore();
 
 	auto sPathAbs(SABSPATH(m_sPathRel));
 
-	// First opening the file to be sure that it can be written. Header storage is the critical point,
-	// every error after that leads to full cleanup to not risk inconsistent file contents
-
 	int flags = O_WRONLY | O_CREAT | O_BINARY;
 
-	Cstat stbuf;
-
 	mkbasedir(sPathAbs);
-	if (m_nSizeChecked <= 0)
-	{
-		// 0 might also be a sign of missing metadata while data file may exist
-		// in that case use the other strategy of new file creation which does not crash mmap
 
-		checkforceclose(m_filefd); // be sure about that
-		mstring tname(sPathAbs + "-"), tname2(sPathAbs + "~");
+	auto replace_file = [&]()
+	{
+		checkforceclose(m_filefd);
+		// special case where the file needs be replaced in the most careful way
+		m_bWriterMustReplaceFile = false;
+		auto dir = GetDirPart(sPathAbs) + "./";
+		auto tname = dir + ltos(rand());
+		auto tname2 = dir + ltos(rand());
 		// keep the file descriptor later if needed
-		unique_fd tmp(open(tname.c_str(), flags, cfg::fileperms | O_TRUNC));
+		unique_fd tmp(open(tname.c_str(), flags, cfg::fileperms));
 		if (tmp.m_p == -1)
 			return withError("Cannot create cache files");
 		fdatasync(tmp.m_p);
-		bool didExist = true;
+		bool didNotExist = false;
 		if (0 != rename(sPathAbs.c_str(), tname2.c_str()))
 		{
-			if (errno != ENOENT)
+			if (errno == ENOENT)
+				didNotExist = true;
+			else
 				return withError("Cannot move cache files");
-			didExist = false;
 		}
 		if (0 != rename(tname.c_str(), sPathAbs.c_str()))
 			return withError("Cannot rename cache files");
-		if (!didExist)
+		if (!didNotExist)
 			unlink(tname2.c_str());
 		std::swap(m_filefd, tmp.m_p);
+		return m_filefd != -1;
+	};
+
+	// if ordered or when acting on chunked transfers
+	if (m_bWriterMustReplaceFile || m_nContentLength < 0)
+	{
+		if (!replace_file())
+			return false;
 	}
-	else
+	if (m_filefd == -1)
 		m_filefd = open(sPathAbs.c_str(), flags, cfg::fileperms);
+	// maybe the old file was a symlink pointing at readonly file
+	if (m_filefd == -1 && ! replace_file())
+		return false;
 
 	ldbg("file opened?! returned: " << m_filefd);
 
-	// self-recovery from cache poisoned with files with wrong permissions
-	// we still want to recover the file content if we can
-	if (m_filefd == -1)
+	auto epos = lseek(m_filefd, 0, SEEK_END);
+	if (epos == -1)
+		return withError("Cannot seek in cache files");
+
+	// remote files may shrink! We could write in-place and truncate later,
+	// however replacing whole thing from the start seems to be safer option
+	if (m_nContentLength > epos)
 	{
-		if (m_nSizeChecked <= 0)
-			unlink(sPathAbs.c_str());
-		else
-		{			
-			// OOOH CRAP! CANNOT APPEND HERE! Do what's still possible.
-			string temp = sPathAbs + ".tmp";
-			auto err = FileCopy(sPathAbs, temp);
-			if (err)
-				return withError(err.message());
-
-			if (0 != unlink(sPathAbs.c_str()))
-				return withError("Cannot remove file in folder");
-
-			if (0 != rename(temp.c_str(), sPathAbs.c_str()))
-				return withError("Cannot rename files in folder");
-		}
-
-		m_filefd = open(sPathAbs.c_str(), flags, cfg::fileperms);
+		if(! replace_file())
+			return false;
+		epos = 0;
 	}
 
-	if (m_filefd == -1)
-		return withError("Filesystem error");
+	// either confirm start at zero or verify the expected file state on disk
+	if (m_nSizeChecked < 0)
+		m_nSizeChecked = 0;
 
-#if 0 // do we care?
-	if(0 != fstat(m_filefd, &stbuf) || !S_ISREG(stbuf.st_mode))
-		return withError("Not a regular file", EDestroyMode::DELETE_KEEP_HEAD);
-#endif
+	// that's in case of hot resuming
+	if(m_nSizeChecked > epos)
+	{
+		// hope that it has been validated before!
+		return withError("Checked size beyond EOF");
+	}
 
 	auto sHeadPath(sPathAbs + ".head");
 	ldbg("Storing header as " + sHeadPath);
 	if (!SaveHeader(false))
 		return withError("Cannot store header");
-
-	// either confirm start at zero or verify the expected file state on disk
-
-	if (m_nSizeChecked < 0)
-		m_nSizeChecked = 0;
-	else if(m_nSizeChecked > 0)
-	{
-		// hope that it has been validated before!
-		auto epos = lseek(m_filefd, 0, SEEK_END);
-		if (epos == -1)
-			return withError("Cannot seek while resuming");
-		if (m_nSizeChecked > epos)
-			return withError("Checked size beyond EOF");
-	}
 
 	// okay, have the stream open
 	m_status = FIST_DLRECEIVING;
