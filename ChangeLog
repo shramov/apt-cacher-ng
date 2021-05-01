@@ -42,8 +42,9 @@ apt-cacher-ng (3.7) AND-SOMETIMES-THE-BEAR-EATS-YOU; urgency=low
   * 
 
 
-  * TODO: 
-int. test for pass-through
+  * TODO:
+
+update homepage: old versions download, alioth -> salsa, bug tickets reference
 
 Subject: [Bug 1915713] [NEW] support for Cache-Control
 curl -H 'Cache-Control: no-cache'

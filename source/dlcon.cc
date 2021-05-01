@@ -525,12 +525,10 @@ struct tDlJob
 				if (h.getStatusCode() < 200)
 					return ret | HINT_MORE;
 
-#warning test with disabled/enabled/endless-redirect
 				if (cfg::redirmax) // internal redirection might be disabled
 				{
 					if (h.getStatus().isRedirect())
 					{
-#warning push the calculated target into status message... but where?
 						if (!RewriteSource(h.h[header::LOCATION]))
 							return ret | EFLAG_JOB_BROKEN;
 

@@ -25,12 +25,7 @@ using namespace std;
 
 #include <errno.h>
 
-#if 0 // defined(DEBUG)
-#define CHUNKDEFAULT true
-#warning testing chunk mode
-#else
-#define CHUNKDEFAULT false
-#endif
+//#define FORCE_CHUNKED
 
 #define PT_BUF_MAX 64000
 
@@ -428,7 +423,6 @@ inline bool job::ParseRange(const header& h)
 		pRange = h.h[header::CONTENT_RANGE];
 	if (pRange)
 	{
-#warning use regex from dlcon
 		int nRangeItems = sscanf(pRange, "bytes=" OFF_T_FMT
 								 "-" OFF_T_FMT, &m_nReqRangeFrom, &m_nReqRangeTo);
 		// working around bad (old curl style) requests
@@ -718,7 +712,7 @@ void job::Prepare(const header &h, string_view headBuf) {
 									   false) + rq.repoSrc.sRestPath :
 								   theUrl.ToURI(false);
 				if (rex::MatchUncacheable(testUri, rex::NOCACHE_TGT))
-					fistate = _SwitchToPtItem();
+					_SwitchToPtItem();
 			}
 			rq.setXff(h.h[header::XFORWARDEDFOR]);
 			rq.isPassThroughRequest = bPtMode;
@@ -786,7 +780,7 @@ job::eJobResult job::SendData(int confd, bool haveMoreJobs)
 	{
 		ldbg("prebuf sending: "<< m_sendbuf.c_str());
 		auto r = send(confd, m_sendbuf.rptr(), m_sendbuf.size(),
-					  MSG_MORE * (m_activity == STATE_NOT_STARTED || haveMoreJobs));
+					  MSG_MORE * (m_activity == STATE_NOT_STARTED || m_activity == STATE_SEND_CHUNK_DATA || haveMoreJobs));
 
 		if (r == -1)
 		{
@@ -891,7 +885,6 @@ job::eJobResult job::SendData(int confd, bool haveMoreJobs)
 
 		if (fistate == fileitem::FIST_COMPLETE && m_nSendPos == nBodySizeSoFar)
 		{
-#warning test it
 			m_sendbuf << "0\r\n\r\n";
 			m_activity = STATE_DONE;
 			return R_AGAIN;
@@ -914,7 +907,10 @@ job::eJobResult job::SendData(int confd, bool haveMoreJobs)
 			return HandleSuddenError();
 		m_nAllDataCount += n;
 		if (m_nSendPos == m_nChunkEnd)
+		{
+			m_sendbuf << svRN;
 			m_activity = STATE_SEND_CHUNK_HEADER;
+		}
 		return R_AGAIN;
 	}
 	}
@@ -993,7 +989,6 @@ inline void job::CookResponseHeader()
 	auto& remoteHead = fi->GetRawResponseHeader();
 	if(!remoteHead.empty())
 		return AddPtHeader(remoteHead);
-#warning Can assume to have body for pass-through? Work around actual state later?
 
 	m_sendbuf.clean() << tSS::dec;
 
@@ -1005,14 +1000,6 @@ inline void job::CookResponseHeader()
 	auto addStatusLineFromItem = [&] ()
 	{
 		return PrependHttpVariant() << status.code << " " << status.msg << svRN;
-	};
-	auto frontLineCode200ContTypeContDate = [&] ()
-	{
-		addStatusLineFromItem()
-				<< "Content-Type: " << fi->m_contentType << svRN;
-		if (fi->m_responseModDate.isSet())
-			m_sendbuf << "Last-Modified: " << fi->m_responseModDate.view() << svRN;
-		return m_sendbuf;
 	};
 	auto isRedir = status.isRedirect();
 	if (isRedir || status.mustNotHaveBody())
@@ -1039,15 +1026,25 @@ inline void job::CookResponseHeader()
 	// possible or considered here (because too nasty to track later errors,
 	// better just resend it, this is a rare case anyway)
 	auto contLen = fi->m_nContentLength;
-	if (contLen < 0 && fist == fileitem::FIST_DLRECEIVING
-		// except for when only a range is wanted and that range is already available
-		&& !(m_nReqRangeTo > 0 && ds >= m_nReqRangeTo))
+#ifdef FORCE_CHUNKED
+	auto goChunked = true;
+#else
+	auto goChunked =
+			contLen < 0 && fist == fileitem::FIST_DLRECEIVING
+					// except for when only a range is wanted and that range is already available
+					&& !(m_nReqRangeTo > 0 && ds >= m_nReqRangeTo);
+#endif
+	if (goChunked)
 	{
 		// set for full transfer in chunked mode
 		m_activity = STATE_SEND_CHUNK_HEADER;
 		m_nReqRangeTo = -1;
 		m_nReqRangeFrom = 0;
-		frontLineCode200ContTypeContDate() << "Transfer-Encoding: chunked\r\n" << src;
+		addStatusLineFromItem()
+				<< "Content-Type: " << fi->m_contentType << svRN;
+		if (fi->m_responseModDate.isSet())
+			m_sendbuf << "Last-Modified: " << fi->m_responseModDate.view() << svRN;
+		m_sendbuf << "Transfer-Encoding: chunked\r\n" << src;
 		AppendMetaHeaders();
 		return;
 	}
