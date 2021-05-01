@@ -260,7 +260,7 @@ bool fileitem::DlStarted(string_view rawHeader, const tHttpDate& modDate, cmstri
 	return true;
 }
 
-bool fileitem_with_storage::DlAddData(string_view chunk)
+bool fileitem_with_storage::DlAddData(string_view chunk, lockuniq&)
 {
 	ASSERT_HAVE_LOCK
 	// something might care, most likely... also about BOUNCE action

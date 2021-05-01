@@ -108,7 +108,7 @@ struct ACNG_API CPrintItemFactory : public IFitemFactory
 				{
 					m_status = FIST_COMPLETE;
 				}
-				bool DlAddData(acng::string_view chunk) override
+				bool DlAddData(acng::string_view chunk, lockuniq&) override
 				{
 					return (chunk.size() == fwrite(chunk.data(), sizeof(char), chunk.size(), stdout));
 				}
@@ -189,7 +189,7 @@ SHARED_PTR<fileitem> CreateReportItem()
 			vprint.fin();
 
 		}
-		bool DlAddData(acng::string_view chunk) override
+		bool DlAddData(acng::string_view chunk, lockuniq&) override
 		{
 			auto consumed = std::min(size_t(chunk.size()), size_t(lineBuf.freecapa()));
 			memcpy(lineBuf.wptr(), chunk.data(), consumed);

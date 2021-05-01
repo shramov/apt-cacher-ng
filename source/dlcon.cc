@@ -434,8 +434,8 @@ struct tDlJob
 			if (m_bAllowStoreData)
 			{
 				ldbg("To store: " <<nToStore);
-				lockguard g(*m_pStorage);
-				if (!m_pStorage->DlAddData(string_view(inBuf.rptr(), nToStore)))
+				lockuniq g(*m_pStorage);
+				if (!m_pStorage->DlAddData(string_view(inBuf.rptr(), nToStore), g))
 				{
                     sErrorMsg = "Cannot store";
 					return HINT_RECONNECT_NOW | EFLAG_JOB_BROKEN;
@@ -927,11 +927,11 @@ class dlcon::Impl
 	// disconnects/reconnects. In this case, it's beneficial to disable pipelining and send
 	// our requests one-by-one. This is done for a while (i.e. the valueof(m_nDisablePling)/2 )
 	// times before the operation mode returns to normal.
-	int m_nTempPipelineDisable;
+	int m_nTempPipelineDisable = 0;
 
 	// the default behavior or using or not using the proxy. Will be set
 	// if access proxies shall no longer be used.
-	bool m_bProxyTot;
+	bool m_bProxyTot = false;
 
 	// this is a binary factor, meaning how many reads from buffer are OK when
 	// speed limiting is enabled
@@ -948,8 +948,7 @@ class dlcon::Impl
 public:
 
 	Impl(cmstring &sOwnersHostname, const IDlConFactory &pConFactory) :
-			m_conFactory(pConFactory), m_ownersHostname(sOwnersHostname), m_nTempPipelineDisable(
-					0), m_bProxyTot(false)
+			m_conFactory(pConFactory), m_ownersHostname(sOwnersHostname)
 	{
 		LOGSTART("dlcon::Impl::dlcon");
 #ifdef HAVE_LINUX_EVENTFD

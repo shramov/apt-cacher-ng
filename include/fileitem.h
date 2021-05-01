@@ -169,10 +169,10 @@ protected:
 	/**
 	* @return false to abort processing (report error)
 	*
-	* Fileitem must be locked before.
+	* Fileitem must be locked before by unique lock pointed by uli object.
 	*
 	*/
-    virtual bool DlAddData(string_view)  { return false;};
+	virtual bool DlAddData(string_view, lockuniq& uli)  { return false;};
 	/**
 	 * @brief Mark the download as finished, and verify that sizeChecked as sane at that moment or move to error state.
 	 * @param asInCache Special case, if sizeInitial > sizeChecked, consider download done and sizeCheck equals sizeInitial
@@ -228,7 +228,7 @@ protected:
 	void MoveRelease2Sidestore();
 	int m_filefd = -1;
 
-	bool DlAddData(string_view chunk) override;
+	bool DlAddData(string_view chunk, lockuniq&) override;
 	void DlFinish(bool asInCache) override;
 
 	bool withError(string_view message, fileitem::EDestroyMode destruction

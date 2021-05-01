@@ -25,6 +25,8 @@ using namespace std::experimental::filesystem;
 #define BUFSIZ 8192
 #endif
 
+#include <event2/buffer.h>
+
 using namespace std;
 
 namespace acng
@@ -157,6 +159,35 @@ void set_block(int fd) {
 	//ASSERT(flags != -1);
 	flags &= ~O_NONBLOCK;
 	fcntl(fd, F_SETFL, flags);
+}
+/**
+ * @brief evbuffer_dumpall - store all or limited range from the front to a file descriptor
+ * This is actually evbuffer_write_atmost replacement without its random aborting bug.
+ */
+ssize_t evbuffer_dumpall(evbuffer *m_q, int out_fd, off_t &nSendPos, size_t nMax2SendNow)
+{
+	evbuffer_iovec ivs[64];
+	auto nbufs = evbuffer_peek(m_q, nMax2SendNow, nullptr, ivs, _countof(ivs));
+	long got = 0;
+	// find the actual transfer length OR make the last vector fit
+	for (int i = 0; i < nbufs; ++i)
+	{
+		got += ivs[i].iov_len;
+		if (got > (long) nMax2SendNow)
+		{
+			ivs[i].iov_len -= (got - nMax2SendNow);
+			got = nMax2SendNow;
+			nbufs = i + 1;
+			break;
+		}
+	}
+	auto r = writev(out_fd, ivs, nbufs);
+	if (r > 0)
+	{
+		nSendPos += r;
+		evbuffer_drain(m_q, got);
+	}
+	return r;
 }
 
 }

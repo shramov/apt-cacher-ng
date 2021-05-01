@@ -36,6 +36,11 @@
 #define O_BINARY 0 // ignore on Unix
 #endif
 
+extern "C"
+{
+struct evbuffer;
+}
+
 namespace acng
 {
 
@@ -119,6 +124,12 @@ public:
 */
 
 using unique_fd = auto_raii<int, justforceclose, -1>;
+
+/**
+ * @brief evbuffer_dumpall - store all or limited range from the front to a file descriptor
+ * This is actually evbuffer_write_atmost replacement without its random aborting bug.
+ */
+ssize_t evbuffer_dumpall(evbuffer* inbuf, int out_fd, off_t &nSendPos, size_t nMax2SendNow);
 
 }
 

@@ -3,10 +3,6 @@
 #include "filereader.h"
 #include "acfg.h"
 
-#include <regex>
-
-#warning abasetypes.h should be used in the header, only for string_view
-
 using namespace std;
 
 namespace acng {
@@ -22,7 +18,6 @@ string_view zeroDateBuf = "Do, 01 Jan 1970 01:00:00 GMT";
 
 bool tHttpDate::ParseDate(const char *s, struct tm *tm)
 {
-#warning add ut for valid, invalid, etc.
     if(!s || !tm)
         return false;
     for(const auto& fmt : fmts)
@@ -228,8 +223,6 @@ bool StoreHeadToStorage(cmstring &path, off_t contLen, tHttpDate *lastModified, 
     fmt << svRN;
 	return fmt.dumpall(path.c_str(), O_CREAT, cfg::fileperms, INT_MAX, true);
 }
-
-//const std::regex reHttpStatus("(\\s*)(HTTP/1.?)?(\\s+)(.*?)(\\s*)");
 
 tRemoteStatus::tRemoteStatus(string_view s, int errorCode, bool stripHttpPrefix)
 {

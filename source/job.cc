@@ -32,7 +32,7 @@ using namespace std;
 #define CHUNKDEFAULT false
 #endif
 
-#define PT_BUF_MAX 16000
+#define PT_BUF_MAX 64000
 
 // hunting Bug#955793: [Heisenbug] evbuffer_write_atmost returns -1 w/o updating errno
 //#define DBG_DISCONNECT //std::cerr << "DISCO? " << __LINE__ << std::endl;
@@ -96,8 +96,8 @@ public:
 	void DlFinish(bool updateFromStatus) override
 	{
 		LOGSTARTFUNC;
-		lockuniq g(this);
-		dbgline;
+		ASSERT(m_obj_mutex.try_lock() == false);
+
 		notifyAll();
 
 		if (updateFromStatus && m_nSizeChecked > 0)
@@ -108,11 +108,10 @@ public:
 
 	unique_fd GetFileFd() override { return unique_fd(); }; // something, don't care for now
 
-	bool DlAddData(string_view chunk) override
+	bool DlAddData(string_view chunk, lockuniq& uli) override
 	{
-		lockuniq g(this);
-
 		LOGSTARTFUNCx(chunk.size(), m_status);
+		ASSERT(m_obj_mutex.try_lock() == false);
 
 		// something might care, most likely... also about BOUNCE action
 		notifyAll();
@@ -132,7 +131,7 @@ public:
 
 		dbgline;
 		m_status = FIST_DLRECEIVING;
-		while (true)
+		while (!chunk.empty())
 		{
 			// abandoned by the user?
 			if (m_status >= FIST_DLERROR)
@@ -144,20 +143,19 @@ public:
 			auto nToAppend = std::min(nAddLimit, off_t(chunk.size()));
 			if (0 == nToAppend)
 			{
-				wait_for(g, 5, 400);
+				wait_for(uli, 5, 400);
 				continue;
 			}
-			LOG("appending " << nToAppend << " to queue")
-					bool failed = evbuffer_add(m_q, chunk.data(), nToAppend);
+			LOG("appending " << nToAppend << " to queue");
+			bool failed = evbuffer_add(m_q, chunk.data(), nToAppend);
 			if (failed)
 				LOGRET(false);
 			chunk.remove_prefix(nToAppend);
-			if (chunk.empty() == 0)
-				break;
 		}
 
 		LOGRET(true);
 	}
+
 	ssize_t SendData(int out_fd, int, off_t &nSendPos, size_t nMax2SendNow) override
 	{
 		LOGSTARTFUNC;
@@ -165,35 +163,19 @@ public:
 		notifyAll();
 		if (m_status > FIST_COMPLETE || evabase::in_shutdown)
 			return -1;
-		errno = -42;
-		auto ret = evbuffer_write_atmost(m_q, out_fd, nMax2SendNow);
-#ifdef WIN32
-#error check WSAEWOULDBLOCK
-#endif
-		if (ret > 0)
-			nSendPos += ret;
-		if (ret < 0)
-		{
-			if (errno == EAGAIN || errno == EWOULDBLOCK || errno == -42)
-				return 0;
-			LOG("evbuffer error");
-		}
-		return ret;
+		return evbuffer_dumpall(m_q, out_fd, nSendPos, nMax2SendNow);
 	}
 
 	// fileitem interface
 protected:
 	bool DlStarted(string_view rawHeader, const tHttpDate &, cmstring &origin, tRemoteStatus status, off_t, off_t bytesAnnounced) override
 	{
-
-		LOGSTARTFUNC
-				setLockGuard
-
-				m_sHeader = rawHeader;
+		LOGSTARTFUNC;
+		ASSERT(m_obj_mutex.try_lock() == false);
+		m_sHeader = rawHeader;
 		m_status = FIST_DLGOTHEAD;
 		m_responseOrigin = origin;
 		m_responseStatus = status;
-#warning check usages, must cope with -1
 		m_nContentLength = bytesAnnounced;
 		return true;
 	}
@@ -846,7 +828,7 @@ job::eJobResult job::SendData(int confd, bool haveMoreJobs)
 			if (nBodySizeSoFar > m_nSendPos)
 				break;
 			fi->wait(g);
-#warning add a 5s timeout and send a 102 or so for waiting?
+			// XXX: in 2023 or later, add a 5s timeout and send a 102 or so for waiting. Because older version of apt-cacher-ng might not understand it and fail.
 		}
 		LOG(int(fistate));
 		return fistate <= fileitem::FIST_COMPLETE;
@@ -888,8 +870,9 @@ job::eJobResult job::SendData(int confd, bool haveMoreJobs)
 			return HandleSuddenError();
 		if (!m_filefd.valid())
 			m_filefd.reset(fi->GetFileFd());
-		if (!m_filefd.valid())
-			return HandleSuddenError();
+		// It's invalid for pt-jobs and it's okay
+		// if (!m_filefd.valid())
+		//	return HandleSuddenError();
 
 		ldbg("~senddata: to " << nBodySizeSoFar << ", OLD m_nSendPos: " << m_nSendPos);
 		int n = fi->SendData(confd, m_filefd.get(), m_nSendPos, nBodySizeSoFar - m_nSendPos);

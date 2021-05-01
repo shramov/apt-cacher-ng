@@ -799,7 +799,7 @@ bool cacheman::Inject(cmstring &fromRel, cmstring &toRel,
         return false;
     auto fi = fiUser.get();
     fiUser.get()->Setup();
-    lockguard g(*fi);
+	lockuniq g(*fi);
     // it's ours, let's play the downloader
     if (fi->GetStatusUnlocked() > fileitem::FIST_INITED)
         return false; // already being processing by someone
@@ -813,7 +813,7 @@ bool cacheman::Inject(cmstring &fromRel, cmstring &toRel,
     {
         return false;
     }
-    if (!fi->DlAddData(data.getView()))
+	if (!fi->DlAddData(data.getView(), g))
         return false;
     fi->DlFinish(false);
     if(fileitem::FIST_COMPLETE != fi->GetStatusUnlocked())
@@ -2223,35 +2223,6 @@ void cacheman::PrintStats(cmstring &title)
 		if(!m_bVerbose)
 			SendFmt << "</div>";
 }
-
-#warning move to UTs?
-#if 0
-int parseidx_demo(LPCSTR file)
-{
-
-	class tParser : public cacheman
-	{
-	public:
-		tParser() : cacheman({2, tSpecialRequest::workIMPORT, "doImport="}) {};
-		inline int demo(LPCSTR file)
-		{
-			return !ParseAndProcessMetaFile([](const tRemoteFileInfo &entry) ->void {
-				cout << "Dir: " << entry.sDirectory << endl << "File: " << entry.sFileName << endl
-									<< "Checksum-" << GetCsName(entry.fpr.csType) << ": " << entry.fpr.GetCsAsString()
-									<< endl;
-				}, file, GuessMetaTypeFromURL(file));
-		}
-		virtual bool ProcessRegular(const mstring &, const struct stat &) override {return true;}
-		virtual bool ProcessOthers(const mstring &, const struct stat &) override {return true;}
-		virtual bool ProcessDirAfter(const mstring &, const struct stat &) override {return true;}
-		virtual void Action() override {};
-	}
-	mgr;
-
-	return mgr.demo(file);
-}
-#endif
-
 
 void cacheman::ProgTell()
 {
