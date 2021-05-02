@@ -122,8 +122,8 @@ struct ACNG_API tRemoteStatus
  * @param origSrc Original source mark
  * @return True if succeeded
  */
-bool ParseHeadFromStorage(cmstring &path, off_t *contLen, tHttpDate *lastModified, mstring *origSrc);
-bool StoreHeadToStorage(cmstring &path, off_t contLen, tHttpDate *lastModified, mstring *origSrc);
+bool ACNG_API ParseHeadFromStorage(cmstring &path, off_t *contLen, tHttpDate *lastModified, mstring *origSrc);
+bool ACNG_API StoreHeadToStorage(cmstring &path, off_t contLen, tHttpDate *lastModified, mstring *origSrc);
 
 }
 

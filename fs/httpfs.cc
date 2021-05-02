@@ -85,18 +85,18 @@ struct tDlDescLocal : public tDlDesc
 	{
 	};
 
-	int Stat(struct stat &stbuf)
+	int Stat(struct stat &stbuf) override
 	{
 		if(altPath.empty()) // hm?
 			return -ENOENT;
 
-		if (::stat((altPath + m_path).c_str(), &stbuf))
+		auto absPath = altPath + m_path;
+		if (::stat(absPath.c_str(), &stbuf))
 			return -errno;
 
 		// verify the file state
-		header h;
-		int r = h.LoadFromFile(altPath + m_path + ".head");
-		if (r <= 0 || stbuf.st_size != atoofft(h.h[header::CONTENT_LENGTH], -23))
+		off_t cl = -2;
+		if (!ParseHeadFromStorage(absPath, &cl, nullptr, nullptr) || cl != stbuf.st_size)
 			return -EIO;
 
 		return 0;
@@ -109,7 +109,7 @@ struct tDlDescLocal : public tDlDesc
 		pFile=nullptr;
 	};
 
-	int Read(char *retbuf, const char *path, off_t pos, size_t len)
+	int Read(char *retbuf, const char *, off_t pos, size_t len) override
 	{
 		if (!pFile)
 		{
@@ -138,10 +138,11 @@ struct tDlDescLocal : public tDlDesc
 };
 
 struct tFileId
-{ off_t m_size; mstring m_ctime;
-tFileId() : m_size(0) {};
-tFileId(off_t a, mstring b) : m_size(a), m_ctime(b) {};
-bool operator!=(tFileId other) const { return m_size != other.m_size || m_ctime != other.m_ctime;}
+{
+	off_t m_size; mstring m_ctime;
+	tFileId() : m_size(0) {};
+	tFileId(off_t a, mstring b) : m_size(a), m_ctime(b) {};
+	bool operator!=(tFileId other) const { return m_size != other.m_size || m_ctime != other.m_ctime;}
 };
 static class : public base_with_mutex, public map<string, tFileId>
 {} remote_info_cache;
@@ -166,7 +167,7 @@ public:
 		uri.sPath += baseUrl.sHost
 		// + ":" + ( baseUrl.sPort.empty() ? baseUrl.sPort : "80")
 				+ baseUrl.sPath + m_path;
-#error zuerst cache-control implementen
+
 		class tFitem: public fileitem
 		{
 		public:
@@ -175,11 +176,14 @@ public:
 			off_t skipBytes, m_nRangeLimit;
 			int nErr;
 
+#define SETERROR { nErr=__LINE__; return false;}
+			bool &m_isFirst;
+
 			ssize_t SendData(int, int, off_t&, size_t) override
 			{
 				return 0;
 			} // nothing to send
-
+#if 0
 			bool DlAddData(string_view chunk) override
 			{
 				auto count = chunk.size();
@@ -215,9 +219,6 @@ public:
 				notifyAll();
 				m_status=FIST_COMPLETE;
 			};
-
-#define SETERROR { nErr=__LINE__; return false;}
-			bool &m_isFirst;
 
 			virtual bool DlStarted(header head, string_view, off_t) override
 			{
@@ -274,12 +275,13 @@ public:
 					SETERROR;
 				return true;
 			}
+#endif
 			tFileId &fid;
 			tFitem(char *p, size_t size, off_t start, tFileId &fi, bool &isfirst)
-			: pRet(p), nRest(size),
+			: fileitem("FIXME"), pRet(p), nRest(size),
 					nGot(0), skipBytes(start), nErr(0), m_isFirst(isfirst), fid(fi)
 			{
-				m_bVolatile = false;
+				//m_bVolatile = false;
 				m_nSizeCachedInitial = start;
 				m_nRangeLimit = g_bGoodServer ? start+size-1 : -1;
 			}
@@ -295,9 +297,9 @@ public:
 
 		auto* pFi = new tFitem(retbuf, len, pos, fid, bIsFirst);
 		tFileItemPtr spFi(static_cast<fileitem*>(pFi));
-		dler->AddJob(spFi, dlrequest().setSrc(uri).setRangeLimit(pFi->m_nRangeLimit));
+		//dler->AddJob(spFi, dlrequest().setSrc(uri).setRangeLimit(pFi->m_nRangeLimit));
 		int nHttpCode(100);
-		pFi->WaitForFinish(&nHttpCode);
+		//pFi->WaitForFinish(&nHttpCode);
 		bIsFirst=false;
 
 
@@ -326,14 +328,15 @@ public:
 				stbuf.st_mode &= ~S_IFDIR;
 				stbuf.st_mode |= S_IFREG;
 				struct tm tmx;
-				if(header::ParseDate(it->second.m_ctime.c_str(), &tmx))
+				if(tHttpDate::ParseDate(it->second.m_ctime.c_str(), &tmx))
 					stbuf.st_ctime = mktime(&tmx);
 				_cerr("Using precached\n");
 				return 0;
 			}
 		}
 		// ok, not cached, do the hard way
-
+#warning RESTOREME
+#if 0
 		tHttpUrl uri = proxyUrl;
 		uri.sPath += baseUrl.sHost
 		// + ":" + ( baseUrl.sPort.empty() ? baseUrl.sPort : "80")
@@ -375,6 +378,7 @@ public:
 				stbuf.st_ctime = mktime(&tmx);
 			return 0;
 		}
+#endif
 		return -ENOENT;
 	}
 };
@@ -523,7 +527,7 @@ static int acngfs_open(const char *path, struct fuse_file_info *fi)
 				p = new tDlDescLocal(path, ftype);
 				if(p)
 				{
-					if(0==p->Stat(stbuf))
+					if(0 == p->Stat(stbuf))
 						goto desc_opened;
 					delete p;
 					p=nullptr;
@@ -531,7 +535,7 @@ static int acngfs_open(const char *path, struct fuse_file_info *fi)
 		}
 
 
-		p=new tDlDescRemote(path, ftype);
+		p = new tDlDescRemote(path, ftype);
 		if(!p) // running exception-free? 
 			return -EIO;
 		if(0!=p->Stat(stbuf))
@@ -589,6 +593,7 @@ struct fuse_operations_compat25 acngfs_oper;
 
 int my_fuse_main(int argc, char ** argv)
 {
+	ASSERT(!"This needs complete rework, to use background loading and trailer/header fishing");
 #ifdef HAVE_DLOPEN
    auto pLib = dlopen("libfuse.so.2", RTLD_LAZY);
    if(!pLib)

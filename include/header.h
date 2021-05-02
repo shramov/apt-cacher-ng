@@ -9,16 +9,6 @@
 namespace acng
 {
 
-/**
- * @brief ParseHeadFromStorage Reads cached items with basic validation
- * @param path Source file to read
- * @param contLen [OUT, OPTIONAL] Resulting content lenth
- * @param lastModified [OUT, OPTIONAL] Last modified date as timestamp
- * @param origSrc [OUT, OPTIONAL] Resulting content lenth
- * @return True if head appears valid (200 code answer)
- */
-bool ParseHeadFromStorage(cmstring& path, off_t* contLen, time_t* lastModified, mstring* origSrc);
-
 class ACNG_API header {
 public:
 	enum eHeadType : char
