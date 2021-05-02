@@ -13,10 +13,6 @@ namespace acng
 class ISharedConnectionResources;
 class header;
 
-namespace rex {
-enum eMatchType : int8_t;
-}
-
 class job
 {
 public:
@@ -77,7 +73,6 @@ public:
     off_t m_nSendPos = 0;
     off_t m_nChunkEnd = -1;
     off_t m_nAllDataCount = 0;
-	rex::eMatchType m_type = (rex::eMatchType) -1;
 
 	job(const job&);
 	job& operator=(const job&);

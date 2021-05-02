@@ -587,6 +587,26 @@ void job::Prepare(const header &h, string_view headBuf) {
 			}
 		}
 
+		auto data_type = rex::eMatchType::FILE_INVALID;
+
+		if (h.h[header::CACHE_CONTROL])
+		{
+			for (auto p = h.h[header::CACHE_CONTROL]; !!(p = strstr(p, "no")) ; p+=2)
+			{
+				// as per https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cache-Control :
+				// force the cache data to be validated
+				if (0 == strcasecmp(p+2, "-cache"))
+				{
+					data_type = rex::eMatchType::FILE_VOLATILE;
+				}
+				else if (0 == strcasecmp(p+2, "-store"))
+				{
+					// the behavior should be basically the same, including considering cached files first
+					bPtMode = true;
+				}
+			}
+		}
+
 		// we can proxy the directory requests, but only if they are identifiable as directories
 		// (path ends in /) and are not matched as local directory server above and
 		// the special acngfs hack is not detected
@@ -603,11 +623,11 @@ void job::Prepare(const header &h, string_view headBuf) {
 				if(m_type == FILE_INVALID)
 					m_type = FILE_VOLATILE;
 #else
-				m_type = FILE_VOLATILE;
+				data_type = FILE_VOLATILE;
 				bPtMode=true;
 #endif
 			}
-			if (m_type == FILE_INVALID)
+			if (data_type == FILE_INVALID)
 			{
 				LOG("generic user information page for " << theUrl.sPath);
 				m_eMaintWorkType = tSpecialRequest::workUSERINFO;
@@ -616,13 +636,13 @@ void job::Prepare(const header &h, string_view headBuf) {
 		}
 
 		// in PT mode we don't care about how to handle it, it's what user wants to do
-		if(m_type == FILE_INVALID && bPtMode)
-			m_type = FILE_SOLID;
+		if(data_type == FILE_INVALID && bPtMode)
+			data_type = FILE_SOLID;
 
-		if(m_type == FILE_INVALID)
-			m_type = GetFiletype(theUrl.sPath);
+		if(data_type == FILE_INVALID)
+			data_type = GetFiletype(theUrl.sPath);
 
-		if ( m_type == FILE_INVALID )
+		if ( data_type == FILE_INVALID )
 		{
 			if(!cfg::patrace)
 			{
@@ -632,7 +652,7 @@ void job::Prepare(const header &h, string_view headBuf) {
 			}
 
 			// ok, collect some information helpful to the user
-			m_type = FILE_VOLATILE;
+			data_type = FILE_VOLATILE;
 			lockguard g(traceData);
 			traceData.insert(theUrl.sPath);
 		}
@@ -646,7 +666,7 @@ void job::Prepare(const header &h, string_view headBuf) {
 			m_sFileLoc=theUrl.sHost+theUrl.sPath;
 
 		fileitem::tSpecialPurposeAttr attr {
-			! cfg::offlinemode && m_type == FILE_VOLATILE,
+			! cfg::offlinemode && data_type == FILE_VOLATILE,
 					m_bIsHeadOnly,
 					false,
 					m_nReqRangeTo,

@@ -42,7 +42,8 @@ constexpr string_view mapId2Headname[] =
     "Authorization"sv,
     "X-Forwarded-For"sv,
     "Location"sv,
-    "Content-Type"sv,
+	"Content-Type"sv,
+	"Cache-Control"sv,
 };
 
 header::header(const header &s)

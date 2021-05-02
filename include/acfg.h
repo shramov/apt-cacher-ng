@@ -43,6 +43,8 @@ extern mstring agentheader;
 
 extern int conprotos[2];
 
+extern bool ccNoStore, ccNoCache;
+
 bool ACNG_API SetOption(const mstring &line, NoCaseStringMap *pDupeChecker);
 void ACNG_API dump_config(bool includingDelicateValues=false);
 void ACNG_API ReadConfigDirectory(const char*, bool bReadErrorIsFatal=true);

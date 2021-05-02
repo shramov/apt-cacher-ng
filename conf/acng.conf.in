@@ -562,3 +562,11 @@ LocalDirs: acng-doc @CMAKE_INSTALL_FULL_DOCDIR@
 # Set to zero to disable this feature completely. Default: one megabyte
 #
 # ReserveSpace: 1048576
+
+# PermitCacheControl will allow users to specify a few hints for processing
+# of a request, for example bypassing the local cache (see
+# https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cache-Control for
+# no-cache, no-store).
+#
+# PermitCacheControl: no-cache, no-store
+

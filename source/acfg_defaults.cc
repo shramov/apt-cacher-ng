@@ -159,6 +159,8 @@ std::atomic_bool degraded(false);
 
 int allocspace = 1024*1024;
 int dnsopts = 0;
+
+bool ccNoStore = true, ccNoCache = true;
 }
 
 }

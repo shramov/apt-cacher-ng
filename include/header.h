@@ -53,6 +53,8 @@ public:
 		XFORWARDEDFOR,
 		LOCATION,
 		CONTENT_TYPE,
+		CACHE_CONTROL,		//14
+
 		// unreachable entry and size reference
 		HEADPOS_MAX,
 		// special value, only a flag to remember that data is stored to external header
@@ -110,6 +112,21 @@ private:
 	tRemoteStatus m_status;
 };
 
+#if 0
+// draft for the future
+struct tHeader
+{
+	string_view view;
+};
+struct tFrontLine
+{
+	tRemoteStatus status;
+	header::eHeadType mode;
+	header::eHttpType htype;
+};
+
+bool ParseHead(tFrontLine *pStatus, std::initializer_list<std::pair<const string_view&, tHeader&>> todo);
+#endif
 }
 
 #endif

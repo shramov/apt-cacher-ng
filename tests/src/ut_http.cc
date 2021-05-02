@@ -93,6 +93,8 @@ TEST(http, date)
 
 TEST(http, cachehead)
 {
+		printf("%ld %ld %ld\n", sizeof(header), sizeof(std::vector<char>), sizeof(acbuf));
+
 	mstring testHead = "foo.head";
 	auto ok = StoreHeadToStorage(testHead, -1, nullptr, nullptr);
 	ASSERT_TRUE(ok);

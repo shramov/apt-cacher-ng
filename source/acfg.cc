@@ -325,17 +325,26 @@ tProperty n2pTbl[] =
 {
 	return ltos(exstarttradeoff);
 } }
-
- #if SUPPWHASH
- bIsHashedPwd=false;
- }
-
- else if(CHECKOPTKEY("AdminAuthHash"))
- {
- adminauth=value;
- bIsHashedPwd=true;
- #endif
-
+	,
+	{ "PermitCacheControl", [](cmstring&, cmstring& value) -> bool
+	  {
+		  ccNoCache = ccNoStore = false;
+		  tSplitWalk spltr(value, "," SPACECHARS);
+		  for(auto s: spltr)
+		  {
+			  if (s == "no-cache") ccNoCache = true;
+			  else if (s == "no-store") ccNoStore = true;
+		  }
+		  return true;
+	  }, [](bool) -> string
+	  {
+		  string ret;
+		  if (ccNoCache)
+		  ret += " no-cache";
+		  if (ccNoStore)
+		  ret += " no-store";
+		  return ret;
+	  } }
 };
 
 string * GetStringPtr(LPCSTR key) {

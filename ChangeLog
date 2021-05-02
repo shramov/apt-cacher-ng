@@ -19,12 +19,12 @@ apt-cacher-ng (3.7) AND-SOMETIMES-THE-BEAR-EATS-YOU; urgency=low
     client while the item content was sent to cache and to caller
     simultaneously
   * Fix potentially incorrect over-insisting file descriptor closing which
-    might have impacted libevent descriptors (Debian bug ...
+    might have impacted libevent descriptors (Debian bugs #954904, #986356)
 
   [ INTERNAL REFACTORING ]
 
-  * Overhauling download, delivery and cache management code, biggest change
-    in the last 7 years:
+  * Overhauling download, delivery and cache management code, probably biggest
+    change since 2014:
 
     a) supposedly using less CPU cycles and fewer critical sections
     b) supposedly using less memory for regular data serving
@@ -34,24 +34,13 @@ apt-cacher-ng (3.7) AND-SOMETIMES-THE-BEAR-EATS-YOU; urgency=low
     f) precise separation into type classes of the active cache items,
        therefore better efficiency in case of volatile/non-volatile mixup,
        also preparing to support cached requests with protected access and
-       individual credentials (Salsa issues...)
+       individual credentials (Salsa feature requests)
 
   [ NEW FEATURES ]
 
-  * Support for open-end responses with range
-  * 
-
-
-  * TODO:
-
-update homepage: old versions download, alioth -> salsa, bug tickets reference
-
-Subject: [Bug 1915713] [NEW] support for Cache-Control
-curl -H 'Cache-Control: no-cache'
-http://192.168.33.1:3142/repo.percona.com/tools/apt/dists/buster/Release
-
-TODO:
-turn on unused parameters warning
+  * Limited support of Cache-Control header from clients (no-cache, no-store)
+    for LP: #1915713
+  * Support for open-end range requests
 
 redo acfg namespace (picking next branch) to have builder object
 
