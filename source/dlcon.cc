@@ -1288,21 +1288,14 @@ inline unsigned dlcon::Impl::ExchangeData(mstring &sErrorMsg,
 			}
 
 #ifdef DISCO_FAILURE
-#warning hej
-			static int fakeFail=-123;
-			if(fakeFail == -123)
+#warning DISCO_FAILURE active!
+			if((random() & 0xff) < 10)
 			{
-				srand(getpid());
-				fakeFail = rand()%123;
-			}
-			if( fakeFail-- < 0)
-			{
-//				LOGLVL(log::LOG_DEBUG, "\n#################\nFAKING A FAILURE\n###########\n");
+				LOG("\n#################\nFAKING A FAILURE\n###########\n");
 				r=0;
-				fakeFail=rand()%123;
 				errno = EROFS;
 				//r = -errno;
-				shutdown(con.get()->GetFD(), SHUT_RDWR);
+//				shutdown(con.get()->GetFD(), SHUT_RDWR);
 			}
 #endif
 
@@ -1317,6 +1310,7 @@ inline unsigned dlcon::Impl::ExchangeData(mstring &sErrorMsg,
 			{
 				dbgline;
 				sErrorMsg = "Connection closed, check DlMaxRetries";
+				LOG(sErrorMsg);
 				return EFLAG_LOST_CON;
 			}
 			else if (r < 0) // other error, might reconnect
@@ -1742,11 +1736,14 @@ void dlcon::Impl::WorkLoop()
 
 		if ((EFLAG_LOST_CON & loopRes) && !active_jobs.empty())
 		{
+			dbgline;
 			// disconnected by OS... give it a chance, or maybe not...
 			if (! bExpectRemoteClosing)
 			{
+				dbgline;
 				if (--nLostConTolerance <= 0)
 				{
+					dbgline;
 					BlacklistMirror(active_jobs.front());
 					nLostConTolerance = MAX_RETRY;
 				}

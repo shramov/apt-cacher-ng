@@ -37,7 +37,7 @@ void fileitem::DlRefCountAdd()
 	m_nDlRefsCount++;
 }
 
-void fileitem::DlRefCountDec(tRemoteStatus reason)
+void fileitem::DlRefCountDec(const tRemoteStatus& reason)
 {
 	setLockGuard;
 	notifyAll();
@@ -50,9 +50,7 @@ void fileitem::DlRefCountDec(tRemoteStatus reason)
 
 	if (m_status < FIST_COMPLETE)
 	{
-		m_status = FIST_DLERROR;
-		m_responseStatus = move(reason);
-
+		DlSetError(reason, m_eDestroy);
 		if (cfg::debug & log::LOG_MORE)
 			log::misc(string("Download of ") + m_sPathRel + " aborted");
 	}
@@ -351,17 +349,18 @@ bool fileitem_with_storage::SafeOpenOutFile()
 
 	ldbg("file opened?! returned: " << m_filefd);
 
-	auto epos = lseek(m_filefd, 0, SEEK_END);
-	if (epos == -1)
+	auto sizeOnDisk = lseek(m_filefd, 0, SEEK_END);
+	if (sizeOnDisk == -1)
 		return withError("Cannot seek in cache files");
 
 	// remote files may shrink! We could write in-place and truncate later,
 	// however replacing whole thing from the start seems to be safer option
-	if (m_nContentLength > epos)
+	if (sizeOnDisk > m_nContentLength)
 	{
+		dbgline;
 		if(! replace_file())
 			return false;
-		epos = 0;
+		sizeOnDisk = 0;
 	}
 
 	// either confirm start at zero or verify the expected file state on disk
@@ -369,7 +368,7 @@ bool fileitem_with_storage::SafeOpenOutFile()
 		m_nSizeChecked = 0;
 
 	// that's in case of hot resuming
-	if(m_nSizeChecked > epos)
+	if(m_nSizeChecked > sizeOnDisk)
 	{
 		// hope that it has been validated before!
 		return withError("Checked size beyond EOF");
@@ -404,8 +403,8 @@ bool fileitem_with_storage::SafeOpenOutFile()
 
 void fileitem::MarkFaulty(bool killFile)
 {
-	setLockGuard
-			DlSetError({500, "Bad Cache Item"}, killFile ? EDestroyMode::DELETE : EDestroyMode::TRUNCATE);
+	setLockGuard;
+	DlSetError({500, "Bad Cache Item"}, killFile ? EDestroyMode::DELETE : EDestroyMode::TRUNCATE);
 }
 
 
@@ -562,6 +561,7 @@ void fileitem::DlSetError(const tRemoteStatus& errState, fileitem::EDestroyMode 
 	notifyAll();
 	m_responseStatus = errState;
 	m_status = FIST_DLERROR;
+	DBGQLOG("Declared FIST_DLERROR: " << errState.msg);
 	if (kmode < m_eDestroy)
 		m_eDestroy = kmode;
 }

@@ -180,7 +180,7 @@ protected:
     virtual void DlFinish(bool asInCache = false)  { (void) asInCache; };
 
 	virtual void DlRefCountAdd();
-    virtual void DlRefCountDec(tRemoteStatus reason);
+	virtual void DlRefCountDec(const tRemoteStatus& reason);
 
 	/**
 	 * @brief Mark this item as defect so its data will be invalidate in cache when released

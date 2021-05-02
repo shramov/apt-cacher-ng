@@ -163,12 +163,20 @@ public:
 
 	// fileitem interface
 protected:
-	bool DlStarted(string_view rawHeader, const tHttpDate &, cmstring &origin, tRemoteStatus status, off_t, off_t bytesAnnounced) override
+	bool DlStarted(string_view rawHeader, const tHttpDate &, cmstring &origin, tRemoteStatus status, off_t seekPos, off_t bytesAnnounced) override
 	{
 		LOGSTARTFUNC;
 		ASSERT(m_obj_mutex.try_lock() == false);
+		if (m_status > FIST_COMPLETE)
+			return false;
+		else if (m_status < FIST_DLGOTHEAD)
+			m_status = FIST_DLGOTHEAD;
+		else if (m_nSizeChecked > 0 && m_nSizeChecked != seekPos)
+			return false;
+		else if (m_nSizeChecked <=0 && seekPos > 0)
+			return false;
+
 		m_sHeader = rawHeader;
-		m_status = FIST_DLGOTHEAD;
 		m_responseOrigin = origin;
 		m_responseStatus = status;
 		m_nContentLength = bytesAnnounced;
@@ -921,7 +929,6 @@ inline void job::AddPtHeader(cmstring& remoteHead)
 {
 	const static std::string dummyTE("\nX-No-Trans-Encode:"), badTE("\nTransfer-Encoding:");
 	auto szHeadBegin = remoteHead.c_str();
-#warning review that
 	// don't care about its contents, with exception of chunked transfer-encoding
 	// since it's too messy to support, use the plain close-on-end strategy here
 	auto szTEHeader = strcasestr(szHeadBegin, badTE.c_str());
@@ -1027,6 +1034,7 @@ inline void job::CookResponseHeader()
 	// better just resend it, this is a rare case anyway)
 	auto contLen = fi->m_nContentLength;
 #ifdef FORCE_CHUNKED
+#warning FORCE_CHUNKED active!
 	auto goChunked = true;
 #else
 	auto goChunked =
