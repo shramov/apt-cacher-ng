@@ -47,7 +47,6 @@ class ACNG_API dlcon
 /**
  * @brief Parameter struct and fluent-friendly builder for download requests.
  */
-
 struct dlrequest
 {
 	const tHttpUrl *pForcedUrl = nullptr;

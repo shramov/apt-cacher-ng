@@ -4,8 +4,8 @@
 // Description : Simple FUSE-based filesystem for HTTP access (apt-cacher NG)
 //============================================================================
 
+#define FUSE_USE_VERSION 26
 
-#define LOCAL_DEBUG
 #include "debug.h"
 
 #include "meta.h"
@@ -30,7 +30,6 @@
 #include <sys/vfs.h>
 #endif
 
-#define FUSE_USE_VERSION 25
 #include <fuse.h>
 
 #ifdef HAVE_DLOPEN
@@ -56,9 +55,6 @@ dlcon *dler;
 #else
 #define _cerr(x)
 #endif
-
-#define POOLMAXSIZE 20 // max size
-#define POOLMAXAGE 50 // seconds
 
 // some globals, set only once
 static struct stat statTempl;
@@ -410,103 +406,34 @@ static int acngfs_getattr(const char *path, struct stat *stbuf)
 }
 
 static int acngfs_fgetattr(const char *path, struct stat *stbuf,
-      struct fuse_file_info *fi)
+	  struct fuse_file_info *)
 {
 	// FIXME: reuse the con later? or better not, size might change during operation
 	return acngfs_getattr(path, stbuf);
 }
 
-static int acngfs_access(const char *path, int mask)
+static int acngfs_access(const char *, int mask)
 {
 	// non-zero (failure) when trying to write
    return mask&W_OK;
 }
 
-static int acngfs_readlink(const char *path, char *buf, size_t size)
-{
-   return -EINVAL;
-}
-
-static int acngfs_opendir(const char *path, struct fuse_file_info *fi)
+static int acngfs_opendir(const char *, struct fuse_file_info *)
 {
 	// let FUSE manage directories
 	return 0;
 }
 
-static int acngfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
-      off_t offset, struct fuse_file_info *fi)
+static int acngfs_readdir(const char *, void *, fuse_fill_dir_t,
+	  off_t, struct fuse_file_info *)
 {   
 	return -EPERM;
 }
 
-static int acngfs_releasedir(const char *path, struct fuse_file_info *fi)
+static int acngfs_releasedir(const char *, struct fuse_file_info *)
 {
-
    return 0;
 }
-
-static int acngfs_mknod(const char *path, mode_t mode, dev_t rdev)
-{
-	return -EROFS;
-}
-
-static int acngfs_mkdir(const char *path, mode_t mode)
-{
-   return -EROFS;
-}
-
-static int acngfs_unlink(const char *path)
-{
-   return -EROFS;
-}
-
-static int acngfs_rmdir(const char *path)
-{
-   return -EROFS;
-}
-
-static int acngfs_symlink(const char *from, const char *to)
-{
-  return -EROFS;
-}
-
-static int acngfs_rename(const char *from, const char *to)
-{
-  return -EROFS;
-}
-
-static int acngfs_link(const char *from, const char *to)
-{
-	return -EROFS;
-}
-
-static int acngfs_chmod(const char *path, mode_t mode)
-{
-   return -EROFS;
-}
-
-static int acngfs_chown(const char *path, uid_t uid, gid_t gid)
-{
-return -EROFS;
-}
-
-static int acngfs_truncate(const char *path, off_t size)
-{
-   return -EROFS;
-}
-
-static int acngfs_ftruncate(const char *path, off_t size,
-      struct fuse_file_info *fi)
-{
-return -EROFS;
-}
-
-static int acngfs_utime(const char *path, struct utimbuf *buf)
-{
- return -EROFS;
-}
-
-//lockable mxTest;
 
 static int acngfs_open(const char *path, struct fuse_file_info *fi)
 {
@@ -530,7 +457,7 @@ static int acngfs_open(const char *path, struct fuse_file_info *fi)
 					if(0 == p->Stat(stbuf))
 						goto desc_opened;
 					delete p;
-					p=nullptr;
+					p = nullptr;
 				}
 		}
 
@@ -563,55 +490,24 @@ static int acngfs_read(const char *path, char *buf, size_t size, off_t offset,
 	return p->Read(buf, path, offset, size);
 }
 
-static int acngfs_write(const char *path, const char *buf, size_t size,
-      off_t offset, struct fuse_file_info *fi)
-{
-	return -EBADF;
-}
-
-static int acngfs_statfs(const char *path, struct statvfs *stbuf)
+static int acngfs_statfs(const char *, struct statvfs *stbuf)
 {
    memcpy(stbuf, &stfsTemp, sizeof(*stbuf));
 	return 0;
 }
 
-static int acngfs_release(const char *path, struct fuse_file_info *fi)
+static int acngfs_release(const char *, struct fuse_file_info *fi)
 {
 	if(fi->fh)
 		delete (tDlDesc*)fi->fh;
 	return 0;
 }
 
-static int acngfs_fsync(const char *path, int isdatasync,
-      struct fuse_file_info *fi)
-{
-   return 0;
-}
-
-
-struct fuse_operations_compat25 acngfs_oper;
+struct fuse_operations acngfs_oper;
 
 int my_fuse_main(int argc, char ** argv)
 {
-	ASSERT(!"This needs complete rework, to use background loading and trailer/header fishing");
-#ifdef HAVE_DLOPEN
-   auto pLib = dlopen("libfuse.so.2", RTLD_LAZY);
-   if(!pLib)
-   {
-      cerr << "Couldn't find libfuse.so.2" <<endl;
-      return -1;
-   }
-   auto myFuseMain = (decltype(&fuse_main_real_compat25)) dlsym(pLib, "fuse_main_real_compat25");
-   if(!myFuseMain)
-   {
-	  cerr << "Error loading libfuse.so.2" <<endl;
-	  return -2;
-   }
-   return (*myFuseMain) (argc, argv, &acngfs_oper, sizeof(acngfs_oper));
-#else
-#warning dlopen not available
-   return fuse_main(argc, argv, &acngfs_oper);
-#endif
+   return fuse_main(argc, argv, &acngfs_oper, nullptr);
 }
 
 void _ExitUsage() {
@@ -631,116 +527,99 @@ void _ExitUsage() {
 int main(int argc, char *argv[])
 {
 	using namespace acng;
-   memset(&acngfs_oper, 0, sizeof(acngfs_oper));
+	memset(&acngfs_oper, 0, sizeof(acngfs_oper));
 
-   acngfs_oper.getattr	= acngfs_getattr;
-   acngfs_oper.fgetattr	= acngfs_fgetattr;
-   acngfs_oper.access	= acngfs_access;
-   acngfs_oper.readlink	= acngfs_readlink;
-   acngfs_oper.opendir	= acngfs_opendir;
-   acngfs_oper.readdir	= acngfs_readdir;
-   acngfs_oper.releasedir	= acngfs_releasedir;
-   acngfs_oper.mknod	= acngfs_mknod;
-   acngfs_oper.mkdir	= acngfs_mkdir;
-   acngfs_oper.symlink	= acngfs_symlink;
-   acngfs_oper.unlink	= acngfs_unlink;
-   acngfs_oper.rmdir	= acngfs_rmdir;
-   acngfs_oper.rename	= acngfs_rename;
-   acngfs_oper.link	= acngfs_link;
-   acngfs_oper.chmod	= acngfs_chmod;
-   acngfs_oper.chown	= acngfs_chown;
-   acngfs_oper.truncate	= acngfs_truncate;
-   acngfs_oper.ftruncate	= acngfs_ftruncate;
-   acngfs_oper.utime	= acngfs_utime;
-//   acngfs_oper.create	= acngfs_create;
-   acngfs_oper.open	= acngfs_open;
-   acngfs_oper.read	= acngfs_read;
-   acngfs_oper.write	= acngfs_write;
-   acngfs_oper.statfs	= acngfs_statfs;
-   acngfs_oper.release	= acngfs_release;
-   acngfs_oper.fsync	= acngfs_fsync;
+	acngfs_oper.getattr	= acngfs_getattr;
+	acngfs_oper.fgetattr	= acngfs_fgetattr;
+	acngfs_oper.access	= acngfs_access;
+	acngfs_oper.opendir	= acngfs_opendir;
+	acngfs_oper.readdir	= acngfs_readdir;
+	acngfs_oper.releasedir	= acngfs_releasedir;
+	acngfs_oper.open	= acngfs_open;
+	acngfs_oper.read	= acngfs_read;
+	acngfs_oper.statfs	= acngfs_statfs;
+	acngfs_oper.release	= acngfs_release;
+	umask(0);
 
-   umask(0);
+	for(int i = 1; i<argc; i++)
+		if(argv[i] && 0==strcmp(argv[i], "--help"))
+			erUsage;
 
-   for(int i = 1; i<argc; i++)
-   	   if(argv[i] && 0==strcmp(argv[i], "--help"))
-   		   erUsage;
-   
-   if(argc<4)
-      barf("Not enough arguments, try --help.\n");
+	if(argc<4)
+		barf("Not enough arguments, try --help.\n");
 
-   cfg::agentname = "ACNGFS";
-   cfg::agentheader="User-Agent: ACNGFS\r\n";
-   cfg::requestapx = "User-Agent: ACNGFS\r\nX-Original-Source: 42\r\n";
+	cfg::agentname = "ACNGFS";
+	cfg::agentheader="User-Agent: ACNGFS\r\n";
+	cfg::requestapx = "User-Agent: ACNGFS\r\nX-Original-Source: 42\r\n";
 #ifdef SPAM
-   cfg::debug=0xff;
-   cfg::verboselog=1;
+	cfg::debug=0xff;
+	cfg::verboselog=1;
 #endif
 
-   if(argv[1] && baseUrl.SetHttpUrl(argv[1]))
-   {
+	if(argv[1] && baseUrl.SetHttpUrl(argv[1]))
+	{
 #ifdef VERBOSE
-	   cout << "Base URL: " << baseUrl.ToString()<<endl;
+		cout << "Base URL: " << baseUrl.ToString()<<endl;
 #endif
-   }
-   else
-   {
-      cerr << "Invalid base URL, " << argv[1] <<endl;
-      exit(EXIT_FAILURE);
-   }
-   // FUSE adds starting / already, drop ours if present
-   trimBack(baseUrl.sPath, "/");
-   
-   if(argv[2] && proxyUrl.SetHttpUrl(argv[2]))
-   {
-	   /*if(proxyUrl.GetPort().empty())
+	}
+	else
+	{
+		cerr << "Invalid base URL, " << argv[1] <<endl;
+		exit(EXIT_FAILURE);
+	}
+	// FUSE adds starting / already, drop ours if present
+	trimBack(baseUrl.sPath, "/");
+
+	if(argv[2] && proxyUrl.SetHttpUrl(argv[2]))
+	{
+		/*if(proxyUrl.GetPort().empty())
 		   proxyUrl.sPort="3142";
 		   */
-   }
-   else
-   {
-	   cerr << "Invalid proxy URL, " << argv[2] <<endl;
-	   exit(EXIT_FAILURE);
-   }
+	}
+	else
+	{
+		cerr << "Invalid proxy URL, " << argv[2] <<endl;
+		exit(EXIT_FAILURE);
+	}
 
-   // all parameters processed, forwarded to fuse call below
+	// all parameters processed, forwarded to fuse call below
 
-   acng::rex::CompileExpressions();
-   
+	acng::rex::CompileExpressions();
+
 #if 0//def SPAM
-   {
-	   fuse_file_info fi = {0};
-	   const char *dingsda="/dists/unstable/InRelease";
-	   acngfs_open(dingsda, &fi);
-	   char buf[165536];
-	   off_t pos=0;
-	   for(;0 < acngfs_read(dingsda, buf, sizeof(buf), pos, &fi); pos+=sizeof(buf)) ;
-	   return 0;
-   }
+	{
+		fuse_file_info fi = {0};
+		const char *dingsda="/dists/unstable/InRelease";
+		acngfs_open(dingsda, &fi);
+		char buf[165536];
+		off_t pos=0;
+		for(;0 < acngfs_read(dingsda, buf, sizeof(buf), pos, &fi); pos+=sizeof(buf)) ;
+		return 0;
+	}
 #endif
 
-   unsigned int nMyArgCount = 2; // base url, proxy host
-   // alternative path supplied in the next argument?
-   if(argc > 4 && argv[4] && argv[4][0] != '-' ) // 4th argument is not an option?
-   {
-	   nMyArgCount=3;
-	   altPath = argv[3];
-   }
-   
-   // test mount point
-   const char *mpoint = argv[nMyArgCount+1];
-   if(stat(mpoint, &statTempl) || statfs(mpoint, &stfsTemp))
-	   barf(endl << "Cannot access " << mpoint);
-   if(!S_ISDIR(statTempl.st_mode))
-      barf(endl<< mpoint << " is not a directory.");
+	unsigned int nMyArgCount = 2; // base url, proxy host
+	// alternative path supplied in the next argument?
+	if(argc > 4 && argv[4] && argv[4][0] != '-' ) // 4th argument is not an option?
+	{
+		nMyArgCount=3;
+		altPath = argv[3];
+	}
 
-   // skip our arguments, keep those for fuse including mount point and argv[0] at the right place
-   argv[nMyArgCount]=argv[0]; // application path
-   argv=&argv[nMyArgCount];
-   argc-=nMyArgCount;
+	// test mount point
+	const char *mpoint = argv[nMyArgCount+1];
+	if(!mpoint || stat(mpoint, &statTempl) || statfs(mpoint, &stfsTemp))
+		barf(endl << "Cannot access " << mpoint);
+	if(!S_ISDIR(statTempl.st_mode))
+		barf(endl<< mpoint << " is not a directory.");
 
-   evabaseFreeFrunner eb(g_tcp_con_factory);
-   dler = &eb.getDownloader();
+	// skip our arguments, keep those for fuse including mount point and argv[0] at the right place
+	argv[nMyArgCount]=argv[0]; // application path
+	argv=&argv[nMyArgCount];
+	argc-=nMyArgCount;
 
-   return my_fuse_main(argc, argv);
+	evabaseFreeFrunner eb(g_tcp_con_factory);
+	dler = &eb.getDownloader();
+
+	return my_fuse_main(argc, argv);
 }

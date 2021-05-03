@@ -242,9 +242,9 @@ _append(CFLAGS_DAEMON ${lsd_CFLAGS})
 _append(LDFLAGS_DAEMON ${lsd_LDFLAGS})
 set(HAVE_SD_NOTIFY ${lsd_FOUND})
 
-SET(CMAKE_REQUIRED_LIBRARIES dl)
-FILE(READ ${TESTKITDIR}/HAVE_DLOPEN.cc TESTSRC)
-CHECK_CXX_SOURCE_COMPILES("${TESTSRC}" HAVE_DLOPEN)
+#SET(CMAKE_REQUIRED_LIBRARIES dl)
+#FILE(READ ${TESTKITDIR}/HAVE_DLOPEN.cc TESTSRC)
+#CHECK_CXX_SOURCE_COMPILES("${TESTSRC}" HAVE_DLOPEN)
 
 # XXX: convert the compressor stuff to pkgconfig usage and print an overview of enabled/found values in one final message and collect and process cflags too
 
