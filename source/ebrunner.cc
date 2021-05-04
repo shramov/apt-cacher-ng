@@ -15,7 +15,7 @@ public:
 	evabase *m_eb;
 
 	Impl(const IDlConFactory &pDlconFac)
-			: dl("INTERN", pDlconFac)
+			: dl(pDlconFac)
 	{
 		m_eb = new evabase;
 		evthr = std::thread([&]() { m_eb->MainLoop(); });

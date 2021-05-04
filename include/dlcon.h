@@ -36,12 +36,12 @@ class ACNG_API dlcon
 	Impl *_p;
 
     public:
-        dlcon(cmstring& sClientsHostname, const IDlConFactory &pConFactory = g_tcp_con_factory);
+		dlcon(const IDlConFactory &pConFactory = g_tcp_con_factory);
         ~dlcon();
 
         void WorkLoop();
         void SignalStop();
-        bool AddJob(const SHARED_PTR<fileitem> &fi, const dlrequest& dlrq);
+		bool AddJob(const SHARED_PTR<fileitem> &fi, dlrequest&& dlrq);
 };
 
 /**
@@ -51,14 +51,11 @@ struct dlrequest
 {
 	const tHttpUrl *pForcedUrl = nullptr;
 	cfg::tRepoResolvResult repoSrc;
-	LPCSTR reqHead = nullptr;
-	LPCSTR szHeaderXff = nullptr;
+	mstring extraHeaders;
     bool isPassThroughRequest = false;
 
 	dlrequest& setSrc(const tHttpUrl& url) { pForcedUrl=&url; return *this;}
 	dlrequest& setSrc(cfg::tRepoResolvResult repoRq) { repoSrc = std::move(repoRq); return *this; }
-	dlrequest& setRqHeadString(LPCSTR rh) { reqHead = rh; return *this;}
-	dlrequest& setXff(LPCSTR xff) { szHeaderXff = xff; return *this;}
 };
 
 }

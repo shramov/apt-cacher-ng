@@ -25,7 +25,7 @@ public:
     job(ISharedConnectionResources &pParent) : m_pParentCon(pParent) {}
 	~job();
 
-    void Prepare(const header &h, string_view headBuf);
+	void Prepare(const header &h, string_view headBuf, cmstring& callerHostname);
 
 	/*
 	 * Start or continue returning the file.

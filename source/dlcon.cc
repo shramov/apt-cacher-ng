@@ -102,7 +102,7 @@ struct tDlJob
 		return m_pRepoDesc ? m_pRepoDesc->m_pHooks : nullptr;
 	}
 
-	string m_extraHeaders, m_xff;
+	string m_extraHeaders;
 
 	tHttpUrl m_remoteUri;
 	const tHttpUrl *m_pCurBackend = nullptr;
@@ -124,11 +124,9 @@ struct tDlJob
 	// flag to use ranges and also define start if >= 0
 	off_t m_nUsedRangeStartPos = -1;
 
-	inline tDlJob(dlcon::Impl *p, const tFileItemPtr& pFi, const dlrequest& rq,
-				  mstring extraHeaders, mstring xff) :
+	inline tDlJob(dlcon::Impl *p, const tFileItemPtr& pFi, dlrequest&& rq) :
 					m_pStorage(pFi), m_parent(*p),
-					m_extraHeaders(move(extraHeaders)),
-					m_xff(move(xff)),
+					m_extraHeaders(move(rq.extraHeaders)),
 					m_bIsPassThroughRequest(rq.isPassThroughRequest)
 	{
 		LOGSTARTFUNC
@@ -402,9 +400,6 @@ struct tDlJob
 
         if (m_pStorage->IsVolatile())
 			head << "Cache-Control: " /*no-store,no-cache,*/ "max-age=0" CRLF;
-
-		if (cfg::exporigin && !m_xff.empty())
-			head << "X-Forwarded-For: " << m_xff << CRLF;
 
 		head << cfg::requestapx << m_extraHeaders
 				<< "Accept: application/octet-stream" CRLF;
@@ -891,7 +886,6 @@ class dlcon::Impl
 
 	tDljQueue m_new_jobs;
 	const IDlConFactory &m_conFactory;
-	std::string m_ownersHostname;
 
 #ifdef HAVE_LINUX_EVENTFD
 	int m_wakeventfd = -1;
@@ -941,12 +935,12 @@ class dlcon::Impl
 	void drain_event_stream();
 
 	void WorkLoop();
-	bool AddJob(tFileItemPtr m_pItem, const dlrequest& rq);
+	bool AddJob(tFileItemPtr m_pItem, dlrequest&& rq);
 
 public:
 
-	Impl(cmstring &sOwnersHostname, const IDlConFactory &pConFactory) :
-			m_conFactory(pConFactory), m_ownersHostname(sOwnersHostname)
+	Impl(const IDlConFactory &pConFactory) :
+			m_conFactory(pConFactory)
 	{
 		LOGSTART("dlcon::Impl::dlcon");
 #ifdef HAVE_LINUX_EVENTFD
@@ -990,8 +984,8 @@ public:
 };
 // Impl
 
-dlcon::dlcon(cmstring &sOwnersHostname, const IDlConFactory &pConFactory) :
-		_p(new dlcon::Impl(sOwnersHostname, pConFactory))
+dlcon::dlcon(const IDlConFactory &pConFactory) :
+		_p(new dlcon::Impl(pConFactory))
 {
 }
 dlcon::~dlcon()
@@ -1006,9 +1000,9 @@ void dlcon::SignalStop()
 {
 	return _p->SignalStop();
 }
-bool dlcon::AddJob(const tFileItemPtr& fi, const dlrequest& rq)
+bool dlcon::AddJob(const tFileItemPtr& fi, dlrequest&& rq)
 {
-	return _p->AddJob(fi, rq);
+	return _p->AddJob(fi, move(rq));
 }
 
 #ifdef HAVE_LINUX_EVENTFD
@@ -1054,7 +1048,7 @@ inline void dlcon::Impl::awaken_check()
 
 #endif
 
-bool dlcon::Impl::AddJob(tFileItemPtr fi, const dlrequest& rq)
+bool dlcon::Impl::AddJob(tFileItemPtr fi, dlrequest&& rq)
 {
 	if (m_ctrl_hint < 0 || evabase::in_shutdown)
 		return false;
@@ -1066,28 +1060,10 @@ bool dlcon::Impl::AddJob(tFileItemPtr fi, const dlrequest& rq)
 		if (rq.repoSrc.sRestPath.empty())
 			return false;
     }
-//    tDlJob xnew(this, fi, rq);
 
-    // XXX: not sure this is the right place, could also run this as part of request analysis
-    // However, the prerequisites are the same, not much difference for the runtime.
-
-	auto xHeaders = rq.reqHead ?
-						header::ExtractCustomHeaders(rq.reqHead, rq.isPassThroughRequest)
-					  : sEmptyString;
-	mstring xFF;
-
-    if (cfg::exporigin && !m_ownersHostname.empty())
-    {
-        if (rq.szHeaderXff)
-        {
-			xFF = rq.szHeaderXff;
-			xFF += ", ";
-        }
-		xFF += m_ownersHostname;
-	}
 	{
 		lockguard g(m_handover_mutex);
-		m_new_jobs.emplace_back(this, fi, rq, move(xHeaders), move(xFF));
+		m_new_jobs.emplace_back(this, fi, move(rq));
 	}
 	m_ctrl_hint++;
 	wake();
@@ -1097,10 +1073,8 @@ bool dlcon::Impl::AddJob(tFileItemPtr fi, const dlrequest& rq)
 inline unsigned dlcon::Impl::ExchangeData(mstring &sErrorMsg,
 		tDlStreamHandle &con, tDljQueue &inpipe)
 {
-	LOGSTARTFUNC
-	;
-	LOG(
-			"qsize: " << inpipe.size() << ", sendbuf size: " << m_sendBuf.size() << ", inbuf size: " << m_inBuf.size());
+	LOGSTARTFUNC;
+	LOG("qsize: " << inpipe.size() << ", sendbuf size: " << m_sendBuf.size() << ", inbuf size: " << m_inBuf.size());
 
 	fd_set rfds, wfds;
 	int r = 0;

@@ -432,7 +432,7 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 	if (pResolvedDirectUrl)
 		rq.setSrc(*pResolvedDirectUrl);
 
-	dler->AddJob(pFi, rq);
+	dler->AddJob(pFi, dlrequest(rq));
     dlres = pFi->WaitForFinish(1, [&](){ SendChunk("."); } );
     if (dlres.first == fileitem::FIST_COMPLETE && dlres.second.code == 200)
 	{

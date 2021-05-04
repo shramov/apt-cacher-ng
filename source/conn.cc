@@ -416,7 +416,7 @@ void conn::Impl::WorkLoop() {
 				ldbg("Parsed REQUEST: " << h.type << " " << h.getRequestUrl());
 				ldbg("Rest: " << (inBuf.size()-nHeadBytes));
                 m_jobs2send.emplace_back(*_q);
-				m_jobs2send.back().Prepare(h, inBuf.view());
+				m_jobs2send.back().Prepare(h, inBuf.view(), m_sClientHost);
 				if (m_badState)
 					return;
 				inBuf.drop(nHeadBytes);
@@ -477,7 +477,7 @@ bool conn::Impl::SetupDownloader()
 
 	try
 	{
-		m_pDlClient = make_shared<dlcon>(m_sClientHost);
+		m_pDlClient = make_shared<dlcon>();
 		if(!m_pDlClient)
 			return false;
 		auto pin = m_pDlClient;

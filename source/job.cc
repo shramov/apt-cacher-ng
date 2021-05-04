@@ -448,7 +448,7 @@ inline bool job::ParseRange(const header& h)
 	return false;
 }
 
-void job::Prepare(const header &h, string_view headBuf) {
+void job::Prepare(const header &h, string_view headBuf, cmstring& callerHostname) {
 
 	LOGSTARTFUNC;
 
@@ -742,16 +742,29 @@ void job::Prepare(const header &h, string_view headBuf) {
 				if (rex::MatchUncacheable(testUri, rex::NOCACHE_TGT))
 					_SwitchToPtItem();
 			}
-			rq.setXff(h.h[header::XFORWARDEDFOR]);
+
 			rq.isPassThroughRequest = bPtMode;
 
 			// if backend config not valid, download straight from the specified source
 			if (!bHaveBackends)
 				rq.setSrc(theUrl);
-			if (bPtMode)
-				rq.setRqHeadString(headBuf.data());
 
-			if (m_pParentCon.SetupDownloader()->AddJob(m_pItem.get(), rq))
+			if (cfg::exporigin && !callerHostname.empty())
+			{
+				rq.extraHeaders = "X-Forwarded-For: "sv;
+				if (!m_xff.empty())
+				{
+					rq.extraHeaders += m_xff;
+					rq.extraHeaders += ", "sv;
+				}
+				rq.extraHeaders += callerHostname;
+				rq.extraHeaders += svRN;
+			}
+
+			if (bPtMode)
+				rq.extraHeaders += header::ExtractCustomHeaders(headBuf.data(), rq.isPassThroughRequest);
+
+			if (m_pParentCon.SetupDownloader()->AddJob(m_pItem.get(), move(rq)))
 			{
 				ldbg("Download job enqueued for " << m_sFileLoc);
 			}
