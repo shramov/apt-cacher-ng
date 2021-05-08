@@ -43,13 +43,13 @@ static cmstring sGenericError("502 Bad Gateway");
 
 std::atomic_uint g_nDlCons(0);
 using tRemoteBlacklist = std::map<std::pair<cmstring, cmstring>, mstring>;
-
+class CDlConn;
 
 struct tDlJob
 {
 	tFileItemPtr m_pStorage;
 	mstring sErrorMsg;
-	dlcon::Impl &m_parent;
+	CDlConn &m_parent;
 
 	enum EStreamState : uint8_t
 	{
@@ -124,7 +124,7 @@ struct tDlJob
 	// flag to use ranges and also define start if >= 0
 	off_t m_nUsedRangeStartPos = -1;
 
-	inline tDlJob(dlcon::Impl *p, const tFileItemPtr& pFi, dlrequest&& rq) :
+	inline tDlJob(CDlConn *p, const tFileItemPtr& pFi, dlrequest&& rq) :
 					m_pStorage(pFi), m_parent(*p),
 					m_extraHeaders(move(rq.extraHeaders)),
 					m_bIsPassThroughRequest(rq.isPassThroughRequest)
@@ -236,7 +236,7 @@ struct tDlJob
 	bool SetupJobConfig(mstring &sReasonMsg,
 			tRemoteBlacklist &blacklist)
 	{
-		LOGSTART("dlcon::Impl::SetupJobConfig");
+		LOGSTART("CDlConn::SetupJobConfig");
 
 		// using backends? Find one which is not blacklisted
 		if (m_bBackendMode)
@@ -457,7 +457,8 @@ struct tDlJob
 	 */
 	unsigned ProcessIncomming(acbuf &inBuf, bool bOnlyRedirectionActivity)
 	{
-		LOGSTART("tDlJob::ProcessIncomming");
+		LOGSTARTFUNC;
+
 		if (AC_UNLIKELY(!m_pStorage))
 		{
             sErrorMsg = "Bad cache item";
@@ -878,7 +879,7 @@ private:
 };
 
 
-class dlcon::Impl
+class CDlConn : public dlcon
 {
 	typedef std::list<tDlJob> tDljQueue;
 	friend struct ::acng::tDlJob;
@@ -934,81 +935,22 @@ class dlcon::Impl
 	void wake();
 	void drain_event_stream();
 
-	void WorkLoop();
-	bool AddJob(tFileItemPtr m_pItem, dlrequest&& rq);
+	void WorkLoop() override;
+	bool AddJob(const tFileItemPtr &m_pItem, dlrequest&& rq) override;
 
 public:
 
-	Impl(const IDlConFactory &pConFactory) :
-			m_conFactory(pConFactory)
-	{
-		LOGSTART("dlcon::Impl::dlcon");
-#ifdef HAVE_LINUX_EVENTFD
-		m_wakeventfd = eventfd(0, EFD_NONBLOCK);
-		if (m_wakeventfd == -1)
-			m_ctrl_hint = -1;
-#else
-	if (0 == pipe(m_wakepipe))
-	{
-		set_nb(m_wakepipe[0]);
-		set_nb(m_wakepipe[1]);
-	}
-	else
-	{
-		m_wakepipe[0] = m_wakepipe[1] = -1;
-		m_ctrl_hint = -1;
-	}
-#endif
-		g_nDlCons++;
-	}
+	CDlConn(const IDlConFactory &pConFactory);
 
-	~Impl()
-	{
-		LOGSTART("dlcon::Impl::~dlcon, Destroying dlcon");
-#ifdef HAVE_LINUX_EVENTFD
-		checkforceclose(m_wakeventfd);
-#else
-	checkforceclose(m_wakepipe[0]);
-	checkforceclose(m_wakepipe[1]);
-#endif
-		g_nDlCons--;
-	}
+	~CDlConn();
 
-	void SignalStop()
-	{
-		LOGSTART("dlcon::Impl::SignalStop");
-		// stop all activity as soon as possible
-		m_ctrl_hint = -1;
-		wake();
-	}
+	void SignalStop() override;
 };
-// Impl
-
-dlcon::dlcon(const IDlConFactory &pConFactory) :
-		_p(new dlcon::Impl(pConFactory))
-{
-}
-dlcon::~dlcon()
-{
-	delete _p;
-}
-void dlcon::WorkLoop()
-{
-	return _p->WorkLoop();
-}
-void dlcon::SignalStop()
-{
-	return _p->SignalStop();
-}
-bool dlcon::AddJob(const tFileItemPtr& fi, dlrequest&& rq)
-{
-	return _p->AddJob(fi, move(rq));
-}
 
 #ifdef HAVE_LINUX_EVENTFD
-inline void dlcon::Impl::wake()
+inline void CDlConn::wake()
 {
-	LOGSTART("dlcon::Impl::wake");
+	LOGSTART("CDlConn::wake");
 	if (fdWakeWrite == -1)
 		return;
 	while (true)
@@ -1020,7 +962,7 @@ inline void dlcon::Impl::wake()
 
 }
 
-inline void dlcon::Impl::drain_event_stream()
+inline void CDlConn::drain_event_stream()
 {
 	LOGSTARTFUNC
 	eventfd_t xtmp;
@@ -1035,20 +977,20 @@ inline void dlcon::Impl::drain_event_stream()
 }
 
 #else
-void dlcon::Impl::wake()
+void CDlConn::wake()
 {
-	LOGSTART("dlcon::Impl::wake");
+	LOGSTART("CDlConn::wake");
 	POKE(fdWakeWrite);
 }
-inline void dlcon::Impl::awaken_check()
+inline void CDlConn::awaken_check()
 {
-	LOGSTART("dlcon::Impl::awaken_check");
+	LOGSTART("CDlConn::awaken_check");
 	for (char tmp; ::read(m_wakepipe[0], &tmp, 1) > 0;) ;
 }
 
 #endif
 
-bool dlcon::Impl::AddJob(tFileItemPtr fi, dlrequest&& rq)
+bool CDlConn::AddJob(const tFileItemPtr &fi, dlrequest&& rq)
 {
 	if (m_ctrl_hint < 0 || evabase::in_shutdown)
 		return false;
@@ -1070,8 +1012,51 @@ bool dlcon::Impl::AddJob(tFileItemPtr fi, dlrequest&& rq)
 	return true;
 }
 
-inline unsigned dlcon::Impl::ExchangeData(mstring &sErrorMsg,
-		tDlStreamHandle &con, tDljQueue &inpipe)
+CDlConn::CDlConn(const IDlConFactory &pConFactory) :
+	m_conFactory(pConFactory)
+{
+	LOGSTART("CDlConn::dlcon");
+#ifdef HAVE_LINUX_EVENTFD
+	m_wakeventfd = eventfd(0, EFD_NONBLOCK);
+	if (m_wakeventfd == -1)
+		m_ctrl_hint = -1;
+#else
+	if (0 == pipe(m_wakepipe))
+	{
+		set_nb(m_wakepipe[0]);
+		set_nb(m_wakepipe[1]);
+	}
+	else
+	{
+		m_wakepipe[0] = m_wakepipe[1] = -1;
+		m_ctrl_hint = -1;
+	}
+#endif
+	g_nDlCons++;
+}
+
+CDlConn::~CDlConn()
+{
+	LOGSTART("CDlConn::~dlcon, Destroying dlcon");
+#ifdef HAVE_LINUX_EVENTFD
+	checkforceclose(m_wakeventfd);
+#else
+	checkforceclose(m_wakepipe[0]);
+	checkforceclose(m_wakepipe[1]);
+#endif
+	g_nDlCons--;
+}
+
+void CDlConn::SignalStop()
+{
+	LOGSTART("CDlConn::SignalStop");
+	// stop all activity as soon as possible
+	m_ctrl_hint = -1;
+	wake();
+}
+
+inline unsigned CDlConn::ExchangeData(mstring &sErrorMsg,
+									  tDlStreamHandle &con, tDljQueue &inpipe)
 {
 	LOGSTARTFUNC;
 	LOG("qsize: " << inpipe.size() << ", sendbuf size: " << m_sendBuf.size() << ", inbuf size: " << m_inBuf.size());
@@ -1380,9 +1365,9 @@ inline unsigned dlcon::Impl::ExchangeData(mstring &sErrorMsg,
 	return EFLAG_JOB_BROKEN | HINT_RECONNECT_NOW;
 }
 
-void dlcon::Impl::WorkLoop()
+void CDlConn::WorkLoop()
 {
-	LOGSTART("dlcon::Impl::WorkLoop");
+	LOGSTART("CDlConn::WorkLoop");
 	string sErrorMsg;
 	m_inBuf.clear();
 
@@ -1786,6 +1771,11 @@ void dlcon::Impl::WorkLoop()
 
 		move_jobs_back_to_q: next_jobs.splice(next_jobs.begin(), active_jobs);
 	}
+}
+
+std::shared_ptr<dlcon> dlcon::CreateRegular(const IDlConFactory &pConFactory)
+{
+	return make_shared<CDlConn>(pConFactory);
 }
 
 }

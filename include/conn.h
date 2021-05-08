@@ -12,7 +12,7 @@ class dlcon;
 class ISharedConnectionResources
 {
 public:
-    virtual dlcon* SetupDownloader() =0;
+	virtual dlcon* SetupDownloader() =0;
     virtual void LogDataCounts(cmstring & sFile, mstring xff, off_t nNewIn,
             off_t nNewOut, bool bAsError) =0;
 	virtual std::shared_ptr<IFileItemRegistry> GetItemRegistry() =0;
@@ -27,7 +27,7 @@ public:
 	virtual ~conn();
 	void WorkLoop();
 
-    dlcon* SetupDownloader() override;
+	dlcon* SetupDownloader() override;
     void LogDataCounts(cmstring & sFile, mstring xff, off_t nNewIn,
             off_t nNewOut, bool bAsError) override;
 private:

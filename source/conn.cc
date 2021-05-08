@@ -477,7 +477,7 @@ bool conn::Impl::SetupDownloader()
 
 	try
 	{
-		m_pDlClient = make_shared<dlcon>();
+		m_pDlClient = dlcon::CreateRegular();
 		if(!m_pDlClient)
 			return false;
 		auto pin = m_pDlClient;

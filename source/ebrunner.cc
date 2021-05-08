@@ -10,26 +10,25 @@ namespace acng
 class evabaseFreeFrunner::Impl
 {
 public:
-	dlcon dl;
+	SHARED_PTR<dlcon> dl;
 	std::thread thr, evthr;
-	evabase *m_eb;
+	unique_ptr<evabase> m_eb;
 
 	Impl(const IDlConFactory &pDlconFac)
-			: dl(pDlconFac)
+		: dl(dlcon::CreateRegular(pDlconFac)),
+		  m_eb(new evabase)
 	{
-		m_eb = new evabase;
 		evthr = std::thread([&]() { m_eb->MainLoop(); });
-		thr = std::thread([&]() {dl.WorkLoop();});
+		thr = std::thread([&]() {dl->WorkLoop();});
 	}
 
 	~Impl()
 	{
 		::acng::cleaner::GetInstance().Stop();
-		dl.SignalStop();
+		dl->SignalStop();
 		m_eb->SignalStop();
 		thr.join();
 		evthr.join();
-		delete m_eb;
 	}
 
 };
@@ -45,7 +44,7 @@ evabaseFreeFrunner::~evabaseFreeFrunner()
 
 dlcon& evabaseFreeFrunner::getDownloader()
 {
-	return m_pImpl->dl;
+	return * m_pImpl->dl;
 }
 
 }

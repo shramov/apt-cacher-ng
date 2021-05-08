@@ -31,17 +31,12 @@ class fileitem;
 
 class ACNG_API dlcon
 {
-	friend struct ::acng::tDlJob;
-	class Impl;
-	Impl *_p;
-
-    public:
-		dlcon(const IDlConFactory &pConFactory = g_tcp_con_factory);
-        ~dlcon();
-
-        void WorkLoop();
-        void SignalStop();
-		bool AddJob(const SHARED_PTR<fileitem> &fi, dlrequest&& dlrq);
+public:
+	static SHARED_PTR<dlcon> CreateRegular(const IDlConFactory &pConFactory = g_tcp_con_factory);
+	virtual ~dlcon() =default;
+	virtual void WorkLoop() =0;
+	virtual void SignalStop() =0;
+	virtual bool AddJob(const SHARED_PTR<fileitem> &fi, dlrequest&& dlrq) =0;
 };
 
 /**
