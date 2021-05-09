@@ -38,6 +38,7 @@ public:
 
     /** Report value in whatever format it has inside, but guaranteed to be zero-terminated anyway. Empty string_view if not set. */
 	const string_view view() const { return isSet() ? string_view(buf, length) : string_view(); }
+	//const ::tm tm(time_t onError);
     //operator string_view() const;
     time_t value(time_t ifBad) const { return isSet() ? ParseDate(buf, ifBad) : ifBad; }
     bool isSet() const { return length && *buf; }

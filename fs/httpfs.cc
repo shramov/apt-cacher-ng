@@ -21,6 +21,7 @@
 #include "fileitem.h"
 #include "fileio.h"
 #include "dlcon.h"
+#include "acregistry.h"
 
 #ifdef HAVE_SYS_MOUNT_H
 #include <sys/param.h>
@@ -36,6 +37,9 @@
 #include <dlfcn.h>
 #endif
 
+#include <list>
+#include <unordered_map>
+
 #define HEADSZ 5000
 #ifndef MIN
 #define MIN(a,b) ( (a<=b)?a:b)
@@ -43,9 +47,11 @@
 
 #include <thread>
 
-using namespace std;
+#define MAX_DL_STREAMS 8
+#define MAX_DL_BUF_SIZE 64*1024
+
 using namespace acng;
-dlcon *dler;
+using namespace std;
 
 //#define SPAM
 
@@ -56,12 +62,151 @@ dlcon *dler;
 #define _cerr(x)
 #endif
 
+#if !defined(BUFSIZ) || BUFSIZ > 8192
+#define BUFSIZ 8192
+#endif
+
+#define HEAD_TRAILER_LEN BUFSIZ
+
 // some globals, set only once
 static struct stat statTempl;
 static struct statfs stfsTemp;
 static tHttpUrl baseUrl, proxyUrl;
 static mstring altPath;
 bool g_bGoodServer=true;
+
+struct tDlStream
+{
+	TFileItemHolder hodler;
+	thread runner;
+	SHARED_PTR<dlcon> dler;
+	enum eKind
+	{
+		HEADER, TRAILER, MID
+	} kind;
+
+	~tDlStream()
+	{
+		if(dler)
+			dler->SignalStop();
+
+		if(runner.joinable())
+			runner.join();
+	}
+
+};
+
+std::unordered_multimap<string, SHARED_PTR<tDlStream>> active_agents;
+std::mutex mx_streams;
+using mg = lock_guard<std::mutex>;
+
+
+class tConsumingItem : public fileitem
+{
+	// fileitem interface
+public:
+	FiStatus Setup() override
+	{
+		return FIST_INITED;
+	}
+	tSS buf;
+	std::atomic<off_t> bufStart = -1;
+
+protected:
+	bool DlAddData(string_view data, lockuniq &) override
+	{
+		m_status = FIST_DLRECEIVING;
+		auto tooMuch = off_t(data.size()) + data.length() - MAX_DL_BUF_SIZE;
+		if(tooMuch > 0)
+		{
+			buf.drop(tooMuch);
+			bufStart += tooMuch;
+		}
+		buf << data;
+		return true;
+	}
+	int fetchHot(char *retbuf, const char *, off_t pos, off_t len)
+	{
+		if (pos < bufStart)
+			return -ECONNABORTED;
+		auto inBuf = buf.size();
+		// focus on the start and drop useless data
+		if (pos >= bufStart + inBuf)
+		{
+			// outside current range?
+			bufStart += inBuf;
+			buf.clear();
+		}
+		else if (pos > bufStart && pos < bufStart + inBuf)
+		{
+			// part or whole chunk is available
+			auto drop = pos - bufStart;
+			buf.drop(drop);
+			bufStart += drop;
+		}
+		if ( m_status != FIST_DLRECEIVING && pos+len > bufStart + off_t(buf.size()))
+		{
+			return -ECONNABORTED;
+		}
+		return -ECONNABORTED;
+	}
+};
+
+
+
+/** @brief Deliver some agent from the pool which MAY have the data in the pipe which we need.
+	 */
+SHARED_PTR<tDlStream> getAgent(LPCSTR path, off_t pos)
+{
+	mg g(mx_streams);
+	// if posisble, get one which fits
+	auto its = active_agents.equal_range(path);
+	auto spare_agent = active_agents.end();
+
+	if (its.first != active_agents.end())
+	{
+		for (auto it = its.first; it != its.second; ++it)
+		{
+			auto fi = static_pointer_cast<tConsumingItem>(it->second->hodler.get());
+			if (!fi)
+				continue;
+			if ( pos >= fi->bufStart)
+			{
+				SHARED_PTR<tDlStream> ret = move(it->second);
+				active_agents.erase(it);
+				return ret;
+			}
+			// can we recycle idle resources if we have to create a new one?
+
+			// those are finalized so we can use them and they are most likely to still have a hot connection (FILO, not FIFO, XXX: check efficiency)
+			if (it->second->kind != tDlStream::MID)
+			{
+				spare_agent = it;
+			}
+			// XXX: if not donor found in this range, check others too? Might cause pointless reconnects
+		}
+	}
+	auto ret = make_shared<tDlStream>();
+	if (spare_agent != active_agents.end())
+	{
+		ret->dler.swap(spare_agent->second->dler);
+		ret->runner.swap(spare_agent->second->runner);
+	}
+	else
+	{
+		ret->dler = dlcon::CreateRegular();
+		ret->runner = std::thread([&]() {ret->dler->WorkLoop();});
+	}
+	return ret;
+}
+
+void returnAgent(LPCSTR path, SHARED_PTR<tDlStream> && agent)
+{
+	mg g(mx_streams);
+	if (active_agents.size() > MAX_DL_STREAMS)
+		active_agents.erase(active_agents.begin()); // can purge anyone, should be random enough
+	active_agents.insert(make_pair(path, move(agent)));
+}
 
 struct tDlDesc
 {
@@ -135,12 +280,12 @@ struct tDlDescLocal : public tDlDesc
 
 struct tFileId
 {
-	off_t m_size; mstring m_ctime;
-	tFileId() : m_size(0) {};
+	off_t m_size = 0; tHttpDate m_ctime; time_t validAt = GetTime();
+	tFileId() =default;
 	tFileId(off_t a, mstring b) : m_size(a), m_ctime(b) {};
 	bool operator!=(tFileId other) const { return m_size != other.m_size || m_ctime != other.m_ctime;}
 };
-static class : public base_with_mutex, public map<string, tFileId>
+static class tRemoteInfoCache : public base_with_mutex, public map<string, tFileId>
 {} remote_info_cache;
 
 struct tDlDescRemote : public tDlDesc
@@ -148,17 +293,53 @@ struct tDlDescRemote : public tDlDesc
 protected:
 
 	tFileId fid;
-	bool bIsFirst; // hint to catch the validation data when download starts
+	SHARED_PTR<tDlStream> m_agent;
+	tHttpDate m_modDate;
+	off_t m_contLen = -1;
+	bool m_metaVerified = false;
 
 public:
-	tDlDescRemote(cmstring &p, uint n) : tDlDesc(p,n), bIsFirst(true)
+	tDlDescRemote(cmstring &p, uint n) : tDlDesc(p,n)
 	{
-		// expire the caches every time, should not cost much anyway
+		// good moment to expire the caches, every time, should not cost much anyway
 		g_tcp_con_factory.BackgroundCleanup();
+		lockguard g(remote_info_cache);
+		map<string, tFileId>::const_iterator it = remote_info_cache.find(m_path);
+		if (it != remote_info_cache.end())
+		{
+#define META_CACHE_TIME 120
+			if (it->second.validAt < GetTime() - META_CACHE_TIME)
+			{
+				remote_info_cache.erase(it);
+				return;
+			}
+
+			m_modDate = it->second.m_ctime;
+			m_contLen = it->second.m_size;
+		}
 	};
+	int Stat(struct stat &stbuf)
+	{
+		stbuf = statTempl;
+		if (m_contLen >= 0)
+		{
+			stbuf.st_size = m_contLen;
+			stbuf.st_mode &= ~S_IFDIR;
+			stbuf.st_mode |= S_IFREG;
+			stbuf.st_ctime = m_modDate.value(1);
+			_cerr("Using precached\n");
+			return 0;
+		}
+		else if (m_metaVerified) // ok, not existing?
+		{
+			return -EEXIST;
+		}
+	}
 
 	int Read(char *retbuf, const char *path, off_t pos, size_t len)
 	{
+
+#if 0
 		tHttpUrl uri = proxyUrl;
 		uri.sPath += baseUrl.sHost
 		// + ":" + ( baseUrl.sPort.empty() ? baseUrl.sPort : "80")
@@ -179,7 +360,6 @@ public:
 			{
 				return 0;
 			} // nothing to send
-#if 0
 			bool DlAddData(string_view chunk) override
 			{
 				auto count = chunk.size();
@@ -271,7 +451,6 @@ public:
 					SETERROR;
 				return true;
 			}
-#endif
 			tFileId &fid;
 			tFitem(char *p, size_t size, off_t start, tFileId &fi, bool &isfirst)
 			: fileitem("FIXME"), pRet(p), nRest(size),
@@ -310,10 +489,13 @@ public:
 		if(pFi->nErr || !pFi->nGot)
 			return -EIO;
 		return pFi->nGot;
+#endif
 	}
 
-	int Stat(struct stat &stbuf)
+	int StatOld(struct stat &stbuf)
 	{
+#warning RESTOREME
+#if 0
 		stbuf = statTempl;
 		{
 			lockguard g(remote_info_cache);
@@ -331,8 +513,7 @@ public:
 			}
 		}
 		// ok, not cached, do the hard way
-#warning RESTOREME
-#if 0
+
 		tHttpUrl uri = proxyUrl;
 		uri.sPath += baseUrl.sHost
 		// + ":" + ( baseUrl.sPort.empty() ? baseUrl.sPort : "80")
@@ -463,9 +644,11 @@ static int acngfs_open(const char *path, struct fuse_file_info *fi)
 
 
 		p = new tDlDescRemote(path, ftype);
-		if(!p) // running exception-free? 
+
+		if (!p) // running exception-free?
 			return -EIO;
-		if(0!=p->Stat(stbuf))
+
+		if (0 != p->Stat(stbuf))
 		{
 			delete p;
 			return -EIO;
@@ -607,19 +790,28 @@ int main(int argc, char *argv[])
 	}
 
 	// test mount point
-	const char *mpoint = argv[nMyArgCount+1];
+	char *mpoint = argv[nMyArgCount+1];
 	if(!mpoint || stat(mpoint, &statTempl) || statfs(mpoint, &stfsTemp))
 		barf(endl << "Cannot access " << mpoint);
 	if(!S_ISDIR(statTempl.st_mode))
 		barf(endl<< mpoint << " is not a directory.");
 
 	// skip our arguments, keep those for fuse including mount point and argv[0] at the right place
-	argv[nMyArgCount]=argv[0]; // application path
-	argv=&argv[nMyArgCount];
-	argc-=nMyArgCount;
+	argv[nMyArgCount] = argv[0]; // application path
+	argv = &argv[nMyArgCount];
+	argc -= nMyArgCount;
 
 	evabaseFreeFrunner eb(g_tcp_con_factory);
-	dler = &eb.getDownloader();
+//	dler = &eb.getDownloader();
 
-	return my_fuse_main(argc, argv);
+	//return my_fuse_main(argc, argv);
+	int mt = 1;
+
+	/** This is the part of fuse_main() before the event loop */
+	auto fs = fuse_setup(argc, argv,
+				&acngfs_oper, sizeof(acngfs_oper),
+				&mpoint, &mt, nullptr);
+	if (!fs)
+		return 2;
+	return fuse_loop_mt(fs);
 }

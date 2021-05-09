@@ -172,12 +172,12 @@ protected:
 	* Fileitem must be locked before by unique lock pointed by uli object.
 	*
 	*/
-	virtual bool DlAddData(string_view, lockuniq& uli)  { return false;};
+	virtual bool DlAddData(string_view, lockuniq&)  { return false;};
 	/**
 	 * @brief Mark the download as finished, and verify that sizeChecked as sane at that moment or move to error state.
 	 * @param asInCache Special case, if sizeInitial > sizeChecked, consider download done and sizeCheck equals sizeInitial
 	 */
-    virtual void DlFinish(bool asInCache = false)  { (void) asInCache; };
+	virtual void DlFinish(bool asInCache = false);
 
 	virtual void DlRefCountAdd();
 	virtual void DlRefCountDec(const tRemoteStatus& reason);
@@ -195,6 +195,9 @@ protected:
 	tFiGlobMap::iterator m_globRef;
 
 	friend class TFileItemHolder;
+
+	// callback to store the header data on disk, if implemented
+	virtual bool SaveHeader(bool) { return false; }
 
 public:
 	/// public proxy to DlSetError with truncation, locking!!
@@ -229,14 +232,13 @@ protected:
 	int m_filefd = -1;
 
 	bool DlAddData(string_view chunk, lockuniq&) override;
-	void DlFinish(bool asInCache) override;
 
 	bool withError(string_view message, fileitem::EDestroyMode destruction
 			= fileitem::EDestroyMode::KEEP);
 
+	bool SaveHeader(bool truncatedKeepOnlyOrigInfo) override;
 private:
-    bool SaveHeader(bool truncatedKeepOnlyOrigInfo);
-    bool SafeOpenOutFile();
+	bool SafeOpenOutFile();
 };
 
 

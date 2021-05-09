@@ -514,7 +514,7 @@ void fileitem_with_storage::MoveRelease2Sidestore()
 }
 
 
-void fileitem_with_storage::DlFinish(bool asInCache)
+void fileitem::DlFinish(bool asInCache)
 {
 	LOGSTARTFUNC;
 	ASSERT_HAVE_LOCK;
