@@ -24,10 +24,9 @@ namespace acng
 {
 ACNG_API std::shared_ptr<IFileItemRegistry> g_registry;
 
-fileitem::fileitem(cmstring& sPathRel) :
+fileitem::fileitem(string_view sPathRel) :
 	// good enough to not trigger the makeWay check but also not cause overflows
-		m_sPathRel(sPathRel),
-		m_nTimeDlStarted(END_OF_TIME-acng::cfg::maxtempdelay*3)
+		m_sPathRel(sPathRel)
 {
 }
 
@@ -260,11 +259,13 @@ bool fileitem::DlStarted(string_view rawHeader, const tHttpDate& modDate, cmstri
 
 bool fileitem_with_storage::DlAddData(string_view chunk, lockuniq&)
 {
-	ASSERT_HAVE_LOCK
+	LOGSTARTFUNC;
+	ASSERT_HAVE_LOCK;
 	// something might care, most likely... also about BOUNCE action
 	notifyAll();
 
 	m_nIncommingCount += chunk.size();
+	LOG("adding chunk of " << chunk.size() << " bytes at " << m_nSizeChecked);
 
 	// is this the beginning of the stream?
 	if(m_filefd == -1 && !SafeOpenOutFile())
@@ -367,6 +368,9 @@ bool fileitem_with_storage::SafeOpenOutFile()
 	if (m_nSizeChecked < 0)
 		m_nSizeChecked = 0;
 
+	// make sure to be at the right location, this sometimes could go wrong (probably via MoveRelease2Sidestore)
+	lseek(m_filefd, m_nSizeChecked, SEEK_SET);
+
 	// that's in case of hot resuming
 	if(m_nSizeChecked > sizeOnDisk)
 	{
@@ -468,7 +472,7 @@ fileitem_with_storage::~fileitem_with_storage()
 		calcPath();
 		if (0 != ::truncate(sPathAbs.c_str(), 0))
 			unlink(sPathAbs.c_str());
-		SaveHeader(true);
+		fileitem_with_storage::SaveHeader(true);
 		break;
 	}
 	case EDestroyMode::ABANDONED:
@@ -488,7 +492,7 @@ fileitem_with_storage::~fileitem_with_storage()
 	{
 		calcPath();
 		unlink(sPathAbs.c_str());
-		SaveHeader(true);
+		fileitem_with_storage::SaveHeader(true);
 		break;
 	}
 	}

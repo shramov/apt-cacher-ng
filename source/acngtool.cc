@@ -241,9 +241,9 @@ SHARED_PTR<fileitem> CreateReportItem()
 	return make_shared<tRepItem>();
 }
 
-bool DownloadItem(const tHttpUrl &url, dlcon &dlConnector, const SHARED_PTR<fileitem> &fi)
+bool DownloadItem(tHttpUrl url, dlcon &dlConnector, const SHARED_PTR<fileitem> &fi)
 {
-	dlConnector.AddJob(fi, move(dlrequest().setSrc(url)));
+	dlConnector.AddJob(fi, move(url));
 
     auto fistatus = fi->WaitForFinish();
     return fistatus.first == fileitem::FIST_COMPLETE && fistatus.second.code == 200;
@@ -1108,7 +1108,7 @@ int wcat(LPCSTR surl, LPCSTR proxy, IFitemFactory* fac, const IDlConFactory &pDl
 	evabaseFreeFrunner eb(pDlconFac);
 
 	auto fi=fac->Create();
-	eb.getDownloader().AddJob(fi, move(dlrequest().setSrc(url)));
+	eb.getDownloader().AddJob(fi, move(url));
     auto fistatus = fi->WaitForFinish();
     if(fistatus.first == fileitem::FIST_COMPLETE && fistatus.second.code == 200)
 		return EXIT_SUCCESS;

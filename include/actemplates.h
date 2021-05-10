@@ -22,6 +22,7 @@ struct auto_raii
 	~auto_raii() { if (m_p != inval_default) TFreeFunc(m_p); }
 	T release() { auto ret=m_p; m_p = inval_default; return ret;}
 	T get() const { return m_p; }
+	T& operator*() { return m_p; }
 	auto_raii(const auto_raii&) = delete;
 	auto_raii(auto_raii && other)
 	{

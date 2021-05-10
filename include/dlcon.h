@@ -36,21 +36,16 @@ public:
 	virtual ~dlcon() =default;
 	virtual void WorkLoop() =0;
 	virtual void SignalStop() =0;
-	virtual bool AddJob(const SHARED_PTR<fileitem> &fi, dlrequest&& dlrq) =0;
-};
-
-/**
- * @brief Parameter struct and fluent-friendly builder for download requests.
- */
-struct dlrequest
-{
-	const tHttpUrl *pForcedUrl = nullptr;
-	cfg::tRepoResolvResult repoSrc;
-	mstring extraHeaders;
-    bool isPassThroughRequest = false;
-
-	dlrequest& setSrc(const tHttpUrl& url) { pForcedUrl=&url; return *this;}
-	dlrequest& setSrc(cfg::tRepoResolvResult repoRq) { repoSrc = std::move(repoRq); return *this; }
+	/**
+	 * @brief AddJob
+	 * @param fi
+	 * @param src
+	 * @param isPT this influences Connection/Accept-Encoding fields, rely on what the requester gives us, XXX: is Connection not filtered?
+	 * @param extraHeaders
+	 * @return
+	 */
+	virtual bool AddJob(const SHARED_PTR<fileitem> &fi, tHttpUrl &&src, bool isPT = false, mstring extraHeaders = sEmptyString) =0;
+	virtual bool AddJob(const SHARED_PTR<fileitem> &fi, cfg::tRepoResolvResult &&repoSrc, bool isPT = false, mstring extraHeaders = sEmptyString) =0;
 };
 
 }

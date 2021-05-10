@@ -262,7 +262,6 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 	fileitem::FiStatus initState = fileitem::FIST_FRESH;
 
 	cfg::tRepoResolvResult repinfo;
-	dlrequest rq;
 	auto dler = GetDlRes().SetupDownloader();
 	if (!dler)
 		return false;
@@ -288,8 +287,12 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 	//uint64_t prog_before = 0;
 
 	tHttpUrl parserPath, parserHead;
+	// alternatives!
 	const tHttpUrl *pResolvedDirectUrl=nullptr;
-    std::pair<fileitem::FiStatus, tRemoteStatus> dlres;
+	cfg::tRepoResolvResult repoSrc;
+
+	std::pair<fileitem::FiStatus, tRemoteStatus> dlres;
+
 
 	// header could contained malformed data and be nuked in the process,
 	// try to get the original source whatever happens
@@ -344,7 +347,6 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 
 	if(!GetDlRes().GetItemRegistry())
 		return false;
-
 	if (pForcedURL)
 		pResolvedDirectUrl=pForcedURL;
 	else
@@ -356,11 +358,11 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 				<< " and path: " << parserPath.sPath << ", ok? " << bCachePathAsUriPlausible);
 
 		if(!cfg::stupidfs && bCachePathAsUriPlausible
-				&& nullptr != (rq.repoSrc.repodata = cfg::GetRepoData(parserPath.sHost))
-				&& !rq.repoSrc.repodata->m_backends.empty())
+				&& nullptr != (repoSrc.repodata = cfg::GetRepoData(parserPath.sHost))
+				&& !repoSrc.repodata->m_backends.empty())
 		{
 			ldbg("will use backend mode, subdirectory is path suffix relative to backend uri");
-			rq.repoSrc.sRestPath = parserPath.sPath.substr(1);
+			repoSrc.sRestPath = parserPath.sPath.substr(1);
 		}
 		else
 		{
@@ -425,14 +427,14 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 		{
 			dbgline;
 			pResolvedDirectUrl = nullptr;
-			rq.setSrc(repinfo);
+			repoSrc = repinfo;
 		}
 	}
 
 	if (pResolvedDirectUrl)
-		rq.setSrc(*pResolvedDirectUrl);
-
-	dler->AddJob(pFi, dlrequest(rq));
+		dler->AddJob(pFi, tHttpUrl(*pResolvedDirectUrl));
+	else
+		dler->AddJob(pFi, decltype (repoSrc) (repoSrc));
     dlres = pFi->WaitForFinish(1, [&](){ SendChunk("."); } );
     if (dlres.first == fileitem::FIST_COMPLETE && dlres.second.code == 200)
 	{
@@ -445,7 +447,7 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 	{
 		ASSERT(!(dlres.second.code == 500 && dlres.second.msg.empty())); // catch a strange condition
 		LOG("having alternative url and fitem was created here anyway")
-		if(fallbackUrl && fiaccess.get() && (!rq.pForcedUrl || fallbackUrl != rq.pForcedUrl))
+		if(fallbackUrl && fiaccess.get() && (!pResolvedDirectUrl || fallbackUrl != pResolvedDirectUrl))
 		{
 			dbgline;
 			SendChunkSZ("<i>(download error, ignored, guessing alternative URL by path)</i>\n");
@@ -495,7 +497,7 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 
 	if(!bSuccess)
 	{
-		if(rq.repoSrc.repodata && rq.repoSrc.repodata->m_backends.empty() && !hor.h[header::XORIG] && !pForcedURL)
+		if(repoSrc.repodata && repoSrc.repodata->m_backends.empty() && !hor.h[header::XORIG] && !pForcedURL)
 		{
 			// oh, that crap: in a repo, but no backends configured, and no original source
 			// to look at because head file is probably damaged :-(
@@ -786,19 +788,20 @@ bool cacheman::Inject(cmstring &fromRel, cmstring &toRel,
 	// XXX should it really filter it here?
 	if(GetFlags(toRel).uptodate)
         return true;
-    filereader data;
-    if(!data.OpenFile(SABSPATH(fromRel), true))
-        return false;
-    if (checkSize >= 0 && checkSize != (off_t) data.GetSize())
-        return false;
+	filereader data;
+	if(!data.OpenFile(SABSPATH(fromRel), true))
+		return false;
+	off_t len = data.GetSize();
+	if (checkSize >= 0 && checkSize != len)
+		return false;
 
-    fileitem::tSpecialPurposeAttr attr;
-    attr.bVolatile = rex::GetFiletype(toRel) == rex::FILE_VOLATILE;
+	fileitem::tSpecialPurposeAttr attr;
+	attr.bVolatile = rex::GetFiletype(toRel) == rex::FILE_VOLATILE;
 	auto fiUser = GetDlRes().GetItemRegistry()->Create(toRel, ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY, attr);
-    if (!fiUser.get())
-        return false;
-    auto fi = fiUser.get();
-    fiUser.get()->Setup();
+	if (!fiUser.get())
+		return false;
+	auto fi = fiUser.get();
+	fiUser.get()->Setup();
 	lockuniq g(*fi);
     // it's ours, let's play the downloader
     if (fi->GetStatusUnlocked() > fileitem::FIST_INITED)
@@ -809,7 +812,7 @@ bool cacheman::Inject(cmstring &fromRel, cmstring &toRel,
                        forceOrig ? forceOrig : fi->m_responseOrigin,
                        {200, "OK"},
                        0,
-                       data.GetSize()))
+					   len))
     {
         return false;
     }

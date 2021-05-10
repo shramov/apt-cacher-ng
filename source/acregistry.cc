@@ -84,20 +84,16 @@ TFileItemHolder::~TFileItemHolder()
 			&& m_ptr->IsVolatile()
 			&& m_ptr->m_status == fileitem::FIST_COMPLETE)
 	{
-		auto when = m_ptr->m_nTimeDlStarted + acng::cfg::maxtempdelay;
 		auto now = GetTime();
+		auto expDate = time_t(acng::cfg::maxtempdelay)
+				+ m_ptr->m_nTimeDlStarted ? m_ptr->m_nTimeDlStarted : now;
 
-		if (when > now + IN_ABOUT_ONE_DAY)
-		{
-			ASSERT(false);
-			when = 0;
-		}
-		if (when > now)
+		if (expDate > now)
 		{
 			if (manger)
 			{
 				local_ptr->usercount++;
-				manger->AddToProlongedQueue(TFileItemHolder(local_ptr), when);
+				manger->AddToProlongedQueue(TFileItemHolder(local_ptr), expDate);
 			}
 			return;
 		}

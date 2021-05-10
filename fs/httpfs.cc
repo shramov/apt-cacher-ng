@@ -40,6 +40,8 @@
 #include <list>
 #include <unordered_map>
 
+#include <event2/buffer.h>
+
 #define HEADSZ 5000
 #ifndef MIN
 #define MIN(a,b) ( (a<=b)?a:b)
@@ -48,7 +50,7 @@
 #include <thread>
 
 #define MAX_DL_STREAMS 8
-#define MAX_DL_BUF_SIZE 64*1024
+#define MAX_DL_BUF_SIZE 1024*1024
 
 using namespace acng;
 using namespace std;
@@ -66,7 +68,7 @@ using namespace std;
 #define BUFSIZ 8192
 #endif
 
-#define HEAD_TRAILER_LEN BUFSIZ
+#define HEAD_TAIL_LEN BUFSIZ
 
 // some globals, set only once
 static struct stat statTempl;
@@ -75,17 +77,17 @@ static tHttpUrl baseUrl, proxyUrl;
 static mstring altPath;
 bool g_bGoodServer=true;
 
-struct tDlStream
+struct tDlAgent
 {
-	TFileItemHolder hodler;
 	thread runner;
 	SHARED_PTR<dlcon> dler;
+	time_t createdAt = GetTime();
 	enum eKind
 	{
 		HEADER, TRAILER, MID
 	} kind;
 
-	~tDlStream()
+	~tDlAgent()
 	{
 		if(dler)
 			dler->SignalStop();
@@ -96,35 +98,90 @@ struct tDlStream
 
 };
 
-std::unordered_multimap<string, SHARED_PTR<tDlStream>> active_agents;
+//std::unordered_multimap<string, SHARED_PTR<tDlStream>> active_agents;
+std::list<SHARED_PTR<tDlAgent>> spare_agents;
 std::mutex mx_streams;
 using mg = lock_guard<std::mutex>;
 
+SHARED_PTR<tDlAgent> getAgent()
+{
+	mg g(mx_streams);
+#if 0 // nay, will be reconnected, cheaper than restarting the thread
+	// dump those who were proably disconnected anyway
+	auto exTime = GetTime() - 15;
+	spare_agents.remove_if([exTime](decltype (spare_agents)::iterator it)
+	{
+		return (**it).createdAt < exTime;
+	});
+#endif
+	if (!spare_agents.empty())
+	{
+		auto ret = spare_agents.back();
+		spare_agents.pop_back();
+		return ret;
+	}
+	return make_shared<tDlAgent>();
+}
+
+void returnAgent(SHARED_PTR<tDlAgent> && agent)
+{
+	mg g(mx_streams);
+	spare_agents.push_back(move(agent));
+}
 
 class tConsumingItem : public fileitem
 {
-	// fileitem interface
 public:
-	FiStatus Setup() override
+	evbuffer* buf;
+	off_t pos;
+
+	tConsumingItem(string_view path, off_t knownLength, tHttpDate knownDate, off_t rangeStart, off_t rangeLen)
+		: fileitem(path),  pos(rangeStart)
 	{
-		return FIST_INITED;
+		m_status = FIST_INITED;
+		m_nSizeCachedInitial = knownLength;
+		m_responseModDate = knownDate;
+		m_spattr.nRangeLimit = rangeStart + rangeLen - 1;
+		m_spattr.bVolatile = true;
+		buf = evbuffer_new();
 	}
-	tSS buf;
-	std::atomic<off_t> bufStart = -1;
+	~tConsumingItem()
+	{
+		evbuffer_free(buf);
+	}
 
 protected:
 	bool DlAddData(string_view data, lockuniq &) override
 	{
 		m_status = FIST_DLRECEIVING;
-		auto tooMuch = off_t(data.size()) + data.length() - MAX_DL_BUF_SIZE;
-		if(tooMuch > 0)
+		if (m_nSizeChecked < 0)
+			m_nSizeChecked = 0;
+		if (evbuffer_get_length(buf) >= MAX_DL_BUF_SIZE)
+			return true;
+		if (m_nSizeChecked < pos)
 		{
-			buf.drop(tooMuch);
-			bufStart += tooMuch;
+			if (m_nSizeChecked + off_t(data.size()) < off_t(pos))
+			{
+				// no overlap, not reachable
+				m_nSizeChecked += data.size();
+				return true;
+			}
+			// reached, partial or full overlap
+			auto drop = pos - m_nSizeChecked;
+			data.remove_prefix(drop);
+			m_nSizeChecked += drop;
 		}
-		buf << data;
-		return true;
+		auto avail = MAX_DL_BUF_SIZE - evbuffer_get_length(buf);
+		auto toTake = min(avail, data.length());
+		if (0 != evbuffer_add(buf, data.data(), toTake))
+			return false;
+		data.remove_prefix(toTake);
+		// false to abort if too much data already
+		return data.empty();
 	}
+};
+
+#if 0
 	int fetchHot(char *retbuf, const char *, off_t pos, off_t len)
 	{
 		if (pos < bufStart)
@@ -150,7 +207,6 @@ protected:
 		}
 		return -ECONNABORTED;
 	}
-};
 
 
 
@@ -207,6 +263,7 @@ void returnAgent(LPCSTR path, SHARED_PTR<tDlStream> && agent)
 		active_agents.erase(active_agents.begin()); // can purge anyone, should be random enough
 	active_agents.insert(make_pair(path, move(agent)));
 }
+#endif
 
 struct tDlDesc
 {
@@ -214,7 +271,7 @@ struct tDlDesc
 	uint m_ftype;
 
 	virtual int Read(char *retbuf, const char *path, off_t pos, size_t len) =0;
-	virtual int Stat(struct stat &stbuf) =0;
+	virtual int Stat(struct stat *stbuf) =0;
 	tDlDesc(cmstring &p, uint ftype) : m_path(p), m_ftype(ftype) {};
 	virtual ~tDlDesc() {};
 };
@@ -226,18 +283,21 @@ struct tDlDescLocal : public tDlDesc
 	{
 	};
 
-	int Stat(struct stat &stbuf) override
+	int Stat(struct stat *stbuf) override
 	{
+		if (!stbuf)
+			return -EIO;
+
 		if(altPath.empty()) // hm?
 			return -ENOENT;
 
 		auto absPath = altPath + m_path;
-		if (::stat(absPath.c_str(), &stbuf))
+		if (::stat(absPath.c_str(), stbuf))
 			return -errno;
 
 		// verify the file state
 		off_t cl = -2;
-		if (!ParseHeadFromStorage(absPath, &cl, nullptr, nullptr) || cl != stbuf.st_size)
+		if (!ParseHeadFromStorage(absPath, &cl, nullptr, nullptr) || cl != stbuf->st_size)
 			return -EIO;
 
 		return 0;
@@ -255,7 +315,7 @@ struct tDlDescLocal : public tDlDesc
 		if (!pFile)
 		{
 			struct stat stbuf;
-			if(Stat(stbuf))
+			if(Stat(&stbuf))
 				return -EIO; // file incomplete or missing
 
 			FILE *pf = fopen((altPath + m_path).c_str(), "rb");
@@ -278,25 +338,27 @@ struct tDlDescLocal : public tDlDesc
 	}
 };
 
-struct tFileId
+using unique_evbuf = auto_raii<evbuffer*,evbuffer_free,nullptr>;
+#define META_CACHE_EXP_TIME 120
+struct tFileMeta
 {
-	off_t m_size = 0; tHttpDate m_ctime; time_t validAt = GetTime();
-	tFileId() =default;
-	tFileId(off_t a, mstring b) : m_size(a), m_ctime(b) {};
-	bool operator!=(tFileId other) const { return m_size != other.m_size || m_ctime != other.m_ctime;}
+	off_t m_size = -1; tHttpDate m_ctime; time_t validAt = GetTime();
+	SHARED_PTR<unique_evbuf> head, tail;
+	tFileMeta() =default;
+	tFileMeta(off_t a, mstring b) : m_size(a), m_ctime(b) {};
+	bool operator!=(tFileMeta other) const { return m_size != other.m_size || m_ctime != other.m_ctime;}
 };
-static class tRemoteInfoCache : public base_with_mutex, public map<string, tFileId>
+static class tRemoteInfoCache : public base_with_mutex, public map<string, tFileMeta>
 {} remote_info_cache;
 
 struct tDlDescRemote : public tDlDesc
 {
 protected:
 
-	tFileId fid;
-	SHARED_PTR<tDlStream> m_agent;
-	tHttpDate m_modDate;
-	off_t m_contLen = -1;
-	bool m_metaVerified = false;
+	tFileMeta meta;
+	SHARED_PTR<tDlAgent> m_agent;
+	bool gotMeta = false;
+	tHttpUrl uri;
 
 public:
 	tDlDescRemote(cmstring &p, uint n) : tDlDesc(p,n)
@@ -304,35 +366,45 @@ public:
 		// good moment to expire the caches, every time, should not cost much anyway
 		g_tcp_con_factory.BackgroundCleanup();
 		lockguard g(remote_info_cache);
-		map<string, tFileId>::const_iterator it = remote_info_cache.find(m_path);
+		auto it = remote_info_cache.find(m_path);
 		if (it != remote_info_cache.end())
 		{
-#define META_CACHE_TIME 120
-			if (it->second.validAt < GetTime() - META_CACHE_TIME)
+			if (GetTime() > it->second.validAt + META_CACHE_EXP_TIME)
 			{
 				remote_info_cache.erase(it);
 				return;
 			}
+			meta = it->second;
+			return;
+		}
 
-			m_modDate = it->second.m_ctime;
-			m_contLen = it->second.m_size;
-		}
+		uri = proxyUrl;
+		uri.sPath += baseUrl.sHost
+		// + ":" + ( baseUrl.sPort.empty() ? baseUrl.sPort : "80")
+				+ baseUrl.sPath + m_path;
+
+		// Stat(nullptr);
 	};
-	int Stat(struct stat &stbuf)
+	int Stat(struct stat *stbuf)
 	{
-		stbuf = statTempl;
-		if (m_contLen >= 0)
+		if (!gotMeta)
 		{
-			stbuf.st_size = m_contLen;
-			stbuf.st_mode &= ~S_IFDIR;
-			stbuf.st_mode |= S_IFREG;
-			stbuf.st_ctime = m_modDate.value(1);
-			_cerr("Using precached\n");
-			return 0;
+			// string_view path, off_t knownLength, tHttpDate knownDate, off_t rangeStart, off_t rangeLen
+			auto item = make_shared<tConsumingItem>(m_path, meta.m_size, meta.m_ctime, 0, HEAD_TAIL_LEN);
+			item->DlRefCountAdd();
+			if (!m_agent)
+				m_agent = getAgent();
+			m_agent->dler->AddJob(item, tHttpUrl(uri));
 		}
-		else if (m_metaVerified) // ok, not existing?
+		if(stbuf)
+			*stbuf = statTempl;
+		if (meta.m_size >= 0)
 		{
-			return -EEXIST;
+			stbuf->st_size = meta.m_size;
+			stbuf->st_mode &= ~S_IFDIR;
+			stbuf->st_mode |= S_IFREG;
+			stbuf->st_ctime = meta.m_ctime.value(1);
+			return 0;
 		}
 	}
 
@@ -572,9 +644,9 @@ static int acngfs_getattr(const char *path, struct stat *stbuf)
 	_cerr( "type: " << type);
 	if (type == rex::FILE_SOLID || type == rex::FILE_VOLATILE)
 	{
-		if(0 == tDlDescLocal(path, type).Stat(*stbuf))
+		if(0 == tDlDescLocal(path, type).Stat(stbuf))
 			return 0;
-		if(0 == tDlDescRemote(path, type).Stat(*stbuf))
+		if(0 == tDlDescRemote(path, type).Stat(stbuf))
 			return 0;
 	}
 
@@ -635,7 +707,7 @@ static int acngfs_open(const char *path, struct fuse_file_info *fi)
 				p = new tDlDescLocal(path, ftype);
 				if(p)
 				{
-					if(0 == p->Stat(stbuf))
+					if(0 == p->Stat(&stbuf))
 						goto desc_opened;
 					delete p;
 					p = nullptr;
@@ -648,7 +720,7 @@ static int acngfs_open(const char *path, struct fuse_file_info *fi)
 		if (!p) // running exception-free?
 			return -EIO;
 
-		if (0 != p->Stat(stbuf))
+		if (0 != p->Stat(&stbuf))
 		{
 			delete p;
 			return -EIO;

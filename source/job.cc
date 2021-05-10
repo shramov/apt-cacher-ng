@@ -460,8 +460,6 @@ void job::Prepare(const header &h, string_view headBuf, cmstring& callerHostname
 	string sReqPath, sPathResidual;
 	tHttpUrl theUrl; // parsed URL
 
-	dlrequest rq;
-
 	fileitem::FiStatus fistate(fileitem::FIST_FRESH);
 	bool bPtMode(false);
 
@@ -659,9 +657,9 @@ void job::Prepare(const header &h, string_view headBuf, cmstring& callerHostname
 		
 		// got something valid, has type now, trace it
 		USRDBG("Processing new job, " << h.getRequestUrl());
-		rq.repoSrc = cfg::GetRepNameAndPathResidual(theUrl);
-		if(rq.repoSrc.psRepoName && !rq.repoSrc.psRepoName->empty())
-			m_sFileLoc=*rq.repoSrc.psRepoName+SZPATHSEP+rq.repoSrc.sRestPath;
+		auto repoSrc = cfg::GetRepNameAndPathResidual(theUrl);
+		if(repoSrc.psRepoName && !repoSrc.psRepoName->empty())
+			m_sFileLoc = *repoSrc.psRepoName + SZPATHSEP + repoSrc.sRestPath;
 		else
 			m_sFileLoc=theUrl.sHost+theUrl.sPath;
 
@@ -678,56 +676,48 @@ void job::Prepare(const header &h, string_view headBuf, cmstring& callerHostname
 		ParseRange(h);
 
 		m_pItem = m_pParentCon.GetItemRegistry()->Create(m_sFileLoc,
-										  attr.bVolatile ?
-											  ESharingHow::AUTO_MOVE_OUT_OF_THE_WAY :
-											  ESharingHow::ALWAYS_TRY_SHARING, attr);
-	}
-	catch(const std::out_of_range&) // better safe...
-	{
-		return report_invpath();
-	}
-
-	if( ! m_pItem.get())
-	{
-		USRDBG("Error creating file item for " << m_sFileLoc);
-		return report_overload();
-	}
-
-	if(cfg::DegradedMode())
-		return SetEarlySimpleResponse("403 Cache server in degraded mode");
-
-	fistate = m_pItem.get()->Setup();
-	LOG("Got initial file status: " << (int) fistate);
-
-	if (bPtMode && fistate != fileitem::FIST_COMPLETE)
-		fistate = _SwitchToPtItem();
-
-	// might need to update the filestamp because nothing else would trigger it
-	if(cfg::trackfileuse && fistate >= fileitem::FIST_DLGOTHEAD && fistate < fileitem::FIST_DLERROR)
-		m_pItem.get()->UpdateHeadTimestamp();
-
-	if(fistate==fileitem::FIST_COMPLETE)
-		return; // perfect, done here
-
-	if(cfg::offlinemode) { // make sure there will be no problems later in SendData or prepare a user message
-		// error or needs download but freshness check was disabled, so it's really not complete.
-		return SetEarlySimpleResponse("503 Unable to download in offline mode");
-	}
-	dbgline;
-	if( fistate < fileitem::FIST_DLGOTHEAD) // needs a downloader
-	{
-		dbgline;
-		if(!m_pParentCon.SetupDownloader())
+														 attr.bVolatile ?
+															 ESharingHow::AUTO_MOVE_OUT_OF_THE_WAY :
+															 ESharingHow::ALWAYS_TRY_SHARING, attr);
+		if( ! m_pItem.get())
 		{
-			USRDBG( "Error creating download handler for "<<m_sFileLoc);
+			USRDBG("Error creating file item for " << m_sFileLoc);
 			return report_overload();
 		}
 
+		if(cfg::DegradedMode())
+			return SetEarlySimpleResponse("403 Cache server in degraded mode");
+
+		fistate = m_pItem.get()->Setup();
+		LOG("Got initial file status: " << (int) fistate);
+
+		if (bPtMode && fistate != fileitem::FIST_COMPLETE)
+			fistate = _SwitchToPtItem();
+
+		// might need to update the filestamp because nothing else would trigger it
+		if(cfg::trackfileuse && fistate >= fileitem::FIST_DLGOTHEAD && fistate < fileitem::FIST_DLERROR)
+			m_pItem.get()->UpdateHeadTimestamp();
+
+		if(fistate==fileitem::FIST_COMPLETE)
+			return; // perfect, done here
+
+		if(cfg::offlinemode) { // make sure there will be no problems later in SendData or prepare a user message
+			// error or needs download but freshness check was disabled, so it's really not complete.
+			return SetEarlySimpleResponse("503 Unable to download in offline mode");
+		}
 		dbgline;
-		try
+		if( fistate < fileitem::FIST_DLGOTHEAD) // needs a downloader
 		{
-			auto bHaveBackends = (rq.repoSrc.repodata
-								  && !rq.repoSrc.repodata->m_backends.empty());
+			dbgline;
+			if(!m_pParentCon.SetupDownloader())
+			{
+				USRDBG( "Error creating download handler for "<<m_sFileLoc);
+				return report_overload();
+			}
+
+			dbgline;
+
+			auto bHaveBackends = (repoSrc.repodata && !repoSrc.repodata->m_backends.empty());
 
 			if (cfg::forcemanaged && !bHaveBackends)
 				return report_notallowed();
@@ -736,35 +726,32 @@ void job::Prepare(const header &h, string_view headBuf, cmstring& callerHostname
 			{
 				// XXX: this only checks the first found backend server, what about others?
 				auto testUri = bHaveBackends ?
-								   rq.repoSrc.repodata->m_backends.front().ToURI(
-									   false) + rq.repoSrc.sRestPath :
-								   theUrl.ToURI(false);
+							repoSrc.repodata->m_backends.front().ToURI(
+								false) + repoSrc.sRestPath :
+							theUrl.ToURI(false);
 				if (rex::MatchUncacheable(testUri, rex::NOCACHE_TGT))
 					_SwitchToPtItem();
 			}
-
-			rq.isPassThroughRequest = bPtMode;
-
 			// if backend config not valid, download straight from the specified source
-			if (!bHaveBackends)
-				rq.setSrc(theUrl);
 
+			string extraHeaders;
 			if (cfg::exporigin && !callerHostname.empty())
 			{
-				rq.extraHeaders = "X-Forwarded-For: "sv;
+				extraHeaders = "X-Forwarded-For: "sv;
 				if (!m_xff.empty())
 				{
-					rq.extraHeaders += m_xff;
-					rq.extraHeaders += ", "sv;
+					extraHeaders += m_xff;
+					extraHeaders += ", "sv;
 				}
-				rq.extraHeaders += callerHostname;
-				rq.extraHeaders += svRN;
+				extraHeaders += callerHostname;
+				extraHeaders += svRN;
 			}
-
 			if (bPtMode)
-				rq.extraHeaders += header::ExtractCustomHeaders(headBuf.data(), rq.isPassThroughRequest);
+				extraHeaders += header::ExtractCustomHeaders(headBuf.data(), bPtMode);
 
-			if (m_pParentCon.SetupDownloader()->AddJob(m_pItem.get(), move(rq)))
+			if (bHaveBackends
+					? m_pParentCon.SetupDownloader()->AddJob(m_pItem.get(), move(repoSrc), bPtMode, move(extraHeaders))
+					: m_pParentCon.SetupDownloader()->AddJob(m_pItem.get(), move(theUrl), bPtMode, move(extraHeaders)))
 			{
 				ldbg("Download job enqueued for " << m_sFileLoc);
 			}
@@ -773,11 +760,16 @@ void job::Prepare(const header &h, string_view headBuf, cmstring& callerHostname
 				log::err(tSS() << "PANIC! Error creating download job for " << m_sFileLoc);
 				return report_overload();
 			}
-		} catch (const std::bad_alloc&) // OOM, may this ever happen here?
-		{
-			USRDBG("Out of memory");
-			return report_overload();
-		};
+		}
+	}
+	catch (const std::bad_alloc&) // OOM, may this ever happen here?
+	{
+		USRDBG("Out of memory");
+		return report_overload();
+	}
+	catch(const std::out_of_range&) // better safe...
+	{
+		return report_invpath();
 	}
 }
 

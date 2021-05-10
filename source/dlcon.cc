@@ -124,31 +124,36 @@ struct tDlJob
 	// flag to use ranges and also define start if >= 0
 	off_t m_nUsedRangeStartPos = -1;
 
-	inline tDlJob(CDlConn *p, const tFileItemPtr& pFi, dlrequest&& rq) :
+	inline tDlJob(CDlConn *p, const tFileItemPtr& pFi, tHttpUrl &&src, bool isPT, mstring extraHeaders) :
 					m_pStorage(pFi), m_parent(*p),
-					m_extraHeaders(move(rq.extraHeaders)),
-					m_bIsPassThroughRequest(rq.isPassThroughRequest)
+					m_extraHeaders(move(extraHeaders)),
+					m_bIsPassThroughRequest(isPT)
 	{
-		LOGSTARTFUNC
-
-		ldbg(
-				"uri: " << (rq.pForcedUrl ? rq.pForcedUrl->ToURI(false) : sEmptyString )
-				<< ", restpath: " << rq.repoSrc.sRestPath
-				<< "repo: " << uintptr_t(rq.repoSrc.repodata));
-
+		LOGSTARTFUNC;
+		ldbg("uri: " << src.ToURI(false));
 		if (m_pStorage)
 			m_pStorage->DlRefCountAdd();
-		if (rq.pForcedUrl)
-			m_remoteUri = *(rq.pForcedUrl);
-		else if(rq.repoSrc.repodata)
-		{
-			m_remoteUri.sPath = rq.repoSrc.sRestPath;
-			m_pRepoDesc = rq.repoSrc.repodata;
-			m_bBackendMode = true;
-		}
+		m_remoteUri = move(src);
         lockguard g(*pFi);
         m_fiAttr = pFi->m_spattr;
 	}
+
+	inline tDlJob(CDlConn *p, const tFileItemPtr& pFi, cfg::tRepoResolvResult &&repoSrc, bool isPT, mstring extraHeaders) :
+					m_pStorage(pFi), m_parent(*p),
+					m_extraHeaders(move(extraHeaders)),
+					m_bIsPassThroughRequest(isPT)
+	{
+		LOGSTARTFUNC;
+		ldbg("repo: " << uintptr_t(repoSrc.repodata) << ", restpath: " << repoSrc.sRestPath);
+		if (m_pStorage)
+			m_pStorage->DlRefCountAdd();
+		m_remoteUri.sPath = move(repoSrc.sRestPath);
+		m_pRepoDesc = move(repoSrc.repodata);
+		m_bBackendMode = true;
+		lockguard g(*pFi);
+		m_fiAttr = pFi->m_spattr;
+	}
+
 	// Default move ctor is ok despite of pointers, we only need it in the beginning, list-splice operations should not move the object around
 	tDlJob(tDlJob &&other) = default;
 
@@ -936,7 +941,6 @@ class CDlConn : public dlcon
 	void drain_event_stream();
 
 	void WorkLoop() override;
-	bool AddJob(const tFileItemPtr &m_pItem, dlrequest&& rq) override;
 
 public:
 
@@ -945,6 +949,11 @@ public:
 	~CDlConn();
 
 	void SignalStop() override;
+
+	// dlcon interface
+public:
+	bool AddJob(const std::shared_ptr<fileitem> &fi, tHttpUrl &&src, bool isPT, mstring extraHeaders) override;
+	bool AddJob(const std::shared_ptr<fileitem> &fi, cfg::tRepoResolvResult &&repoSrc, bool isPT, mstring extraHeaders) override;
 };
 
 #ifdef HAVE_LINUX_EVENTFD
@@ -990,22 +999,31 @@ inline void CDlConn::awaken_check()
 
 #endif
 
-bool CDlConn::AddJob(const tFileItemPtr &fi, dlrequest&& rq)
+
+bool CDlConn::AddJob(const std::shared_ptr<fileitem> &fi, tHttpUrl &&src, bool isPT, mstring extraHeaders)
 {
 	if (m_ctrl_hint < 0 || evabase::in_shutdown)
 		return false;
-
-	if (!rq.pForcedUrl)
-	{
-		if (! rq.repoSrc.repodata || rq.repoSrc.repodata->m_backends.empty())
-			return false;
-		if (rq.repoSrc.sRestPath.empty())
-			return false;
-    }
-
 	{
 		lockguard g(m_handover_mutex);
-		m_new_jobs.emplace_back(this, fi, move(rq));
+		m_new_jobs.emplace_back(this, fi, move(src), isPT, move(extraHeaders));
+	}
+	m_ctrl_hint++;
+	wake();
+	return true;
+}
+
+bool CDlConn::AddJob(const std::shared_ptr<fileitem> &fi, cfg::tRepoResolvResult &&repoSrc, bool isPT, mstring extraHeaders)
+{
+	if (m_ctrl_hint < 0 || evabase::in_shutdown)
+		return false;
+	if (! repoSrc.repodata || repoSrc.repodata->m_backends.empty())
+		return false;
+	if (repoSrc.sRestPath.empty())
+		return false;
+	{
+		lockguard g(m_handover_mutex);
+		m_new_jobs.emplace_back(this, fi, move(repoSrc), isPT, move(extraHeaders));
 	}
 	m_ctrl_hint++;
 	wake();

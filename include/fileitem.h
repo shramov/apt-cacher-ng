@@ -72,7 +72,7 @@ public:
         , DELETE
     };
 
-	fileitem(cmstring& sPathRel);
+	fileitem(string_view sPathRel);
 	virtual ~fileitem() =default;
 	
 	// initialize file item, return the status
@@ -146,7 +146,7 @@ protected:
 	FiStatus m_status = FIST_FRESH;
 	EDestroyMode m_eDestroy = EDestroyMode::KEEP;
 	mstring m_sPathRel;
-	time_t m_nTimeDlStarted;
+	time_t m_nTimeDlStarted = 0;
 
 	/*************************************
 	 *
@@ -179,9 +179,6 @@ protected:
 	 */
 	virtual void DlFinish(bool asInCache = false);
 
-	virtual void DlRefCountAdd();
-	virtual void DlRefCountDec(const tRemoteStatus& reason);
-
 	/**
 	 * @brief Mark this item as defect so its data will be invalidate in cache when released
 	 *
@@ -204,6 +201,10 @@ public:
 	void MarkFaulty(bool deleteItCompletely = false);
 	/// optional method, returns raw header if needed in special implementations
 	virtual const std::string& GetRawResponseHeader() { return sEmptyString; }
+
+	virtual void DlRefCountAdd();
+	virtual void DlRefCountDec(const tRemoteStatus& reason);
+
 };
 
 enum class ESharingHow
