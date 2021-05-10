@@ -128,6 +128,8 @@ decltype(oldCounters) GetOldCountersInOut(bool calcIncomming, bool calcOutgoing)
 	return oldCounters;
 }
 
+ACNG_API mstring g_szLogPrefix = "apt-cacher";
+
 mstring open()
 {
 	// only called in the beginning or when reopening, already locked...
@@ -138,10 +140,9 @@ mstring open()
 	
 	logIsEnabled = true;
 
-
-	string apath = PathCombine(cfg::logdir, "apt-cacher.log"),
-			epath = PathCombine(cfg::logdir, "apt-cacher.err"),
-			dpath = PathCombine(cfg::logdir, "apt-cacher.dbg");
+	string apath = PathCombine(cfg::logdir, g_szLogPrefix + ".log"),
+			epath = PathCombine(cfg::logdir, g_szLogPrefix + ".err"),
+			dpath = PathCombine(cfg::logdir, g_szLogPrefix + ".dbg");
 	
 	mkbasedir(apath);
 

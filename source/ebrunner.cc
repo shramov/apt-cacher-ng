@@ -6,6 +6,7 @@
 
 namespace acng
 {
+void SetupCleaner();
 
 class evabaseFreeFrunner::Impl
 {
@@ -18,6 +19,7 @@ public:
 		: dl(dlcon::CreateRegular(pDlconFac)),
 		  m_eb(new evabase)
 	{
+		SetupCleaner();
 		evthr = std::thread([&]() { m_eb->MainLoop(); });
 		thr = std::thread([&]() {dl->WorkLoop();});
 	}

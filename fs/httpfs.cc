@@ -55,6 +55,15 @@
 using namespace acng;
 using namespace std;
 
+
+namespace acng
+{
+namespace log
+{
+	extern mstring g_szLogPrefix;
+}
+}
+
 //#define SPAM
 
 #ifdef SPAM
@@ -73,8 +82,9 @@ using namespace std;
 // some globals, set only once
 static struct stat statTempl;
 static struct statfs stfsTemp;
-static tHttpUrl baseUrl, proxyUrl;
-static mstring altPath;
+tHttpUrl baseUrl;
+cmstring& altPath = cfg::cachedir;
+
 bool g_bGoodServer=true;
 
 struct tDlAgent
@@ -384,10 +394,8 @@ public:
 			return;
 		}
 
-		m_uri = proxyUrl;
-		m_uri.sPath += baseUrl.sHost
-		// + ":" + ( baseUrl.sPort.empty() ? baseUrl.sPort : "80")
-				+ baseUrl.sPath + m_path;
+		m_uri = baseUrl;
+		m_uri.sPath += m_path;
 
 		// Stat(nullptr);
 	};
@@ -805,9 +813,9 @@ int my_fuse_main(int argc, char ** argv)
 }
 
 void _ExitUsage() {
-   cerr << "USAGE: acngfs BaseURL ProxyHost MountPoint [FUSE Mount Options]\n"
-   << "examples:\n\t  acngfs http://ftp.uni-kl.de/debian cacheServer:3142 /var/local/aptfs\n"
-   << "\t  acngfs http://ftp.uni-kl.de/debian localhost:3142 /var/cache/apt-cacher-ng/debrep /var/local/aptfs\n\n"
+   cerr << "USAGE: acngfs BaseURL MountPoint [ACNG Configuration Assignments] [FUSE Mount Options]\n"
+   << "Examples:\n\t  acngfs http://ftp.uni-kl.de/debian /var/local/aptfs proxy=cacheServer:3142"
+   << "\n\t  acngfs http://ftp.uni-kl.de/debian /var/local/aptfs proxy=cacheServer:3142 cachedir=/var/cache/apt-cacher-ng/debrep\n\n"
         << "FUSE mount options summary:\n\n";
     char *argv[] = {strdup("..."), strdup("-h")};
     my_fuse_main( _countof(argv), argv);
@@ -815,14 +823,11 @@ void _ExitUsage() {
 }
 
 #define barf(x) { cerr << endl << "ERROR: " << x <<endl; exit(1); }
-#define erUsage { _ExitUsage(); }
-
 
 int main(int argc, char *argv[])
 {
 	using namespace acng;
 	memset(&acngfs_oper, 0, sizeof(acngfs_oper));
-
 	acngfs_oper.getattr	= acngfs_getattr;
 	acngfs_oper.fgetattr	= acngfs_fgetattr;
 	acngfs_oper.access	= acngfs_access;
@@ -835,94 +840,81 @@ int main(int argc, char *argv[])
 	acngfs_oper.release	= acngfs_release;
 	umask(0);
 
-	for(int i = 1; i<argc; i++)
-		if(argv[i] && 0==strcmp(argv[i], "--help"))
-			erUsage;
-
-	if(argc<4)
-		barf("Not enough arguments, try --help.\n");
-
 	cfg::agentname = "ACNGFS";
 	cfg::agentheader="User-Agent: ACNGFS\r\n";
 	cfg::requestapx = "User-Agent: ACNGFS\r\nX-Original-Source: 42\r\n";
-#ifdef SPAM
+	cfg::cachedir.clear();
+	cfg::cacheDirSlash.clear();
+#ifdef DEBUG
 	cfg::debug=0xff;
 	cfg::verboselog=1;
+	log::g_szLogPrefix = "acngfs";
+	log::open();
 #endif
+
+	if(argc<3)
+		barf("Not enough arguments, try --help.\n");
+
+	vector<char*> fuseArgs(argv, argv + 1);
+	fuseArgs.push_back(argv[2]);
+
+	cfg::g_bQuiet = true; // STFU, we need to separate our options silently
+
+	// check help request and weedout our arguments
+	for(auto p=argv + 3; p < argv + argc; ++p)
+	{
+		if (0==strcmp(*p, "--help"))
+			_ExitUsage();
+		else if (!cfg::SetOption(*p, nullptr))
+			fuseArgs.push_back(*p);
+	}
 
 	if(argv[1] && baseUrl.SetHttpUrl(argv[1]))
 	{
+		// FUSE adds starting / already, drop ours if present
+		trimBack(baseUrl.sPath, "/");
 #ifdef VERBOSE
 		cout << "Base URL: " << baseUrl.ToString()<<endl;
 #endif
 	}
 	else
 	{
-		cerr << "Invalid base URL, " << argv[1] <<endl;
+		cerr << "Invalid base URL, " << argv[1] << endl;
 		exit(EXIT_FAILURE);
 	}
-	// FUSE adds starting / already, drop ours if present
-	trimBack(baseUrl.sPath, "/");
 
-	if(argv[2] && proxyUrl.SetHttpUrl(argv[2]))
+	if (! cfg::GetProxyInfo() || cfg::GetProxyInfo()->sHost.empty())
 	{
-		/*if(proxyUrl.GetPort().empty())
-		   proxyUrl.sPort="3142";
-		   */
-	}
-	else
-	{
-		cerr << "Invalid proxy URL, " << argv[2] <<endl;
+		cerr << "WARNING: proxy not specified or invalid, please set something like proxy=localserver:3142."
+" Continuing without proxy server for now, this might cause severe performance degradation!" << endl;
 		exit(EXIT_FAILURE);
 	}
+
+	cfg::PostProcConfig();
 
 	// all parameters processed, forwarded to fuse call below
 
 	acng::rex::CompileExpressions();
 
-#if 0//def SPAM
-	{
-		fuse_file_info fi = {0};
-		const char *dingsda="/dists/unstable/InRelease";
-		acngfs_open(dingsda, &fi);
-		char buf[165536];
-		off_t pos=0;
-		for(;0 < acngfs_read(dingsda, buf, sizeof(buf), pos, &fi); pos+=sizeof(buf)) ;
-		return 0;
-	}
-#endif
-
-	unsigned int nMyArgCount = 2; // base url, proxy host
-	// alternative path supplied in the next argument?
-	if(argc > 4 && argv[4] && argv[4][0] != '-' ) // 4th argument is not an option?
-	{
-		nMyArgCount=3;
-		altPath = argv[3];
-	}
-
 	// test mount point
-	char *mpoint = argv[nMyArgCount+1];
-	if(!mpoint || stat(mpoint, &statTempl) || statfs(mpoint, &stfsTemp))
-		barf(endl << "Cannot access " << mpoint);
+	if(!argv[2] || stat(argv[2], &statTempl) || statfs(argv[2], &stfsTemp))
+		barf(endl << "Cannot access directory " << argv[2]);
 	if(!S_ISDIR(statTempl.st_mode))
-		barf(endl<< mpoint << " is not a directory.");
+		barf(endl<< argv[2] << " is not a directory.");
 
-	// skip our arguments, keep those for fuse including mount point and argv[0] at the right place
-	argv[nMyArgCount] = argv[0]; // application path
-	argv = &argv[nMyArgCount];
-	argc -= nMyArgCount;
+	// restore application arguments
 
+#warning this carries a dlcon with a thread, do we need it? only evabase with one controlled thread is required
 	evabaseFreeFrunner eb(g_tcp_con_factory);
-//	dler = &eb.getDownloader();
-
-	//return my_fuse_main(argc, argv);
 	int mt = 1;
-
 	/** This is the part of fuse_main() before the event loop */
-	auto fs = fuse_setup(argc, argv,
+	auto fs = fuse_setup(fuseArgs.size(), &fuseArgs[0],
 				&acngfs_oper, sizeof(acngfs_oper),
-				&mpoint, &mt, nullptr);
+				&argv[2], &mt, nullptr);
 	if (!fs)
 		return 2;
-	return fuse_loop_mt(fs);
+	auto ret = fuse_loop_mt(fs);
+	// shutdown agents in reliable fashion
+	spare_agents.clear();
+	return ret;
 }

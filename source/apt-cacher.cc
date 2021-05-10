@@ -243,9 +243,8 @@ void term_handler(evutil_socket_t signum, short what, void *arg)
 
 void CloseAllCachedConnections();
 
-// NOT supposed to be accessed from anywhere directly except from the conserver
-extern std::shared_ptr<cleaner> g_victor;
-extern std::shared_ptr<IFileItemRegistry> g_registry;
+ACNG_API void SetupCleaner();
+ACNG_API void TeardownCleaner();
 
 struct tAppStartStop
 {
@@ -278,8 +277,7 @@ struct tAppStartStop
 		SetupCacheDir();
 
 		//DelTree(cfg::cacheDirSlash + sReplDir);
-		g_registry = acng::MakeRegularItemRegistry();
-		g_victor.reset(new cleaner(false, g_registry));
+		SetupCleaner();
 
 		if (conserver::Setup() <= 0)
 		{
@@ -315,8 +313,6 @@ struct tAppStartStop
 			unlink(cfg::pidfile.c_str());
 		conserver::Shutdown();
 		CloseAllCachedConnections();
-		g_victor.reset();
-		g_registry.reset();
 		log::close(false);
 		globalSslDeInit();
 	}

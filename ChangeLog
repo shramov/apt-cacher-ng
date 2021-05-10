@@ -10,6 +10,9 @@ apt-cacher-ng (3.7) AND-SOMETIMES-THE-BEAR-EATS-YOU; urgency=low
     imported files (without use of the official Import function) will no
     longer be considered valid without at least a timestamp check on the
     server.
+  * acngfs does not support setting of proxy server and (optional) local extra
+    folder as plain argument, instead those need to be specified as proxy=...
+    and cachedir=... .
 
   [ BUGFIXES ]
 
@@ -41,9 +44,14 @@ apt-cacher-ng (3.7) AND-SOMETIMES-THE-BEAR-EATS-YOU; urgency=low
   * Limited support of Cache-Control header from clients (no-cache, no-store)
     for LP: #1915713
   * Support for open-end range requests
+  * Support regular variable assignments (like in acngtool) in acngfs command
+    line syntax, although the meanings might be slightly different (CacheDir
+    means local fallback folder)
 
 TODO:
 redo acfg namespace (picking next branch) to have builder object
+
+Rebuild docs
 
  -- 
 
