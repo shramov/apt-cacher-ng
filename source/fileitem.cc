@@ -518,7 +518,7 @@ void fileitem_with_storage::MoveRelease2Sidestore()
 }
 
 
-void fileitem::DlFinish(bool asInCache)
+void fileitem::DlFinish()
 {
 	LOGSTARTFUNC;
 	ASSERT_HAVE_LOCK;
@@ -528,17 +528,10 @@ void fileitem::DlFinish(bool asInCache)
 
 	notifyAll();
 
-	if (m_status >= FIST_COMPLETE)
+	if (m_status > FIST_COMPLETE)
 	{
 		LOG("already completed");
 		return;
-	}
-
-	if (asInCache)
-	{
-		m_nSizeChecked = m_nContentLength = m_nSizeCachedInitial;
-		// to be on the safe side
-		m_responseStatus = {200, "OK"};
 	}
 
 	// XXX: double-check whether the content length in header matches checked size?

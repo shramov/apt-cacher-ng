@@ -43,9 +43,6 @@ tSpecialRequest::~tSpecialRequest()
 
 bool tSpecialRequest::SendRawData(const char *data, size_t len, int flags)
 {
-	if(m_parms.fd<3) // nothing raw to send for stdout
-		return true;
-
 	while(len>0)
 	{
 		int r=send(m_parms.fd, data, len, flags);
@@ -57,8 +54,8 @@ bool tSpecialRequest::SendRawData(const char *data, size_t len, int flags)
 				return false;
 		}
 		
-		data+=r;
-		len-=r;
+		data += r;
+		len -= r;
 	}
 	return true;
 }

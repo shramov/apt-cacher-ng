@@ -88,16 +88,12 @@ public:
 	string m_sHeader;
 	const std::string& GetRawResponseHeader() override { return m_sHeader; }
 
-	void DlFinish(bool updateFromStatus) override
+	void DlFinish() override
 	{
 		LOGSTARTFUNC;
 		ASSERT(m_obj_mutex.try_lock() == false);
 
 		notifyAll();
-
-		if (updateFromStatus && m_nSizeChecked > 0)
-			m_nContentLength = m_nSizeChecked;
-
 		m_status = FIST_COMPLETE;
 	}
 

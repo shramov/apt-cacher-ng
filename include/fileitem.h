@@ -175,9 +175,8 @@ protected:
 	virtual bool DlAddData(string_view, lockuniq&)  { return false;};
 	/**
 	 * @brief Mark the download as finished, and verify that sizeChecked as sane at that moment or move to error state.
-	 * @param asInCache Special case, if sizeInitial > sizeChecked, consider download done and sizeCheck equals sizeInitial
 	 */
-	virtual void DlFinish(bool asInCache = false);
+	virtual void DlFinish();
 
 	/**
 	 * @brief Mark this item as defect so its data will be invalidate in cache when released

@@ -104,7 +104,7 @@ struct ACNG_API CPrintItemFactory : public IFitemFactory
                         std::cerr << raw << std::endl;
                     return fileitem::DlStarted(raw, dat, orig, status, nseek, ntotal);
 				}
-                void DlFinish(bool) override
+				void DlFinish() override
 				{
 					m_status = FIST_COMPLETE;
 				}
@@ -183,11 +183,10 @@ SHARED_PTR<fileitem> CreateReportItem()
 		}
 
 	protected:
-		void DlFinish(bool) override
+		void DlFinish() override
 		{
 			m_status = FIST_COMPLETE;
 			vprint.fin();
-
 		}
 		bool DlAddData(acng::string_view chunk, lockuniq&) override
 		{

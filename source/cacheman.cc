@@ -818,7 +818,7 @@ bool cacheman::Inject(cmstring &fromRel, cmstring &toRel,
     }
 	if (!fi->DlAddData(data.getView(), g))
         return false;
-    fi->DlFinish(false);
+	fi->DlFinish();
     if(fileitem::FIST_COMPLETE != fi->GetStatusUnlocked())
         return false;
     if(bSetIfileFlags)

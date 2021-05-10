@@ -801,7 +801,8 @@ struct tDlJob
 			{
 				m_bAllowStoreData = false;
 				mark_assigned();
-				m_pStorage->DlFinish(true);
+				m_pStorage->m_nSizeChecked = m_pStorage->m_nContentLength = m_pStorage->m_nSizeCachedInitial;
+				m_pStorage->DlFinish();
 				return EResponseEval::GOOD;
 			}
 			// in other cases should resume and the expected position, or else!
