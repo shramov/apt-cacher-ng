@@ -98,7 +98,7 @@ public:
 	// returns when the state changes to complete or error
     std::pair<FiStatus, tRemoteStatus> WaitForFinish();
 
-    std::pair<FiStatus, tRemoteStatus> WaitForFinish(unsigned check_interval, const std::function<void()> &check_func);
+	std::pair<FiStatus, tRemoteStatus> WaitForFinish(unsigned check_interval, const std::function<bool()> &cbOnTimeout);
 	
 	/// mark the item as complete as-is, assuming that seen size is correct
 	void SetupComplete();

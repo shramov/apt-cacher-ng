@@ -435,7 +435,7 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 		dler->AddJob(pFi, tHttpUrl(*pResolvedDirectUrl));
 	else
 		dler->AddJob(pFi, decltype (repoSrc) (repoSrc));
-    dlres = pFi->WaitForFinish(1, [&](){ SendChunk("."); } );
+	dlres = pFi->WaitForFinish(1, [&](){ SendChunk("."); return true; } );
     if (dlres.first == fileitem::FIST_COMPLETE && dlres.second.code == 200)
 	{
 		dbgline;

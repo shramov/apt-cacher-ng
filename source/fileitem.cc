@@ -178,13 +178,16 @@ std::pair<fileitem::FiStatus, tRemoteStatus> fileitem::WaitForFinish()
 	return std::pair<fileitem::FiStatus, tRemoteStatus>(m_status, m_responseStatus);
 }
 
-std::pair<fileitem::FiStatus, tRemoteStatus> fileitem::WaitForFinish(unsigned check_interval, const std::function<void()> &check_func)
+std::pair<fileitem::FiStatus, tRemoteStatus> fileitem::WaitForFinish(unsigned check_interval, const std::function<bool()> &cbOnTimeout)
 {
 	lockuniq g(this);
 	while (m_status < FIST_COMPLETE)
 	{
 		if(wait_for(g, check_interval, 1)) // on timeout
-			check_func();
+		{
+			if(cbOnTimeout && !cbOnTimeout())
+				return std::pair<fileitem::FiStatus, tRemoteStatus>(FIST_DLERROR,  {500, "E_TIMEOUT"});
+		}
 	}
 	return std::pair<fileitem::FiStatus, tRemoteStatus>(m_status, m_responseStatus);
 }

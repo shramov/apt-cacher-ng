@@ -87,6 +87,11 @@ struct tDlAgent
 		HEADER, TRAILER, MID
 	} kind;
 
+	tDlAgent()
+	{
+		dler = dlcon::CreateRegular();
+		runner = std::thread([&]() { dler->WorkLoop();} );
+	}
 	~tDlAgent()
 	{
 		if(dler)
@@ -355,10 +360,11 @@ struct tDlDescRemote : public tDlDesc
 {
 protected:
 
-	tFileMeta meta;
+	tFileMeta m_meta;
 	SHARED_PTR<tDlAgent> m_agent;
-	bool gotMeta = false;
-	tHttpUrl uri;
+	bool m_bMetaVerified = false;
+	tHttpUrl m_uri;
+	bool m_bItemWasRead = false, m_bDataChangeError = false;
 
 public:
 	tDlDescRemote(cmstring &p, uint n) : tDlDesc(p,n)
@@ -374,12 +380,12 @@ public:
 				remote_info_cache.erase(it);
 				return;
 			}
-			meta = it->second;
+			m_meta = it->second;
 			return;
 		}
 
-		uri = proxyUrl;
-		uri.sPath += baseUrl.sHost
+		m_uri = proxyUrl;
+		m_uri.sPath += baseUrl.sHost
 		// + ":" + ( baseUrl.sPort.empty() ? baseUrl.sPort : "80")
 				+ baseUrl.sPath + m_path;
 
@@ -387,29 +393,62 @@ public:
 	};
 	int Stat(struct stat *stbuf)
 	{
-		if (!gotMeta)
+		if (!m_bMetaVerified)
 		{
 			// string_view path, off_t knownLength, tHttpDate knownDate, off_t rangeStart, off_t rangeLen
-			auto item = make_shared<tConsumingItem>(m_path, meta.m_size, meta.m_ctime, 0, HEAD_TAIL_LEN);
+			auto item = make_shared<tConsumingItem>(m_path, m_meta.m_size, m_meta.m_ctime, 0, HEAD_TAIL_LEN);
+			pair<fileitem::FiStatus, tRemoteStatus> res;
+
 			item->DlRefCountAdd();
-			if (!m_agent)
-				m_agent = getAgent();
-			m_agent->dler->AddJob(item, tHttpUrl(uri));
+			try
+			{
+				if (!m_agent)
+					m_agent = getAgent();
+				m_agent->dler->AddJob(item, tHttpUrl(m_uri));
+				res = item->WaitForFinish(5, [](){ return false; });
+			}
+			catch (...)
+			{
+				// ignored, only needs to make sure to adjust user count safely
+			}
+			item->DlRefCountDec({500, "N/A"});
+
+			if (res.first != fileitem::FIST_COMPLETE)
+				return -EIO;
+			auto changed = (item->m_responseModDate != m_meta.m_ctime || item->m_nContentLength != m_meta.m_size);
+			if (changed)
+			{
+				m_meta.m_size = item->m_nContentLength;
+				m_meta.m_ctime = item->m_responseModDate;
+				{
+					lockguard g(remote_info_cache);
+					remote_info_cache[m_path] = m_meta;
+				}
+				if (m_bItemWasRead)
+				{
+					m_bDataChangeError = true;
+					return -EIO;
+				}
+			}
+
+			m_bMetaVerified = true;
 		}
 		if(stbuf)
 			*stbuf = statTempl;
-		if (meta.m_size >= 0)
+		if (m_meta.m_size >= 0)
 		{
-			stbuf->st_size = meta.m_size;
+			stbuf->st_size = m_meta.m_size;
 			stbuf->st_mode &= ~S_IFDIR;
 			stbuf->st_mode |= S_IFREG;
-			stbuf->st_ctime = meta.m_ctime.value(1);
+			stbuf->st_ctime = m_meta.m_ctime.value(1);
 			return 0;
 		}
+		return -ENOENT;
 	}
 
 	int Read(char *retbuf, const char *path, off_t pos, size_t len)
 	{
+		return -EIO;
 
 #if 0
 		tHttpUrl uri = proxyUrl;
