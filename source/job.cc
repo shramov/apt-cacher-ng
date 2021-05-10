@@ -908,14 +908,20 @@ job::eJobResult job::SendData(int confd, bool haveMoreJobs)
 		// It's invalid for pt-jobs and it's okay
 		// if (!m_filefd.valid())
 		//	return HandleSuddenError();
-
+		auto limit = nBodySizeSoFar - m_nSendPos;
+		if (m_nReqRangeTo >= 0)
+			limit = min(m_nReqRangeTo + 1 - m_nSendPos, limit);
+		if (limit <= 0)
+			return R_DISCON;
 		ldbg("~senddata: to " << nBodySizeSoFar << ", OLD m_nSendPos: " << m_nSendPos);
-		int n = fi->SendData(confd, m_filefd.get(), m_nSendPos, nBodySizeSoFar - m_nSendPos);
+		int n = fi->SendData(confd, m_filefd.get(), m_nSendPos, limit);
 		ldbg("~senddata: " << n << " new m_nSendPos: " << m_nSendPos);
 		if (n < 0)
 			return return_discon();
 		m_nAllDataCount += n;
 		if (fistate == fileitem::FIST_COMPLETE && m_nSendPos == nBodySizeSoFar)
+			return return_stream_ok();
+		else if (m_nReqRangeTo >= 0 && m_nSendPos >= m_nReqRangeTo + 1)
 			return return_stream_ok();
 		return R_AGAIN;
 	}
@@ -1096,14 +1102,13 @@ inline void job::CookResponseHeader()
 	if (m_nReqRangeFrom >= 0 && ds > m_nReqRangeFrom && contLen > 0)
 	{
 		m_nSendPos = m_nReqRangeFrom;
-
+		auto cl = m_nReqRangeTo < 0 ? contLen - m_nReqRangeFrom : m_nReqRangeTo + 1 - m_nReqRangeFrom;
+		auto last = m_nReqRangeTo > 0 ? m_nReqRangeTo : contLen - 1;
 		PrependHttpVariant() << "206 Partial Content"sv << svRN
 							 << "Content-Type: "sv << fi->m_contentType << svRN
 							 << "Last-Modified: "sv << fi->m_responseModDate.view() << svRN
-							 << "Content-Range: bytes "sv << m_nReqRangeFrom << "-" <<
-								(m_nReqRangeTo > 0 ? m_nReqRangeTo : (contLen - 1))
-							 << "/" << contLen << svRN
-							 << "Content-Length: "sv << (contLen - m_nReqRangeFrom) << svRN
+							 << "Content-Range: bytes "sv << m_nReqRangeFrom << "-" << last << "/" << contLen << svRN
+							 << "Content-Length: "sv << cl << svRN
 							 << src;
 		AppendMetaHeaders();
 		return;
