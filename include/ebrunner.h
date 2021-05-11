@@ -20,7 +20,7 @@ class ACNG_API evabaseFreeFrunner
 {
 	class Impl;
 public:
-	evabaseFreeFrunner(const IDlConFactory &pDlconFac);
+	evabaseFreeFrunner(const IDlConFactory &pDlconFac, bool withDownloader);
 	~evabaseFreeFrunner();
 	dlcon& getDownloader();
 private:

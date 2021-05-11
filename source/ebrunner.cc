@@ -12,31 +12,35 @@ class evabaseFreeFrunner::Impl
 {
 public:
 	SHARED_PTR<dlcon> dl;
-	std::thread thr, evthr;
+	std::thread dlthr, evthr;
 	unique_ptr<evabase> m_eb;
 
-	Impl(const IDlConFactory &pDlconFac)
-		: dl(dlcon::CreateRegular(pDlconFac)),
-		  m_eb(new evabase)
+	Impl(const IDlConFactory &pDlconFac, bool withDownloader)
+		:m_eb(new evabase)
 	{
 		SetupCleaner();
+		if (withDownloader)
+			dl = dlcon::CreateRegular(pDlconFac);
 		evthr = std::thread([&]() { m_eb->MainLoop(); });
-		thr = std::thread([&]() {dl->WorkLoop();});
+		dlthr = std::thread([&]() {dl->WorkLoop();});
 	}
 
 	~Impl()
 	{
 		::acng::cleaner::GetInstance().Stop();
-		dl->SignalStop();
+		if (dl)
+			dl->SignalStop();
 		m_eb->SignalStop();
-		thr.join();
+
+		if (dl)
+			dlthr.join();
 		evthr.join();
 	}
 
 };
-evabaseFreeFrunner::evabaseFreeFrunner(const IDlConFactory &pDlconFac)
+evabaseFreeFrunner::evabaseFreeFrunner(const IDlConFactory &pDlconFac, bool withDownloader)
 {
-	m_pImpl = new Impl(pDlconFac);
+	m_pImpl = new Impl(pDlconFac, withDownloader);
 }
 
 evabaseFreeFrunner::~evabaseFreeFrunner()

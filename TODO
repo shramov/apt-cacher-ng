@@ -10,6 +10,8 @@ ensure the right ordering, at worst a couple of streams for the same host are
 active, at best we get a simultaneous download from all hosts, which would
 mimick apt's own behavior WRT multiple backends.
 
+acngtool curl mode shall print error messages (from error logging) to STDERR
+
 Rewrite some client serving code to run more tasks on the IO thread, like plain
 IO passthrough (CONNECT/WEBSOCKET) parts.
 

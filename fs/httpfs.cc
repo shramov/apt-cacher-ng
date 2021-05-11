@@ -787,8 +787,7 @@ int main(int argc, char *argv[])
 
 	// restore application arguments
 
-#warning this carries a dlcon with a thread, do we need it? only evabase with one controlled thread is required
-	evabaseFreeFrunner eb(g_tcp_con_factory);
+	evabaseFreeFrunner eb(g_tcp_con_factory, false);
 	int mt = 1;
 	/** This is the part of fuse_main() before the event loop */
 	auto fs = fuse_setup(fuseArgs.size(), &fuseArgs[0],

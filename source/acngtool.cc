@@ -66,8 +66,6 @@ bool isUdsAccessible(cmstring& path)
 	return s && S_ISSOCK(s.st_mode) && 0 == access(path.c_str(), W_OK);
 }
 
-#warning todo: print error log to STDERR for curl mode because the code is there. maybe patch the error string too, make it a global static?
-
 struct ACNG_API IFitemFactory
 {
 	virtual SHARED_PTR<fileitem> Create() =0;
@@ -534,7 +532,7 @@ inline bool patchChunk(tPatchSequence& idx, LPCSTR pline, tPatchSequence diffPay
  */
 struct TUdsFactory : public ::acng::IDlConFactory
 {
-	void RecycleIdleConnection(tDlStreamHandle &handle) const override
+	void RecycleIdleConnection(tDlStreamHandle &) const override
 	{
 		// keep going, no recycling/restoring
 	}
@@ -638,7 +636,7 @@ int maint_job()
 		auto fi =CreateReportItem();
 		url.sHost = FAKE_UDS_HOSTNAME;
 		TUdsFactory udsFac;
-        evabaseFreeFrunner eb(udsFac);
+		evabaseFreeFrunner eb(udsFac, true);
         response_ok = DownloadItem(url, eb.getDownloader(), fi);
 		DBGQLOG("UDS result: " << response_ok)
 	}
@@ -655,7 +653,7 @@ int maint_job()
 		for (const auto &tgt : hostips)
 		{
 			url.sHost = tgt;
-			evabaseFreeFrunner eb(g_tcp_con_factory);
+			evabaseFreeFrunner eb(g_tcp_con_factory, true);
             auto fi = CreateReportItem();
             response_ok = DownloadItem(url, eb.getDownloader(), fi);
 			if (response_ok)
@@ -927,7 +925,7 @@ std::unordered_map<string, parm> parms = {
 	,
 		{
 			"cfgdump",
-			{ 0, 0, [](LPCSTR p) {
+			{ 0, 0, [](LPCSTR) {
 				warn_cfgdir();
 						     cfg::dump_config(false);
 					     }
@@ -994,7 +992,7 @@ std::unordered_map<string, parm> parms = {
 		{
 			"maint",
 			{
-				0, 0, [](LPCSTR p)
+				0, 0, [](LPCSTR)
 				{
 					warn_cfgdir();
 					g_exitCode+=maint_job();
@@ -1104,7 +1102,7 @@ int wcat(LPCSTR surl, LPCSTR proxy, IFitemFactory* fac, const IDlConFactory &pDl
 	if(url.bSSL)
 		globalSslInit();
 
-	evabaseFreeFrunner eb(pDlconFac);
+	evabaseFreeFrunner eb(pDlconFac, true);
 
 	auto fi=fac->Create();
 	eb.getDownloader().AddJob(fi, move(url));
