@@ -168,6 +168,13 @@ struct tDlJob
 		}
 	}
 
+	void ResetStreamState()
+	{
+		m_nRest = 0;
+		m_DlState = STATE_GETHEADER;
+		m_nUsedRangeStartPos = -1;
+	}
+
 	inline string RemoteUri(bool bUrlEncoded)
 	{
 		if (m_pCurBackend)
@@ -493,6 +500,7 @@ struct tDlJob
 				if (hDataLen < 0)
 				{
 					sErrorMsg = "Invalid header";
+					LOG(sErrorMsg);
 					// can be followed by any junk... drop that mirror, previous file could also contain bad data
 					return EFLAG_MIRROR_BROKEN | HINT_RECONNECT_NOW
 							| HINT_KILL_LAST_FILE;
@@ -505,7 +513,7 @@ struct tDlJob
 					dbgline;
                     sErrorMsg = "Unexpected response type";
 					// smells fatal...
-					return EFLAG_MIRROR_BROKEN | HINT_RECONNECT_NOW;
+					return EFLAG_MIRROR_BROKEN | EFLAG_LOST_CON | HINT_RECONNECT_NOW;
 				}
 				dbgline;
 
@@ -521,11 +529,12 @@ struct tDlJob
 					ret |= HINT_RECONNECT_SOON;
 				}
 
-				off_t contentLength = atoofft(h.h[header::CONTENT_LENGTH], -1);
-
 				// processing hint 102, or something like 103 which we can ignore
 				if (h.getStatusCode() < 200)
+				{
+					inBuf.drop(size_t(hDataLen));
 					return ret | HINT_MORE;
+				}
 
 				if (cfg::redirmax) // internal redirection might be disabled
 				{
@@ -562,6 +571,8 @@ struct tDlJob
 						}
 					}
 				}
+
+				off_t contentLength = atoofft(h.h[header::CONTENT_LENGTH], -1);
 
                 if (m_fiAttr.bHeadOnly)
 				{
@@ -616,6 +627,9 @@ struct tDlJob
 				auto storeResult = CheckAndSaveHeader(move(h),
 						string_view(inBuf.rptr(), hDataLen), contentLength);
 				inBuf.drop(size_t(hDataLen));
+
+				if (m_pStorage && m_pStorage->m_spattr.bHeadOnly)
+					m_nRest = 0;
 
 				if (storeResult == EResponseEval::RESTART_NEEDED)
 					return ret | EFLAG_LOST_CON | HINT_RECONNECT_NOW; // recoverable
@@ -872,11 +886,6 @@ struct tDlJob
             m_pStorage->DlFinish();
 		}
 		return EResponseEval::GOOD;
-	}
-
-	inline bool IsRecoverableState()
-	{
-		return m_DlState == STATE_GETHEADER;
 	}
 
 private:
@@ -1155,10 +1164,7 @@ inline unsigned CDlConn::ExchangeData(mstring &sErrorMsg,
 			if (inpipe.empty())
 				return HINT_SWITCH;
 
-			if (inpipe.front().IsRecoverableState())
-				return EFLAG_LOST_CON;
-			else
-				return (HINT_RECONNECT_NOW| EFLAG_JOB_BROKEN);
+			return (HINT_RECONNECT_NOW| EFLAG_JOB_BROKEN);
 		}
 
 		if (FD_ISSET(fdWakeRead, &rfds))
@@ -1499,6 +1505,11 @@ void CDlConn::WorkLoop()
 			auto doconnect = [&](const tHttpUrl &tgt, int timeout, bool fresh)
 			{
 				bExpectRemoteClosing = false;
+
+				for(auto& j: active_jobs)
+					j.ResetStreamState();
+				for(auto& j: next_jobs)
+					j.ResetStreamState();
 
 				return m_conFactory.CreateConnected(tgt.sHost,
 						tgt.GetPort(),
