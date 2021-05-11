@@ -1,5 +1,12 @@
 apt-cacher-ng (3.7) AND-SOMETIMES-THE-BEAR-EATS-YOU; urgency=low
 
+  * This is an EXPERIMENTAL version. Certain features and code changes should
+    not be consider mature. This version might make some things better than
+    3.6.x series, and some things worse, including damaging existing caches.
+
+    USE AT YOUR OWN RISK!
+    YOU HAVE BEEN WARNED!
+
   [ BREAKING CHANGES ]
 
   * "just cleanup" parameter -e was removed. This has been troublesome to
@@ -23,6 +30,8 @@ apt-cacher-ng (3.7) AND-SOMETIMES-THE-BEAR-EATS-YOU; urgency=low
     simultaneously
   * Fix potentially incorrect over-insisting file descriptor closing which
     might have impacted libevent descriptors (Debian bugs #954904, #986356)
+  * Fix potentially incorrect error reporting for IPv6/IPv4 switching
+    connection attempts which eventually ended in failure (timeout, rejected)
 
   [ INTERNAL REFACTORING ]
 
@@ -31,13 +40,15 @@ apt-cacher-ng (3.7) AND-SOMETIMES-THE-BEAR-EATS-YOU; urgency=low
 
     a) supposedly using less CPU cycles and fewer critical sections
     b) supposedly using less memory for regular data serving
-    c) almost never truncating files, only appending
+    c) never truncating package files, only appending
     d) more consistent error codes
     e) separate debug logging into apt-cacher.dbg file
     f) precise separation into type classes of the active cache items,
        therefore better efficiency in case of volatile/non-volatile mixup,
        also preparing to support cached requests with protected access and
        individual credentials (Salsa feature requests)
+    g) simplified head file storage for delivery use
+    h) adding dedicated log/err/dbg files for acngfs
 
   [ NEW FEATURES ]
 
@@ -48,16 +59,7 @@ apt-cacher-ng (3.7) AND-SOMETIMES-THE-BEAR-EATS-YOU; urgency=low
     line syntax, although the meanings might be slightly different (CacheDir
     means local fallback folder)
 
-TODO:
-redo acfg namespace (picking next branch) to have builder object
-
-Rebuild docs
-
- -- 
-
-
-
-
+ -- Eduard Bloch <blade@debian.org>  Tue, 11 May 2021 18:17:13 +0200
 
 apt-cacher-ng (3.6.3) SOHMIETNG-T0-REBMEMER; urgency=medium
 
