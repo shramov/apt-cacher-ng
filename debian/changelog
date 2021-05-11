@@ -1,3 +1,103 @@
+apt-cacher-ng (3.6.3-1) unstable; urgency=medium
+
+  * New upstream bugfix version
+    + solves a potential SIBGUS situation when doing maintenance work
+  * Minor metadata updates (Standards version w/o changes, VCS urls)
+
+ -- Eduard Bloch <blade@debian.org>  Tue, 09 Mar 2021 20:44:28 +0100
+
+apt-cacher-ng (3.6.2-1) unstable; urgency=medium
+
+  * New upstream bugfix version
+    + solves another DNS issue where resolv.conf is modified after startup,
+      also report most connect errors correctly (now really closes: #982984)
+    + solves sporadic hanging of acngtool in the daily cron job
+      (closes: #977611)
+
+ -- Eduard Bloch <blade@debian.org>  Wed, 03 Mar 2021 19:20:34 +0100
+
+apt-cacher-ng (3.6.1-1) unstable; urgency=medium
+
+  * New upstream bugfix version
+    + Adding Kali repo mapping (closes: #982441)
+    + Fix inclusion of ftp2.fr.debian.org and similarly named alternative
+      local mirrors into database (closes: #951005)
+    + Solving DNS issues on certain systems introduced with the partial switch
+      to libevent in 3.6 due to a potential bug of libevent (closes: #983394,
+      #982984), also fix the file renaming scheme for stale download introduced
+      there (incorrectly triggered in most cases and not only in rare ones,
+      also implemented inefficiently)
+    + Disable potentially incorrect destruction of cached items (now only
+      notifying user) in case of wrong permissions or strange filesystem
+      behavior, also shift the truncation to zero size on download start to the
+      begin to reduce probability of such issues (Salsa issue #9)
+    + Extends/improves security.debian.org mapping, also considering
+      deb.debian.net (closes: #944114, #932093, #884881)
+  * Dropping alternative Build-Deps on dh-systemd and libsystemd-daemon-dev
+    (transitional and/or obsolete, closes: #958624)
+
+ -- Eduard Bloch <blade@debian.org>  Thu, 25 Feb 2021 22:46:45 +0100
+
+apt-cacher-ng (3.6-1) unstable; urgency=low
+
+  * New upstream release with important bugfixes
+  * Dropped ancient pidof check from the init script (no bug here but there
+    was some complaint on debian-devel a while ago)
+
+ -- Eduard Bloch <blade@debian.org>  Sun, 07 Feb 2021 23:09:13 +0100
+
+apt-cacher-ng (3.5-3) unstable; urgency=low
+
+  * Apply gold disabling flags correctly (now really handles #975137)
+
+ -- Eduard Bloch <blade@debian.org>  Sat, 21 Nov 2020 11:45:52 +0100
+
+apt-cacher-ng (3.5-2) unstable; urgency=medium
+
+  * Disable use of gold linker to avoid linker crash; this has been observed
+    on mipsel before and probably also affects amd64 (closes: #975137)
+
+ -- Eduard Bloch <blade@debian.org>  Fri, 20 Nov 2020 19:15:22 +0100
+
+apt-cacher-ng (3.5-1) unstable; urgency=low
+
+  * New upstream release
+
+ -- Eduard Bloch <blade@debian.org>  Mon, 20 Apr 2020 23:35:50 +0200
+
+apt-cacher-ng (3.4-1) unstable; urgency=low
+
+  * New upstream release
+    + potentially closes: #952811
+  * Added timeouts to postinst steps which access network
+
+ -- Eduard Bloch <blade@debian.org>  Sun, 05 Apr 2020 18:27:07 +0200
+
+apt-cacher-ng (3.3.1-2) unstable; urgency=high
+
+  * Fixes FTBFS on mipsel/mips64el
+  * Fixes missing last-minute changes in actual upstream version 3.3.1
+
+ -- Eduard Bloch <blade@debian.org>  Sun, 19 Jan 2020 21:24:09 +0100
+
+apt-cacher-ng (3.3.1-1) unstable; urgency=medium
+
+  * Bugfix upstream release update
+    + (CVE-2020-5202) Enforce secured call to the server in maint job triggering
+    + Allow .zst compression for tarballs (closes: Bug#948259, thanks
+      to Arnaud Rebillout)
+    + Added branch information to Vcs-Git control line (closes: #913594)
+    + Hint about not set (by debconf) CacheDir variable in zz_debconf.conf
+      (closes: #929031)
+
+ -- Eduard Bloch <blade@debian.org>  Wed, 08 Jan 2020 21:01:26 +0100
+
+apt-cacher-ng (3.3-2) unstable; urgency=low
+
+  * Upload to Sid
+
+ -- Eduard Bloch <blade@debian.org>  Thu, 14 Nov 2019 13:56:58 +0100
+
 apt-cacher-ng (3.3-1) experimental; urgency=low
 
   * New upstream version v3.3
