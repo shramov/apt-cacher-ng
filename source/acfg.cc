@@ -102,7 +102,7 @@ MapNameToString n2sTbl[] = {
 		,{  "VfilePatternEx",          &vfilepatEx}
 		,{  "PfilePatternEx",          &pfilepatEx}
 		,{  "WfilePatternEx",          &wfilepatEx}
-		,{  "SPfilePatternEx",         &spfilepatEx}
+		,{  "SPfilePattern",           &spfilepatEx}
 //		,{  "AdminAuth",               &adminauth}
 		,{  "BindAddress",             &bindaddr}
 		,{  "UserAgent",               &agentname}
