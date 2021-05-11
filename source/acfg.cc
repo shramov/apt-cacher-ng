@@ -1121,7 +1121,8 @@ void PostProcConfig()
 	
    if(cachedir.empty() || cachedir[0] != CPATHSEP)
    {
-	   cerr << "Warning: Cache directory unknown or not absolute, running in degraded mode!" << endl;
+	   if (!g_bQuiet)
+		   cerr << "Warning: Cache directory unknown or not absolute, running in degraded mode!" << endl;
 	   degraded=true;
    }
    if(!rex::CompileExpressions())

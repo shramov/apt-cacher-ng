@@ -162,6 +162,7 @@ struct tDlJob
 		LOGSTART("tDlJob::~tDlJob");
 		if (m_pStorage)
 		{
+			dbgline;
             m_pStorage->DlRefCountDec({503, sErrorMsg.empty() ?
                     "Download Expired" : move(sErrorMsg)});
 		}
@@ -294,7 +295,7 @@ struct tDlJob
 	// needs connectedHost, blacklist, output buffer from the parent, proxy mode?
 	inline void AppendRequest(tSS &head, const tHttpUrl *proxy)
 	{
-		LOGSTART("tDlJob::AppendRequest");
+		LOGSTARTFUNC;
 
 #define CRLF "\r\n"
 

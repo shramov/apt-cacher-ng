@@ -39,6 +39,7 @@ void fileitem::DlRefCountAdd()
 void fileitem::DlRefCountDec(const tRemoteStatus& reason)
 {
 	setLockGuard;
+	LOGSTARTFUNC
 	notifyAll();
 
 	m_nDlRefsCount--;
@@ -559,9 +560,18 @@ void fileitem::DlSetError(const tRemoteStatus& errState, fileitem::EDestroyMode 
 {
 	ASSERT_HAVE_LOCK
 	notifyAll();
+	/*
+	 * Maybe needs to fuse them, OTOH hard to tell which is the more severe or more meaningful
+	 *
+	if (m_responseStatus.code < 300)
+		m_responseStatus.code = errState.code;
+	if (m_responseStatus.msg.empty() || m_responseStatus.msg == "OK")
+		m_responseStatus.msg = errState.msg;
+		*
+		*/
 	m_responseStatus = errState;
 	m_status = FIST_DLERROR;
-	DBGQLOG("Declared FIST_DLERROR: " << errState.msg);
+	DBGQLOG("Declared FIST_DLERROR: " << m_responseStatus.code << " " << m_responseStatus.msg);
 	if (kmode < m_eDestroy)
 		m_eDestroy = kmode;
 }

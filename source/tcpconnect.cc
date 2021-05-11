@@ -151,12 +151,12 @@ std::string tcpconnect::_Connect(int timeout)
 	auto time_start(GetTime());
 
 	enum ePhase {
-		NO_ALTERNATIVES,
-		NOT_YET,
-		PICK_ADDR,
-		ADDR_PICKED,
-		SELECT_CONN, // shall do select on connection
-		HANDLE_ERROR, // transient error state, to be continued into some recovery or ERROR_STOP; expects a useful errno value!
+		NO_ALTERNATIVES = 0,
+		NOT_YET = 1,
+		PICK_ADDR = 2,
+		ADDR_PICKED = 3,
+		SELECT_CONN = 4, // shall do select on connection
+		HANDLE_ERROR = 5, // transient error state, to be continued into some recovery or ERROR_STOP; expects a useful errno value!
 		ERROR_STOP // basically a non-recoverable error state
 	};
 	struct tConData {
@@ -216,7 +216,7 @@ std::string tcpconnect::_Connect(int timeout)
 	tConData alt {NO_ALTERNATIVES, -1, time_start + cfg::fasttimeout, nullptr };
 	CTimeVal tv;
 	// pickup the first and/or probably the best errno code which can be reported to user
-	int error_prim = 0;
+	int error2report = 0;
 
 	auto retGood = [&](int &fd)
 	{
@@ -254,7 +254,7 @@ std::string tcpconnect::_Connect(int timeout)
 	dbgline;
 	for(auto op_max=0; op_max < 30000; ++op_max) // fail-safe switch, in case of any mistake here
 	{
-		LOG("state a: " << prim.state << ", state b: " << alt.state );
+		LOG("prestate a: " << prim.state << ", state b: " << alt.state );
 		switch(prim.state)
 		{
 		case PICK_ADDR:
@@ -265,13 +265,13 @@ std::string tcpconnect::_Connect(int timeout)
 		case ADDR_PICKED:
 			if(prim.init_con(time_start + cfg::nettimeout))
 				return retGood(prim.fd);
-			OPTSET(error_prim, errno);
+			OPTSET(error2report, errno);
 			__just_fall_through;
 		case SELECT_CONN:
 		{
 			if(GetTime() >= prim.tmexp)
 			{
-				OPTSET(error_prim, ELVIS(errno, ETIMEDOUT));
+				OPTSET(error2report, ELVIS(errno, ETIMEDOUT));
 				++(prim.dns->ai_family == PF_INET ? timeouts_v4 : timeouts_v6);
 				prim.state = HANDLE_ERROR;
 				continue;
@@ -281,13 +281,13 @@ std::string tcpconnect::_Connect(int timeout)
 		case HANDLE_ERROR:
 		{
 			// error on primary, what now? prefer the first seen error code or remember errno
-			OPTSET(error_prim, ELVIS(errno, EINVAL));
+			OPTSET(error2report, ELVIS(errno, EINVAL));
 			// can work around?
 			switch(alt.state)
 			{
 			case NO_ALTERNATIVES:
 			case ERROR_STOP:
-				return withThisErrno(error_prim);
+				return withThisErrno(error2report);
 			case NOT_YET:
 				prim.state = ERROR_STOP;
 				// push it sooner
@@ -306,7 +306,7 @@ std::string tcpconnect::_Connect(int timeout)
 		default: // this should be unreachable
             return "Internal error at " STRINGIFY(__LINE__);
 		}
-
+		LOG("midstate a: " << prim.state << ", state b: " << alt.state );
 		switch(alt.state)
 		{
 		case NO_ALTERNATIVES:
@@ -366,9 +366,9 @@ std::string tcpconnect::_Connect(int timeout)
 			break;
 		}
 		default: // this should be unreachable
-            return "Internal error at " STRINGIFY(__LINE__);
+			return "Internal error at " STRINGIFY(__LINE__);
 		}
-
+		LOG("poststate a: " << prim.state << ", state b: " << alt.state );
 		select_set_t selset;
 		auto time_inter = prim.tmexp;
 		if(prim.state == SELECT_CONN)
@@ -393,6 +393,7 @@ std::string tcpconnect::_Connect(int timeout)
 		{
 			for(auto p: {&alt, &prim})
 			{
+				LOG("check " << (uintptr_t)p);
 				// Socket selected for writing.
 				int err;
 				socklen_t optlen = sizeof(err);
@@ -401,8 +402,9 @@ std::string tcpconnect::_Connect(int timeout)
 				{
 					if(err)
 					{
-						OPTSET(error_prim, err);
-						prim.state = HANDLE_ERROR;
+						OPTSET(error2report, err);
+						LOG("switch to HANDLE_ERROR")
+						p->state = HANDLE_ERROR;
 					}
 					else
 						return retGood(p->fd);
@@ -417,7 +419,7 @@ std::string tcpconnect::_Connect(int timeout)
 		}
 
 	}
-	return withThisErrno(ELVIS(error_prim, EINVAL));
+	return withThisErrno(ELVIS(error2report, EINVAL));
 }
 
 void tcpconnect::Disconnect()
