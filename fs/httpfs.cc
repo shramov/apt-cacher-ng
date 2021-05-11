@@ -50,7 +50,13 @@
 #include <thread>
 
 #define MAX_DL_STREAMS 8
-#define MAX_DL_BUF_SIZE 1024*1024
+//#define MAX_DL_BUF_SIZE 1024*1024
+
+// local chunk size
+const size_t CBLOCK_SIZE = 1 << 20;
+
+//#warning set 2m
+#define META_CACHE_EXP_TIME 120
 
 using namespace acng;
 using namespace std;
@@ -131,7 +137,7 @@ SHARED_PTR<tDlAgent> getAgent()
 #endif
 	if (!spare_agents.empty())
 	{
-		auto ret = spare_agents.back();
+		auto ret = move(spare_agents.back());
 		spare_agents.pop_back();
 		return ret;
 	}
@@ -142,6 +148,7 @@ void returnAgent(SHARED_PTR<tDlAgent> && agent)
 {
 	mg g(mx_streams);
 	spare_agents.push_back(move(agent));
+	agent.reset();
 }
 
 class tConsumingItem : public fileitem
@@ -156,13 +163,22 @@ public:
 		m_status = FIST_INITED;
 		m_nSizeCachedInitial = knownLength;
 		m_responseModDate = knownDate;
-		m_spattr.nRangeLimit = rangeStart + rangeLen - 1;
-		m_spattr.bVolatile = true;
+		if (rangeLen < 0)
+			m_spattr.bHeadOnly = true;
+		else
+			m_spattr.nRangeLimit = rangeStart + rangeLen - 1;
+		m_spattr.bVolatile = true; // our client must check timestamp
 		buf = evbuffer_new();
+		usercount = 1;
 	}
 	~tConsumingItem()
 	{
-		evbuffer_free(buf);
+		if (buf)
+			evbuffer_free(buf);
+	}
+	void markUnused()
+	{
+		usercount = 0;
 	}
 
 protected:
@@ -171,7 +187,7 @@ protected:
 		m_status = FIST_DLRECEIVING;
 		if (m_nSizeChecked < 0)
 			m_nSizeChecked = 0;
-		if (evbuffer_get_length(buf) >= MAX_DL_BUF_SIZE)
+		if (evbuffer_get_length(buf) >= CBLOCK_SIZE)
 			return true;
 		if (m_nSizeChecked < pos)
 		{
@@ -186,7 +202,7 @@ protected:
 			data.remove_prefix(drop);
 			m_nSizeChecked += drop;
 		}
-		auto avail = MAX_DL_BUF_SIZE - evbuffer_get_length(buf);
+		auto avail = CBLOCK_SIZE - evbuffer_get_length(buf);
 		auto toTake = min(avail, data.length());
 		if (0 != evbuffer_add(buf, data.data(), toTake))
 			return false;
@@ -354,11 +370,13 @@ struct tDlDescLocal : public tDlDesc
 };
 
 using unique_evbuf = auto_raii<evbuffer*,evbuffer_free,nullptr>;
-#define META_CACHE_EXP_TIME 120
+
 struct tFileMeta
 {
-	off_t m_size = -1; tHttpDate m_ctime; time_t validAt = GetTime();
+	off_t m_size = -1; tHttpDate m_ctime; time_t validAt = 0;
+#ifdef USE_HT_CACHE
 	SHARED_PTR<unique_evbuf> head, tail;
+#endif
 	tFileMeta() =default;
 	tFileMeta(off_t a, mstring b) : m_size(a), m_ctime(b) {};
 	bool operator!=(tFileMeta other) const { return m_size != other.m_size || m_ctime != other.m_ctime;}
@@ -366,19 +384,22 @@ struct tFileMeta
 static class tRemoteInfoCache : public base_with_mutex, public map<string, tFileMeta>
 {} remote_info_cache;
 
+// all members must be trivially-copyable
 struct tDlDescRemote : public tDlDesc
 {
 protected:
-
 	tFileMeta m_meta;
 	SHARED_PTR<tDlAgent> m_agent;
-	bool m_bMetaVerified = false;
 	tHttpUrl m_uri;
 	bool m_bItemWasRead = false, m_bDataChangeError = false;
 
 public:
 	tDlDescRemote(cmstring &p, uint n) : tDlDesc(p,n)
 	{
+
+		m_uri = baseUrl;
+		m_uri.sPath += m_path;
+
 		// good moment to expire the caches, every time, should not cost much anyway
 		g_tcp_con_factory.BackgroundCleanup();
 		lockguard g(remote_info_cache);
@@ -393,42 +414,61 @@ public:
 			m_meta = it->second;
 			return;
 		}
-
-		m_uri = baseUrl;
-		m_uri.sPath += m_path;
-
-		// Stat(nullptr);
 	};
 	int Stat(struct stat *stbuf)
 	{
-		if (!m_bMetaVerified)
+		if (stbuf)
+			*stbuf = statTempl;
+		auto now(GetTime());
+		if (now >= m_meta.validAt + META_CACHE_EXP_TIME)
 		{
 			// string_view path, off_t knownLength, tHttpDate knownDate, off_t rangeStart, off_t rangeLen
-			auto item = make_shared<tConsumingItem>(m_path, m_meta.m_size, m_meta.m_ctime, 0, HEAD_TAIL_LEN);
+			auto item = make_shared<tConsumingItem>(m_path, m_meta.m_size, m_meta.m_ctime, 0,
+										#ifdef USE_HT_CACHE
+										#warning this needs a special handler for the condition "not satisfiable range" where it retries without limit
+													HEAD_TAIL_LEN
+										#else
+													-1 // head-only
+										#endif
+													);
 			pair<fileitem::FiStatus, tRemoteStatus> res;
 
-			item->DlRefCountAdd();
 			try
 			{
 				if (!m_agent)
 					m_agent = getAgent();
 				m_agent->dler->AddJob(item, tHttpUrl(m_uri));
 				res = item->WaitForFinish(5, [](){ return false; });
+				item->markUnused();
+				returnAgent(move(m_agent));
 			}
 			catch (...)
 			{
-				// ignored, only needs to make sure to adjust user count safely
+				item->markUnused();
 			}
-			item->DlRefCountDec({500, "N/A"});
+
 
 			if (res.first != fileitem::FIST_COMPLETE)
+			{
+				USRDBG(res.second.msg);
 				return -EIO;
+			}
 			auto changed = (item->m_responseModDate != m_meta.m_ctime || item->m_nContentLength != m_meta.m_size);
 			if (changed)
 			{
+				// reap all (meta) data that we might need
+#ifdef USE_HT_CACHE
+				m_meta.tail.reset();
+				auto stolenBuf = item->buf;
+				item->buf = 0;
+				m_meta.head = make_shared<unique_evbuf>(stolenBuf);
+#endif
 				m_meta.m_size = item->m_nContentLength;
 				m_meta.m_ctime = item->m_responseModDate;
+				m_meta.validAt = now;
+
 				{
+					// donate back to cache
 					lockguard g(remote_info_cache);
 					remote_info_cache[m_path] = m_meta;
 				}
@@ -438,26 +478,78 @@ public:
 					return -EIO;
 				}
 			}
-
-			m_bMetaVerified = true;
 		}
 		if(stbuf)
-			*stbuf = statTempl;
-		if (m_meta.m_size >= 0)
 		{
-			stbuf->st_size = m_meta.m_size;
-			stbuf->st_mode &= ~S_IFDIR;
-			stbuf->st_mode |= S_IFREG;
-			stbuf->st_ctime = m_meta.m_ctime.value(1);
-			return 0;
+			if (m_meta.m_size >= 0)
+			{
+				stbuf->st_size = m_meta.m_size;
+				stbuf->st_mode &= ~S_IFDIR;
+				stbuf->st_mode |= S_IFREG;
+				stbuf->st_ctime = m_meta.m_ctime.value(1);
+				return 0;
+			}
 		}
-		return -ENOENT;
+		return 0;
 	}
+
+	unique_evbuf m_data;
+	ssize_t m_dataPos = -1;
+	size_t m_dataLen = 0;
 
 	int Read(char *retbuf, const char *path, off_t pos, size_t len)
 	{
-		return -EIO;
+		(void) path;
+		if (Stat(nullptr))
+			return -EBADF;
 
+#if USE_HT_CACHE
+		if (pos + len <= HEAD_TAIL_LEN && m_meta.head && m_meta.head.get()->valid())
+		{
+
+		}
+#endif
+		auto blockStartPos = CBLOCK_SIZE * (pos / CBLOCK_SIZE);
+		auto posInBlock = pos % CBLOCK_SIZE;
+
+		if (off_t(m_dataPos) != off_t(blockStartPos))
+		{
+			m_dataPos = -1;
+			m_dataLen = 0;
+			m_data.reset();
+
+			// ok, need to fetch it
+			// string_view path, off_t knownLength, tHttpDate knownDate, off_t rangeStart, off_t rangeLen
+			size_t toGet = min(CBLOCK_SIZE, m_meta.m_size - blockStartPos);
+			auto item = make_shared<tConsumingItem>(m_path, m_meta.m_size, m_meta.m_ctime, blockStartPos, toGet);
+			pair<fileitem::FiStatus, tRemoteStatus> res;
+			try
+			{
+				if (!m_agent)
+					m_agent = getAgent();
+				m_agent->dler->AddJob(item, tHttpUrl(m_uri));
+				res = item->WaitForFinish(5, [](){ return false; });
+				item->markUnused();
+				returnAgent(move(m_agent));
+			}
+			catch (...)
+			{
+				item->markUnused();
+			}
+			if (res.first != fileitem::FIST_COMPLETE)
+				return -EIO;
+			std::swap(m_data.m_p, item->buf);
+			if (!m_data.valid() || toGet != evbuffer_get_length(m_data.m_p))
+				return -EIO;
+			m_dataLen = toGet;
+			m_dataPos = blockStartPos;
+		}
+		auto retCount = min(len, m_dataLen - posInBlock);
+		evbuffer_ptr ep;
+		if (0 != evbuffer_ptr_set(m_data.m_p, &ep, posInBlock, EVBUFFER_PTR_SET))
+			return -EIO;
+		auto ret = evbuffer_copyout_from(m_data.m_p, &ep, retbuf, retCount);
+		return ret == -1 ? -EIO : ret;
 #if 0
 		tHttpUrl uri = proxyUrl;
 		uri.sPath += baseUrl.sHost
@@ -845,12 +937,12 @@ int main(int argc, char *argv[])
 	cfg::requestapx = "User-Agent: ACNGFS\r\nX-Original-Source: 42\r\n";
 	cfg::cachedir.clear();
 	cfg::cacheDirSlash.clear();
-#ifdef DEBUG
-	cfg::debug=0xff;
-	cfg::verboselog=1;
-	log::g_szLogPrefix = "acngfs";
-	log::open();
-#endif
+
+	for(int i = 0; i < argc; ++i)
+	{
+		if (0==strcmp(argv[i], "--help") || 0==strcmp(argv[i], "-h") )
+			_ExitUsage();
+	}
 
 	if(argc<3)
 		barf("Not enough arguments, try --help.\n");
@@ -866,7 +958,10 @@ int main(int argc, char *argv[])
 		if (0==strcmp(*p, "--help"))
 			_ExitUsage();
 		else if (!cfg::SetOption(*p, nullptr))
+		{
+#warning maybe add a legacy fallback and rewrite to proxy=host:port if input looks like host:port
 			fuseArgs.push_back(*p);
+		}
 	}
 
 	if(argv[1] && baseUrl.SetHttpUrl(argv[1]))
@@ -891,6 +986,12 @@ int main(int argc, char *argv[])
 	}
 
 	cfg::PostProcConfig();
+#ifdef DEBUG
+	cfg::debug=0xff;
+	cfg::verboselog=1;
+	log::g_szLogPrefix = "acngfs";
+	log::open();
+#endif
 
 	// all parameters processed, forwarded to fuse call below
 

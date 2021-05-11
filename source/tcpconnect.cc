@@ -287,6 +287,7 @@ std::string tcpconnect::_Connect(int timeout)
 			{
 			case NO_ALTERNATIVES:
 			case ERROR_STOP:
+				LOG("Out of alternatives, reporting error " << error2report);
 				return withThisErrno(error2report);
 			case NOT_YET:
 				prim.state = ERROR_STOP;

@@ -80,7 +80,7 @@ private:
 struct ACNG_API tRemoteStatus
 {
 	int code = 500;
-    std::string msg;
+	std::string msg;
 
 	bool isRedirect() const
 	{

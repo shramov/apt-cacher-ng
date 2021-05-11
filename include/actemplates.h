@@ -42,6 +42,12 @@ struct auto_raii
 		other.m_p = inval_default;
 		return *this;
 	}
+	void reset()
+	{
+		if (valid())
+			TFreeFunc(m_p);
+		m_p = inval_default;
+	}
 	bool valid() const { return inval_default != m_p;}
 };
 
