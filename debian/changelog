@@ -1,3 +1,9 @@
+apt-cacher-ng (3.7-1) experimental; urgency=low
+
+  * New EXPERIMENTAL upstream release
+
+ -- 
+
 apt-cacher-ng (3.6.3-1) unstable; urgency=medium
 
   * New upstream bugfix version
