@@ -54,10 +54,10 @@ done
 #GETSUM=$TMP/dump $exe
 
 # test expiration
-mkdir -p $TMP/srv
-touch $TMP/srv/foo.deb
-$exe foreground=0 logdir=$TMP CacheDir:$TMP port:$PORT pidfile=$TMP/x.pid ExTreshold:0 -e
-! test -e $TMP/srv/foo.deb
+#mkdir -p $TMP/srv
+#touch $TMP/srv/foo.deb
+#$exe foreground=0 logdir=$TMP CacheDir:$TMP port:$PORT pidfile=$TMP/x.pid ExTreshold:0 -e
+#! test -e $TMP/srv/foo.deb
 
 $tool cfgdump > $TMP/vars
 $tool printvar useragent | grep Apt-Cacher-NG

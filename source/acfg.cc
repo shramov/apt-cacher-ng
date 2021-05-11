@@ -1412,7 +1412,7 @@ int CheckAdminAuth(LPCSTR auth)
 
 static bool proxy_failstate = false;
 acmutex proxy_fail_lock;
-const tHttpUrl* GetProxyInfo()
+ACNG_API const tHttpUrl* GetProxyInfo()
 {
 	if(proxy_info.sHost.empty())
 		return nullptr;

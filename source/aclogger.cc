@@ -31,7 +31,7 @@ ofstream fErr, fStat, fDbg;
 static acmutex mx;
 
 #ifndef DEBUG
-bool logIsEnabled = false;
+ACNG_API bool logIsEnabled = false;
 #else
 ACNG_API bool logIsEnabled = true;
 #endif

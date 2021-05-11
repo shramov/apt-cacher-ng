@@ -35,8 +35,8 @@ apt-cacher-ng (3.7) AND-SOMETIMES-THE-BEAR-EATS-YOU; urgency=low
 
   [ INTERNAL REFACTORING ]
 
-  * Overhauling download, delivery and cache management code, probably biggest
-    change since 2014:
+  * Overhauling many core components, especially download, delivery and cache
+    management code; probably the heaviest change since 2014:
 
     a) supposedly using less CPU cycles and fewer critical sections
     b) supposedly using less memory for regular data serving
@@ -47,8 +47,12 @@ apt-cacher-ng (3.7) AND-SOMETIMES-THE-BEAR-EATS-YOU; urgency=low
        therefore better efficiency in case of volatile/non-volatile mixup,
        also preparing to support cached requests with protected access and
        individual credentials (Salsa feature requests)
-    g) simplified head file storage for delivery use
+    g) simplified head file storage for delivery task
     h) adding dedicated log/err/dbg files for acngfs
+
+  * New switches to disable optional components: ENABLE_TOOLS, ENABLE_TESTS
+  * Direct linking to libfuse for acngfs is mandatory now, the dlopen path was
+    removed since libfuse2 is in wide use nowadays anyway
 
   [ NEW FEATURES ]
 
