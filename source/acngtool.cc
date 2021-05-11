@@ -149,94 +149,96 @@ struct verbprint
 
 /**
  * Create a special processor which looks for error markers in the download stream and
- * reports the result only then.
+ * reports the result afterwards.
  */
-SHARED_PTR<fileitem> CreateReportItem()
+
+class tRepItem: public fileitem
 {
-	class tRepItem: public fileitem
+	tSS lineBuf;
+	string m_key = maark;
+	tStrDeq m_warningCollector;
+
+public:
+
+	tRepItem() : fileitem("<STREAM>")
 	{
-		acbuf lineBuf;
-		string m_key = maark;
-		tStrDeq m_warningCollector;
+		m_nSizeChecked = m_nSizeCachedInitial = 0;
+		lineBuf.setsize(1 << 16);
+		memset(lineBuf.wptr(), 0, 1 << 16);
+	}
+	virtual FiStatus Setup() override
+	{
+		return m_status = FIST_INITED;
+	}
+	virtual unique_fd GetFileFd() override
+	{
+		return unique_fd();
+	}
+	ssize_t SendData(int, int, off_t&, size_t) override
+	{
+		return 0;
+	}
 
-	public:
-		tRepItem() : fileitem("<STREAM>")
+	void Analyze()
+	{
+		/*
+		 *
+<span class="ERROR">Found errors during processing, aborting as requested.</span>
+<!--
+41d_a6aeb8-26dfa2Errors found, aborting expiration...
+-->
+<br><b>End of log output. Please reload to run again.</b>
+*/
+#warning Still proper tests for this protocol needed!
+		tSplitWalk lineSplit(lineBuf.view(), "\n");
+		for(string_view svLine: lineSplit)
 		{
-			m_nSizeChecked = m_nSizeCachedInitial = 0;
-			lineBuf.setsize(1 << 16);
-			memset(lineBuf.wptr(), 0, 1 << 16);
-		}
-		;
-        virtual FiStatus Setup() override
-		{
-			return m_status = FIST_INITED;
-		}
-		virtual unique_fd GetFileFd() override
-		{
-			return unique_fd();
-		}
-		ssize_t SendData(int, int, off_t&, size_t) override
-		{
-			return 0;
-		}
-
-	protected:
-		void DlFinish() override
-		{
-			m_status = FIST_COMPLETE;
-			vprint.fin();
-		}
-		bool DlAddData(acng::string_view chunk, lockuniq&) override
-		{
-			auto consumed = std::min(size_t(chunk.size()), size_t(lineBuf.freecapa()));
-			memcpy(lineBuf.wptr(), chunk.data(), consumed);
-			lineBuf.got(consumed);
-			for (;;)
+			vprint.dot();
+			trimFront(svLine);
+			if (startsWith(svLine, m_key))
 			{
-#warning add test for protocol
-				LPCSTR p = lineBuf.rptr();
-				string_view svLine(p, lineBuf.size());
-				auto nEnd = svLine.find_first_of(svRN);
-				if (nEnd == stmiss)
+				// that's for us... "<key><type> content\n"
+				svLine.remove_prefix(m_key.size());
+				auto val = svtol(svLine);
+				if (val < 0)
 					break;
-				svLine.remove_prefix(nEnd + 1);
-				vprint.dot();
-				trimFront(svLine);
-				if (startsWith(svLine, m_key))
+				switch (ControLineType(val))
 				{
-					// that's for us... "<key><type> content\n"
-					svLine.remove_prefix(m_key.size());
-					auto val = svtol(svLine);
-					if (val < 0)
-						break;
-					switch (ControLineType(val))
+				case ControLineType::BeforeError:
+					m_warningCollector.emplace_back(svLine);
+					vprint.msg(m_warningCollector.back());
+					break;
+				case ControLineType::Error:
+				{
+					if (!g_bVerbose) // printed before
 					{
-					case ControLineType::BeforeError:
-						m_warningCollector.emplace_back(svLine);
-						vprint.msg(m_warningCollector.back());
-						break;
-					case ControLineType::Error:
-					{
-						if (!g_bVerbose) // printed before
-						{
-							for (auto l : m_warningCollector)
-								cerr << l << endl;
-						}
-						cerr << svLine << endl;
-						m_warningCollector.clear();
-						vprint.fin();
-						break;
+						for (auto l : m_warningCollector)
+							cerr << l << endl;
 					}
-					default:
-						continue;
-					}
+					cerr << svLine << endl;
+					m_warningCollector.clear();
+					vprint.fin();
+					break;
+				}
+				default:
+					continue;
 				}
 			}
-			return true;
 		}
-	};
-	return make_shared<tRepItem>();
-}
+	}
+
+protected:
+	void DlFinish() override
+	{
+		m_status = FIST_COMPLETE;
+		vprint.fin();
+	}
+	bool DlAddData(acng::string_view chunk, lockuniq&) override
+	{
+		lineBuf << chunk;
+		return true;
+	}
+};
 
 bool DownloadItem(tHttpUrl url, dlcon &dlConnector, const SHARED_PTR<fileitem> &fi)
 {
@@ -616,7 +618,7 @@ int maint_job()
 		else if(have_uds && !uds_ok)
 		{
 			cerr << "This operation transmits credentials but the socket (" << cfg::udspath
-					<< ") is currently not accessible!" << endl;
+				 << ") is currently not accessible!" << endl;
 			return EXIT_FAILURE;
 		}
 		else if(!have_uds)
@@ -633,18 +635,19 @@ int maint_job()
 	if(have_uds && uds_ok)
 	{
 		DBGQLOG("Trying UDS path")
-		auto fi =CreateReportItem();
+				auto fi = make_shared<tRepItem>();
 		url.sHost = FAKE_UDS_HOSTNAME;
 		TUdsFactory udsFac;
 		evabaseFreeFrunner eb(udsFac, true);
-        response_ok = DownloadItem(url, eb.getDownloader(), fi);
+		response_ok = DownloadItem(url, eb.getDownloader(), fi);
+		fi->Analyze();
 		DBGQLOG("UDS result: " << response_ok)
 	}
 	if(!response_ok && try_tcp)
 	{
 		DBGQLOG("Trying TCP path")
-		// never use a proxy here (insecure?), those are most likely local IPs
-		cfg::SetOption("Proxy=", nullptr);
+				// never use a proxy here (insecure?), those are most likely local IPs
+				cfg::SetOption("Proxy=", nullptr);
 		cfg::nettimeout = 30;
 		vector<string> hostips;
 		Tokenize(cfg::bindaddr, SPACECHARS, hostips, false);
@@ -654,8 +657,9 @@ int maint_job()
 		{
 			url.sHost = tgt;
 			evabaseFreeFrunner eb(g_tcp_con_factory, true);
-            auto fi = CreateReportItem();
-            response_ok = DownloadItem(url, eb.getDownloader(), fi);
+			auto fi = make_shared<tRepItem>();
+			response_ok = DownloadItem(url, eb.getDownloader(), fi);
+			fi->Analyze();
 			if (response_ok)
 				break;
 		}
