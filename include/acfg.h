@@ -5,52 +5,55 @@
 #include "config.h"
 #include "meta.h"
 #include <bitset>
-#include <atomic>
 
-static const int RESERVED_DEFVAL = -4223;
 #define NUM_PBKDF2_ITERATIONS 1
 // 1757961
 #define ACNG_DEF_PORT "3142"
 
-#define ACFG_REDIRMAX_DEFAULT 5
-
-struct ltstring {
-	bool operator()(const mstring &s1, const mstring &s2) const {
-		return strcasecmp(s1.c_str(), s2.c_str()) < 0;
-	}
-};
-
-typedef std::map<mstring, mstring, ltstring> NoCaseStringMap;
-
-namespace acfg
+namespace acng
 {
 
-extern mstring cachedir, logdir, confdir, fifopath, user, group, pidfile, suppdir,
-reportpage, vfilepat, pfilepat, wfilepat, agentname, adminauth, bindaddr, port, sUmask,
+namespace cfg
+{
+static const int RESERVED_DEFVAL = -4223;
+
+static const int REDIRMAX_DEFAULT = 5;
+
+extern mstring cachedir, logdir, confdir, udspath, user, group, pidfile, suppdir,
+reportpage, vfilepat, pfilepat, wfilepat, agentname, adminauth, adminauthB64,
+bindaddr, port, sUmask,
 tmpDontcacheReq, tmpDontcachetgt, tmpDontcache, mirrorsrcs, requestapx,
-cafile, capath, spfilepat, badredmime;
+cafile, capath, spfilepat, svfilepat, badredmime, sigbuscmd, connectPermPattern;
 
-extern mstring pfilepatEx, vfilepatEx, wfilepatEx, spfilepatEx; // for customization by user
+extern mstring pfilepatEx, vfilepatEx, wfilepatEx, spfilepatEx, svfilepatEx; // for customization by user
 
-extern int debug, numcores, offlinemode, foreground, verbose, stupidfs, forcemanaged, keepnver,
+extern ACNG_API mstring dnsresconf;
+
+extern ACNG_API int debug, numcores, offlinemode, foreground, verbose, stupidfs, forcemanaged, keepnver,
 verboselog, extreshhold, exfailabort, tpstandbymax, tpthreadmax, dnscachetime, dlbufsize, usewrap,
 exporigin, logxff, oldupdate, recompbz2, nettimeout, updinterval, forwardsoap, dirperms, fileperms,
 maxtempdelay, redirmax, vrangeops, stucksecs, persistoutgoing, pipelinelen, exsupcount,
-optproxytimeout, patrace, maxdlspeed, maxredlsize;
+optproxytimeout, patrace, maxdlspeed, maxredlsize, dlretriesmax, nsafriendly, trackfileuse, exstarttradeoff,
+fasttimeout, discotimeout, allocspace, dnsopts, minilog;
 
 // processed config settings
-extern tHttpUrl proxy_info;
+extern const tHttpUrl* GetProxyInfo();
+extern void MarkProxyFailure();
 extern mstring agentheader;
 
 extern int conprotos[2];
 
-extern std::atomic_bool degraded;
+extern bool ccNoStore, ccNoCache;
 
-bool SetOption(const mstring &line, bool bQuiet=false, NoCaseStringMap *pDupeChecker=NULL);
-void ReadConfigDirectory(const char*, bool bTestMode);
+bool ACNG_API SetOption(const mstring &line, NoCaseStringMap *pDupeChecker);
+void ACNG_API dump_config(bool includingDelicateValues=false);
+void ACNG_API ReadConfigDirectory(const char*, bool bReadErrorIsFatal=true);
 
 //! Prepare various things resulting from variable combinations, etc.
-void PostProcConfig(bool bDumpConfig);
+void ACNG_API PostProcConfig();
+
+bool DegradedMode();
+void DegradedMode(bool newValue);
 
 struct tRepoData
 {
@@ -58,8 +61,8 @@ struct tRepoData
 
 	// dirty little helper to execute custom actions when a jobs associates or forgets this data set
 	struct IHookHandler {
-		virtual void JobRelease()=0;
-		virtual void JobConnect()=0;
+		virtual void OnAccess()=0;
+		virtual void OnRelease()=0;
 		virtual ~IHookHandler() {
 		}
 	} *m_pHooks = nullptr;
@@ -81,7 +84,7 @@ struct tRepoResolvResult {
  *
  * @return: true IFF a repository was found and the by-reference arguments are set
  */
-void GetRepNameAndPathResidual(const tHttpUrl & uri, tRepoResolvResult &result);
+tRepoResolvResult GetRepNameAndPathResidual(const tHttpUrl & uri);
 
 const tRepoData * GetRepoData(cmstring &vname);
 
@@ -95,13 +98,19 @@ extern std::bitset<TCP_PORT_MAX> *pUserPorts;
 extern mstring cacheDirSlash; // guaranteed to have a trailing path separator
 
 void dump_trace();
-int * GetIntPtr(LPCSTR key);
-mstring * GetStringPtr(LPCSTR key);
+ACNG_API int * GetIntPtr(LPCSTR key);
+ACNG_API mstring * GetStringPtr(LPCSTR key);
 
 int CheckAdminAuth(LPCSTR auth);
-} // namespace acfg
 
-namespace rechecks
+extern bool g_bQuiet, g_bNoComplex;
+
+static const cmstring privStoreRelSnapSufix("_xstore/rsnap");
+static const cmstring privStoreRelQstatsSfx("_xstore/qstats");
+
+} // namespace cfg
+
+namespace rex
 {
 
 enum NOCACHE_PATTYPE : bool
@@ -110,12 +119,13 @@ enum NOCACHE_PATTYPE : bool
 	NOCACHE_TGT
 };
 
-enum eMatchType
+enum eMatchType : int8_t
 {
-	FILE_INVALID = -1,
+	FILE_INVALID = -1, // WARNING: this is forward-declared elsewhere!
 	FILE_SOLID = 0, FILE_VOLATILE, FILE_WHITELIST,
 	NASTY_PATH, PASSTHROUGH,
 	FILE_SPECIAL_SOLID,
+	FILE_SPECIAL_VOLATILE,
 	ematchtype_max
 };
 bool Match(cmstring &in, eMatchType type);
@@ -125,12 +135,27 @@ bool MatchUncacheable(const mstring &, NOCACHE_PATTYPE);
 bool CompileUncExpressions(NOCACHE_PATTYPE type, cmstring& pat);
 bool CompileExpressions();
 }
+LPCSTR ACNG_API ReTest(LPCSTR s);
 
-#define CACHE_BASE (acfg::cacheDirSlash)
+#define CACHE_BASE (acng::cfg::cacheDirSlash)
 #define CACHE_BASE_LEN (CACHE_BASE.length()) // where the relative paths begin
 #define SZABSPATH(x) (CACHE_BASE+(x)).c_str()
 #define SABSPATH(x) (CACHE_BASE+(x))
 
+#define SABSPATHEX(x, y) (CACHE_BASE+(x) + (y))
+#define SZABSPATHEX(x, y) (CACHE_BASE+(x) + (y)).c_str()
+
 bool AppendPasswordHash(mstring &stringWithSalt, LPCSTR plainPass, size_t passLen);
+
+// XXX: find a better place for this, shared between server and acngtool
+enum ControLineType : uint8_t
+{
+	NotForUs = 0,
+	BeforeError = 1,
+	Error = 2
+};
+#define maark "41d_a6aeb8-26dfa" // random enough to not match anything existing *g*
+
+}
 
 #endif

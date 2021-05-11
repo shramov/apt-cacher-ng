@@ -4,11 +4,9 @@
 // Description : Simple FUSE-based filesystem for HTTP access (apt-cacher NG)
 //============================================================================
 
+#define FUSE_USE_VERSION 26
 
-#define LOCAL_DEBUG
 #include "debug.h"
-
-#include "acsyscap.h"
 
 #include "meta.h"
 #include "header.h"
@@ -19,12 +17,12 @@
 #include "lockable.h"
 #include "cleaner.h"
 #include "tcpconnect.h"
-
+#include "ebrunner.h"
 #include "fileitem.h"
+#include "fileio.h"
 #include "dlcon.h"
+#include "acregistry.h"
 
-#include <sys/types.h>
-#include <sys/stat.h>
 #ifdef HAVE_SYS_MOUNT_H
 #include <sys/param.h>
 #include <sys/mount.h>
@@ -33,34 +31,46 @@
 #include <sys/vfs.h>
 #endif
 
-#include <unistd.h>
-#include <inttypes.h>
-#include <stdint.h>
-#include <pthread.h>
-#include <errno.h>
-#include <signal.h>
-
-#include <cstdio>
-#include <algorithm>
-#include <iostream>
-#include <list>
-
-
-#define FUSE_USE_VERSION 25
 #include <fuse.h>
 
 #ifdef HAVE_DLOPEN
 #include <dlfcn.h>
 #endif
 
+#include <list>
+#include <unordered_map>
+
+#include <event2/buffer.h>
+
 #define HEADSZ 5000
 #ifndef MIN
 #define MIN(a,b) ( (a<=b)?a:b)
 #endif
 
+#include <thread>
+
+#define MAX_DL_STREAMS 8
+//#define MAX_DL_BUF_SIZE 1024*1024
+
+// local chunk size
+const size_t CBLOCK_SIZE = 1 << 20;
+
+//#warning set 2m
+#define META_CACHE_EXP_TIME 120
+
+using namespace acng;
 using namespace std;
 
-const string sEmptyString;
+
+namespace acng
+{
+namespace log
+{
+	extern mstring g_szLogPrefix;
+}
+}
+
+//#define SPAM
 
 #ifdef SPAM
 #define _cerr(x) cerr << x
@@ -69,17 +79,222 @@ const string sEmptyString;
 #define _cerr(x)
 #endif
 
-#define POOLMAXSIZE 20 // max size
-#define POOLMAXAGE 50 // seconds
+#if !defined(BUFSIZ) || BUFSIZ > 8192
+#define BUFSIZ 8192
+#endif
+
+#define HEAD_TAIL_LEN BUFSIZ
 
 // some globals, set only once
 static struct stat statTempl;
 static struct statfs stfsTemp;
-static tHttpUrl baseUrl, proxyUrl;
-static mstring altPath;
+tHttpUrl baseUrl;
+cmstring& altPath = cfg::cachedir;
+
 bool g_bGoodServer=true;
 
-cmstring sDefPortHTTP("3142"), sDefPortHTTPS("80");
+struct tDlAgent
+{
+	thread runner;
+	SHARED_PTR<dlcon> dler;
+	time_t createdAt = GetTime();
+	enum eKind
+	{
+		HEADER, TRAILER, MID
+	} kind;
+
+	tDlAgent()
+	{
+		dler = dlcon::CreateRegular();
+		runner = std::thread([&]() { dler->WorkLoop();} );
+	}
+	~tDlAgent()
+	{
+		if(dler)
+			dler->SignalStop();
+
+		if(runner.joinable())
+			runner.join();
+	}
+
+};
+
+//std::unordered_multimap<string, SHARED_PTR<tDlStream>> active_agents;
+std::list<SHARED_PTR<tDlAgent>> spare_agents;
+std::mutex mx_streams;
+using mg = lock_guard<std::mutex>;
+
+SHARED_PTR<tDlAgent> getAgent()
+{
+	mg g(mx_streams);
+#if 0 // nay, will be reconnected, cheaper than restarting the thread
+	// dump those who were proably disconnected anyway
+	auto exTime = GetTime() - 15;
+	spare_agents.remove_if([exTime](decltype (spare_agents)::iterator it)
+	{
+		return (**it).createdAt < exTime;
+	});
+#endif
+	if (!spare_agents.empty())
+	{
+		auto ret = move(spare_agents.back());
+		spare_agents.pop_back();
+		return ret;
+	}
+	return make_shared<tDlAgent>();
+}
+
+void returnAgent(SHARED_PTR<tDlAgent> && agent)
+{
+	mg g(mx_streams);
+	spare_agents.push_back(move(agent));
+	agent.reset();
+}
+
+class tConsumingItem : public fileitem
+{
+public:
+	evbuffer* buf;
+	off_t pos;
+
+	tConsumingItem(string_view path, off_t knownLength, tHttpDate knownDate, off_t rangeStart, off_t rangeLen)
+		: fileitem(path),  pos(rangeStart)
+	{
+		m_status = FIST_INITED;
+		m_nSizeCachedInitial = knownLength;
+		m_responseModDate = knownDate;
+		if (rangeLen < 0)
+			m_spattr.bHeadOnly = true;
+		else
+			m_spattr.nRangeLimit = rangeStart + rangeLen - 1;
+		m_spattr.bVolatile = true; // our client must check timestamp
+		buf = evbuffer_new();
+		usercount = 1;
+	}
+	~tConsumingItem()
+	{
+		if (buf)
+			evbuffer_free(buf);
+	}
+	void markUnused()
+	{
+		usercount = 0;
+	}
+
+protected:
+	bool DlAddData(string_view data, lockuniq &) override
+	{
+		m_status = FIST_DLRECEIVING;
+		if (m_nSizeChecked < 0)
+			m_nSizeChecked = 0;
+		if (evbuffer_get_length(buf) >= CBLOCK_SIZE)
+			return true;
+		if (m_nSizeChecked < pos)
+		{
+			if (m_nSizeChecked + off_t(data.size()) < off_t(pos))
+			{
+				// no overlap, not reachable
+				m_nSizeChecked += data.size();
+				return true;
+			}
+			// reached, partial or full overlap
+			auto drop = pos - m_nSizeChecked;
+			data.remove_prefix(drop);
+			m_nSizeChecked += drop;
+		}
+		auto avail = CBLOCK_SIZE - evbuffer_get_length(buf);
+		auto toTake = min(avail, data.length());
+		if (0 != evbuffer_add(buf, data.data(), toTake))
+			return false;
+		data.remove_prefix(toTake);
+		// false to abort if too much data already
+		return data.empty();
+	}
+};
+
+#if 0
+	int fetchHot(char *retbuf, const char *, off_t pos, off_t len)
+	{
+		if (pos < bufStart)
+			return -ECONNABORTED;
+		auto inBuf = buf.size();
+		// focus on the start and drop useless data
+		if (pos >= bufStart + inBuf)
+		{
+			// outside current range?
+			bufStart += inBuf;
+			buf.clear();
+		}
+		else if (pos > bufStart && pos < bufStart + inBuf)
+		{
+			// part or whole chunk is available
+			auto drop = pos - bufStart;
+			buf.drop(drop);
+			bufStart += drop;
+		}
+		if ( m_status != FIST_DLRECEIVING && pos+len > bufStart + off_t(buf.size()))
+		{
+			return -ECONNABORTED;
+		}
+		return -ECONNABORTED;
+	}
+
+
+
+/** @brief Deliver some agent from the pool which MAY have the data in the pipe which we need.
+	 */
+SHARED_PTR<tDlStream> getAgent(LPCSTR path, off_t pos)
+{
+	mg g(mx_streams);
+	// if posisble, get one which fits
+	auto its = active_agents.equal_range(path);
+	auto spare_agent = active_agents.end();
+
+	if (its.first != active_agents.end())
+	{
+		for (auto it = its.first; it != its.second; ++it)
+		{
+			auto fi = static_pointer_cast<tConsumingItem>(it->second->hodler.get());
+			if (!fi)
+				continue;
+			if ( pos >= fi->bufStart)
+			{
+				SHARED_PTR<tDlStream> ret = move(it->second);
+				active_agents.erase(it);
+				return ret;
+			}
+			// can we recycle idle resources if we have to create a new one?
+
+			// those are finalized so we can use them and they are most likely to still have a hot connection (FILO, not FIFO, XXX: check efficiency)
+			if (it->second->kind != tDlStream::MID)
+			{
+				spare_agent = it;
+			}
+			// XXX: if not donor found in this range, check others too? Might cause pointless reconnects
+		}
+	}
+	auto ret = make_shared<tDlStream>();
+	if (spare_agent != active_agents.end())
+	{
+		ret->dler.swap(spare_agent->second->dler);
+		ret->runner.swap(spare_agent->second->runner);
+	}
+	else
+	{
+		ret->dler = dlcon::CreateRegular();
+		ret->runner = std::thread([&]() {ret->dler->WorkLoop();});
+	}
+	return ret;
+}
+
+void returnAgent(LPCSTR path, SHARED_PTR<tDlStream> && agent)
+{
+	mg g(mx_streams);
+	if (active_agents.size() > MAX_DL_STREAMS)
+		active_agents.erase(active_agents.begin()); // can purge anyone, should be random enough
+	active_agents.insert(make_pair(path, move(agent)));
+}
+#endif
 
 struct tDlDesc
 {
@@ -87,7 +302,7 @@ struct tDlDesc
 	uint m_ftype;
 
 	virtual int Read(char *retbuf, const char *path, off_t pos, size_t len) =0;
-	virtual int Stat(struct stat &stbuf) =0;
+	virtual int Stat(struct stat *stbuf) =0;
 	tDlDesc(cmstring &p, uint ftype) : m_path(p), m_ftype(ftype) {};
 	virtual ~tDlDesc() {};
 };
@@ -95,22 +310,25 @@ struct tDlDesc
 struct tDlDescLocal : public tDlDesc
 {
 	FILE *pFile;
-	tDlDescLocal(cmstring &path, uint ftype) : tDlDesc(path, ftype), pFile(NULL)
+	tDlDescLocal(cmstring &path, uint ftype) : tDlDesc(path, ftype), pFile(nullptr)
 	{
 	};
 
-	int Stat(struct stat &stbuf)
+	int Stat(struct stat *stbuf) override
 	{
+		if (!stbuf)
+			return -EIO;
+
 		if(altPath.empty()) // hm?
 			return -ENOENT;
 
-		if (::stat((altPath + m_path).c_str(), &stbuf))
+		auto absPath = altPath + m_path;
+		if (::stat(absPath.c_str(), stbuf))
 			return -errno;
 
 		// verify the file state
-		header h;
-		int r = h.LoadFromFile(altPath + m_path + ".head");
-		if (r <= 0 || stbuf.st_size != atoofft(h.h[header::CONTENT_LENGTH], -23))
+		off_t cl = -2;
+		if (!ParseHeadFromStorage(absPath, &cl, nullptr, nullptr) || cl != stbuf->st_size)
 			return -EIO;
 
 		return 0;
@@ -120,15 +338,15 @@ struct tDlDescLocal : public tDlDesc
 	{
 		if(pFile)
 			fclose(pFile);
-		pFile=NULL;
+		pFile=nullptr;
 	};
 
-	int Read(char *retbuf, const char *path, off_t pos, size_t len)
+	int Read(char *retbuf, const char *, off_t pos, size_t len) override
 	{
 		if (!pFile)
 		{
 			struct stat stbuf;
-			if(Stat(stbuf))
+			if(Stat(&stbuf))
 				return -EIO; // file incomplete or missing
 
 			FILE *pf = fopen((altPath + m_path).c_str(), "rb");
@@ -151,56 +369,212 @@ struct tDlDescLocal : public tDlDesc
 	}
 };
 
-struct tFileId
-{ off_t m_size; mstring m_ctime;
-tFileId() : m_size(0) {};
-tFileId(off_t a, mstring b) : m_size(a), m_ctime(b) {};
-bool operator!=(tFileId other) const { return m_size != other.m_size || m_ctime != other.m_ctime;}
+using unique_evbuf = auto_raii<evbuffer*,evbuffer_free,nullptr>;
+
+struct tFileMeta
+{
+	off_t m_size = -1; tHttpDate m_ctime; time_t validAt = 0;
+#ifdef USE_HT_CACHE
+	SHARED_PTR<unique_evbuf> head, tail;
+#endif
+	tFileMeta() =default;
+	tFileMeta(off_t a, mstring b) : m_size(a), m_ctime(b) {};
+	bool operator!=(tFileMeta other) const { return m_size != other.m_size || m_ctime != other.m_ctime;}
 };
-static class : public lockable, public map<string, tFileId>
+static class tRemoteInfoCache : public base_with_mutex, public map<string, tFileMeta>
 {} remote_info_cache;
 
+// all members must be trivially-copyable
 struct tDlDescRemote : public tDlDesc
 {
 protected:
-
-	tFileId fid;
-	bool bIsFirst; // hint to catch the validation data when download starts
+	tFileMeta m_meta;
+	SHARED_PTR<tDlAgent> m_agent;
+	tHttpUrl m_uri;
+	bool m_bItemWasRead = false, m_bDataChangeError = false;
 
 public:
-	tDlDescRemote(cmstring &p, uint n) : tDlDesc(p,n), bIsFirst(true)
+	tDlDescRemote(cmstring &p, uint n) : tDlDesc(p,n)
 	{
-		// expire the caches every time, should not cost much anyway
-		tcpconnect::BackgroundCleanup();
-		CAddrInfo::BackgroundCleanup();
+
+		m_uri = baseUrl;
+		m_uri.sPath += m_path;
+
+		// good moment to expire the caches, every time, should not cost much anyway
+		g_tcp_con_factory.BackgroundCleanup();
+		lockguard g(remote_info_cache);
+		auto it = remote_info_cache.find(m_path);
+		if (it != remote_info_cache.end())
+		{
+			if (GetTime() > it->second.validAt + META_CACHE_EXP_TIME)
+			{
+				remote_info_cache.erase(it);
+				return;
+			}
+			m_meta = it->second;
+			return;
+		}
 	};
+	int Stat(struct stat *stbuf)
+	{
+		if (stbuf)
+			*stbuf = statTempl;
+		auto now(GetTime());
+		if (now >= m_meta.validAt + META_CACHE_EXP_TIME)
+		{
+			// string_view path, off_t knownLength, tHttpDate knownDate, off_t rangeStart, off_t rangeLen
+			auto item = make_shared<tConsumingItem>(m_path, m_meta.m_size, m_meta.m_ctime, 0,
+										#ifdef USE_HT_CACHE
+										#warning this needs a special handler for the condition "not satisfiable range" where it retries without limit
+													HEAD_TAIL_LEN
+										#else
+													-1 // head-only
+										#endif
+													);
+			pair<fileitem::FiStatus, tRemoteStatus> res;
+
+			try
+			{
+				if (!m_agent)
+					m_agent = getAgent();
+				m_agent->dler->AddJob(item, tHttpUrl(m_uri));
+				res = item->WaitForFinish(5, [](){ return false; });
+				item->markUnused();
+				returnAgent(move(m_agent));
+			}
+			catch (...)
+			{
+				item->markUnused();
+			}
+
+
+			if (res.first != fileitem::FIST_COMPLETE)
+			{
+				USRDBG(res.second.msg);
+				return -EIO;
+			}
+			auto changed = (item->m_responseModDate != m_meta.m_ctime || item->m_nContentLength != m_meta.m_size);
+			if (changed)
+			{
+				// reap all (meta) data that we might need
+#ifdef USE_HT_CACHE
+				m_meta.tail.reset();
+				auto stolenBuf = item->buf;
+				item->buf = 0;
+				m_meta.head = make_shared<unique_evbuf>(stolenBuf);
+#endif
+				m_meta.m_size = item->m_nContentLength;
+				m_meta.m_ctime = item->m_responseModDate;
+				m_meta.validAt = now;
+
+				{
+					// donate back to cache
+					lockguard g(remote_info_cache);
+					remote_info_cache[m_path] = m_meta;
+				}
+				if (m_bItemWasRead)
+				{
+					m_bDataChangeError = true;
+					return -EIO;
+				}
+			}
+		}
+		if(stbuf)
+		{
+			if (m_meta.m_size >= 0)
+			{
+				stbuf->st_size = m_meta.m_size;
+				stbuf->st_mode &= ~S_IFDIR;
+				stbuf->st_mode |= S_IFREG;
+				stbuf->st_ctime = m_meta.m_ctime.value(1);
+				return 0;
+			}
+		}
+		return 0;
+	}
+
+	unique_evbuf m_data;
+	ssize_t m_dataPos = -1;
+	size_t m_dataLen = 0;
 
 	int Read(char *retbuf, const char *path, off_t pos, size_t len)
 	{
-		dlcon dler(true, 0);
+		(void) path;
+		if (Stat(nullptr))
+			return -EBADF;
+
+#if USE_HT_CACHE
+		if (pos + len <= HEAD_TAIL_LEN && m_meta.head && m_meta.head.get()->valid())
+		{
+
+		}
+#endif
+		auto blockStartPos = CBLOCK_SIZE * (pos / CBLOCK_SIZE);
+		auto posInBlock = pos % CBLOCK_SIZE;
+
+		if (off_t(m_dataPos) != off_t(blockStartPos))
+		{
+			m_dataPos = -1;
+			m_dataLen = 0;
+			m_data.reset();
+
+			// ok, need to fetch it
+			// string_view path, off_t knownLength, tHttpDate knownDate, off_t rangeStart, off_t rangeLen
+			size_t toGet = min(CBLOCK_SIZE, m_meta.m_size - blockStartPos);
+			auto item = make_shared<tConsumingItem>(m_path, m_meta.m_size, m_meta.m_ctime, blockStartPos, toGet);
+			pair<fileitem::FiStatus, tRemoteStatus> res;
+			try
+			{
+				if (!m_agent)
+					m_agent = getAgent();
+				m_agent->dler->AddJob(item, tHttpUrl(m_uri));
+				res = item->WaitForFinish(5, [](){ return false; });
+				item->markUnused();
+				returnAgent(move(m_agent));
+			}
+			catch (...)
+			{
+				item->markUnused();
+			}
+			if (res.first != fileitem::FIST_COMPLETE)
+				return -EIO;
+			std::swap(m_data.m_p, item->buf);
+			if (!m_data.valid() || toGet != evbuffer_get_length(m_data.m_p))
+				return -EIO;
+			m_dataLen = toGet;
+			m_dataPos = blockStartPos;
+		}
+		auto retCount = min(len, m_dataLen - posInBlock);
+		evbuffer_ptr ep;
+		if (0 != evbuffer_ptr_set(m_data.m_p, &ep, posInBlock, EVBUFFER_PTR_SET))
+			return -EIO;
+		auto ret = evbuffer_copyout_from(m_data.m_p, &ep, retbuf, retCount);
+		return ret == -1 ? -EIO : ret;
+#if 0
 		tHttpUrl uri = proxyUrl;
 		uri.sPath += baseUrl.sHost
 		// + ":" + ( baseUrl.sPort.empty() ? baseUrl.sPort : "80")
 				+ baseUrl.sPath + m_path;
+
 		class tFitem: public fileitem
 		{
 		public:
 			char *pRet;
 			size_t nRest, nGot;
-			off_t skipBytes;
+			off_t skipBytes, m_nRangeLimit;
 			int nErr;
 
-			ssize_t SendData(int, int, off_t&, size_t)
+#define SETERROR { nErr=__LINE__; return false;}
+			bool &m_isFirst;
+
+			ssize_t SendData(int, int, off_t&, size_t) override
 			{
 				return 0;
 			} // nothing to send
-			bool StoreFileData(const char *p, unsigned int count)
+			bool DlAddData(string_view chunk) override
 			{
-				if (count == 0)
-				{
-					m_status=FIST_COMPLETE;
-					return true;
-				}
+				auto count = chunk.size();
+				auto p = chunk.data();
 
 				if(skipBytes>0)
 				{
@@ -226,9 +600,14 @@ public:
 				nRest-=count;
 				return true;
 			}
-#define SETERROR { nErr=__LINE__; return false;}
-			bool &m_isFirst;
-			bool DownloadStartedStoreHeader(const header &head, const char*, bool bRestarted, bool&)
+
+			void DlFinish(bool asInCache = false) override
+			{
+				notifyAll();
+				m_status=FIST_COMPLETE;
+			};
+
+			virtual bool DlStarted(header head, string_view, off_t) override
 			{
 				_cerr(head.frontLine<<endl);
 				m_head = head; // XXX: bloat, only status line and contlen required
@@ -236,10 +615,7 @@ public:
 
 				if(st == 416)
 					return true; // EOF
-
-				if(bRestarted) // throw the head away, the data should be ok
-					return true; // XXX, add more checks?
-
+#warning that all needs to be overhauled, old evil copy-paste code
 				if(st != 200 && st != 206)
 				{
 					SETERROR;
@@ -262,7 +638,7 @@ public:
 					if(n<=0)
 						n=sscanf(p, "bytes=" OFF_T_FMT "-" OFF_T_FMT "/" OFF_T_FMT, &myfrom, &myto, &mylen);
 					if(n!=3  // check for nonsense
-							|| (m_nSizeSeen>0 && myfrom != m_nSizeSeen-1)
+							|| (m_nSizeCachedInitial>0 && myfrom != m_nSizeCachedInitial-1)
 							|| (m_nRangeLimit>=0 && myto > m_nRangeLimit) // too much data?
 							|| myfrom<0 || mylen<0
 					)
@@ -288,11 +664,11 @@ public:
 			}
 			tFileId &fid;
 			tFitem(char *p, size_t size, off_t start, tFileId &fi, bool &isfirst)
-			: pRet(p), nRest(size),
+			: fileitem("FIXME"), pRet(p), nRest(size),
 					nGot(0), skipBytes(start), nErr(0), m_isFirst(isfirst), fid(fi)
 			{
-				m_bCheckFreshness = false;
-				m_nSizeSeen = start;
+				//m_bVolatile = false;
+				m_nSizeCachedInitial = start;
 				m_nRangeLimit = g_bGoodServer ? start+size-1 : -1;
 			}
 		};
@@ -305,16 +681,15 @@ public:
 		}
 		tFileId fidOrig=fid;
 
-		tFitem *pFi = new tFitem(retbuf, len, pos, fid, bIsFirst);
+		auto* pFi = new tFitem(retbuf, len, pos, fid, bIsFirst);
 		tFileItemPtr spFi(static_cast<fileitem*>(pFi));
-		dler.AddJob(spFi, &uri);
-		dler.WorkLoop();
+		//dler->AddJob(spFi, dlrequest().setSrc(uri).setRangeLimit(pFi->m_nRangeLimit));
 		int nHttpCode(100);
-		pFi->WaitForFinish(&nHttpCode);
+		//pFi->WaitForFinish(&nHttpCode);
 		bIsFirst=false;
 
 
-		if (m_ftype == rechecks::FILE_SOLID && fidOrig != fid)
+		if (m_ftype == rex::FILE_SOLID && fidOrig != fid)
 		{
 			lockguard g(remote_info_cache);
 			remote_info_cache[m_path] = fid;
@@ -325,10 +700,13 @@ public:
 		if(pFi->nErr || !pFi->nGot)
 			return -EIO;
 		return pFi->nGot;
+#endif
 	}
 
-	int Stat(struct stat &stbuf)
+	int StatOld(struct stat &stbuf)
 	{
+#warning RESTOREME
+#if 0
 		stbuf = statTempl;
 		{
 			lockguard g(remote_info_cache);
@@ -339,15 +717,13 @@ public:
 				stbuf.st_mode &= ~S_IFDIR;
 				stbuf.st_mode |= S_IFREG;
 				struct tm tmx;
-				if(header::ParseDate(it->second.m_ctime.c_str(), &tmx))
+				if(tHttpDate::ParseDate(it->second.m_ctime.c_str(), &tmx))
 					stbuf.st_ctime = mktime(&tmx);
 				_cerr("Using precached\n");
 				return 0;
 			}
 		}
 		// ok, not cached, do the hard way
-
-		dlcon dler(true, 0);
 
 		tHttpUrl uri = proxyUrl;
 		uri.sPath += baseUrl.sHost
@@ -356,32 +732,19 @@ public:
 		class tFitemProbe: public fileitem
 		{
 		public:
-			ssize_t SendData(int, int, off_t&, size_t)
+			ssize_t SendData(int, int, off_t&, size_t) override
 			{
 				return 0;
-			} // nothing to send
-			bool StoreFileData(const char*, unsigned int) override
-			{
-				return false;
 			}
-			tFitemProbe()
-			{
-				m_bHeadOnly = true;
-			}
-			bool DownloadStartedStoreHeader(const header &head, const char*,
-					bool bRestart, bool&) override
-			{
-				if(bRestart)
-					return true;
-
+		protected:
+			bool DlStarted(header head, string_view rawHeader, off_t) override {
 				m_head = head; // XXX: bloat, only status line and contlen required
 				m_status = FIST_COMPLETE;
 				return true;
 			}
 		};
-		tFileItemPtr probe(static_cast<fileitem*>(new tFitemProbe()));
-		dler.AddJob(probe, &uri);
-		dler.WorkLoop();
+		auto probe(make_shared<tFitemProbe>());
+		dler->AddJob(probe, dlrequest().setSrc(uri).setHeadOnly(true));
 		int nHttpCode(100);
 		fileitem::FiStatus res = probe->WaitForFinish(&nHttpCode);
 		stbuf.st_size = atoofft(probe->GetHeaderUnlocked().h[header::CONTENT_LENGTH], 0);
@@ -392,7 +755,7 @@ public:
 			return -EIO;
 		else if (nHttpCode == 200)
 		{
-			if (m_ftype == rechecks::FILE_SOLID) // not caching volatile stuff
+			if (m_ftype == rex::FILE_SOLID) // not caching volatile stuff
 			{
 				lockguard g(remote_info_cache);
 				remote_info_cache[m_path] =
@@ -403,6 +766,7 @@ public:
 				stbuf.st_ctime = mktime(&tmx);
 			return 0;
 		}
+#endif
 		return -ENOENT;
 	}
 };
@@ -415,13 +779,13 @@ static int acngfs_getattr(const char *path, struct stat *stbuf)
 	if(!path)
 		return -1;
 
-	rechecks::eMatchType type = rechecks::GetFiletype(path);
+	rex::eMatchType type = rex::GetFiletype(path);
 	_cerr( "type: " << type);
-	if (type == rechecks::FILE_SOLID || type == rechecks::FILE_VOLATILE)
+	if (type == rex::FILE_SOLID || type == rex::FILE_VOLATILE)
 	{
-		if(0 == tDlDescLocal(path, type).Stat(*stbuf))
+		if(0 == tDlDescLocal(path, type).Stat(stbuf))
 			return 0;
-		if(0 == tDlDescRemote(path, type).Stat(*stbuf))
+		if(0 == tDlDescRemote(path, type).Stat(stbuf))
 			return 0;
 	}
 
@@ -434,103 +798,34 @@ static int acngfs_getattr(const char *path, struct stat *stbuf)
 }
 
 static int acngfs_fgetattr(const char *path, struct stat *stbuf,
-      struct fuse_file_info *fi)
+	  struct fuse_file_info *)
 {
 	// FIXME: reuse the con later? or better not, size might change during operation
 	return acngfs_getattr(path, stbuf);
 }
 
-static int acngfs_access(const char *path, int mask)
+static int acngfs_access(const char *, int mask)
 {
 	// non-zero (failure) when trying to write
    return mask&W_OK;
 }
 
-static int acngfs_readlink(const char *path, char *buf, size_t size)
-{
-   return -EINVAL;
-}
-
-static int acngfs_opendir(const char *path, struct fuse_file_info *fi)
+static int acngfs_opendir(const char *, struct fuse_file_info *)
 {
 	// let FUSE manage directories
 	return 0;
 }
 
-static int acngfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
-      off_t offset, struct fuse_file_info *fi)
+static int acngfs_readdir(const char *, void *, fuse_fill_dir_t,
+	  off_t, struct fuse_file_info *)
 {   
 	return -EPERM;
 }
 
-static int acngfs_releasedir(const char *path, struct fuse_file_info *fi)
+static int acngfs_releasedir(const char *, struct fuse_file_info *)
 {
-
    return 0;
 }
-
-static int acngfs_mknod(const char *path, mode_t mode, dev_t rdev)
-{
-	return -EROFS;
-}
-
-static int acngfs_mkdir(const char *path, mode_t mode)
-{
-   return -EROFS;
-}
-
-static int acngfs_unlink(const char *path)
-{
-   return -EROFS;
-}
-
-static int acngfs_rmdir(const char *path)
-{
-   return -EROFS;
-}
-
-static int acngfs_symlink(const char *from, const char *to)
-{
-  return -EROFS;
-}
-
-static int acngfs_rename(const char *from, const char *to)
-{
-  return -EROFS;
-}
-
-static int acngfs_link(const char *from, const char *to)
-{
-	return -EROFS;
-}
-
-static int acngfs_chmod(const char *path, mode_t mode)
-{
-   return -EROFS;
-}
-
-static int acngfs_chown(const char *path, uid_t uid, gid_t gid)
-{
-return -EROFS;
-}
-
-static int acngfs_truncate(const char *path, off_t size)
-{
-   return -EROFS;
-}
-
-static int acngfs_ftruncate(const char *path, off_t size,
-      struct fuse_file_info *fi)
-{
-return -EROFS;
-}
-
-static int acngfs_utime(const char *path, struct utimbuf *buf)
-{
- return -EROFS;
-}
-
-//lockable mxTest;
 
 static int acngfs_open(const char *path, struct fuse_file_info *fi)
 {
@@ -541,34 +836,36 @@ static int acngfs_open(const char *path, struct fuse_file_info *fi)
 
 	tDlDesc *p(nullptr);
 	struct stat stbuf;
-	rechecks::eMatchType ftype = rechecks::GetFiletype(path);
+	rex::eMatchType ftype = rex::GetFiletype(path);
 
-	MYTRY
+	try
 	{
 		// ok... if that is a remote object, can we still use local access instead?
-		if(!altPath.empty() && rechecks::FILE_SOLID == ftype)
+		if(!altPath.empty() && rex::FILE_SOLID == ftype)
 		{
 				p = new tDlDescLocal(path, ftype);
 				if(p)
 				{
-					if(0==p->Stat(stbuf))
+					if(0 == p->Stat(&stbuf))
 						goto desc_opened;
 					delete p;
-					p=NULL;
+					p = nullptr;
 				}
 		}
 
 
-		p=new tDlDescRemote(path, ftype);
-		if(!p) // running exception-free? 
+		p = new tDlDescRemote(path, ftype);
+
+		if (!p) // running exception-free?
 			return -EIO;
-		if(0!=p->Stat(stbuf))
+
+		if (0 != p->Stat(&stbuf))
 		{
 			delete p;
 			return -EIO;
 		}
 	}
-	MYCATCH(std::bad_alloc&)
+	catch(std::bad_alloc&)
 	{
 		return -EIO;
 	}
@@ -587,203 +884,138 @@ static int acngfs_read(const char *path, char *buf, size_t size, off_t offset,
 	return p->Read(buf, path, offset, size);
 }
 
-static int acngfs_write(const char *path, const char *buf, size_t size,
-      off_t offset, struct fuse_file_info *fi)
-{
-	return -EBADF;
-}
-
-static int acngfs_statfs(const char *path, struct statvfs *stbuf)
+static int acngfs_statfs(const char *, struct statvfs *stbuf)
 {
    memcpy(stbuf, &stfsTemp, sizeof(*stbuf));
 	return 0;
 }
 
-static int acngfs_release(const char *path, struct fuse_file_info *fi)
+static int acngfs_release(const char *, struct fuse_file_info *fi)
 {
 	if(fi->fh)
 		delete (tDlDesc*)fi->fh;
 	return 0;
 }
 
-static int acngfs_fsync(const char *path, int isdatasync,
-      struct fuse_file_info *fi)
+struct fuse_operations acngfs_oper;
+
+int my_fuse_main(int argc, char ** argv)
 {
-   return 0;
-}
-
-
-struct fuse_operations_compat25 acngfs_oper;
-
-int my_fuse_main(int argc, char const * const * argv)
-{
-#ifdef HAVE_DLOPEN
-   void *pLib = dlopen("libfuse.so.2", RTLD_LAZY);
-   if(!pLib)
-   {
-      cerr << "Couldn't find libfuse.so.2" <<endl;
-      return -1;
-   }
-   int (*myFuseMain) (int, char const * const *, const struct fuse_operations_compat25 *, size_t);
-   *(void **) (&myFuseMain) = dlsym(pLib, "fuse_main_real_compat25");
-
-   if(!myFuseMain)
-   {
-	  cerr << "Error loading libfuse.so.2" <<endl;
-	  return -2;
-   }
-   return (*myFuseMain) (argc, argv, &acngfs_oper, sizeof(acngfs_oper));
-#else
-#warning dlopen not available
-   return fuse_main(argc, argv, &acngfs_oper);
-#endif
+   return fuse_main(argc, argv, &acngfs_oper, nullptr);
 }
 
 void _ExitUsage() {
-   cerr << "USAGE: acngfs BaseURL ProxyHost MountPoint [FUSE Mount Options]\n"
-   << "examples:\n\t  acngfs http://ftp.uni-kl.de/debian cacheServer:3142 /var/local/aptfs\n"
-   << "\t  acngfs http://ftp.uni-kl.de/debian localhost:3142 /var/cache/apt-cacher-ng/debrep /var/local/aptfs\n\n"
+   cerr << "USAGE: acngfs BaseURL MountPoint [ACNG Configuration Assignments] [FUSE Mount Options]\n"
+   << "Examples:\n\t  acngfs http://ftp.uni-kl.de/debian /var/local/aptfs proxy=cacheServer:3142"
+   << "\n\t  acngfs http://ftp.uni-kl.de/debian /var/local/aptfs proxy=cacheServer:3142 cachedir=/var/cache/apt-cacher-ng/debrep\n\n"
         << "FUSE mount options summary:\n\n";
-    const char *argv[] = {"...", "-h"};
+    char *argv[] = {strdup("..."), strdup("-h")};
     my_fuse_main( _countof(argv), argv);
     exit(EXIT_FAILURE);
 }
 
 #define barf(x) { cerr << endl << "ERROR: " << x <<endl; exit(1); }
-#define erUsage { _ExitUsage(); }
 
 int main(int argc, char *argv[])
 {
-   memset(&acngfs_oper, 0, sizeof(acngfs_oper));
+	using namespace acng;
+	memset(&acngfs_oper, 0, sizeof(acngfs_oper));
+	acngfs_oper.getattr	= acngfs_getattr;
+	acngfs_oper.fgetattr	= acngfs_fgetattr;
+	acngfs_oper.access	= acngfs_access;
+	acngfs_oper.opendir	= acngfs_opendir;
+	acngfs_oper.readdir	= acngfs_readdir;
+	acngfs_oper.releasedir	= acngfs_releasedir;
+	acngfs_oper.open	= acngfs_open;
+	acngfs_oper.read	= acngfs_read;
+	acngfs_oper.statfs	= acngfs_statfs;
+	acngfs_oper.release	= acngfs_release;
+	umask(0);
 
-   acngfs_oper.getattr	= acngfs_getattr;
-   acngfs_oper.fgetattr	= acngfs_fgetattr;
-   acngfs_oper.access	= acngfs_access;
-   acngfs_oper.readlink	= acngfs_readlink;
-   acngfs_oper.opendir	= acngfs_opendir;
-   acngfs_oper.readdir	= acngfs_readdir;
-   acngfs_oper.releasedir	= acngfs_releasedir;
-   acngfs_oper.mknod	= acngfs_mknod;
-   acngfs_oper.mkdir	= acngfs_mkdir;
-   acngfs_oper.symlink	= acngfs_symlink;
-   acngfs_oper.unlink	= acngfs_unlink;
-   acngfs_oper.rmdir	= acngfs_rmdir;
-   acngfs_oper.rename	= acngfs_rename;
-   acngfs_oper.link	= acngfs_link;
-   acngfs_oper.chmod	= acngfs_chmod;
-   acngfs_oper.chown	= acngfs_chown;
-   acngfs_oper.truncate	= acngfs_truncate;
-   acngfs_oper.ftruncate	= acngfs_ftruncate;
-   acngfs_oper.utime	= acngfs_utime;
-//   acngfs_oper.create	= acngfs_create;
-   acngfs_oper.open	= acngfs_open;
-   acngfs_oper.read	= acngfs_read;
-   acngfs_oper.write	= acngfs_write;
-   acngfs_oper.statfs	= acngfs_statfs;
-   acngfs_oper.release	= acngfs_release;
-   acngfs_oper.fsync	= acngfs_fsync;
+	cfg::agentname = "ACNGFS";
+	cfg::agentheader="User-Agent: ACNGFS\r\n";
+	cfg::requestapx = "User-Agent: ACNGFS\r\nX-Original-Source: 42\r\n";
+	cfg::cachedir.clear();
+	cfg::cacheDirSlash.clear();
 
-   umask(0);
+	for(int i = 0; i < argc; ++i)
+	{
+		if (0==strcmp(argv[i], "--help") || 0==strcmp(argv[i], "-h") )
+			_ExitUsage();
+	}
 
-   for(int i = 1; i<argc; i++)
-   	   if(argv[i] && 0==strcmp(argv[i], "--help"))
-   		   erUsage;
-   
-   if(argc<4)
-      barf("Not enough arguments, try --help.\n");
-   
-   acfg::agentname = "ACNGFS";
-   acfg::agentheader="User-Agent: ACNGFS\r\n";
-   acfg::requestapx = "User-Agent: ACNGFS\r\nX-Original-Source: 42\r\n";
-#ifdef SPAM
-   acfg::debug=0xff;
-   acfg::verboselog=1;
-#endif
+	if(argc<3)
+		barf("Not enough arguments, try --help.\n");
 
-   if(argv[1] && baseUrl.SetHttpUrl(argv[1]))
-   {
+	vector<char*> fuseArgs(argv, argv + 1);
+	fuseArgs.push_back(argv[2]);
+
+	cfg::g_bQuiet = true; // STFU, we need to separate our options silently
+
+	// check help request and weedout our arguments
+	for(auto p=argv + 3; p < argv + argc; ++p)
+	{
+		if (0==strcmp(*p, "--help"))
+			_ExitUsage();
+		else if (!cfg::SetOption(*p, nullptr))
+		{
+#warning maybe add a legacy fallback and rewrite to proxy=host:port if input looks like host:port
+			fuseArgs.push_back(*p);
+		}
+	}
+
+	if(argv[1] && baseUrl.SetHttpUrl(argv[1]))
+	{
+		// FUSE adds starting / already, drop ours if present
+		trimBack(baseUrl.sPath, "/");
 #ifdef VERBOSE
-	   cout << "Base URL: " << baseUrl.ToString()<<endl;
+		cout << "Base URL: " << baseUrl.ToString()<<endl;
 #endif
-   }
-   else
-   {
-      cerr << "Invalid base URL, " << argv[1] <<endl;
-      exit(EXIT_FAILURE);
-   }
-   // FUSE adds starting / already, drop ours if present
-   trimBack(baseUrl.sPath, "/");
-   
-   if(argv[2] && proxyUrl.SetHttpUrl(argv[2]))
-   {
-	   /*if(proxyUrl.GetPort().empty())
-		   proxyUrl.sPort="3142";
-		   */
-   }
-   else
-   {
-	   cerr << "Invalid proxy URL, " << argv[2] <<endl;
-	   exit(EXIT_FAILURE);
-   }
+	}
+	else
+	{
+		cerr << "Invalid base URL, " << argv[1] << endl;
+		exit(EXIT_FAILURE);
+	}
 
-   // all parameters processed, forwarded to fuse call below
+	if (! cfg::GetProxyInfo() || cfg::GetProxyInfo()->sHost.empty())
+	{
+		cerr << "WARNING: proxy not specified or invalid, please set something like proxy=localserver:3142."
+" Continuing without proxy server for now, this might cause severe performance degradation!" << endl;
+		exit(EXIT_FAILURE);
+	}
 
-   ::rechecks::CompileExpressions();
-   
-#if 0//def SPAM
-   {
-	   fuse_file_info fi = {0};
-	   const char *dingsda="/dists/unstable/InRelease";
-	   acngfs_open(dingsda, &fi);
-	   char buf[165536];
-	   off_t pos=0;
-	   for(;0 < acngfs_read(dingsda, buf, sizeof(buf), pos, &fi); pos+=sizeof(buf)) ;
-	   return 0;
-   }
+	cfg::PostProcConfig();
+#ifdef DEBUG
+	cfg::debug=0xff;
+	cfg::verboselog=1;
+	log::g_szLogPrefix = "acngfs";
+	log::open();
 #endif
 
-   unsigned int nMyArgCount = 2; // base url, proxy host
-   // alternative path supplied in the next argument?
-   if(argc > 4 && argv[4] && argv[4][0] != '-' ) // 4th argument is not an option?
-   {
-	   nMyArgCount=3;
-	   altPath = argv[3];
-   }
+	// all parameters processed, forwarded to fuse call below
 
+	acng::rex::CompileExpressions();
 
-   
-   // test mount point
-   const char *mpoint = argv[nMyArgCount+1];
-   if(stat(mpoint, &statTempl) || statfs(mpoint, &stfsTemp))
-	   barf(endl << "Cannot access " << mpoint);
-   if(!S_ISDIR(statTempl.st_mode))
-      barf(endl<< mpoint << " is not a directory.");
+	// test mount point
+	if(!argv[2] || stat(argv[2], &statTempl) || statfs(argv[2], &stfsTemp))
+		barf(endl << "Cannot access directory " << argv[2]);
+	if(!S_ISDIR(statTempl.st_mode))
+		barf(endl<< argv[2] << " is not a directory.");
 
-   // skip our arguments, keep those for fuse including mount point and argv[0] at the right place
-   argv[nMyArgCount]=argv[0]; // application path
-   argv=&argv[nMyArgCount];
-   argc-=nMyArgCount;
-   return my_fuse_main(argc, argv);
+	// restore application arguments
+
+#warning this carries a dlcon with a thread, do we need it? only evabase with one controlled thread is required
+	evabaseFreeFrunner eb(g_tcp_con_factory);
+	int mt = 1;
+	/** This is the part of fuse_main() before the event loop */
+	auto fs = fuse_setup(fuseArgs.size(), &fuseArgs[0],
+				&acngfs_oper, sizeof(acngfs_oper),
+				&argv[2], &mt, nullptr);
+	if (!fs)
+		return 2;
+	auto ret = fuse_loop_mt(fs);
+	// shutdown agents in reliable fashion
+	spare_agents.clear();
+	return ret;
 }
-
-#ifndef DEBUG
-// for the uber-clever GNU linker and should be removed by strip again
-namespace aclog
-{
-   void flush() {};
-   void misc(const string &s, const char )
-   {
-#ifdef SPAM
-      cerr << s << endl;
-#endif
-   }
-
-void err(const char *s, const char* z)
-{
-#ifdef SPAM
-      cerr << s << endl << z << endl;
-#endif
-
-};
-}
-#endif

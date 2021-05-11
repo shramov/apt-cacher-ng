@@ -10,6 +10,7 @@
 #include "filereader.h"
 #include "dlcon.h"
 #include "csmapping.h"
+#include "httpdate.h"
 
 #include <string>
 #include <iostream>
@@ -23,6 +24,8 @@ using namespace std;
 #define SCACHEFILE (CACHE_BASE+"_impkeycache")
 #define FMTSIG "FMT5"
 
+namespace acng
+{
 /*
  * Algorithm:
  *
@@ -46,14 +49,10 @@ inline bool IsIndexDiff(const string & sPath)
 }
 */
 
-bool pkgimport::ProcessRegular(cmstring &sPath, const struct stat &stinfo)
+bool pkgimport::ProcessRegular(const mstring &sPath, const struct stat &stinfo)
 {
+	if(CheckStopSignal()) return false;
 
-	{
-		lockguard g(&abortMx);
-		if(bSigTaskAbort)
-			return false;
-	}
 	if(endsWithSzAr(sPath, ".head"))
 		return true;
 
@@ -69,14 +68,14 @@ bool pkgimport::ProcessRegular(cmstring &sPath, const struct stat &stinfo)
 
 		AddIFileCandidate(sPath.substr(CACHE_BASE_LEN));
 	}
-	else if(rechecks::FILE_INVALID != rechecks::GetFiletype(sPath))
+	else if(rex::FILE_INVALID != rex::GetFiletype(sPath))
 	{
 		// get a fingerprint by checksumming if not already there from the fpr cache
 
 		if(m_precachedList.find(sPath)!=m_precachedList.end())
 			return true; // have that already, somewhere...
 		
-		for (CSTYPES ctp = CSTYPE_MD5; ctp <= CSTYPE_SHA1; ctp=CSTYPES(int(ctp)+1))
+		for (CSTYPES ctp : { CSTYPE_MD5, CSTYPE_SHA1, CSTYPE_SHA512 } )
 		{
 
 			// get the most likely requested contents id
@@ -84,7 +83,7 @@ bool pkgimport::ProcessRegular(cmstring &sPath, const struct stat &stinfo)
 			/*	if ( (IsIndexDiff(sPath) && fpr.ScanFile(sPath, CSTYPE_SHA1, true))
 			 || (!IsIndexDiff(sPath) && fpr.ScanFile(sPath, CSTYPE_MD5, false)))
 			 */
-			if (!fpr.ScanFile(sPath, ctp, false, NULL))
+			if (!fpr.ScanFile(sPath, ctp, false, nullptr))
 			{
 				SendFmt << "<span class=\"ERROR\">Error checking " << sPath << "</span>\n<br>\n";
 				continue;
@@ -95,9 +94,8 @@ bool pkgimport::ProcessRegular(cmstring &sPath, const struct stat &stinfo)
 				continue;
 			}
 
-			SendFmt << "<font color=blue>Checked " << sPath << " (" << (ctp == CSTYPE_MD5
-					? "MD5"
-					: "SHA1") << " fingerprint created)</font><br>\n";
+			SendFmt << "<font color=blue>Checked " << sPath << " (" << GetCsName(ctp)
+					<< " fingerprint created)</font><br>\n";
 
 			// add this entry immediately if needed and get its reference
 			tImpFileInfo & node = m_importMap[fpr];
@@ -110,7 +108,7 @@ bool pkgimport::ProcessRegular(cmstring &sPath, const struct stat &stinfo)
 			{
 				SendFmt << "<span class=\"WARNING\">Duplicate found, " << sPath << " vs. "
 						<< node.sPath << ", ignoring new entry.</span>\n<br>\n";
-				m_importRest.push_back(make_pair(fpr, tImpFileInfo(sPath, stinfo.st_mtime)));
+				m_importRest.emplace_back(fpr, tImpFileInfo(sPath, stinfo.st_mtime));
 			}
 		}
 	}
@@ -180,25 +178,19 @@ void pkgimport::Action()
 	m_sSrcPath=CACHE_BASE+"_import";
 	
 	SendFmt << "Importing from " << m_sSrcPath << " directory.<br>Scanning local files...<br>";
-	
-	SetCommonUserFlags(m_parms.cmd);
-	m_bErrAbort=false; // does not f...ing matter, do what we can
+
 	m_bByPath=true; // should act on all locations
 
-	_LoadKeyCache(SCACHEFILE);
+	_LoadKeyCache();
 	if(!m_precachedList.empty())
 		SendChunk( tSS(100)<<"Loaded "<<m_importMap.size()<<
 				(m_precachedList.size()==1 ? " entry" : " entries")
 				<<" from the fingerprint cache<br>\n");
 	
 	m_bLookForIFiles=true;
-	DirectoryWalk(acfg::cachedir, this, true);
 
-	{
-		lockguard g(&abortMx);
-		if(bSigTaskAbort)
-			return;
-	}
+	BuildCacheFileList();
+	if(CheckStopSignal()) return;
 	
 	if(m_metaFilesRel.empty())
 	{
@@ -208,12 +200,7 @@ void pkgimport::Action()
 
 
 	UpdateVolatileFiles();
-
-	{
-		lockguard g(&abortMx);
-		if(bSigTaskAbort)
-			return;
-	}
+	if(CheckStopSignal()) return;
 	
 	if(m_bErrAbort && m_nErrorCount>0)
 	{
@@ -224,12 +211,7 @@ void pkgimport::Action()
 	m_bLookForIFiles=false;
 	DBGQLOG("building contents map for " << m_sSrcPath);
 	DirectoryWalk(m_sSrcPath, this, true);
-
-	{
-		lockguard g(&abortMx);
-		if(bSigTaskAbort)
-			return;
-	}
+	if(CheckStopSignal()) return;
 	
 	if(m_importMap.empty())
 	{
@@ -237,13 +219,10 @@ void pkgimport::Action()
 		return;
 	}
 	
-	ProcessSeenMetaFiles(*this);
+	ProcessSeenIndexFiles([this](const tRemoteFileInfo &e) {
+		HandlePkgEntry(e); });
 
-	{
-		lockguard g(&abortMx);
-		if(bSigTaskAbort)
-			return;
-	}
+	if(CheckStopSignal()) return;
 
 	ofstream fList;
 	fList.open(SCACHEFILE.c_str(), ios::out | ios::trunc);
@@ -309,7 +288,7 @@ void pkgimport::HandlePkgEntry(const tRemoteFileInfo &entry)
 		return;
 	
 	string sDestAbs=CACHE_BASE;
-	if(acfg::stupidfs)
+	if(cfg::stupidfs)
 		sDestAbs+=DosEscape(entry.sDirectory+entry.sFileName);
 	else
 		sDestAbs+=(entry.sDirectory+entry.sFileName);
@@ -323,7 +302,7 @@ void pkgimport::HandlePkgEntry(const tRemoteFileInfo &entry)
 	// linking and moving would shred them when the link leads to the same target
 	struct stat tmp1, tmp2;
 
-	if (0==stat(sDestAbs.c_str(), &tmp1) && 0==stat(sFromAbs.c_str(), &tmp2)
+	if (0 == stat(sDestAbs.c_str(), &tmp1) && 0==stat(sFromAbs.c_str(), &tmp2)
 			&& tmp1.st_ino==tmp2.st_ino&& tmp1.st_dev==tmp2.st_dev)
 	{
 		//cerr << "Same target file, ignoring."<<endl;
@@ -339,7 +318,7 @@ void pkgimport::HandlePkgEntry(const tRemoteFileInfo &entry)
 
 	unlink(sDestAbs.c_str());
 
-	// XXX: maybe use inject instead
+	// XXX: maybe use inject code instead
 
 	if (!LinkOrCopy(sFromAbs, sDestAbs))
 	{
@@ -348,35 +327,19 @@ void pkgimport::HandlePkgEntry(const tRemoteFileInfo &entry)
 	}
 
 	gen_header:
-	unlink(sDestHeadAbs.c_str());
 
-	header h;
-	h.frontLine="HTTP/1.1 200 OK";
-	/*
-	if(entry.fpr.bUnpack)
+	unlink(sDestHeadAbs.c_str());
+	if (!StoreHeadToStorage(sDestAbs+".head", entry.fpr.size, nullptr, nullptr))
 	{
-		static struct stat stbuf;
-		if(0!=stat(sFrom.c_str(), &stbuf))
-			return; // weird...
-		h.set(header::CONTENT_LENGTH, stbuf.st_size);
-	}
-	else
-	*/
-		h.set(header::CONTENT_LENGTH, entry.fpr.size);
-	
-	h.type=header::ANSWER;
-	if (h.StoreToFile(sDestAbs+".head")<=0)
-	{
-		aclog::err("Unable to store generated header");
+		log::err("Unable to store generated header");
 		return; // junk may remain but that's a job for cleanup later
 	}
 	hit->second.bFileUsed=true;
-
 	SetFlags(m_processedIfile).space+=entry.fpr.size;
 }
 
 
-void pkgimport::_LoadKeyCache(const string & sFileName)
+void pkgimport::_LoadKeyCache()
 {
 	std::ifstream in;
 
@@ -395,22 +358,21 @@ void pkgimport::_LoadKeyCache(const string & sFileName)
 /*	if(m_bVerbose)
 		SendChunk("Loading fingerprints from key cache... \n");
 		*/
-	off_t sz(-1);
 	int csType(CSTYPE_INVALID);
 
 	for(;;)
 	{
 		info.bFileUsed=false;
 
-		in>>sz;
-		std::getline(in, cs); // newline
-		fpr.size=sz;
-
+		std::getline(in, cs);
+		if((fpr.size=atoofft(cs.c_str(), -2)) < 0)
+			return;
 		in>>csType;
 		std::getline(in, cs); // newline
 
 		std::getline(in, cs); // checksum line
-		fpr.SetCs(cs, (CSTYPES)csType);
+		if(!fpr.SetCs(cs, (CSTYPES)csType))
+			return;
 
 		std::getline(in, info.sPath);
 		info.sPath.insert(0, m_sSrcPath+SZPATHSEP);
@@ -464,3 +426,5 @@ void pkgimport::_GetCachedKey(const string & sPath, const struct stat &stinfo, s
 }
 
  */
+
+}

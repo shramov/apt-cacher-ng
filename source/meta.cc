@@ -15,53 +15,25 @@
 #elif defined(HAVE_GLOB)
 #include <glob.h>
 #endif
+#ifdef HAVE_TOMCRYPT
+#include <tomcrypt.h>
+#endif
 
 using namespace std;
 
+namespace acng
+{
 cmstring sPathSep(SZPATHSEP);
 cmstring sPathSepUnix(SZPATHSEPUNIX);
 #ifndef MINIBUILD
-cmstring sDefPortHTTP("80");
-cmstring sDefPortHTTPS("443");
+std::string ACNG_API sDefPortHTTP = "80", sDefPortHTTPS = "443";
 #endif
 
-/*
-int getUUID() {
-    lfd=(lfd+1)%65536;
-   //cerr << "UUID: " << lfd <<endl;
-    return lfd;
-}
-*/
-void set_nb(int fd) {
-    int flags = fcntl(fd, F_GETFL);
-    //ASSERT(flags != -1);
-    flags |= O_NONBLOCK;
-    flags = fcntl(fd, F_SETFL, flags);
-}
-void set_block(int fd) {
-    int flags = fcntl(fd, F_GETFL);
-    //ASSERT(flags != -1);
-    flags &= ~O_NONBLOCK;
-    flags = fcntl(fd, F_SETFL, flags);
-}
+cmstring PROT_PFX_HTTPS(WITHLEN("https://")), PROT_PFX_HTTP(WITHLEN("http://"));
+cmstring FAKEDATEMARK(WITHLEN("Sat, 26 Apr 1986 01:23:39 GMT"));
+cmstring hendl("<br>\n");
 
-
-/*
-inline tStrPos findHostStart(const std::string & sUri)
-{
-	tStrPos p=0, l=sUri.size();
-	if (0==sUri.compare(0, 7, "http://"))
-		p=7;
-	while(p<l && sUri[p]=='/') p++;
-	return p;
-}
-
-void trimProto(std::string & sUri)
-{
-	sUri.erase(findHostStart(sUri));
-}
-*/
-
+ACNG_API std::atomic<bool> g_global_shutdown;
 
 mstring GetBaseName(const string &in)
 {
@@ -116,7 +88,7 @@ void find_base_name(const char *in, const char * &pos, UINT &len)
 /*!
  * \brief Simple split function, outputs resulting tokens into a string vector, with or without purging the previous contents
  */
-tStrVec::size_type Tokenize(const string & in, const char *sep,
+ACNG_API tStrVec::size_type Tokenize(const string & in, const char *sep,
 		tStrVec & out, bool bAppend, std::string::size_type nStartOffset)
 {
 	if(!bAppend)
@@ -132,17 +104,16 @@ tStrVec::size_type Tokenize(const string & in, const char *sep,
 		pos2=in.find_first_of(sep, pos);
 		if (pos2==stmiss) // no more terminators, EOL
 			pos2=oob;
-		out.push_back(in.substr(pos, pos2-pos));
+		out.emplace_back(in.substr(pos, pos2-pos));
 		pos=pos2+1;
 	}
 
 	return (out.size()-nBefore);
 }
 
-void StrSubst(string &contents, const string &from, const string &to)
+void StrSubst(string &contents, const string &from, const string &to, tStrPos pos)
 {
-	tStrPos pos;
-	while (stmiss!=(pos=contents.find(from)))
+	while (stmiss!=(pos=contents.find(from, pos)))
 	{
 		contents.replace(pos, from.length(), to);
 		pos+=to.length();
@@ -166,7 +137,7 @@ bool ParseKeyValLine(const string & sIn, string & sOutKey, string & sOutVal)
 	*/
 
 	string::size_type pos = sOutVal.find(":");
-	if (pos==string::npos)
+	if (AC_UNLIKELY(pos == 0 || pos==string::npos))
 	{
 		//cerr << "Bad configuration directive found, looking for: " << szKey << ", found: "<< sOut << endl;
 		return false;
@@ -201,7 +172,7 @@ bool tHttpUrl::SetHttpUrl(cmstring &sUrlRaw, bool unescape)
 	else if(0==strncasecmp(url.c_str(), "https://", 8))
 	{
 #ifndef HAVE_SSL
-	aclog::err("E_NOTIMPLEMENTED: SSL");
+	log::err("E_NOTIMPLEMENTED: SSL");
 	return false;
 #else
 		hStart=8;
@@ -226,29 +197,40 @@ bool tHttpUrl::SetHttpUrl(cmstring &sUrlRaw, bool unescape)
 	hEndSuc=url.find('/', hStart);
 	if(stmiss==hEndSuc)
 	{
-		hEndSuc=l;
-		goto extract_host_check_port;
+		// also match http://foo?param=X
+		hEndSuc=url.find('?', hStart);
+		if(stmiss!=hEndSuc)
+		{
+			sPath = mstring("/") + url.substr(hEndSuc);
+			goto extract_host_check_port;
+		}
+
+		hEndSuc = l;
+		goto extract_host_and_path_and_check_port;
+
 	}
 	pStart=hEndSuc;
 	while(pStart<l && url[pStart]=='/') pStart++;
 	pStart--;
 	
-	extract_host_check_port:
+	extract_host_and_path_and_check_port:
 	if(pStart==0)
 		sPath="/";
 	else
 		sPath=url.substr(pStart);
+
+	extract_host_check_port:
 
 	if(url[hStart]=='_') // those are reserved
 		return false;
 	
 	sHost=url.substr(hStart, hEndSuc-hStart);
 
-	// credentials might in there, strip them of
+	// credentials might be in there, strip them off
 	l=sHost.rfind('@');
 	if(l!=mstring::npos)
 	{
-		sUserPass=sHost.substr(0, l);
+		sUserPass = UrlUnescape(sHost.substr(0, l));
 		sHost.erase(0, l+1);
 	}
 
@@ -267,16 +249,22 @@ bool tHttpUrl::SetHttpUrl(cmstring &sUrlRaw, bool unescape)
 	
 	strip_ipv6_junk:
 	
+	bool host_appears_to_be_ipv6 = false;
 	if(sHost[0]=='[')
 	{
+		host_appears_to_be_ipv6 = true;
 		bCheckBrac=true;
 		sHost.erase(0,1);
 	}
 	
-	if(sHost[sHost.length()-1]==']')
+	if (sHost[sHost.length()-1] == ']') {
+		bCheckBrac = !bCheckBrac;
 		sHost.erase(sHost.length()-1);
-	else if(bCheckBrac) // must have been present here
+	}
+	if (bCheckBrac) // Unmatched square brackets.
 		return false;
+	if (!host_appears_to_be_ipv6)
+		sHost = UrlUnescape(sHost);
 	
 	return true;
 	
@@ -311,7 +299,7 @@ string tHttpUrl::ToURI(bool bUrlEscaped) const
 
 #if defined(HAVE_WORDEXP) || defined(HAVE_GLOB)
 
-tStrDeq ExpandFilePattern(cmstring& pattern, bool bSorted)
+ACNG_API tStrDeq ExpandFilePattern(cmstring& pattern, bool bSorted, bool bQuiet)
 {
 	tStrDeq srcs;
 #ifdef HAVE_WORDEXP
@@ -319,26 +307,26 @@ tStrDeq ExpandFilePattern(cmstring& pattern, bool bSorted)
 	if(0==wordexp(pattern.c_str(), &p, 0))
 	{
 		for(char **s=p.we_wordv; s<p.we_wordv+p.we_wordc;s++)
-			srcs.push_back(*s);
+			srcs.emplace_back(*s);
 		wordfree(&p);
 	}
-	else
+	else if(!bQuiet)
 		cerr << "Warning: failed to find files for " << pattern <<endl;
 	if(bSorted) std::sort(srcs.begin(), srcs.end());
 #elif defined(HAVE_GLOB)
 	auto p=glob_t();
 	if(0==glob(pattern.c_str(), GLOB_DOOFFS | (bSorted ? 0 : GLOB_NOSORT),
-				NULL, &p))
+			nullptr, &p))
 	{
 		for(char **s=p.gl_pathv; s<p.gl_pathv+p.gl_pathc;s++)
-			srcs.push_back(*s);
+			srcs.emplace_back(*s);
 		globfree(&p);
 	}
-	else
+	else if(!bQuiet)
 		cerr << "Warning: failed to find files for " << pattern <<endl;
 #else
 #warning Needs a file name expansion function, wordexp or glob
-	srcs.push_back(pattern);
+	srcs.emplace_back(pattern);
 #endif
 
 	return srcs;
@@ -370,7 +358,7 @@ void MakeAbsolutePath(std::string &dirToFix, const std::string &reldir)
 
 extern uint_fast16_t hexmap[];
 
-cmstring sEmptyString("");
+cmstring sEmptyString;
 
 /*
 int GetSimilarity(cmstring& wanted, cmstring& candidate)
@@ -432,6 +420,25 @@ bool CsAsciiToBin(const char *a, uint8_t b[], unsigned short binLength)
 	}
 	return true;
 }
+bool Hex2buf(const char *a, size_t len, acbuf& ret)
+{
+	if(len%2)
+		return false;
+	ret.clear();
+	ret.setsize(len/2+1);
+	auto *uA = (const unsigned char*) a;
+	for(auto end=uA+len;uA<end;uA+=2)
+	{
+		if(!*uA || !uA[1])
+			return false;
+		if(hexmap[uA[0]]>15 || hexmap[uA[1]] > 15)
+			return false;
+		*(ret.wptr()) = hexmap[uA[0]] * 16 + hexmap[uA[1]];
+	}
+	ret.got(len/2);
+	return true;
+}
+
 char h2t_map[] =
 	{ '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd',
 			'e', 'f' };
@@ -547,9 +554,68 @@ void UrlEscapeAppend(cmstring &s, mstring &sTarget)
 mstring UrlEscape(cmstring &s)
 {
 	mstring ret;
+	ret.reserve(s.size());
 	UrlEscapeAppend(s, ret);
 	return ret;
 }
+
+/* From RFC3986 [0]:
+ *
+ *      sub-delims  = "!" / "$" / "&" / "'" / "(" / ")"
+ *                  / "*" / "+" / "," / ";" / "="
+ *
+ *      unreserved  = ALPHA / DIGIT / "-" / "." / "_" / "~"
+ *
+ *      authority   = [ userinfo "@" ] host [ ":" port ]
+ *
+ *      userinfo    = *( unreserved / pct-encoded / sub-delims / ":" )
+ *
+ * 0: https://www.ietf.org/rfc/rfc3986.txt
+ */
+static bool is_allowed_unencoded_userinfo_char(char c)
+{
+	switch (c) {
+	// unreserved:
+	case 'A': case 'B': case 'C': case 'D': case 'E': case 'F': case 'G':
+	case 'H': case 'I': case 'J': case 'K': case 'L': case 'M': case 'N':
+	case 'O': case 'P': case 'Q': case 'R': case 'S': case 'T': case 'U':
+	case 'V': case 'W': case 'X': case 'Y': case 'Z':
+	case 'a': case 'b': case 'c': case 'd': case 'e': case 'f': case 'g':
+	case 'h': case 'i': case 'j': case 'k': case 'l': case 'm': case 'n':
+	case 'o': case 'p': case 'q': case 'r': case 's': case 't': case 'u':
+	case 'v': case 'w': case 'x': case 'y': case 'z':
+	case '0': case '1': case '2': case '3': case '4':
+	case '5': case '6': case '7': case '8': case '9':
+	case '-': case '.': case '_': case '~':
+	// sub-delims:
+	case '!': case '$': case '&': case '\'': case '(': case ')':
+	case '*': case '+': case ',': case ';':  case '=':
+	// colon:
+	case ':':
+		return true;
+	default:
+		return false;
+	}
+}
+
+mstring UserinfoEscape(cmstring &s)
+{
+	mstring ret;
+	ret.reserve(s.size());
+
+	for (const auto& c : s) {
+		if (is_allowed_unencoded_userinfo_char(c)) {
+			ret += c;
+		} else {
+			char pct_encoded[4] = { '%', h2t_map[uint8_t(c) >> 4],
+			                             h2t_map[uint8_t(c) & 0x0f], '\0'};
+			ret += pct_encoded;
+		}
+	}
+
+	return ret;
+}
+
 mstring DosEscape(cmstring &s)
 {
 	mstring ret;
@@ -595,16 +661,43 @@ mstring EncodeBase64Auth(cmstring& sPwdString)
 	auto sNative=UrlUnescape(sPwdString);
 	return EncodeBase64(sNative.data(), sNative.size());
 }
-string EncodeBase64(LPCSTR data, uint len)
+
+#ifdef HAVE_TOMCRYPT
+// XXX: fix usage, no proper error checking, data duplication...
+string EncodeBase64(LPCSTR data, unsigned len)
+{
+	unsigned long reslen=len*4/3+3;
+	vector<unsigned char>buf;
+	buf.reserve(reslen);
+	string ret;
+	if(base64_encode((const unsigned char*) data, (unsigned long) len, &buf[0], &reslen) == CRYPT_OK)
+		ret.assign((LPCSTR)&buf[0], reslen);
+	return ret;
+}
+bool DecodeBase64(LPCSTR data, size_t len, acbuf& binData)
+{
+	unsigned long reslen=len;
+	binData.clear();
+	binData.setsize(len);
+	auto rc=base64_decode((const unsigned char*) data,
+			(unsigned long) len, (unsigned char*)binData.wptr(), &reslen);
+	if(rc!=CRYPT_OK)
+		return false;
+	binData.got(reslen);
+	return true;
+}
+#else // not HAVE_TOMCRYPT, use internal version and SSL
+string EncodeBase64(LPCSTR data, unsigned len)
 {
 	uint32_t bits=0;
-	uint char_count=0;
+	unsigned char_count=0;
 	char alphabet[65] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-	tStrPos pos=0;
 	string out;
+	//int newLineAfter = textWidth * 3 / 4;
+	//int linePos=0;
+
 	for(auto p=data; p<data+len; ++p)
 	{
-		std::cout << pos << std::endl;
 		uint8_t c=*p;
 		/*
 		if('%' == c && p<data+len-1
@@ -619,7 +712,6 @@ string EncodeBase64(LPCSTR data, uint len)
 		char_count++;
 		if (char_count == 3)
 		{
-			std::cout << pos << " " << (unsigned(bits) >> 18) << std::endl;
 			out+=(alphabet[unsigned(bits) >> 18]);
 			out+=(alphabet[(unsigned(bits) >> 12) & 0x3f]);
 			out+=(alphabet[(unsigned(bits) >> 6) & 0x3f]);
@@ -629,6 +721,13 @@ string EncodeBase64(LPCSTR data, uint len)
 		}
 		else
 			bits <<= 8;
+/*
+		if(newLineAfter > 0 && linePos++ >= newLineAfter)
+		{
+			linePos = 0;
+			out+='\n';
+		}
+		*/
 	}
 	if (char_count != 0)
 	{
@@ -649,4 +748,232 @@ string EncodeBase64(LPCSTR data, uint len)
 	return out;
 }
 
-//std::atomic_bool g_degraded(false);
+#ifdef HAVE_SSL
+#include <openssl/evp.h>
+#include <openssl/bio.h>
+#include <openssl/sha.h>
+#include <openssl/crypto.h>
+#include <cstring>
+bool DecodeBase64(LPCSTR pAscii, size_t len, acbuf& binData)
+{
+   if(!pAscii)
+      return false;
+   binData.setsize(len);
+   binData.clear();
+   FILE* memStrm = ::fmemopen( (void*) pAscii, len, "r");
+   auto strmBase = BIO_new(BIO_f_base64());
+   auto strmBin = BIO_new_fp(memStrm, BIO_NOCLOSE);
+   strmBin = BIO_push(strmBase, strmBin);
+   BIO_set_flags(strmBin, BIO_FLAGS_BASE64_NO_NL);
+   binData.got(BIO_read(strmBin, binData.wptr(), len));
+   BIO_free_all(strmBin);
+   checkForceFclose(memStrm);
+   return binData.size();
+}
+#endif
+#endif
+
+mstring GetDirPart(cmstring &in)
+{
+	if(in.empty())
+		return sEmptyString;
+
+	tStrPos end = in.find_last_of(CPATHSEP);
+	if(end == stmiss) // none? don't care then
+		return sEmptyString;
+
+	return in.substr(0, end+1);
+}
+
+std::pair<mstring, mstring> SplitDirPath(cmstring& in)
+		{
+auto dir=GetDirPart(in);
+return std::pair<mstring,mstring>(dir, in.substr(dir.length()));
+		}
+
+
+LPCSTR GetTypeSuffix(cmstring& s)
+{
+	auto pos = s.find_last_of("/.");
+	auto p = s.c_str();
+	return pos == stmiss ? p + s.length() : p + pos;
+}
+
+off_t ACNG_API atoofft(LPCSTR p)
+{
+	using namespace std;
+	if(sizeof(long long) == sizeof(off_t))
+		return atoll(p);
+	if(sizeof(int) == sizeof(off_t))
+		return atoi(p);
+	return atol(p);
+}
+
+mstring UrlUnescape(cmstring &from)
+{
+	mstring ret; // let the compiler optimize
+	UrlUnescapeAppend(from, ret);
+	return ret;
+}
+//mstring DosEscape(cmstring &s);
+// just the bare minimum to make sure the string does not break HTML formating
+mstring html_sanitize(cmstring& in)
+{
+	mstring ret;
+	for(auto c:in)
+		ret += ( strchr("<>'\"&;", (unsigned) c) ? '_' : c);
+	return ret;
+}
+
+mstring offttos(off_t n)
+{
+	char buf[21];
+	int len=snprintf(buf, 21, OFF_T_FMT, n);
+	return mstring(buf, len);
+}
+
+mstring ltos(long n)
+{
+	char buf[21];
+	int len=snprintf(buf, 21, "%ld", n);
+	return mstring(buf, len);
+}
+
+/**
+ * Human friendly presentation of numbers, with units and only few bytes after comma
+ */
+mstring offttosH(off_t n)
+{
+	LPCSTR  pref[]={"", " KiB", " MiB", " GiB", " TiB", " PiB", " EiB"};
+	for(unsigned i=0;i<_countof(pref)-1; i++)
+	{
+		if(n<1024)
+			return ltos(n)+pref[i];
+		if(n<10000)
+			return ltos(n/1000)+"."+ltos((n%1000)/100)+pref[i+1];
+
+		n/=1024;
+	}
+	return "INF";
+}
+
+mstring offttosHdotted(off_t n)
+{
+	mstring ret(std::to_string(n));
+	auto pos = ret.size()-1;
+	for(unsigned i=1; pos > 0; ++i, --pos)
+		if(0 == i%3)
+			ret.insert(pos, ".");
+	return ret;
+}
+
+
+//template<typename charp>
+off_t strsizeToOfft(const char *sizeString) // XXX: if needed... charp sizeString, charp *next)
+{
+	char *inext(0);
+	auto val = strtoull(sizeString, &inext, 10);
+	if(!val) return 0;
+	if(!*inext) return val; // full length
+	// trim
+	while(*inext && isspace((unsigned)*inext)) ++inext;
+	switch(*inext)
+	{
+	case 'k': return val * 1000;
+	case 'm': return val * 1000000;
+	case 'g': return val * 1000000*1000;
+	case 'p': return val * 1000000*1000000;
+
+	case 'K': return val * 1024;
+	case 'M': return val * 1024*1024;
+	case 'G': return val * 1024*1024*1024;
+	case 'P': return val * 1024*1024*1024*1024;
+	}
+	return val;
+}
+
+void replaceChars(mstring &s, LPCSTR szBadChars, char goodChar)
+{
+	for(mstring::iterator p=s.begin();p!=s.end();p++)
+		for(LPCSTR b=szBadChars;*b;b++)
+			if(*b==*p)
+			{
+				*p=goodChar;
+				break;
+			}
+}
+
+void addUnEscaped(mstring& s, const char p)
+{
+	switch (p)
+	{
+	case '0':
+		s += '\0'; break;
+	case 'a':
+		s += '\a'; break;
+	case 'b':
+		s += '\b'; break;
+	case 't':
+		s += '\t'; break;
+	case 'n':
+		s += '\n'; break;
+	case 'r':
+		s += '\r'; break;
+	case 'v':
+		s += '\v'; break;
+	case 'f':
+		s += '\f'; break;
+	case '\\':
+		s += '\\'; break;
+	default:
+		s += '\\'; s += p; break;
+	}
+}
+
+mstring unEscape(cmstring &s)
+{
+	mstring ret;
+	for(cmstring::const_iterator it=s.begin();it!=s.end();++it)
+        {
+           if(*it != '\\') ret+= *it;
+           else if(++it == s.end()) { ret+='\\'; break; }
+           else addUnEscaped(ret, *it);
+        }
+	return ret;
+}
+
+bool scaseequals(string_view a, string_view b)
+{
+    auto len = a.size();
+    if (b.size() != len)
+        return false;
+    for (unsigned i = 0; i < len; ++i)
+        if (tolower((unsigned) a[i]) != tolower((unsigned)b[i]))
+            return false;
+    return true;
+}
+
+#if !defined(HAVE_STRLCPY) || !HAVE_STRLCPY
+size_t strlcpy(char *tgt, const char *src, size_t tgtSize)
+{
+    auto p = src;
+    if (tgtSize > 0)
+    {
+        char *const pEnd = tgt + tgtSize - 1;
+        while (tgt < pEnd && *p)
+        {
+            *tgt++ = *p++;
+        }
+        *tgt = '\0';
+    }
+    // count how much we could have copied if not reached
+    while (*p)
+    {
+        ++p;
+    }
+    return p - src;
+}
+#endif
+
+
+}

@@ -5,25 +5,29 @@
 #include <list>
 #include <unordered_map>
 
+namespace acng
+{
+
 // caching all relevant file identity data and helper flags in such entries
 struct tDiskFileInfo
 {
 	time_t nLostAt =0;
 	bool bNoHeaderCheck=false;
-	// this adds a couple of procent overhead so it's neglible considering
+	// this adds a couple of procent overhead so it's negligible considering
 	// hashing or traversing overhead of a detached solution
 	tFingerprint fpr;
 };
 
-class expiration : public tCacheOperation, ifileprocessor
+class expiration : public cacheman
 {
 public:
 	// XXX: g++ 4.7 is not there yet... using tCacheOperation::tCacheOperation;
-	inline expiration(const tRunParms& parms) : tCacheOperation(parms) {};
+	inline expiration(const tRunParms& parms) : cacheman(parms) {};
 
 protected:
 
 	std::unordered_map<mstring,std::map<mstring,tDiskFileInfo>> m_trashFile2dir2Info;
+	tStrVec m_oversizedFiles;
 
 	void RemoveAndStoreStatus(bool bPurgeNow);
 	void LoadPreviousData(bool bForceInsert);
@@ -32,9 +36,7 @@ protected:
 	virtual void Action() override;
 	// for FileHandler
 	virtual bool ProcessRegular(const mstring &sPath, const struct stat &) override;
-
-	// for ifileprocessor
-	virtual void HandlePkgEntry(const tRemoteFileInfo &entry) override;
+	void HandlePkgEntry(const tRemoteFileInfo &entry);
 
 	void LoadHints();
 
@@ -43,11 +45,23 @@ protected:
 	void DropExceptionalVersions();
 
 	std::ofstream m_damageList;
-	bool m_bIncompleteIsDamaged = false;
+	bool m_bIncompleteIsDamaged = false, m_bScanVolatileContents = false;
 
+	void MarkObsolete(cmstring&) override;
+	tStrVec m_killBill;
+
+	virtual bool _checkSolidHashOnDisk(cmstring& hexname, const tRemoteFileInfo &entry,
+			cmstring& srcPrefix) override;
+	virtual bool _QuickCheckSolidFileOnDisk(cmstring& /* sFilePathRel */) override;
 private:
 	int m_nPrevFailCount =0;
 	bool CheckAndReportError();
+
+	void HandleDamagedFiles();
+	void ListExpiredFiles();
+	void TrimFiles();
 };
+
+}
 
 #endif /*EXPIRATION_H_*/

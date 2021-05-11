@@ -11,7 +11,11 @@
 #include "dirwalk.h"
 
 using namespace std;
-namespace acfg
+
+namespace acng
+{
+
+namespace cfg
 {
 extern int stupidfs;
 }
@@ -19,20 +23,9 @@ extern int stupidfs;
 struct dnode
 {
 
-	struct dupeKey
-	{
-		dev_t dev;
-		ino_t ino;
-		bool operator<(const dupeKey &other) const
-		{
-			if(other.dev != dev)
-				return dev<other.dev;
-			return ino < other.ino;
-		}
-	};
-	typedef set<dupeKey> tDupeFilter;
+	typedef pair<dev_t,ino_t> tPairDevIno;
+	typedef set<tPairDevIno> tDupeFilter;
 	
-
 	dnode(dnode *parent) : m_parent(parent) {};
 	bool Walk(IFileHandler *, tDupeFilter*, bool bFollowSymlinks);
 
@@ -63,13 +56,9 @@ bool dnode::Walk(IFileHandler *h, dnode::tDupeFilter *pFilter, bool bFollowSymli
 		auto r=lstat(sPath.c_str(), &m_stinfo);
 		if(r)
 		{
-	/*		errnoFmter f;
-				aclog::err(tSS() << sPath <<
-						" IO error [" << f<<"]");
-						*/
 			return true; // slight risk of missing information here... bug ignoring is safer
 		}
-		// dangling symlink?
+		// yeah, and we ignore symlinks here
 		if(S_ISLNK(m_stinfo.st_mode))
 			return true;
 	}
@@ -86,7 +75,7 @@ bool dnode::Walk(IFileHandler *h, dnode::tDupeFilter *pFilter, bool bFollowSymli
 	// ok, we are a directory, scan it and descend where needed
 
 	// seen this in the path before? symlink cycle?
-	for(dnode *cur=m_parent; cur!=NULL; cur=cur->m_parent)
+	for(dnode *cur=m_parent; cur!=nullptr; cur=cur->m_parent)
 	{
 		if (m_stinfo.st_dev == cur->m_stinfo.st_dev && m_stinfo.st_ino == cur->m_stinfo.st_ino)
 			return true;
@@ -95,12 +84,9 @@ bool dnode::Walk(IFileHandler *h, dnode::tDupeFilter *pFilter, bool bFollowSymli
 	// also make sure we are not visiting the same directory through some symlink construct
 	if(pFilter)
 	{
-		dupeKey thisKey;
-		thisKey.dev=m_stinfo.st_dev;
-		thisKey.ino=m_stinfo.st_ino;
-		if(ContHas(*pFilter, thisKey))
-			return true;
-		pFilter->insert(thisKey);
+		auto key_isnew = pFilter->emplace(m_stinfo.st_dev, m_stinfo.st_ino);
+		if(!key_isnew.second)
+			return true; // visited this before, recursion detected
 	}
 
 //	cerr << "Opening: " << sPath<<endl;
@@ -112,12 +98,12 @@ bool dnode::Walk(IFileHandler *h, dnode::tDupeFilter *pFilter, bool bFollowSymli
 	dnode childbuf(this);
 	bool bRet(true);
 	
-	while ( NULL != (dp = readdir(dir)) )
+	while ( nullptr != (dp = readdir(dir)) )
 	{
 		if (strcmp(dp->d_name, ".") && strcmp(dp->d_name, ".."))
 		{
 			childbuf.sPath=sPath+sPathSepUnix;
-			if(acfg::stupidfs)
+			if(cfg::stupidfs)
 				UrlUnescapeAppend(dp->d_name, childbuf.sPath);
 			else
 				childbuf.sPath+=dp->d_name;
@@ -138,12 +124,29 @@ bool dnode::Walk(IFileHandler *h, dnode::tDupeFilter *pFilter, bool bFollowSymli
 
 
 
-bool DirectoryWalk(const string & sRoot, IFileHandler *h, bool bFilterDoubleDirVisit,
+bool IFileHandler::DirectoryWalk(const string & sRoot, IFileHandler *h, bool bFilterDoubleDirVisit,
 		bool bFollowSymlinks)
 {
-	dnode root(NULL);
+	dnode root(nullptr);
 	dnode::tDupeFilter filter;
 	root.sPath=sRoot; 
-	return root.Walk(h, bFilterDoubleDirVisit ? &filter : NULL, bFollowSymlinks);
+	return root.Walk(h, bFilterDoubleDirVisit ? &filter : nullptr, bFollowSymlinks);
 }
 
+// XXX: create some shortcut? wasting CPU cycles for virtual call PLUS std::function wrapper
+bool IFileHandler::FindFiles(const mstring & sRootDir, IFileHandler::output_receiver callBack, bool bFilterDoubleDirVisit,
+		bool bFollowSymlinks)
+{
+	struct tFileGrabber : public IFileHandler
+	{
+		IFileHandler::output_receiver &m_cb;
+		bool ProcessRegular(cmstring &sPath, const struct stat &st) override { return m_cb(sPath, st);}
+		bool ProcessOthers(cmstring &sPath, const struct stat &) override {return true;};
+		bool ProcessDirAfter(cmstring &sPath, const struct stat &) override {return true;};
+		tFileGrabber(IFileHandler::output_receiver &ret) : m_cb(ret) {}
+	} cb(callBack);
+	return DirectoryWalk(sRootDir, &cb, bFilterDoubleDirVisit, bFollowSymlinks);
+}
+
+
+}

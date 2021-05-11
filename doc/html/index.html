@@ -56,7 +56,7 @@ This manual provides an overview of Apt-Cacher-NG's features and a walk through 
 <li><a href="howtos.html#howtos">Chapter 8: HOWTOs and FAQ</a>
 <ul>
 <li><a href="howtos.html#imp">8.1 Package import</a></li>
-<li><a href="howtos.html#cache-overview">8.2 Cache overview</a></li>
+<li><a href="howtos.html#ssluse">8.2 Access to SSL/TLS remotes (HTTPS)</a></li>
 <li><a href="howtos.html#jigdo">8.3 JIGDO usage</a></li>
 <li><a href="howtos.html#prob-proxy">8.4 Avoid use of apt-cacher-ng for certain hosts</a></li>
 <li><a href="howtos.html#howto-dontcache1">8.5 Avoid caching for certain domains or certain file types</a></li>
@@ -67,17 +67,19 @@ This manual provides an overview of Apt-Cacher-NG's features and a walk through 
 <li><a href="howtos.html#howto-interfaces">8.10 Listen to only specific interfaces or IP protocols</a></li>
 <li><a href="howtos.html#howto-outproto">8.11 How to avoid use of IPv4 (or IPv6) where possible?</a></li>
 <li><a href="howtos.html#howto-acngfs">8.12 Use the proxy without storing all data twice</a></li>
-<li><a href="howtos.html#mirroring">8.13 Partial Mirroring</a></li>
+<li><a href="howtos.html#optproxy">8.13 Optional semi-automatic use of proxy</a></li>
+<li><a href="howtos.html#mirroring">8.14 Partial Mirroring</a></li>
 </ul></li>
 <li><a href="troublefaq.html#troublefaq">Chapter 9: Troubleshooting</a>
 <ul>
 <li><a href="troublefaq.html#debug">9.1 Debugging</a></li>
 <li><a href="troublefaq.html#cleanup-damaged">9.2 Problem: keeps delivering damaged files</a></li>
 <li><a href="troublefaq.html#cleanup-prob">9.3 Problem: regular expiration action reproducibly aborts</a></li>
-<li><a href="troublefaq.html#prob">9.4 Problem: download fails with 503 ... status message</a></li>
-<li><a href="troublefaq.html#prob-freeze">9.5 Problem: <code>apt-get</code> freezes when downloading files</a></li>
-<li><a href="troublefaq.html#prob-bzip2">9.6 <code>apt-get</code> reports corrupted bzip2 data</a></li>
-<li><a href="troublefaq.html#prob-eaddrinuse">9.7 Problem: <code>apt-cacher-ng</code> refuses to start with "Address already in use"</a></li>
+<li><a href="troublefaq.html#sigbus-prob">9.4 Problem: cacher suddenly terminates, log reports IO errors</a></li>
+<li><a href="troublefaq.html#prob">9.5 Problem: download fails with 503 ... status message</a></li>
+<li><a href="troublefaq.html#prob-freeze">9.6 Problem: <code>apt-get</code> freezes when downloading files</a></li>
+<li><a href="troublefaq.html#prob-bzip2">9.7 <code>apt-get</code> reports corrupted bzip2 data</a></li>
+<li><a href="troublefaq.html#prob-eaddrinuse">9.8 Problem: <code>apt-cacher-ng</code> refuses to start with "Address already in use"</a></li>
 </ul></li>
 <li><a href="bugs.html#bugs">Chapter 10: Known Bugs and Limitations</a></li>
 <li><a href="cont.html#cont">Chapter 11: Contact</a></li>
@@ -85,5 +87,5 @@ This manual provides an overview of Apt-Cacher-NG's features and a walk through 
 
 <hr><address>Comments to <a href='mailto:blade@debian.org'>blade@debian.org</a>
 <br>
-[Eduard Bloch, Sat, 08 Oct 2011 23:18:17 +0200]</address></body>
+[Eduard Bloch, Sun, 19 Apr 2015 10:25:49 +0200]</address></body>
 </html>

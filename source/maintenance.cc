@@ -28,6 +28,8 @@ using namespace std;
 
 #define MAINT_HTML_DECO "maint.html" 
 
+namespace acng {
+
 tSpecialRequest::tSpecialRequest(const tRunParms& parms) :
 		m_parms(parms)
 {
@@ -35,13 +37,12 @@ tSpecialRequest::tSpecialRequest(const tRunParms& parms) :
 
 tSpecialRequest::~tSpecialRequest()
 {
+	if(m_bChunkHeaderSent)
+		SendRawData(WITHLEN("0\r\n\r\n"), MSG_NOSIGNAL);
 }
 
 bool tSpecialRequest::SendRawData(const char *data, size_t len, int flags)
 {
-	if(m_parms.fd<3) // nothing raw to send for stdout
-		return true;
-
 	while(len>0)
 	{
 		int r=send(m_parms.fd, data, len, flags);
@@ -53,8 +54,8 @@ bool tSpecialRequest::SendRawData(const char *data, size_t len, int flags)
 				return false;
 		}
 		
-		data+=r;
-		len-=r;
+		data += r;
+		len -= r;
 	}
 	return true;
 }
@@ -80,12 +81,7 @@ void tSpecialRequest::SendChunkRemoteOnly(const char *data, size_t len)
 void tSpecialRequest::SendChunk(const char *data, size_t len)
 {
 	SendChunkRemoteOnly(data, len);
-	AfterSendChunk(data, len);
-}
-
-void tSpecialRequest::EndTransfer() 
-{
-	SendRawData(WITHLEN("0\r\n\r\n"), MSG_NOSIGNAL);
+	SendChunkLocalOnly(data, len);
 }
 
 void tSpecialRequest::SendChunkedPageHeader(const char *httpstatus, const char *mimetype)
@@ -96,6 +92,7 @@ void tSpecialRequest::SendChunkedPageHeader(const char *httpstatus, const char *
 			"Transfer-Encoding: chunked\r\n"
 			"Content-Type: " << mimetype << "\r\n\r\n";
 	SendRawData(s.data(), s.length(), MSG_MORE);
+	m_bChunkHeaderSent = true;
 }
 
 class tAuthRequest : public tSpecialRequest
@@ -115,7 +112,7 @@ public:
         "Not Authorized. Please contact Apt-Cacher NG administrator for further questions.<br>"
         "<br>"
         "For Admin: Check the AdminAuth option in one of the *.conf files in Apt-Cacher NG "
-        "configuration directory, probably /etc/apt-cacher-ng/." ;
+        "configuration directory, probably " CFGDIR  ;
 		SendRawData(authmsg, sizeof(authmsg)-1, 0);
 	}
 };
@@ -140,36 +137,35 @@ public:
 	}
 };
 
-string & tSpecialRequest::GetHostname()
+const string & tSpecialRequest::GetMyHostPort()
 {
-	if (m_sHostname.empty())
+	if(!m_sHostPort.empty())
+		return m_sHostPort;
+
+	struct sockaddr_storage ss;
+	socklen_t slen = sizeof(ss);
+	char hbuf[NI_MAXHOST], pbuf[10];
+
+	if (0 == getsockname(m_parms.fd, (struct sockaddr*) &ss, &slen)
+			&& 0 == getnameinfo((struct sockaddr*) &ss, sizeof(ss), hbuf, sizeof(hbuf), pbuf,
+							sizeof(pbuf), NI_NUMERICHOST | NI_NUMERICSERV))
 	{
-		struct sockaddr_storage ss;
-		socklen_t slen = sizeof(ss);
-		char hbuf[NI_MAXHOST];
+		auto p = hbuf;
+		bool bAddBrs(false);
+		if (0 == strncmp(hbuf, "::ffff:", 7) && strpbrk(p, "0123456789."))
+			p += 7; // no more colons there, looks like v4 IP in v6 space -> crop it
+		else if (strchr(p, (int) ':'))
+			bAddBrs = true; // full v6 address for sure, add brackets
 
-		if (0==getsockname(m_parms.fd, (struct sockaddr *)&ss, &slen) && 0
-				==getnameinfo((struct sockaddr*) &ss, sizeof(ss), hbuf,
-						sizeof(hbuf),
-						NULL, 0, NI_NUMERICHOST))
-		{
-			const char *p=hbuf;
-			bool bAddBrs(false);
-			if(0==strncmp(hbuf, "::ffff:", 7) && strpbrk(p, "0123456789."))
-				p+=7; // no more colons there, looks like v4 IP in v6 space -> crop it
-			else if(strchr(p, (int) ':'))
-				bAddBrs=true; // full v6 address for sure, add brackets
-
-			if(bAddBrs)
-				m_sHostname="[";
-			m_sHostname+=p;
-			if(bAddBrs)
-				m_sHostname+="]";
-		}
+		if (bAddBrs)
+			m_sHostPort = string("[") + p + "]";
 		else
-			m_sHostname="IP-of-this-cache-server";
+			m_sHostPort = p;
+		m_sHostPort += (":" + cfg::port);
 	}
-	return m_sHostname;
+	else
+		m_sHostPort = "IP-of-this-cache-server:" + cfg::port;
+	return m_sHostPort;
 }
 
 LPCSTR tSpecialRequest::GetTaskName()
@@ -195,8 +191,11 @@ LPCSTR tSpecialRequest::GetTaskName()
 	case workMIRROR: return "Archive Mirroring";
 	case workDELETE: return "Manual File Deletion";
 	case workDELETECONFIRM: return "Manual File Deletion (Confirmed)";
+	case workTRUNCATE: return "Manual File Truncation";
+	case workTRUNCATECONFIRM: return "Manual File Truncation (Confirmed)";
 	case workCOUNTSTATS: return "Status Report With Statistics";
 	case workSTYLESHEET: return "CSS";
+	// case workJStats: return "Stats";
 	}
 	return "SpecialOperation";
 }
@@ -225,7 +224,7 @@ tSpecialRequest::eMaintWorkType tSpecialRequest::DispatchMaintWork(cmstring& cmd
 		return workSTYLESHEET;
 
 	// not starting like the maint page?
-	if(cmd.compare(spos, wlen, acfg::reportpage))
+	if(cmd.compare(spos, wlen, cfg::reportpage))
 		return workNotSpecial;
 
 	// ok, filename identical, also the end, or having a parameter string?
@@ -236,11 +235,17 @@ tSpecialRequest::eMaintWorkType tSpecialRequest::DispatchMaintWork(cmstring& cmd
 	// means needs authorization
 
 	// all of the following need authorization if configured, enforce it
-	switch(acfg::CheckAdminAuth(auth))
+	switch(cfg::CheckAdminAuth(auth))
 	{
-	case 0: break; // auth is ok or no passwort is set
-	case 1: return workAUTHREQUEST;
-	default: return workAUTHREJECT;
+     case 0:
+#ifdef HAVE_CHECKSUM
+        break; // auth is ok or no passwort is set
+#else
+        // most data modifying tasks cannot be run safely without checksumming support 
+        return workAUTHREJECT;
+#endif
+     case 1: return workAUTHREQUEST;
+     default: return workAUTHREJECT;
 	}
 
 	struct { LPCSTR trigger; tSpecialRequest::eMaintWorkType type; } matches [] =
@@ -255,9 +260,12 @@ tSpecialRequest::eMaintWorkType tSpecialRequest::DispatchMaintWork(cmstring& cmd
 			{"doMirror=", workMIRROR},
 			{"doDelete=", workDELETECONFIRM},
 			{"doDeleteYes=", workDELETE},
+			{"doTruncate=", workTRUNCATECONFIRM},
+			{"doTruncateYes=", workTRUNCATE},
 			{"doCount=", workCOUNTSTATS},
 			{"doTraceStart=", workTraceStart},
-			{"doTraceEnd=", workTraceEnd}
+			{"doTraceEnd=", workTraceEnd},
+//			{"doJStats", workJStats}
 	};
 	for(auto& needle: matches)
 		if(StrHasFrom(cmd, needle.trigger, epos))
@@ -267,12 +275,15 @@ tSpecialRequest::eMaintWorkType tSpecialRequest::DispatchMaintWork(cmstring& cmd
 	return workMAINTREPORT;
 }
 
-tSpecialRequest* tSpecialRequest::MakeMaintWorker(const tRunParms& parms)
+tSpecialRequest* tSpecialRequest::MakeMaintWorker(tRunParms&& parms)
 {
+	if(cfg::DegradedMode() && parms.type != workSTYLESHEET)
+		parms.type = workUSERINFO;
+
 	switch (parms.type)
 	{
 	case workNotSpecial:
-		return NULL;
+		return nullptr;
 	case workExExpire:
 	case workExList:
 	case workExPurge:
@@ -297,22 +308,33 @@ tSpecialRequest* tSpecialRequest::MakeMaintWorker(const tRunParms& parms)
 		return new pkgmirror(parms);
 	case workDELETE:
 	case workDELETECONFIRM:
-		return new tDeleter(parms);
+		return new tDeleter(parms, "Delet");
+	case workTRUNCATE:
+	case workTRUNCATECONFIRM:
+		return new tDeleter(parms, "Truncat");
 	case workSTYLESHEET:
 		return new tStyleCss(parms);
+#if 0
+	case workJStats:
+		return new jsonstats(parms);
+#endif
 	}
-	return NULL;
+	return nullptr;
 }
 
-void tSpecialRequest::RunMaintWork(eMaintWorkType jobType, cmstring& cmd, int fd)
+void tSpecialRequest::RunMaintWork(eMaintWorkType jobType, cmstring& cmd, int fd, ISharedConnectionResources *dlResProvider)
 {
-	MYTRY {
+	LOGSTARTFUNCsx(jobType, cmd, fd);
+
+	try {
 		SHARED_PTR<tSpecialRequest> p;
-		p.reset(MakeMaintWorker({fd, jobType, cmd}));
+		p.reset(MakeMaintWorker({fd, jobType, cmd, dlResProvider}));
 		if(p)
 			p->Run();
 	}
-	MYCATCH(...)
+	catch(...)
 	{
 	}
+}
+
 }

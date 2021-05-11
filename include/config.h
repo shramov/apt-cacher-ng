@@ -1,52 +1,60 @@
-
+/**
+ * Most basic configuration preparation for the project build, after reading auto-config variables
+ * and preparing internal configuration bits from that.
+ */
 #ifndef __CONFIG_H_
 #define __CONFIG_H_
 
 #include "acsyscap.h"
 
-#define ACVERSION "0.8.0rc1"
+// safe fallbacks, should be defined by build system
+#ifndef ACVERSION
+#define ACVERSION "0.custom"
+#endif
+#ifndef CFGDIR
+#define CFGDIR "/usr/local/etc/apt-cacher-ng"
+#endif
+#ifndef LIBDIR
+#define LIBDIR "/usr/local/lib/apt-cacher-ng"
+#endif
 
 #define __STDC_FORMAT_MACROS
-#include <inttypes.h>
-#include <climits>
 
-#ifdef HAVE_MEMORY_SPTR
-#include <memory>
-#define SMARTPTR_SPACE std
-#elif defined HAVE_TR1_MEMORY
-#include <tr1/memory>
-#define SMARTPTR_SPACE std::tr1
-#elif defined HAVE_BOOST_SMARTPTR
-#include <boost/smart_ptr.hpp>
-#define SMARTPTR_SPACE boost
-#else
-#error Unable to find smart pointer implementation, install Boost or recent compiler with STL containing TR1 components. Set BOOSTDIR in Makefile if needed.
-#endif
-
-// make off_t be a 64 bit type
 // added in Makefile... #define _FILE_OFFSET_BITS 64
 
-#define SHARED_PTR SMARTPTR_SPACE::shared_ptr
-#define INTRUSIVE_PTR SMARTPTR_SPACE::intrusive_ptr
-#define WEAK_PTR SMARTPTR_SPACE::weak_ptr
-#define SCOPED_PTR std::auto_ptr
+namespace acng
+{
 
-#ifdef NO_EXCEPTIONS
-#define MYTRY
-#define MYCATCH(x) if(false)
+#define SHARED_PTR std::shared_ptr
+#define WEAK_PTR std::weak_ptr
+
+#if defined _WIN32 || defined __CYGWIN__
+  #define ACNG_SO_IMPORT __declspec(dllimport)
+  #define ACNG_SO_EXPORT __declspec(dllexport)
+  #define ACNG_SO_LOCAL
 #else
-#define MYTRY try
-#define MYCATCH catch
+  #if __GNUC__ >= 4
+    #define ACNG_SO_IMPORT __attribute__ ((visibility ("default")))
+    #define ACNG_SO_EXPORT __attribute__ ((visibility ("default")))
+    #define ACNG_SO_LOCAL  __attribute__ ((visibility ("hidden")))
+  #else
+    #define ACNG_SO_IMPORT
+    #define ACNG_SO_EXPORT
+    #define ACNG_SO_LOCAL
+  #endif
 #endif
 
-#ifndef PATH_MAX
-#define PATH_MAX 4096
-#endif
+#ifdef ACNG_CORE_IN_SO
+  #ifdef supacng_EXPORTS // defined by cmake for shared lib project
+    #define ACNG_API ACNG_SO_EXPORT
+  #else
+    #define ACNG_API ACNG_SO_IMPORT
+  #endif // ACNG_DLL_EXPORTS
+  #define ACNG_LOCAL ACNG_SO_LOCAL
+#else // ACNG_DLL is not defined, code is built in as usual
+  #define ACNG_API
+  #define ACNG_LOCAL
+#endif // ACNG_DLL
 
-#define ENEMIESOFDOSFS "?[]\\=+<>:;#"
-
-//! Time after which the pooled sockets are considered EOLed
-#define TIME_SOCKET_EXPIRE_CLOSE 33
-
+}
 #endif // __CONFIG_H
-

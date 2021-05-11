@@ -1,14 +1,64 @@
+Features:
+
+DontCache mode might causes hanging when the filter matches some files and some not:
+
+Fehl:1 http://packages.microsoft.com/repos/vscode stable InRelease
+  503  Cache storage error - Permission denied/var/cache/apt-cacher-ng/packages.microsoft.com/repos/vscode/dists/stable/InRelease [IP: ::1 3142]
+  Holen:2 http://security.debian.org jessie/updates InRelease [63,1 kB]                             
+  OK:3 http://ftp2.de.debian.org/debian experimental InRelease                                                
+  Holen:4 http://security.debian.org jessie/updates/main Sources [222 kB]                                                     
+  Ign:5 http://archive.zfsonlinux.org/debian jessie InRelease                                                                   
+  Ign:6 http://www.scootersoftware.com bcompare4 InRelease                                          
+  Holen:7 http://security.debian.org jessie/updates/main amd64 Packages [444 kB]
+  Fehl:8 http://www.scootersoftware.com bcompare4 Release                                                  
+    503  Cache storage error - Permission denied/var/cache/apt-cacher-ng/www.scootersoftware.com/dists/bcompare4/Release [IP: ::1 3142]
+    Holen:9 http://security.debian.org jessie/updates/main i386 Packages [444 kB]                            
+    Fehl:10 http://archive.zfsonlinux.org/debian jessie Release                                         
+      404  Not Found [IP: ::1 3142]
+      0% [Warten auf Kopfzeilen]^C    
+
 
 TODO:
 
-Fix URL parser to cope with more combinations of encoded chars (specially in user:pass part)
+Redesign the config file format to add sections for remap-stuff instead of pushing everything into the same config line.
+Basic idea: git-config extended ini format.
 
-Use Base64 pre-encoded userpass strings in host descriptors and proxy information
+Better cleanup for orphaned .gpg files
+
+IDEA: create a special control socket, ACLed by local permissions. Requests
+coming from there would be considered as ultimately thrusted and go directly to
+the maintenance handlers (i.e. alternative reportpage access only for local
+administrator even when report page is disabled).
+
+IDEA: a special control command for acng/acngtool to rebind local TCP interfaces.
+For https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=786717
+
+IDEA (for nextgen): pre-fallocate the subsequent block of contiguous space in
+chunks of less than 1mb size (repeatedly, when the first region was written)
+
+Raw pass-throough of Location: addresses as long as they follow the minimum
+safety rules, for web services that apply strange rules WRT validation of such
+redirections (https://bugs.launchpad.net/bugs/1625928)
+
+Add a special cleanup page (or just a special mode of Expiration task which
+does not abort on errors and does not remove stuff) which focuses on the
+distro expiration issue.
+
+Add custom job trigger with a command file plus fifo file (for output). This
+might be triggered by SIGUSR2.
+
+Fix URL parser to cope with more combinations of encoded chars (specially in user:pass part)
 
 Make better secure mechanism to trigger maint jobs. The current one requires faked website authentication, etc.
 Should use local methods instead, maybe passing a config file with commands via
 filesystem which is only readable/writtable to apt-cacher-ng and push it via
 signal?
+
+Local storage of admin password shall use hashing, maybe PBKDF2 from OpenSSL
+
+Direct NTLM proxy authentication (user can use cntlm but internal solution would be nice)
+
+Investigate more on Fedora mirror management, improve mirror list generation
 
 No cancel button in attached mode of maint pages
 
@@ -61,6 +111,3 @@ For 0.9:
 
  - write installation makefile target
 
-For 1.0:
-
-list the last error messages in the summary of maint logs

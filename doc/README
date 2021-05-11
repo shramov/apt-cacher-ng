@@ -98,11 +98,13 @@ Chapter 3: Basic Configuration
        replacement for apt-cacher. The same rules apply, e.g. Debian/Ubuntu
        users should EITHER:
 
-        -  Specify the caching machine as HTTP Proxy for APT, e.g.
-           putting a line like the following into a file like
-           /etc/apt/apt.conf.d/02proxy:
+        -  Specify the caching machine as HTTP Proxy for your download
+           client. This can be usually done (temporarily) with the
+           environment variable `http_proxy' or (permanently) in some
+           configuration file or dialog. For APT, this means putting a line
+           like the following into a file like /etc/apt/apt.conf.d/02proxy:
 
-             Acquire::http { Proxy "http://CacheServerIp:3142"; };
+             Acquire::http::proxy "http://CacheServerIp:3142";
 
        OR:
 
@@ -118,14 +120,29 @@ Chapter 3: Basic Configuration
         (assuming that CacheServerIp is 192.168.0.17 and the service port
        is 3142) .
 
-       Mixing both configuration methods is not recommended and will lead
-       to obscure APT failures in most cases.
+       These both methods have their own pros and cons. The last method can
+       be used with clients which cannot configure an additional http proxy
+       for some reason. The disadvantages are the worse progress visibility
+       (all downloads seem to come from the same machine) and some resource
+       usage limits might be hit (i.e. maximum number of simultaneous
+       downloads from the "same" machine). It might also require to modify
+       many different URLs and some of those URLs might be hardcoded in
+       software and not be accessible to the user.
 
-       Additionally, leading path component containing "apt-cacher/"
-       or "apt-cacher?/" might be ignored by the server during the URL
-       processing. This is intended behavior and exists to maintain
-       backwards compatibility to sources.list entries configured for early
-       versions of Apt-Cacher (based on CGI technology).
+       The former method is more convenient since it usually means less
+       configuration work; however, it implies that all relevant client
+       programs respect the proxy setting and use it from this central
+       location.
+
+       Mixing the configuration methods is usually possible but not within
+       the same client program instance. Doing that (going with proxy mode
+       AND use rewritten URLs) will probably confuse the server: in best-
+       case, the connection will be slower because of a little transport
+       loop on the server side, and in the worst-case, the target URL will
+       eventually become not resolvable and the downloads will just fail.
+
+       Using SSL/TLS transport (i.e. https urls) is also possible with some
+       restrictions, see section 8.2 for details.
 
 Chapter 4: Advanced Server Configuration
 ----------------------------------------
@@ -140,12 +157,13 @@ Chapter 4: Advanced Server Configuration
            per line (a more complex RFC822-like format is also supported).
            Used for URL remapping; see section 4.3.
 
-        -  "Volatile files": nothing to do with debian-volatile, volatile
-           here only means that they are volatile, i.e. their contents are
-           expected to be regularly changed on the server. For example,
-           metadata pertaining to package files stored in a remote archive
-           is classified as 'volatile'. They are usually 'index files'
-           known as Packages, Sources, Release, Pdiff and the like.
+        -  "Volatile files": files with changing contents on the server
+           while keeping the same URL (i.e. the same filename and
+           location). For example, metadata pertaining to package files
+           stored in a remote archive is classified as 'volatile'. They
+           are usually 'index files' known as Packages, Sources, Release,
+           Pdiff and the like, and maybe also associated extra data (like
+           translations and thumbnail icons).
 
         -  "Package files": files that contain software packages and other
            "solid" data: DEBs, source files for their creation (.tar.gz,
@@ -153,8 +171,10 @@ Chapter 4: Advanced Server Configuration
            after first appearance on the server.
 
         -  "Configuration line": one single line in the configuration file.
-           Some examples in this chapter may contain wrapped lines but
-           should be stored as a single line in the configuration.
+           Some examples in this chapter may be displayed as wrapped lines
+           but should be stored as a single line in the configuration. Some
+           variables (like `RequestAppendix') support multiline data which
+           needs to be separated with \n delimiter.
 
    4.2 Configuration file types
 
@@ -386,7 +406,7 @@ Chapter 4: Advanced Server Configuration
            .debdelta files. The path hierarchy below this URL should
            correspond to the source URLs and file paths in the cache. Only
            one URL can be specified at the moment. It is used for explicit
-           mirroring operations, see section 8.13 for details.
+           mirroring operations, see section 8.14 for details.
 
         -  `proxy=proxyspec' Configures an alternative proxy URL which
            overrides the global proxy setting in the context of this
@@ -476,7 +496,7 @@ Chapter 5: Security
 
    5.3 Access control with inetd
 
-       In some situations, access filtering by client IP/hostname might
+       In some situations, access filtering by client IP or hostname might
        be not supported directly or there are other reasons to use inetd
        to wrap access to apt-cacher inetd. For this case, an inetd daemon
        is shipped with the package which makes the use of tcpd possible.
@@ -511,7 +531,7 @@ Chapter 5: Security
        (or any init script like `/etc/rc.local'):
 
          iptables -A INPUT -p tcp --dport 3142 --source 127.0.0.0/8 -j ACCEPT
-         iptables -A INPUT -p tcp --dport 3142 --source 192.168.0.0.0/16 -j ACCEPT
+         iptables -A INPUT -p tcp --dport 3142 --source 192.168.0.0/16 -j ACCEPT
          iptables -A INPUT -p tcp --dport 3142  -j REJECT --reject-with tcp-reset
 
    5.5 Target port filter
@@ -727,13 +747,13 @@ Chapter 7: Maintenance
 
  7.1.2 Automated cache cleanup
 
-       A script called `expire-caller.pl' is shipped with the package. This
-       script effectively implements a HTTP client which operates like a
-       human would do when running the expiration manually (see above). It
-       can also extract the operator password and unix socket file path
-       from the local configuration file. On Debian installations it is
-       called by the file `/etc/cron.daily/apt-cacher-ng' so it should
-       run automatically as daily `cron' task. The results are usually
+       A program called `acngtool' is shipped with the package. Among other
+       functionality, this tool effectively implements a HTTP client which
+       operates like a human who runs the expiration manually (see above).
+       If needed, it would read the admin credentials and unix socket file
+       path from the local configuration files. On Debian installations it
+       is called by the file `/etc/cron.daily/apt-cacher-ng' so it should
+       run automatically as a daily `cron' task. The results are usually
        not reported unless an error occurs, in which case some hints are
        written to the standard error output (i.e. sent in cron mails).
 
@@ -742,11 +762,6 @@ Chapter 7: Maintenance
        operation with default parameters and with credentials from local
        system's apt-cacher-ng installation. However, this can be changed
        with `ACNGREQ' variable.
-
-       `DEBUG=1'
-
-           If set to non-empty and not 0, the temporary HTML output is
-           reported to the console. For debugging purposes only.
 
        `ACNGIP=10.0.1.3'
 
@@ -766,9 +781,9 @@ Chapter 7: Maintenance
 
        `ACNGREQ=cgiparameters'
 
-           Override the auto-detected command parameters with a custom set.
-           This is the part of a command URL from the management interface
-           after the ? sign.
+           Override the auto-detected command parameters with a custom
+           query string. This is the part of a command URL from the
+           management interface after the ? sign.
 
  7.1.3 Keeping latest versions of expired package files
 
@@ -801,16 +816,14 @@ Chapter 7: Maintenance
        finally unreferenced files will be removed.
 
        To speed up this process, the local administrator can remove the
-       traces of the old distribution release from the archive. Either
+       index files of the old distribution release from the archive. Either
        the top-level "Release" files, or even the whole index file trees
        relevant for certain releases.
 
-       To make this task easier, a "brutal" script called distkill.pl is
-       shipped with apt-cacher-ng. It runs interactively, it scans the
-       package directory and presents an overview of index file trees
-       assumed to represent distro releases. Then it provides a command
-       promt to remove some immediately. The script should be used with
-       extreme care! See section 8.2 for example of its output.
+       To make this task easier, there is a special helper mode in the
+       cleanup task of the maintenance page. Run this manually (and maybe
+       enable extra verbosity on the main page) and use the wizard on the
+       bottom of the log page to delete particular index files.
 
 Chapter 8: HOWTOs and FAQ
 -------------------------
@@ -843,14 +856,14 @@ Chapter 8: HOWTOs and FAQ
 
         2. Store copies of your .debs, .orig.tar.gz, ... somewhere in the
            `_import' subdirectory in the cache, ie. in `/var/cache/apt-
-           cacher/_import/'. The files may be links or symlinks, does not
-           matter. When done, apt-cacher will move those files to its own
-           internal locations. Example:
+           cacher-ng/_import/'. The files may be links or symlinks, it does
+           not matter. When done, apt-cacher will move those files to its
+           own internal locations. Example:
 
              cd /var/cache
              mkdir apt-cacher-ng/_import
              cp -laf apt-proxy apt-cacher /var/cache/apt-cacher-ng/_import
-             chown -R apt-cacher-ng apt-cacher-ng/_import
+             chown -R apt-cacher-ng:apt-cacher-ng apt-cacher-ng/_import
 
         3. Visit the report page and trigger the import action there. Check
            the results, look for (red) error messages.
@@ -885,51 +898,87 @@ Chapter 8: HOWTOs and FAQ
        on the client to purge APT's internal cache, and then rerun "apt-get
        update" there.
 
-   8.2 Cache overview
+   8.2 Access to SSL/TLS remotes (HTTPS)
 
-       To get a basic overview of the cache contents, the distkill.pl
-       script may be used. See section 7.2 for details and warnings.
+       It is possible to have encrypted access to remote sites via HTTPS
+       protocol with recent versions of apt-cacher-ng if the OpenSSL
+       support was enabled at compile time. However this leads certain side
+       effects and complications; due to the nature of the HTTPS connection
+       model, it is not possible to act as an intermediate server (e.g.
+       caching proxy) by the same rules as with HTTP:
 
-         # /usr/lib/apt-cacher-ng/distkill.pl
-         Scanning /var/cache/apt-cacher-ng, please wait...
-         Found distributions:
-         	1. testing (6 index files)
-         	2. sid (63 index files)
-         	3. etch-unikl (30 index files)
-         	4. etch (30 index files)
-         	5. experimental (505 index files)
-         	6. lenny (57 index files)
-         	7. unstable (918 index files)
-         	8. stable (10 index files)
-         
-         WARNING: The removal action would wipe out whole directories containing
-                  index files. Select d to see detailed list.
-         
-         Which distribution to remove? (Number, 0 to exit, d for details): d
-         
-         Directories to remove:
-          1. testing: 
-           /var/cache/apt-cacher-ng/debrep/dists/testing 
-          2. sid: 
-           /var/cache/apt-cacher-ng/localstuff/dists/sid 
-           /var/cache/apt-cacher-ng/debrep/dists/sid 
-          4. etch: 
-           /var/cache/apt-cacher-ng/ftp.debian-unofficial.org/debian/dists/etch 
-          5. experimental: 
-           /var/cache/apt-cacher-ng/debrep/dists/experimental 
-          6. lenny: 
-           /var/cache/apt-cacher-ng/security.debian.org/dists/lenny 
-           /var/cache/apt-cacher-ng/debrep/dists/lenny 
-          7. unstable: 
-           /var/cache/apt-cacher-ng/debrep/dists/unstable 
-           /var/cache/apt-cacher-ng/localstuff/debian/dists/unstable 
-          8. stable: 
-           /var/cache/apt-cacher-ng/debrep/dists/stable 
-         Found distributions:
-         
-         WARNING: The removal action would wipe out whole directories containing
-                  index files. Select d to see detailed list.
-         
+        -  SSL ensures strict verification of remote host name. Therefore,
+           you cannot add an URL to sources.list and make them point to
+           "hostname of acng server": the download client would expect
+           the remote site to offer the certificate of "hostname of acng
+           server" but the certificate of the remote server would be used.
+
+        -  This restriction also applies if the LAN admin somehow manages
+           to trick the client that it connects to the remote site but
+           the real connection is silently rerouted to the local server:
+           since the proxy in the middle cannot fake the real certificate
+           it would need to create a custom one but that manipulation
+           usually cannot go unnoticed by the client unless some local hack
+           disables or manipulates the certificate verification. All parts
+           of this should be considered a crude hack and won't be described
+           here in detail. In fact, apt-cacher-ng does not implement local
+           SSL server functionality (as of version 0.8.1), partly because
+           of these considerations.
+
+        -  If the client assumes that it needs to access a HTTPS remote
+           server through a HTTP proxy, it usually goes for the HTTP
+           tunneling (see the Wikipedia article for details). This is
+           a well-known and widely-used method but it comes with some
+           disadvantages: the proxy has no control of the data flowing
+           through it so the proxy cannot cache the data in any useful way;
+           in environments with additional security restrictions, it's also
+           hard to identify malicious users that abuse the service for
+           illegitimate purposes.
+
+       Considering these difficulties, there are three (and a half) methods
+       to use SSL.
+
+        -  First, the "half method" - not using the proxy at all,
+           configuring each client to not use the HTTP proxy for HTTPS
+           urls. This will obviously disable central caching and requires
+           the client has separated configuration options to set this. For
+           Debian based distros, this can be done by adding a configuration
+           like this: `Acquire::https::proxy "DIRECT";' to apt.conf or
+           one of the apt.conf.d files. See section 8.4 for further
+           information.
+
+        -  The "backend configuration method": if the clients access the
+           remote sites through URLs remapped on the server, the cacher
+           admin can add https URLs to backend lists instead of http urls.
+           Data will be cached just like usual.
+
+        -  The "laissez-faire method": in acng.conf (or related) configure
+           the `PassThroughPattern' option to contain a regex like `.*'
+           and configure the clients to use apt-cacher-ng as HTTP proxy
+           and let the clients connect to https URLs "as usual". Some
+           limited access control can be achieved through adjustment of the
+           regular expression (.* permits access to any host and any port,
+           including 443 for https). Data is not cached on the server.
+
+        -  The "tell-me-what-you-need method": on the client side, modify
+           the access URLs and change https to http and put the string
+           "HTTPS///" between http:// and the host name. With this trick,
+           the user client will access the proxy like going for a usual
+           HTTP download and the proxy will access the remote URL with
+           the https protocol. Caching (and file merging to repositories)
+           will work and there is still enough flexibility for the users.
+           The disadvantages of this method are basically the same as with
+           the access URLs rewriting (see Section 3.2) but the method is
+           still the preferred one by the apt-cacher-ng author. For apt's
+           sources.list, the modification may look like the following
+           example.
+
+         deb http://HTTPS///get.docker.com/ubuntu docker main
+         # If apt-cacher-ng is configured as proxy in APT, this makes it
+         # switch internally to https://get.docker.com/ubuntu
+         deb http://acnghost:3142/HTTPS///get.docker.com/ubuntu docker main
+         # Basically the same just with access to apt-cacher-ng through
+         # URL rewritting instead of setting http proxy.
 
    8.3 JIGDO usage
 
@@ -1031,15 +1080,15 @@ Chapter 8: HOWTOs and FAQ
        removed.
 
        A possible variation is import via symlinks. This can make sense
-       when the space consumption must be reduced and the ISO image should
+       where the space consumption must be reduced and the ISO image should
        stay on the server for a long time. To achive this, the image should
-       be mounted at some mount point outside of the `_import' directory,
-       the state should be set permanently via an /etc/fstab entry (don't
-       forget the loop option), then a symlink tree pointing to the
-       mountpoint location should be created in the `_import' directory
-       (something like `cp -as /mnt/image_sarge_01/pool /var/cache/apt-
-       cacher-ng/_import'). The subsequent "import" operation should pick
-       up the symlinks and keep them symlinks instead of making file
+       be mounted at some mount point outside of the `_import' directory;
+       the mounted state should be made permanent, maybe via an /etc/fstab
+       entry with the loop option; then a symbolic link tree pointing to
+       the mountpoint location should be created in the `_import' directory
+       (something like `cp -as /mnt/image_jessie_01/pool /var/cache/apt-
+       cacher-ng/_import/'). The subsequent "import" operation should pick
+       up the symlinks and continue using them as links istead of file
        copies.
 
    8.9 How to execute commands before and after going online?
@@ -1115,7 +1164,40 @@ Chapter 8: HOWTOs and FAQ
        acngfs parameters, and then it gets files directly from the cache if
        they are completely downloaded and don't have volatile contents.
 
-  8.13 Partial Mirroring
+  8.13 Optional semi-automatic use of proxy
+
+       Apt-Cacher NG daemon has some optional operations modes regading the
+       use of external proxy (configured with "Proxy" setting). The default
+       mode means use of that proxy for all remote connections.
+
+       However, in some environments like when running on a portable
+       system, the "upstream" proxy server may not reachable when running
+       outside of home LAN area. For this situation, there are automated
+       ways to detect it and to switch to direct internet access without
+       additional configuration work.
+
+       One way is to use a (short) timeout value (OptProxyTimeout setting)
+       which simply makes a failed connection attempt after the timeout
+       being interpret as broken proxy. Then the proxy is not used
+       in context of this connection until a new connection is to be
+       established. If OptProxyCheckInterval is set (see below) then this
+       change is effective for the configured time span.
+
+       Another way is through a custom (shell) command - when it returns
+       successfully, the proxy is used, otherwise not and the command
+       will be rerun only after a specified period. The command may
+       check IP routes or a specific router address in the MAC pool
+       or similar traces of the current environment. This setting
+       (OptProxyCheckCommand) is also affected by another option
+       (OptProxyCheckInterval) that specifies how often this check command
+       shall be rerun. In the meantime, the configured proxy is considered
+       faulty.
+
+       Hint: this special modes can be combined with non-caching behavior
+       (see above) and another ACNG proxy in the home LAN to get smart
+       caching for laptop users.
+
+  8.14 Partial Mirroring
 
        It is possible to create a partial local mirror of a remote package
        repository. The method to do this is usually known as pre-caching. A
@@ -1170,7 +1252,7 @@ Chapter 9: Troubleshooting
 
         -  4: extra debug information is written to apt-cacher.err (also
            enables lots of additional trace points when apt-cacher-ng
-           binary is built with debug configuration, see section 9.5 for
+           binary is built with debug configuration, see section 9.6 for
            details)
 
        To combine that settings, add them (i.e. 7 enables all messages and
@@ -1239,7 +1321,30 @@ Chapter 9: Troubleshooting
        configuration directory and store one path name per line with paths
        relative to the cache directory, as seen in the error messages.
 
-   9.4 Problem: download fails with 503 ... status message
+   9.4 Problem: cacher suddenly terminates, log reports IO errors
+
+       For simplicity and memory saving reasons, apt-cacher-ng assumes that
+       some files can be opened exclusively for reading and they don't
+       suddenly become unreadable. Unfortunatelly, in some conditions and
+       in case of IO errors, this doesn't work and the file systems sends a
+       fatal signal and eventually terminates the program.
+
+       To track this down to the likely reasons, it's possible to execute a
+       custom script in the moment of the reception of the fatal signal. To
+       do that, add something like this to the configuration:
+
+         BusAction = ls -l /proc/$PPID/ | mail -s SIGBUS! root
+
+       This command would send a list of opened files with paths to the
+       "root" mail user, and the root shall check the state of those files
+       (maybe run them through md5sum or similar).
+
+       NOTE: Beware of the security implications of this configuration
+       option. It runs regular shell code in context of the daemon user in
+       a blocking way, so it may be vulnerable to symlink attacks and it
+       will delay the automatic restart of the daemon through systemd.
+
+   9.5 Problem: download fails with 503 ... status message
 
        Code 503 usually represents an internal failure which could not be
        described correctly by other HTTP status codes. In the most cases
@@ -1261,7 +1366,7 @@ Chapter 9: Troubleshooting
           chown -R apt-cacher-ng:apt-cacher-ng /var/cache/apt-cacher-ng
           chmod -R a+rX,g+rw,u+rw /var/cache/apt-cacher-ng
 
-   9.5 Problem: `apt-get' freezes when downloading files
+   9.6 Problem: `apt-get' freezes when downloading files
 
        Solution: First, check:
 
@@ -1280,9 +1385,9 @@ Chapter 9: Troubleshooting
            apt-get source apt-cacher-ng
            apt-get build-dep apt-cacher-ng
            cd apt-cacher-ng-*
-           make distclean all DEBUG=1
+           ./build.sh DEBUG
            /etc/init.d/apt-cacher-ng stop
-           ./apt-cacher-ng -c /etc/apt-cacher-ng logdir=/tmp foreground=1 debug=7
+           builddir/apt-cacher-ng -c /etc/apt-cacher-ng logdir=/tmp foreground=1 debug=7
            # (let apt-get run now, on timeouts just wait >> 20 seconds)
            # stop the daemon with Ctrl-C
            /etc/init.d/apt-cacher-ng start
@@ -1292,7 +1397,7 @@ Chapter 9: Troubleshooting
        The value of debug can be varied to have different verbosity (see
        section 9.1 for more information about Debug levels).
 
-   9.6 `apt-get' reports corrupted bzip2 data
+   9.7 `apt-get' reports corrupted bzip2 data
 
        Symptoms: apt-get fails to run through "update" no matter what you
        do. And you may have get a message like this one.
@@ -1322,7 +1427,7 @@ Chapter 9: Troubleshooting
            "immediate deletion" (or delete later after checking the list).
            See section 7.1.1 for details.
 
-   9.7 Problem: `apt-cacher-ng' refuses to start with "Address already in
+   9.8 Problem: `apt-cacher-ng' refuses to start with "Address already in
        use"
 
        Another service is already listening on the port which apt-cacher-ng
@@ -1344,26 +1449,30 @@ Chapter 9: Troubleshooting
 Chapter 10: Known Bugs and Limitations
 --------------------------------------
 
-        -  Versions between 0.2.6 and 0.3.3 created broken X-Original-
-           Source URLs in the .head files. The effects should be
-           negligible.
-
         -  Only the "Basic" type of HTTP proxy authentication is supported
            at the moment
 
-        -  Only HTTP HEAD and GET commands are supported properly. POST
-           support is limited to the calls made by apt-listbugs and might
-           garble some requests.
+        -  Only HTTP HEAD and GET commands are supported properly.
+
+        -  CONNECT (for https/SSL/TLS tunnels) is supported but needs to be
+           enabled by local administrators, see section 8.2 for details
+
+        -  POST support is restricted to apt-listbugs actions and is
+           actually implemented as simple data forwarding with minor header
+           manipulation. If additional proxy is configured, the client will
+           be redirected to the HTTPS version of bugs.debian.org service,
+           i.e. switching to the CONNECT method (see above)
 
         -  Transparent proxy mode not implemented yet
 
         -  The metadata update in maintenance jobs (like expiration task)
            attempts to guess the best source of update based on original
-           source information and current backend configuration. In case of
-           failure, run a "forced" download of index files through the web
-           interface.
+           source information and current backend configuration. In case
+           of repeating failures, please run a "forced" download of index
+           files through the web interface
 
-        -  See TODO file in apt-cacher-ng source for various other notes
+        -  See TODO file in apt-cacher-ng source for more related
+           information
 
 Chapter 11: Contact
 -------------------
@@ -1372,10 +1481,10 @@ Chapter 11: Contact
        contact the author if you really need something not found there and
        you can explain the severity of your request.
 
-       There is also a public mailing list and request trackers available
+       There are also a public mailing list and request trackers available
        on the Alioth project page.
 
        And last, but not least: feel free to express your gratitude by
        donating a small amount of money via PayPal (to edi@gmx.de).
 
-[Eduard Bloch, Sat, 08 Oct 2011 23:18:17 +0200]
+[Eduard Bloch, Sun, 19 Apr 2015 10:25:49 +0200]

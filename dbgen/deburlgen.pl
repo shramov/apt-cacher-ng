@@ -20,7 +20,7 @@ while(<>)
    {
       my $key=$1;
       my $value=$2;
-      push(@hosts, split(/\s/, $value)) if($key eq "Site" || $key eq "Includes");
+      push(@hosts, split(/\s/, $value)) if($key eq "Site" || $key eq "Includes" || $key eq "Alias");
       push(@pathsdeb, $value) if($key eq $arkey);
    }
    elsif(@hosts)
@@ -36,5 +36,12 @@ while(<>)
 }
 
 print "http://$_\n" foreach (sort(keys %fddset));
+
+foreach(sort(keys %fddset))
+{
+	next if !/^ftp(\.\w\w\.debian\.org.*)/;
+	print "http://ftp2$1\n";
+	print "http://ftp3$1\n";
+}
 
 exit ! (scalar keys %fddset);

@@ -6,10 +6,35 @@
 #include "config.h"
 #include "fileio.h"
 #include "acbuf.h"
-
+#include "acfg.h"
+#include <fcntl.h>
 #ifdef HAVE_LINUX_FALLOCATE
 #include <linux/falloc.h>
-#include <fcntl.h>
+#endif
+#include <unistd.h>
+
+#if __cplusplus >= 201703L
+#include <filesystem>
+using namespace std::filesystem;
+#else
+#include <experimental/filesystem>
+using namespace std::experimental::filesystem;
+#endif
+
+#ifndef BUFSIZ
+#define BUFSIZ 8192
+#endif
+
+#include <event2/buffer.h>
+
+using namespace std;
+
+namespace acng
+{
+
+#define citer const_iterator
+
+#ifdef HAVE_LINUX_FALLOCATE
 
 int falloc_helper(int fd, off_t start, off_t len)
 {
@@ -22,87 +47,147 @@ int falloc_helper(int, off_t, off_t)
 }
 #endif
 
-// linking not possible? different filesystems?
-bool FileCopy_generic(cmstring &from, cmstring &to)
+int fdatasync_helper(int fd)
 {
-	acbuf buf;
-	buf.setsize(50000);
-	int in(-1), out(-1);
-
-	in=::open(from.c_str(), O_RDONLY);
-	if (in<0) // error, here?!
-		return false;
-
-	while (true)
-	{
-		int err;
-		err=buf.sysread(in);
-		if (err<0)
-		{
-			if (err==-EAGAIN || err==-EINTR)
-				continue;
-			else
-				goto error_copying;
-		}
-		else if (err==0)
-			break;
-		// don't open unless the input is readable, for sure
-		if (out<0)
-		{
-			out=open(to.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 00644);
-			if (out<0)
-				goto error_copying;
-		}
-		err=buf.syswrite(out);
-		if (err<=0)
-		{
-			if (err==-EAGAIN || err==-EINTR)
-				continue;
-			else
-				goto error_copying;
-		}
-
-	}
-
-	forceclose(in);
-	forceclose(out);
-	return true;
-
-	error_copying:
-
-	checkforceclose(in);
-	checkforceclose(out);
-	return false;
-}
-
-/*
-#if defined(HAVE_LINUX_SPLICE) && defined(HAVE_PREAD)
-bool FileCopy(cmstring &from, cmstring &to)
-{
-	int in(-1), out(-1);
-
-	in=::open(from.c_str(), O_RDONLY);
-	if (in<0) // error, here?!
-		return false;
-
-	// don't open target unless the input is readable, for sure
-	uint8_t oneByte;
-	ssize_t err = pread(in, &oneByte, 1, 0);
-	if (err < 0 || (err == 0 && errno != EINTR))
-	{
-		forceclose(in);
-		return false;
-	}
-	out = open(to.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 00644);
-	if (out < 0)
-	{
-		forceclose(in);
-		return false;
-	}
-
-
-	return FileCopy_generic(from, to);
-}
+#if ( (_POSIX_C_SOURCE >= 199309L || _XOPEN_SOURCE >= 500) && _POSIX_SYNCHRONIZED_IO > 0)
+	return fdatasync(fd);
+#else
+	return 0;
 #endif
-*/
+}
 
+// linking not possible? different filesystems?
+std::error_code FileCopy(cmstring &from, cmstring &to)
+{
+	std::error_code ec;
+	copy(from, to, copy_options::overwrite_existing, ec);
+	return ec;
+}
+
+ssize_t sendfile_generic(int out_fd, int in_fd, off_t *offset, size_t count)
+{
+	char buf[6*BUFSIZ];
+	
+	if(!offset)
+	{
+		errno=EFAULT;
+		return -1;
+	}
+	if(lseek(in_fd, *offset, SEEK_SET)== (off_t)-1)
+		return -1;
+
+	ssize_t totalcnt=0;
+
+	if(count > sizeof(buf))
+		count = sizeof(buf);
+	auto readcount=read(in_fd, buf, count);
+	if(readcount<=0)
+	{
+		if(errno==EINTR || errno==EAGAIN)
+			return 0;
+		else
+			return readcount;
+	}
+	for(decltype(readcount) nPos(0);nPos<readcount;)
+	{
+		auto r = write(out_fd, buf+nPos, readcount-nPos);
+		if (r<0)
+		{
+			if(errno==EAGAIN || errno==EINTR)
+				continue;
+			return r;
+		}
+		nPos+=r;
+		*offset+=r;
+		totalcnt+=r;
+	}
+	return totalcnt;
+}
+
+
+bool xtouch(cmstring &wanted)
+{
+	mkbasedir(wanted);
+	int fd = open(wanted.c_str(), O_WRONLY|O_CREAT|O_NOCTTY|O_NONBLOCK, cfg::fileperms);
+	if(fd == -1)
+		return false;
+	checkforceclose(fd);
+	return true;
+}
+
+void ACNG_API mkbasedir(cmstring & path)
+{
+	if(0==mkdir(GetDirPart(path).c_str(), cfg::dirperms) || EEXIST == errno)
+		return; // should succeed in most cases
+
+	// assuming the cache folder is already there, don't start from /, if possible
+	unsigned pos=0;
+	if(startsWith(path, cfg::cacheDirSlash))
+	{
+		// pos=acng::cfg:cachedir.size();
+		pos=path.find("/", cfg::cachedir.size()+1);
+	}
+    for(; pos<path.size(); pos=path.find(SZPATHSEP, pos+1))
+    {
+        if(pos>0)
+            mkdir(path.substr(0,pos).c_str(), cfg::dirperms);
+    }
+}
+
+void ACNG_API mkdirhier(cmstring& path)
+{
+	if(0==mkdir(path.c_str(), cfg::dirperms) || EEXIST == errno)
+		return; // should succeed in most cases
+	if(path.empty())
+		return;
+	for(cmstring::size_type pos = path[0] == '/' ? 1 : 0;pos < path.size();pos++)
+	{
+		pos = path.find('/', pos);
+		mkdir(path.substr(0,pos).c_str(), cfg::dirperms);
+		if(pos == stmiss) break;
+	}
+}
+
+void set_nb(int fd) {
+	int flags = fcntl(fd, F_GETFL);
+	//ASSERT(flags != -1);
+	flags |= O_NONBLOCK;
+	fcntl(fd, F_SETFL, flags);
+}
+void set_block(int fd) {
+	int flags = fcntl(fd, F_GETFL);
+	//ASSERT(flags != -1);
+	flags &= ~O_NONBLOCK;
+	fcntl(fd, F_SETFL, flags);
+}
+/**
+ * @brief evbuffer_dumpall - store all or limited range from the front to a file descriptor
+ * This is actually evbuffer_write_atmost replacement without its random aborting bug.
+ */
+ssize_t evbuffer_dumpall(evbuffer *m_q, int out_fd, off_t &nSendPos, size_t nMax2SendNow)
+{
+	evbuffer_iovec ivs[64];
+	auto nbufs = evbuffer_peek(m_q, nMax2SendNow, nullptr, ivs, _countof(ivs));
+	long got = 0;
+	// find the actual transfer length OR make the last vector fit
+	for (int i = 0; i < nbufs; ++i)
+	{
+		got += ivs[i].iov_len;
+		if (got > (long) nMax2SendNow)
+		{
+			ivs[i].iov_len -= (got - nMax2SendNow);
+			got = nMax2SendNow;
+			nbufs = i + 1;
+			break;
+		}
+	}
+	auto r = writev(out_fd, ivs, nbufs);
+	if (r > 0)
+	{
+		nSendPos += r;
+		evbuffer_drain(m_q, got);
+	}
+	return r;
+}
+
+}

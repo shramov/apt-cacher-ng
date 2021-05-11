@@ -16,7 +16,7 @@
 <li><a href="#howtos">Chapter 8: HOWTOs and FAQ</a>
 <ul>
 <li><a href="#imp">8.1 Package import</a></li>
-<li><a href="#cache-overview">8.2 Cache overview</a></li>
+<li><a href="#ssluse">8.2 Access to SSL/TLS remotes (HTTPS)</a></li>
 <li><a href="#jigdo">8.3 JIGDO usage</a></li>
 <li><a href="#prob-proxy">8.4 Avoid use of apt-cacher-ng for certain hosts</a></li>
 <li><a href="#howto-dontcache1">8.5 Avoid caching for certain domains or certain file types</a></li>
@@ -27,7 +27,8 @@
 <li><a href="#howto-interfaces">8.10 Listen to only specific interfaces or IP protocols</a></li>
 <li><a href="#howto-outproto">8.11 How to avoid use of IPv4 (or IPv6) where possible?</a></li>
 <li><a href="#howto-acngfs">8.12 Use the proxy without storing all data twice</a></li>
-<li><a href="#mirroring">8.13 Partial Mirroring</a></li>
+<li><a href="#optproxy">8.13 Optional semi-automatic use of proxy</a></li>
+<li><a href="#mirroring">8.14 Partial Mirroring</a></li>
 </ul></li>
 </ul>
 <h1><a name="howtos"></a>Chapter 8: HOWTOs and FAQ</h1>
@@ -57,11 +58,11 @@ Run "apt-get update" on client(s) once to teach ACNG about remote locations of (
 
 </li>
 <li>
-Store copies of your .debs, .orig.tar.gz, ... somewhere in the <code>_import</code> subdirectory in the cache, ie. in <code>/var/cache/apt-cacher/_import/</code>. The files may be links or symlinks, does not matter. When done, apt-cacher will move those files to its own internal locations. Example:
+Store copies of your .debs, .orig.tar.gz, ... somewhere in the <code>_import</code> subdirectory in the cache, ie. in <code>/var/cache/apt-cacher-ng/_import/</code>. The files may be links or symlinks, it does not matter. When done, apt-cacher will move those files to its own internal locations. Example:
 <pre><code>cd /var/cache
 mkdir apt-cacher-ng/_import
 cp -laf apt-proxy apt-cacher /var/cache/apt-cacher-ng/_import
-chown -R apt-cacher-ng apt-cacher-ng/_import
+chown -R apt-cacher-ng:apt-cacher-ng apt-cacher-ng/_import
 </code></pre>
 
 </li>
@@ -82,50 +83,42 @@ rm /var/lib/apt/lists/*Sources
 <p>
 on the client to purge APT's internal cache, and then rerun "apt-get update" there.
 </p>
-<h2><a name="cache-overview"></a>8.2 Cache overview</h2>
+<h2><a name="ssluse"></a>8.2 Access to SSL/TLS remotes (HTTPS)</h2>
 <p>
-To get a basic overview of the cache contents, the distkill.pl script may be used. See <a href="maint.html#distkill">section 7.2</a> for details and warnings.
+It is possible to have encrypted access to remote sites via HTTPS protocol with recent versions of apt-cacher-ng if the OpenSSL support was enabled at compile time. However this leads certain side effects and complications; due to the nature of the HTTPS connection model, it is not possible to act as an intermediate server (e.g. caching proxy) by the same rules as with HTTP:
 </p>
-<pre><code># /usr/lib/apt-cacher-ng/distkill.pl
-Scanning /var/cache/apt-cacher-ng, please wait...
-Found distributions:
-	1. testing (6 index files)
-	2. sid (63 index files)
-	3. etch-unikl (30 index files)
-	4. etch (30 index files)
-	5. experimental (505 index files)
-	6. lenny (57 index files)
-	7. unstable (918 index files)
-	8. stable (10 index files)
-
-WARNING: The removal action would wipe out whole directories containing
-         index files. Select d to see detailed list.
-
-Which distribution to remove? (Number, 0 to exit, d for details): d
-
-Directories to remove:
- 1. testing: 
-  /var/cache/apt-cacher-ng/debrep/dists/testing 
- 2. sid: 
-  /var/cache/apt-cacher-ng/localstuff/dists/sid 
-  /var/cache/apt-cacher-ng/debrep/dists/sid 
- 4. etch: 
-  /var/cache/apt-cacher-ng/ftp.debian-unofficial.org/debian/dists/etch 
- 5. experimental: 
-  /var/cache/apt-cacher-ng/debrep/dists/experimental 
- 6. lenny: 
-  /var/cache/apt-cacher-ng/security.debian.org/dists/lenny 
-  /var/cache/apt-cacher-ng/debrep/dists/lenny 
- 7. unstable: 
-  /var/cache/apt-cacher-ng/debrep/dists/unstable 
-  /var/cache/apt-cacher-ng/localstuff/debian/dists/unstable 
- 8. stable: 
-  /var/cache/apt-cacher-ng/debrep/dists/stable 
-Found distributions:
-
-WARNING: The removal action would wipe out whole directories containing
-         index files. Select d to see detailed list.
-
+<ul><li>
+SSL ensures strict verification of remote host name. Therefore, you cannot add an URL to sources.list and make them point to "hostname of acng server": the download client would expect the remote site to offer the certificate of "hostname of acng server" but the certificate of the remote server would be used.
+</li>
+<li>
+This restriction also applies if the LAN admin somehow manages to trick the client that it connects to the remote site but the real connection is silently rerouted to the local server: since the proxy in the middle cannot fake the real certificate it would need to create a custom one but that manipulation usually cannot go unnoticed by the client unless some local hack disables or manipulates the certificate verification. All parts of this should be considered a crude hack and won't be described here in detail. In fact, apt-cacher-ng does not implement local SSL server functionality (as of version 0.8.1), partly because of these considerations.
+</li>
+<li>
+If the client assumes that it needs to access a HTTPS remote server through a HTTP proxy, it usually goes for the HTTP tunneling (see the <a href="http://en.wikipedia.org/wiki/HTTP_tunnel">Wikipedia article</a> for details). This is a well-known and widely-used method but it comes with some disadvantages: the proxy has no control of the data flowing through it so the proxy cannot cache the data in any useful way; in environments with additional security restrictions, it's also hard to identify malicious users that abuse the service for illegitimate purposes.
+</li>
+</ul>
+<p>
+Considering these difficulties, there are three (and a half) methods to use SSL.
+</p>
+<ul><li>
+First, the "half method" - not using the proxy at all, configuring each client to not use the HTTP proxy for HTTPS urls. This will obviously disable central caching and requires the client has separated configuration options to set this. For Debian based distros, this can be done by adding a configuration like this: <code>Acquire::https::proxy "DIRECT";</code> to apt.conf or one of the apt.conf.d files. See <a href="#prob-proxy">section 8.4</a> for further information.
+</li>
+<li>
+The "backend configuration method": if the clients access the remote sites through URLs remapped on the server, the cacher admin can add https URLs to backend lists instead of http urls. Data will be cached just like usual.
+</li>
+<li>
+The "laissez-faire method": in acng.conf (or related) configure the <code>PassThroughPattern</code> option to contain a regex like <code>.*</code> and configure the clients to use apt-cacher-ng as HTTP proxy and let the clients connect to https URLs "as usual". Some limited access control can be achieved through adjustment of the regular expression (.* permits access to any host and any port, including 443 for https). Data is not cached on the server.
+</li>
+<li>
+The "tell-me-what-you-need method": on the client side, modify the access URLs and change https to http and put the string "HTTPS///" between http:// and the host name. With this trick, the user client will access the proxy like going for a usual HTTP download and the proxy will access the remote URL with the https protocol. Caching (and file merging to repositories) will work and there is still enough flexibility for the users. The disadvantages of this method are basically the same as with the access URLs rewriting (see <a href="config-servquick.html#config-client">Section 3.2</a>) but the method is still the preferred one by the apt-cacher-ng author. For apt's sources.list, the modification may look like the following example.
+</li>
+</ul>
+<pre><code>deb http://HTTPS///get.docker.com/ubuntu docker main
+# If apt-cacher-ng is configured as proxy in APT, this makes it
+# switch internally to https://get.docker.com/ubuntu
+deb http://acnghost:3142/HTTPS///get.docker.com/ubuntu docker main
+# Basically the same just with access to apt-cacher-ng through
+# URL rewritting instead of setting http proxy.
 </code></pre>
 <h2><a name="jigdo"></a>8.3 JIGDO usage</h2>
 <p>
@@ -203,7 +196,7 @@ One possible way to get files into the <code>_import</code> directory is simply 
 After running the import operation, the disk can be umounted and removed.
 </p>
 <p>
-A possible variation is import via symlinks. This can make sense when the space consumption must be reduced and the ISO image should stay on the server for a long time. To achive this, the image should be mounted at some mount point outside of the <code>_import</code> directory, the state should be set permanently via an /etc/fstab entry (don't forget the loop option), then a symlink tree pointing to the mountpoint location should be created in the <code>_import</code> directory (something like <code>cp -as /mnt/image_sarge_01/pool /var/cache/apt-cacher-ng/_import</code>). The subsequent "import" operation should pick up the symlinks and keep them symlinks instead of making file copies.
+A possible variation is import via symlinks. This can make sense where the space consumption must be reduced and the ISO image should stay on the server for a long time. To achive this, the image should be mounted at some mount point outside of the <code>_import</code> directory; the mounted state should be made permanent, maybe via an /etc/fstab entry with the loop option; then a symbolic link tree pointing to the mountpoint location should be created in the <code>_import</code> directory (something like <code>cp -as /mnt/image_jessie_01/pool /var/cache/apt-cacher-ng/_import/</code>). The subsequent "import" operation should pick up the symlinks and continue using them as links istead of file copies.
 </p>
 <h2><a name="howto-hooks"></a>8.9 How to execute commands before and after going online?</h2>
 <p>
@@ -236,7 +229,23 @@ As real alternative, apt-cacher-ng comes with an own implementation of a http fi
 <p>
 And finally, angfs usage can be optimized for local access. This works best if the proxy daemons runs on the same machine as acngfs and there are hundreds of packages to update while filesystem access costs are negligible. Here the cache directory can be specified in acngfs parameters, and then it gets files directly from the cache if they are completely downloaded and don't have volatile contents.
 </p>
-<h2><a name="mirroring"></a>8.13 Partial Mirroring</h2>
+<h2><a name="optproxy"></a>8.13 Optional semi-automatic use of proxy</h2>
+<p>
+Apt-Cacher NG daemon has some optional operations modes regading the use of external proxy (configured with "Proxy" setting). The default mode means use of that proxy for all remote connections.
+</p>
+<p>
+However, in some environments like when running on a portable system, the "upstream" proxy server may not reachable when running outside of home LAN area. For this situation, there are automated ways to detect it and to switch to direct internet access without additional configuration work.
+</p>
+<p>
+One way is to use a (short) timeout value (OptProxyTimeout setting) which simply makes a failed connection attempt after the timeout being interpret as broken proxy. Then the proxy is not used in context of this connection until a new connection is to be established. If OptProxyCheckInterval is set (see below) then this change is effective for the configured time span.
+</p>
+<p>
+Another way is through a custom (shell) command - when it returns successfully, the proxy is used, otherwise not and the command will be rerun only after a specified period. The command may check IP routes or a specific router address in the MAC pool or similar traces of the current environment. This setting (OptProxyCheckCommand) is also affected by another option (OptProxyCheckInterval) that specifies how often this check command shall be rerun. In the meantime, the configured proxy is considered faulty.
+</p>
+<p>
+Hint: this special modes can be combined with non-caching behavior (see above) and another ACNG proxy in the home LAN to get smart caching for laptop users.
+</p>
+<h2><a name="mirroring"></a>8.14 Partial Mirroring</h2>
 <p>
 It is possible to create a partial local mirror of a remote package repository. The method to do this is usually known as pre-caching. A such mirror would contain all files available to apt through <code>apt-cacher-ng</code>, making the cache server suitable for pure off-line use.
 </p>
@@ -264,5 +273,5 @@ The operation is triggered using the web interface, various options or estimatio
 
 <hr><address>Comments to <a href='mailto:blade@debian.org'>blade@debian.org</a>
 <br>
-[Eduard Bloch, Sat, 08 Oct 2011 23:18:17 +0200]</address></body>
+[Eduard Bloch, Sun, 19 Apr 2015 10:25:49 +0200]</address></body>
 </html>

@@ -1,54 +1,50 @@
 
 #include "filereader.h"
+#include "fileio.h"
+#include "meta.h"
+#include "acfg.h"
 
 #include <unistd.h>
-#include "fileio.h"
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <errno.h>
 #include <limits>
 #include <signal.h>
 
-#include "md5.h"
-#include "sha1.h"
 #include "csmapping.h"
 #include "aclogger.h"
-#include "filelocks.h"
 #include "lockable.h"
 #include "debug.h"
 
 #include <iostream>
+#include <atomic>
 
 #ifdef HAVE_SSL
 #include <openssl/sha.h>
 #include <openssl/md5.h>
+#elif defined(HAVE_TOMCRYPT)
+#include <tomcrypt.h>
 #endif
 
+#ifdef DEBUG
 //#define SHRINKTEST
+#endif
 
 // must be something sensible, ratio impacts stack size by inverse power of 2
 #define BUFSIZEMIN 4095 // makes one page on i386 and should be enough for typical index files
-#define BUFSIZEMAX 16*4096
+#define BUFSIZEMAX 256*1024
 
 
 #ifdef MINIBUILD
 #undef HAVE_LIBBZ2
 #undef HAVE_ZLIB
 #undef HAVE_LZMA
-#else
-
-#ifndef HAVE_ZLIB
-#warning Zlib or its development files are not available. Install them (e.g. zlib1g-dev) and run "make distclean". Gzip format support disabled.
-#endif
-
-#ifndef HAVE_LIBBZ2
-#warning LibBz2 or its development files are not available. Install them (e.g. libbz2-dev) and run "make distclean". Bzip2 format support disabled.
-#endif
-
 #endif
 
 using namespace std;
 
+namespace acng
+{
 // to make sure not to deal with incomplete operations from a signal handler
 class tMmapEntry
 {
@@ -61,16 +57,18 @@ public:
 	}
 };
 
+#ifdef SIGBUSHUNTING
 // this weird kludge is only needed in order to access this data from POSIX signal handlers
 // which needs to be both, reliable and lock-free
 tMmapEntry g_mmapMemory[10];
 lockable g_mmapMemoryLock;
+#endif
 
 class IDecompressor
 {
 public:
 	bool eof=false;
-	mstring *psError = NULL;
+	mstring *psError = nullptr;
 	virtual ~IDecompressor() {};
 	virtual bool UncompMore(char *szInBuf, size_t nBufSize, size_t &nBufPos, acbuf &UncompBuf) =0;
 	virtual bool Init() =0;
@@ -107,7 +105,7 @@ public:
 		if (ret == BZ_STREAM_END || ret == BZ_OK)
 		{
 			nBufPos = nBufSize - strm.avail_in;
-			uint nGotBytes = UncompBuf.freecapa() - strm.avail_out;
+			unsigned nGotBytes = UncompBuf.freecapa() - strm.avail_out;
 			UncompBuf.got(nGotBytes);
 			eof = ret == BZ_STREAM_END;
 			return true;
@@ -153,7 +151,7 @@ public:
 		if (ret == Z_STREAM_END || ret == Z_OK)
 		{
 			nBufPos = nBufSize - strm.avail_in;
-			uint nGotBytes = UncompBuf.freecapa() - strm.avail_out;
+			unsigned nGotBytes = UncompBuf.freecapa() - strm.avail_out;
 			UncompBuf.got(nGotBytes);
 			eof = ret == Z_STREAM_END;
 			return true;
@@ -207,7 +205,7 @@ public:
 		if (ret == LZMA_STREAM_END || ret == LZMA_OK)
 		{
 			nBufPos = nBufSize - strm.avail_in;
-			uint nGotBytes = UncompBuf.freecapa() - strm.avail_out;
+			unsigned nGotBytes = UncompBuf.freecapa() - strm.avail_out;
 			UncompBuf.got(nGotBytes);
 			eof = ret == LZMA_STREAM_END;
 			return true;
@@ -237,15 +235,11 @@ filereader::filereader()
 {
 };
 
-bool filereader::OpenFile(const string & sFilename, bool bNoMagic, uint nFakeTrailingNewlines)
+bool filereader::OpenFile(const string & sFilename, bool bNoMagic, unsigned nFakeTrailingNewlines)
 {
+	LOGSTARTFUNCx(sFilename, bNoMagic, nFakeTrailingNewlines);
 	Close(); // reset to clean state
 	m_nEofLines=nFakeTrailingNewlines;
-
-	// this makes sure not to truncate file while it's mmaped
-	m_mmapLock = filelocks::Acquire(sFilename);
-	// namedmutex mmapMx(g_noTruncateLocks, sFilename);
-	// lockguard guardWriteMx(mmapMx);
 
 	m_fd = open(sFilename.c_str(), O_RDONLY);
 #ifdef SHRINKTEST
@@ -342,7 +336,7 @@ bool filereader::OpenFile(const string & sFilename, bool bNoMagic, uint nFakeTra
 	}
 	else
 	{
-		m_szFileBuf = NULL;
+		m_szFileBuf = nullptr;
 		m_nBufSize = 0;
 	}
 	
@@ -353,7 +347,7 @@ bool filereader::OpenFile(const string & sFilename, bool bNoMagic, uint nFakeTra
 	posix_madvise(m_szFileBuf, statbuf.st_size, POSIX_MADV_SEQUENTIAL);
 #endif
 	
-#if 0//def SHRINKTEST
+#ifdef SHRINKTEST
 	if (ftruncate(m_fd, GetSize()/2) < 0)
 	{
 		perror ("ftruncate");
@@ -365,6 +359,7 @@ bool filereader::OpenFile(const string & sFilename, bool bNoMagic, uint nFakeTra
 	m_nCurLine=0;
 	m_bError = m_bEof = false;
 
+#ifdef SIGBUSHUNTING
 	{
 		// try to keep a thread reference in some free slot
 		lockguard g(g_mmapMemoryLock);
@@ -378,6 +373,7 @@ bool filereader::OpenFile(const string & sFilename, bool bNoMagic, uint nFakeTra
 			}
 		}
 	}
+#endif
 	return true;
 }
 
@@ -398,21 +394,9 @@ bool filereader::CheckGoodState(bool bErrorsConsiderFatal, cmstring *reportFileP
 void filereader::Close()
 {
 	m_nCurLine=0;
-	m_mmapLock.reset();
 
 	if (m_szFileBuf != MAP_FAILED)
 	{
-		{
-			lockguard g(g_mmapMemoryLock);
-			for (auto &x : g_mmapMemory)
-			{
-				if (x.valid.load()
-				&& pthread_equal(pthread_self(), x.threadref)
-				&& m_mmapLock.get() && x.path == m_mmapLock->path)
-					x.valid = false;
-			}
-		}
-
 		munmap(m_szFileBuf, m_nBufSize);
 		m_szFileBuf = (char*) MAP_FAILED;
 	}
@@ -432,55 +416,24 @@ filereader::~filereader() {
 
 std::atomic_int g_nThreadsToKill;
 
-void handle_sigbus()
+void ACNG_API handle_sigbus()
 {
-#if 1
-	for (auto &x : g_mmapMemory)
+	if (!cfg::sigbuscmd.empty())
 	{
-		if (!x.valid.load())
-			continue;
-		aclog::err(string("FATAL ERROR: probably IO error occurred, probably while reading the file ")
-			+x.path+" . Please check your system logs for related errors.");
+		/*static char buf[21];
+		 sprintf(buf, "%u", (unsigned) getpid());
+		 setenv("ACNGPID", buf, 1);
+		 */
+		acng::ignore_value(system(cfg::sigbuscmd.c_str()));
 	}
-
-#else
-	// attempt to pass the signal around threads, stopping the one troublemaker
-	std::cerr << "BUS ARRIVED" << std::endl;
-
-	bool metoo = false;
-
-	if (g_nThreadsToKill.load())
-		goto suicid;
-
-	g_degraded.store(true);
-
-	// this must run lock-free
-	for (auto &x : g_mmapMemory)
+	else
 	{
-		if (!x.valid.load())
-			continue;
-		aclog::err(
-				string("FATAL ERROR: probably IO error occurred, probably while reading the file ")
-						+ x.path + " . Please check your system logs for related errors.");
 
-		if (pthread_equal(pthread_self(), x.threadref))
-			metoo = true;
-		else
-		{
-			g_nThreadsToKill.fetch_add(1);
-			pthread_kill(x.threadref, SIGBUS);
-		}
+		log::err(
+				"FATAL ERROR: apparently an IO error occurred, while reading files. "
+						"Please check your system logs for related errors reports. Also consider "
+						"using the BusAction option, see Apt-Cacher NG Manual for details");
 	}
-
-	if (!metoo)
-		return;
-
-	suicid: aclog::err("FATAL ERROR: SIGBUS, probably caused by an IO error. "
-			"Please check your system logs for related errors.");
-
-	g_nThreadsToKill.fetch_add(-1);
-	pthread_exit(0);
-#endif
 }
 
 bool filereader::GetOneLine(string & sOut, bool bForceUncompress) {
@@ -597,6 +550,20 @@ public:
 	void add(const char *data, size_t size) override { SHA1_Update(this, (const void*) data, size); }
 	void finish(uint8_t* ret) override { SHA1_Final(ret, this); }
 };
+class csumSHA256 : public csumBase, public SHA256_CTX
+{
+public:
+	csumSHA256() { SHA256_Init(this); }
+	void add(const char *data, size_t size) override { SHA256_Update(this, (const void*) data, size); }
+	void finish(uint8_t* ret) override { SHA256_Final(ret, this); }
+};
+class csumSHA512 : public csumBase, public SHA512_CTX
+{
+public:
+	csumSHA512() { SHA512_Init(this); }
+	void add(const char *data, size_t size) override { SHA512_Update(this, (const void*) data, size); }
+	void finish(uint8_t* ret) override { SHA512_Final(ret, this); }
+};
 class csumMD5 : public csumBase, public MD5_CTX
 {
 public:
@@ -604,23 +571,42 @@ public:
 	void add(const char *data, size_t size) override { MD5_Update(this, (const void*) data, size); }
 	void finish(uint8_t* ret) override { MD5_Final(ret, this); }
 };
-#else
-class csumSHA1 : public csumBase, public SHA_INFO
+#elif defined(HAVE_TOMCRYPT)
+class csumSHA1 : public csumBase
 {
+	hash_state st;
 public:
-	csumSHA1() { sha_init(this); }
-	void add(const char *data, size_t size) override { sha_update(this, (SHA_BYTE*) data, size); }
-	void finish(uint8_t* ret) override { sha_final(ret, this); }
+	csumSHA1() { sha1_init(&st); }
+	void add(const char *data, size_t size) override { sha1_process(&st, (const unsigned char*) data, (unsigned long) size); }
+	void finish(uint8_t* ret) override { sha1_done(&st, ret); }
 };
-class csumMD5 : public csumBase, public md5_state_s
+class csumSHA256 : public csumBase
 {
+	hash_state st;
 public:
-	csumMD5() { md5_init(this); }
-	void add(const char *data, size_t size) override { md5_append(this, (md5_byte_t*) data, size); }
-	void finish(uint8_t* ret) override { md5_finish(this, ret); }
+	csumSHA256() { sha256_init(&st); }
+	void add(const char *data, size_t size) override { sha256_process(&st, (const unsigned char*) data, (unsigned long) size); }
+	void finish(uint8_t* ret) override { sha256_done(&st, ret); }
+};
+class csumSHA512 : public csumBase
+{
+	hash_state st;
+public:
+	csumSHA512() { sha512_init(&st); }
+	void add(const char *data, size_t size) override { sha512_process(&st, (const unsigned char*) data, (unsigned long) size); }
+	void finish(uint8_t* ret) override { sha512_done(&st, ret); }
+};
+class csumMD5 : public csumBase
+{
+	hash_state st;
+public:
+	csumMD5() { md5_init(&st); }
+	void add(const char *data, size_t size) override { md5_process(&st, (const unsigned char*) data, (unsigned long) size); }
+	void finish(uint8_t* ret) override { md5_done(&st, ret); }
 };
 #endif
 
+#ifdef HAVE_CHECKSUM
 std::unique_ptr<csumBase> csumBase::GetChecker(CSTYPES type)
 {
 	switch(type)
@@ -628,21 +614,32 @@ std::unique_ptr<csumBase> csumBase::GetChecker(CSTYPES type)
 	case CSTYPE_MD5:
 		return std::unique_ptr<csumBase>(new csumMD5);
 	case CSTYPE_SHA1:
-	default: // for now
 		return std::unique_ptr<csumBase>(new csumSHA1);
+	case CSTYPE_SHA256:
+		return std::unique_ptr<csumBase>(new csumSHA256);
+	case CSTYPE_SHA512:
+		return std::unique_ptr<csumBase>(new csumSHA512);
+	default: // for now
+		return std::unique_ptr<csumBase>();
 	}
 }
+#endif
 
 bool filereader::GetChecksum(const mstring & sFileName, int csType, uint8_t out[],
 		bool bTryUnpack, off_t &scannedSize, FILE *fDump)
 {
+#ifdef HAVE_CHECKSUM
 	filereader f;
 	return (f.OpenFile(sFileName, !bTryUnpack)
 			&& f.GetChecksum(csType, out, scannedSize, fDump));
+#else
+	return false;
+#endif
 }
 
 bool filereader::GetChecksum(int csType, uint8_t out[], off_t &scannedSize, FILE *fDump)
 {
+#ifdef HAVE_CHECKSUM
 	unique_ptr<csumBase> summer(csumBase::GetChecker(CSTYPES(csType)));
 	scannedSize=0;
 	
@@ -665,7 +662,7 @@ bool filereader::GetChecksum(int csType, uint8_t out[], off_t &scannedSize, FILE
 				return false;
 			}
 
-			uint nPlainSize=m_UncompBuf.size();
+			unsigned nPlainSize=m_UncompBuf.size();
 			summer->add(m_UncompBuf.rptr(), nPlainSize);
 			if(fDump)
 				fwrite(m_UncompBuf.rptr(), sizeof(char), nPlainSize, fDump);
@@ -684,11 +681,15 @@ bool filereader::GetChecksum(int csType, uint8_t out[], off_t &scannedSize, FILE
 	summer->finish(out);
 	
 	return CheckGoodState(false);
+#else
+	return false;
+#endif
 }
 
 // test checksum wrapper classes and their algorithms, also test conversion methods
-void check_algos()
+void ACNG_API check_algos()
 {
+#ifdef HAVE_CHECKSUM
 	const char testvec[]="abc";
 	uint8_t out[20];
 	unique_ptr<csumBase> ap(csumBase::GetChecker(CSTYPE_SHA1));
@@ -708,6 +709,7 @@ void check_algos()
 		cerr << "Incorrect MD5 implementation detected, check compilation settings!\n";
 		exit(EXIT_FAILURE);
 	}
+#endif
 }
 
 
@@ -720,22 +722,23 @@ bool Bz2compressFile(const char *pathIn, const char*pathOut)
 {
 	bool bRet=false;
 	filereader reader;
-	FILE *f(NULL);
-	BZFILE *bzf(NULL);
+	FILE *f(nullptr);
+	BZFILE *bzf(nullptr);
 	int nError(0);
 
 	if(!reader.OpenFile(pathIn, true))
 		return false;
 
-	if(NULL !=(f = fopen(pathOut, "w")))
+	if(nullptr !=(f = fopen(pathOut, "w")))
 	{
 		if(!ferror(f))
 		{
-			if(NULL != (bzf = BZ2_bzWriteOpen( &nError, f, 9, 0, 30)))
+			if(nullptr != (bzf = BZ2_bzWriteOpen( &nError, f, 9, 0, 30)))
 			{
 				if(BZ_OK == nError)
 				{
-					BZ2_bzWrite(&nError, bzf, (void*) reader.GetBuffer(), reader.GetSize());
+                    auto sv = reader.getView();
+                    BZ2_bzWrite(&nError, bzf, (void*) sv.data(), sv.size());
 					if(BZ_OK == nError)
 						bRet=true;
 				}
@@ -753,3 +756,5 @@ bool Bz2compressFile(const char *pathIn, const char*pathOut)
 }
 
 #endif
+
+}

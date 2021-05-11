@@ -6,9 +6,11 @@
 #include "sockio.h"
 #include "acbuf.h"
 
+static const std::string sBRLF("<br>\n");
+
 #ifdef DEBUG
-#define MTLOGDEBUG(x) { SendFmt << x << "\n<br>\n"; }
-#define MTLOGASSERT(x, y) {if(!(x)) SendFmt << "<div class=\"ERROR\">" << y << "</div>\n<br>\n";}
+#define MTLOGDEBUG(x) { SendFmt << x << sBRLF; }
+#define MTLOGASSERT(x, y) {if(!(x)) SendFmt << "<div class=\"ERROR\">" << y << "</div>\n" << sBRLF;}
 //#define MTLOGVERIFY(x, y) MTLOGASSERT(x, y)
 #else
 #define MTLOGASSERT(x, y) {}
@@ -18,10 +20,14 @@
 
 #define MAINT_PFX "maint_"
 
-class tSpecialRequest
+namespace acng
+{
+class ISharedConnectionResources;
+
+class ACNG_API tSpecialRequest
 {
 public:
-	enum eMaintWorkType : int
+	enum eMaintWorkType : char
 	{
 		workNotSpecial =0,
 
@@ -44,13 +50,17 @@ public:
 		workCOUNTSTATS,
 		workSTYLESHEET,
 		workTraceStart,
-		workTraceEnd
+		workTraceEnd,
+//		workJStats, // disabled, probably useless
+		workTRUNCATE,
+		workTRUNCATECONFIRM
 	};
 	struct tRunParms
 	{
 		int fd;
 		tSpecialRequest::eMaintWorkType type;
 		cmstring cmd;
+		ISharedConnectionResources* pDlResProvider;
 	};
 	/*!
 	 *  @brief Main execution method for maintenance tasks.
@@ -61,19 +71,20 @@ public:
 	virtual ~tSpecialRequest();
 
 protected:
-	inline void SendChunk(const mstring &x) { SendChunk(x.data(), x.size()); }
+//	inline void SendChunk(const mstring &x) { SendChunk(x.data(), x.size()); }
 
 	void SendChunk(const char *data, size_t size);
 	void SendChunkRemoteOnly(const char *data, size_t size);
-	inline void SendChunk(const char *x) { SendChunk(x, x?strlen(x):0); }
+    void SendChunkRemoteOnly(string_view sv) { return SendChunkRemoteOnly(sv.data(), sv.size()); }
+//	inline void SendChunk(const char *x) { SendChunk(x, x?strlen(x):0); }
+	void SendChunk(string_view x) { SendChunk(x.data(), x.size()); }
 	inline void SendChunk(const tSS &x){ SendChunk(x.data(), x.length()); }
 	// for customization in base classes
-	virtual void AfterSendChunk(const char* /*data*/, size_t /*size*/) {};
+	virtual void SendChunkLocalOnly(const char* /*data*/, size_t /*size*/) {};
 
 	bool SendRawData(const char *data, size_t len, int flags);
-	virtual void EndTransfer();
-	mstring & GetHostname();
-	//void SendDecoration(bool bBegin, const char *szDecoFile=NULL);
+
+	cmstring & GetMyHostPort();
 	void SendChunkedPageHeader(const char *httpstatus, const char *mimetype);
 	LPCSTR m_szDecoFile = nullptr;
 	LPCSTR GetTaskName();
@@ -82,7 +93,8 @@ protected:
 private:
 	tSpecialRequest(const tSpecialRequest&);
 	tSpecialRequest& operator=(const tSpecialRequest&);
-	mstring m_sHostname;
+	mstring m_sHostPort;
+	bool m_bChunkHeaderSent=false;
 
 public:
 	// dirty little RAII helper to send data after formating it, uses a shared buffer presented
@@ -111,14 +123,22 @@ public:
 
 #define SendFmt tFmtSendObj(this, false).m_parent.m_fmtHelper
 #define SendFmtRemote tFmtSendObj(this, true).m_parent.m_fmtHelper
+#define SendChunkSZ(x) SendChunk(WITHLEN(x))
 
 	tSS m_fmtHelper;
 
 	static eMaintWorkType DispatchMaintWork(cmstring &cmd, const char *auth);
-	static void RunMaintWork(eMaintWorkType jobType, cmstring& cmd, int fd);
+	static void RunMaintWork(eMaintWorkType jobType, cmstring& cmd, int fd, ISharedConnectionResources* dlResProvider);
 
 protected:
-	static tSpecialRequest* MakeMaintWorker(const tRunParms& parms);
+	static tSpecialRequest* MakeMaintWorker(tRunParms&& parms);
 };
+
+std::string to_base36(unsigned int val);
+static const string relKey("/Release"), inRelKey("/InRelease");
+static cmstring sfxXzBz2GzLzma[] = { ".xz", ".bz2", ".gz", ".lzma"};
+static cmstring sfxXzBz2GzLzmaNone[] = { ".xz", ".bz2", ".gz", ".lzma", ""};
+static cmstring sfxMiscRelated[] = { "", ".xz", ".bz2", ".gz", ".lzma", ".gpg", ".diff/Index"};
+}
 
 #endif /*MAINTENANCE_H_*/

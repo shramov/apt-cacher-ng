@@ -1,7 +1,7 @@
 #include <acbuf.h>
 #include <aclogger.h>
 #include <fcntl.h>
-#include <openssl/evp.h>
+
 #include <stddef.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -22,6 +22,7 @@
 #include "fileio.h"
 #include "conserver.h"
 #include "cleaner.h"
+#include "acregistry.h"
 
 #include <iostream>
 using namespace std;
@@ -32,16 +33,6 @@ using namespace std;
 #include <signal.h>
 #include <errno.h>
 
-#ifdef HAVE_SSL
-/* OpenSSL headers */
-#include "openssl/bio.h"
-#include "openssl/ssl.h"
-#include "openssl/err.h"
-#include <openssl/rand.h>
-#include <openssl/sha.h>
-#include <openssl/crypto.h>
-#endif
-
 #include "filereader.h"
 #include "csmapping.h"
 #ifdef DEBUG
@@ -49,17 +40,21 @@ using namespace std;
 #endif
 
 #include "maintenance.h"
+#include "evabase.h"
 
-static void usage();
+namespace acng
+{
+
+static void usage(int nRetCode=0);
 static void SetupCacheDir();
-void sig_handler(int signum);
-void log_handler(int signum);
-void dump_handler(int signum);
+void term_handler(evutil_socket_t fd, short what, void *arg);
+void log_handler(evutil_socket_t fd, short what, void *arg);
+void dump_handler(evutil_socket_t fd, short what, void *arg);
+void noop_handler(evutil_socket_t fd, short what, void *arg);
 void handle_sigbus();
 void check_algos();
 
-//void DispatchAndRunMaintTask(cmstring &cmd, int fd, const char *auth);
-int wcat(LPCSTR url, LPCSTR proxy);
+//extern mstring sReplDir;
 
 typedef struct sigaction tSigAct;
 
@@ -92,340 +87,72 @@ inline bool fork_away()
 }
 #endif
 
-#if SUPPWHASH
-
-int hashpwd()
+void parse_options(int argc, const char **argv)
 {
-#ifdef HAVE_SSL
-	string plain;
-	uint32_t salt=0;
-	for(uint i=10; i; --i)
+	bool bExtraVerb=false;
+	LPCSTR szCfgDir=nullptr;
+	std::vector<LPCSTR> cmdvars;
+	bool ignoreCfgErrors = false;
+
+	for (auto p=argv+1; p<argv+argc; p++)
 	{
-		if(RAND_bytes(reinterpret_cast<unsigned char*>(&salt), 4) >0)
+		if (!strncmp(*p, "--", 2))
 			break;
-		else
-			salt=0;
-		sleep(1);
-	}
-	if(!salt) // ok, whatever...
-	{
-		uintptr_t pval = reinterpret_cast<uintptr_t>(&plain);
-		srandom(uint(time(0)) + uint(pval) +uint(getpid()));
-		salt=random();
-		timespec ts;
-		clock_gettime(CLOCK_BOOTTIME, &ts);
-		for(auto c=(ts.tv_nsec+ts.tv_sec)%1024 ; c; c--)
-			salt=random();
-	}
-	string crypass = BytesToHexString(reinterpret_cast<const uint8_t*>(&salt), 4);
-#ifdef DEBUG
-	plain="moopa";
-#else
-	cin >> plain;
-#endif
-	trimString(plain);
-	if(!AppendPasswordHash(crypass, plain.data(), plain.size()))
-		return EXIT_FAILURE;
-	cout << crypass <<endl;
-	return EXIT_SUCCESS;
-#else
-	cerr << "OpenSSL not available, hashing functionality disabled." <<endl;
-	return EXIT_FAILURE;
-#endif
-}
-
-
-bool AppendPasswordHash(string &stringWithSalt, LPCSTR plainPass, size_t passLen)
-{
-	if(stringWithSalt.length()<8)
-		return false;
-
-	uint8_t sum[20];
-	if(1!=PKCS5_PBKDF2_HMAC_SHA1(plainPass, passLen,
-			(unsigned char*) (stringWithSalt.data()+stringWithSalt.size()-8), 8,
-			NUM_PBKDF2_ITERATIONS,
-			sizeof(sum), (unsigned char*) sum))
-		return false;
-	stringWithSalt+=EncodeBase64((LPCSTR)sum, 20);
-	stringWithSalt+="00";
-#warning dbg
-	// checksum byte
-	uint8_t pCs=0;
-	for(char c : stringWithSalt)
-		pCs+=c;
-	stringWithSalt+=BytesToHexString(&pCs, 1);
-	return true;
-}
-#endif
-
-
-void runDemo()
-{
-
-#ifdef DEBUG
-	cerr << "Pandora: " << sizeof(regex_t) << endl;
-
-
-	// PLAYGROUND
-
-	/*
-	 cerr << sizeof(job) << endl;
-	 exit(1);
-	 */
-
-	/*
-	 * Let's be another csum tool...
-
-	 md5_state_s ctx;
-	 md5_init(&ctx);
-	 uint8_t buf[2000];
-	 while(!feof(stdin))
-	 {
-	 int n=fread(buf, sizeof(char), 2000, stdin);
-	 md5_append(&ctx, buf, n);
-	 }
-	 uint8_t csum[16];
-	 md5_finish(&ctx, csum);
-	 for(int i=0;i<16;i++)
-	 printf("%02x", csum[i]);
-	 printf("\n");
-	 exit(0);
-
-
-
-	if(argc<2)
-		return -1;
-
-	acfg::tHostInfo hi;
-	cout << "Parsing " << argv[1] << ", result: " << hi.SetUrl(argv[1])<<endl;
-	cout << "Host: " << hi.sHost <<", Port: " << hi.sPort << ", Path: " << hi.sPath<<endl;
-	return 0;
-
-
-	 bool Bz2compressFile(const char *, const char*);
-	 return ! Bz2compressFile(argv[1], argv[2]);
-
-
-	 char tbuf[40];
-	 FormatCurrentTime(tbuf);
-	 std::cerr << tbuf << std::endl;
-	 exit(1);
-
-*/
-auto bt=getenv("BUSTEST");
-  if (bt)
-  {
-     static filereader r;
-     if(!r.OpenFile(bt))
-        exit(42);
-     else
-        std::cerr << "opened bt: " << bt << endl;
-  }
-#endif
-	if (getenv("GETSUM"))
-	{
-		uint8_t csum[20];
-		string s(getenv("GETSUM"));
-		off_t resSize;
-		bool ok = filereader::GetChecksum(s, CSTYPE_SHA1, csum, false, resSize /*, stdout*/);
-		for (uint i = 0; i < sizeof(csum); i++)
-			printf("%02x", csum[i]);
-		printf("\n");
-		if (ok && getenv("REFSUM"))
-		{
-			printf(CsEqual(getenv("REFSUM"), csum, sizeof(csum)) ? "IsOK\n" : "Diff\n");
-		}
-		exit(0);
-	}
-/*
-	LPCSTR envvar = getenv("PARSEIDX");
-	if (envvar)
-	{
-		int parseidx_demo(LPCSTR);
-		exit(parseidx_demo(envvar));
-	}
-
-	if (getenv("SHRINK"))
-	{
-		uint8_t csum[20];
-		string s(getenv("SHRINK"));
-		off_t resSize;
-		auto n=(filereader::GetChecksum(s, CSTYPE_SHA1, csum, true, resSize, stdout));
-		exit(n);
-	}
-	*/
-}
-
-
-int main(int argc, char **argv)
-{
-
-#ifdef HAVE_SSL
-	SSL_load_error_strings();
-	ERR_load_BIO_strings();
-	ERR_load_crypto_strings();
-	ERR_load_SSL_strings();
-	OpenSSL_add_all_algorithms();
-	SSL_library_init();
-#endif
-
-	const char *envvar=getenv("TOBASE64");
-	if(envvar)
-	{
-		std::cout << EncodeBase64Auth(envvar);
-		return 0;
-	}
-	envvar=getenv("BECURL");
-	if(envvar)
-		return wcat(envvar, getenv("http_proxy"));
-
-	check_algos();
-	tSigAct act = tSigAct();
-
-	sigfillset(&act.sa_mask);
-	act.sa_handler = &sig_handler;
-	sigaction(SIGBUS, &act, NULL);
-	sigaction(SIGTERM, &act, NULL);
-	sigaction(SIGINT, &act, NULL);
-	sigaction(SIGQUIT, &act, NULL);
-
-	act.sa_handler = &dump_handler;
-	sigaction(SIGUSR2, &act, NULL);
-
-	act.sa_handler = &log_handler;
-	sigaction(SIGUSR1, &act, NULL);
-
-	act.sa_handler = SIG_IGN;
-	sigaction(SIGPIPE, &act, NULL);
-#ifdef SIGIO
-	sigaction(SIGIO, &act, NULL);
-#endif
-#ifdef SIGXFSZ
-	sigaction(SIGXFSZ, &act, NULL);
-#endif
-
-//#ifdef DEBUG
-	runDemo();
-//#endif
-
-	// preprocess some startup related parameters
-	bool bForceCleanup(false);
-	for (char **p=argv+1; p<argv+argc; p++)
-	{
 		if (!strncmp(*p, "-h", 2))
 			usage();
+		if (!strncmp(*p, "-i", 2))
+			ignoreCfgErrors = true;
 		else if (!strncmp(*p, "-v", 2))
-		{
-			acfg::debug=acfg::debug|LOG_DEBUG|LOG_MORE;
-			**p=0x0; // ignore it if ever checked anywhere
-		}
-		else if (!strncmp(*p, "-e", 2))
-		{
-			bForceCleanup=true;
-			**p=0x0; // ignore it if ever checked anywhere
-		}
-#if SUPPWHASH
-		else if (!strncmp(*p, "-H", 2))
-			exit(hashpwd());
-#endif
-	}
-
-	LPCSTR PRINTCFGVAR=getenv("PRINTCFGVAR");
-	bool bDumpCfg(false);
-
-	for (char **p=argv+1; p<argv+argc; p++)
-	{
-		if(!strcmp(*p, "-c"))
+			bExtraVerb = true;
+		else if (!strcmp(*p, "-c"))
 		{
 			++p;
-			if(p < argv+argc)
-				acfg::ReadConfigDirectory(*p, PRINTCFGVAR);
+			if (p < argv + argc)
+				szCfgDir = *p;
 			else
-				usage();
-		}
-		else if(!strcmp(*p, "-p"))
-		{
-			bDumpCfg=true;
+				usage(2);
 		}
 		else if(**p) // not empty
-		{
-			if(!acfg::SetOption(*p, false))
-				usage();
-		}
+			cmdvars.emplace_back(*p);
 	}
 
-	if(PRINTCFGVAR)
-	{
-		auto ps(acfg::GetStringPtr(PRINTCFGVAR));
-		if(ps)
-		{
-			cout << *ps << endl;
-			return EXIT_SUCCESS;
-		}
-		auto pi(acfg::GetIntPtr(PRINTCFGVAR));
-		if(pi)
-			cout << *pi << endl;
-		return pi ? EXIT_SUCCESS : EXIT_FAILURE;
-	}
+	if(szCfgDir)
+		cfg::ReadConfigDirectory(szCfgDir, !ignoreCfgErrors);
 
-	if(!aclog::open())
-	{
-		cerr << "Problem creating log files. Check permissions of the log directory, "
-			<< acfg::logdir<<endl;
-		exit(1);
-	}
+	for(auto& keyval : cmdvars)
+		if(!cfg::SetOption(keyval, 0))
+			usage(EXIT_FAILURE);
 
-	acfg::PostProcConfig(bDumpCfg);
+	cfg::PostProcConfig();
 
-	if(bDumpCfg)
-		exit(EXIT_SUCCESS);
-
-	SetupCacheDir();
-
-	extern mstring sReplDir;
-	DelTree(acfg::cacheDirSlash+sReplDir);
-
-	conserver::Setup();
-
-	if (bForceCleanup)
-	{
-		tSpecialRequest::RunMaintWork(tSpecialRequest::workExExpire,
-				acfg::reportpage + "?abortOnErrors=aOe&doExpire=Start",
-				fileno(stdout));
-		exit(0);
-	}
-
-	if (acfg::foreground)
-		return conserver::Run();
-
-	if (!fork_away())
-	{
-		tErrnoFmter ef("Failed to change to daemon mode");
-		cerr << ef << endl;
-		exit(43);
-	}
-
-	if (!acfg::pidfile.empty())
-	{
-		mkbasedir(acfg::pidfile);
-		FILE *PID_FILE = fopen(acfg::pidfile.c_str(), "w");
-		if (PID_FILE != NULL)
-		{
-			fprintf(PID_FILE, "%d", getpid());
-			checkForceFclose(PID_FILE);
-		}
-	}
-	return conserver::Run();
+	if(bExtraVerb)
+		cfg::debug |= (log::LOG_DEBUG|log::LOG_MORE);
 
 }
 
-static void usage() {
-	cout <<"Usage: apt-cacher -h -c configdir <var=value ...>\n\n"
+void setup_sighandler()
+{
+	auto what = EV_SIGNAL|EV_PERSIST;
+#define REGSIG(x,y) event_add(::event_new(evabase::base, x, what, & y, 0), nullptr);
+	for(int snum : {SIGBUS, SIGTERM, SIGINT, SIGQUIT}) REGSIG(snum, term_handler);
+	REGSIG(SIGUSR1, log_handler);
+	REGSIG(SIGUSR2, dump_handler);
+	REGSIG(SIGPIPE, noop_handler);
+#ifdef SIGIO
+	REGSIG(SIGIO, noop_handler);
+#endif
+#ifdef SIGXFSZ
+	REGSIG(SIGXFSZ, noop_handler);
+#endif
+}
+
+static void usage(int retCode) {
+	cout <<"Usage: apt-cacher-ng [options] [ -c configdir ] <var=value ...>\n\n"
 		"Options:\n"
 		"-h: this help message\n"
 		"-c: configuration directory\n"
-		"-e: on startup, run expiration once\n"
-		"-p: print configuration and exit\n"
+		"-i: ignore configuration loading errors\n"
+		"-v: extra verbosity in logging\n"
 #if SUPPWHASH
 		"-H: read a password from STDIN and print its hash\n"
 #endif
@@ -436,31 +163,37 @@ static void usage() {
 		"CacheDir: /directory/for/storage\n"
 		"LogDir: /directory/for/logfiles\n"
 		"\n"
-		"See configuration examples for all directives.\n\n";
-	exit(0);
+		"See configuration examples for all directives or run:\n"
+		"acngtool cfgdump\n\n";
+	exit(retCode);
 }
 
 
 static void SetupCacheDir()
 {
-	using namespace acfg;
-	if(!Cstat(cacheDirSlash))
-	{
-		// well, attempt to create it then
-		mstring path=cacheDirSlash+'/';
-		for(uint pos=0; (pos=path.find(SZPATHSEP, pos)) < path.size(); ++pos)
-			mkdir((const char*) path.substr(0,pos).c_str(), (uint) dirperms);
-	}
+	using namespace cfg;
 
+	if(cfg::cachedir.empty())
+		return;	// warning was printed
+
+	auto xstore(cacheDirSlash + cfg::privStoreRelSnapSufix);
+	mkdirhier(xstore);
+	if(!Cstat(xstore))
+	{
+		cerr << "Error: Cannot create any directory in " << cacheDirSlash << endl;
+		exit(EXIT_FAILURE);
+	}
+	mkdirhier(cacheDirSlash + cfg::privStoreRelQstatsSfx + "/i");
+	mkdirhier(cacheDirSlash + cfg::privStoreRelQstatsSfx + "/o");
 	struct timeval tv;
-	gettimeofday(&tv, NULL);
+	gettimeofday(&tv, nullptr);
 	tSS buf;
-	buf << cacheDirSlash << "testfile." <<42*tv.tv_usec*tv.tv_sec;
+	buf << cacheDirSlash << "testfile." << tv.tv_usec * tv.tv_sec * (LPCSTR(buf.wptr()) - LPCSTR(&tv));
 	mkbasedir(buf.c_str()); // try or force its directory creation
 	int t=open( buf.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 00644);
-	if (t>=0)
+	if (t != -1)
 	{
-		forceclose(t);
+		checkforceclose(t);
 		if(0==unlink(buf.c_str()))
 			return;
 	}
@@ -470,98 +203,126 @@ static void SetupCacheDir()
 	exit(1);
 }
 
-void log_handler(int)
+void log_handler(evutil_socket_t, short, void*)
 {
-	aclog::close(true);
+	log::close(true);
 }
 
-void sig_handler(int signum)
+void noop_handler(evutil_socket_t, short, void*)
 {
-dbgprint("caught signal " << signum);
+	//XXX: report weird signals?
+}
+
+
+void term_handler(evutil_socket_t signum, short what, void *arg)
+{
+	DBGQLOG("caught signal " << signum);
 	switch (signum) {
 	case (SIGBUS):
 		/* OH NO!
 		 * Something going wrong with the mmaped files.
-		 * Log the current state and shutdown gracefully.
+		 * Log the current state reliably.
+		 * As long as there is no good recovery mechanism,
+		 * just hope that systemd will restart the daemon.
 		 */
-
 		handle_sigbus();
-		aclog::flush();
-
-		// nope, not reliable yet, just exit ASAP and hope that systemd will restart us
-		//return;
-		//signum = SIGTERM;
-    // return;
-
+		log::flush();
+		__just_fall_through;
 	case (SIGTERM):
 	case (SIGINT):
-	case (SIGQUIT): {
-		g_victor.Stop();
-		aclog::close(false);
-		// and then terminate, resending the signal to default handler
-		tSigAct act = tSigAct();
-		sigfillset(&act.sa_mask);
-		act.sa_handler = SIG_DFL;
-		if (sigaction(signum, &act, NULL))
-			abort(); // shouldn't be needed, but have a sane fallback in case
-		raise(signum);
+	case (SIGQUIT):
+	{
+		evabase::in_shutdown.store(true);
+		evabase::SignalStop();
+		break;
 	}
 	default:
 		return;
 	}
 }
 
-#include "dlcon.h"
-#include "fileio.h"
-#include "fileitem.h"
+void CloseAllCachedConnections();
 
-int wcat(LPCSTR surl, LPCSTR proxy)
+ACNG_API void SetupCleaner();
+ACNG_API void TeardownCleaner();
+
+struct tAppStartStop
 {
+	evabase m_base;
+	std::shared_ptr<cleaner> m_victor;
 
-	acfg::dnscachetime=0;
-	acfg::persistoutgoing=0;
-
-	if(proxy)
-		if(acfg::proxy_info.SetHttpUrl(proxy))
-			return -1;
-	tHttpUrl url;
-	if(!surl || !url.SetHttpUrl(surl))
-		return -2;
-	dlcon dl(true);
-
-	class tPrintItem : public fileitem
+	tAppStartStop(int argc, const char**argv)
 	{
-		public:
-			tPrintItem()
-			{
-				m_bAllowStoreData=false;
-				m_nSizeChecked = m_nSizeSeen = 0;
-			};
-			virtual FiStatus Setup(bool)
-			{
-				m_nSizeChecked = m_nSizeSeen = 0;
-				return m_status = FIST_INITED;
-			}
-			virtual int GetFileFd() { return 1; }; // something, don't care for now
-			virtual bool DownloadStartedStoreHeader(const header & h, const char *,
-					bool, bool&)
-			{
-				return true;
-			}
-			virtual bool StoreFileData(const char *data, unsigned int size)
-			{
-				return (size==fwrite(data, sizeof(char), size, stdout));
-			}
-			ssize_t SendData(int , int, off_t &, size_t )
-			{
-				return 0;
-			}
-	};
+#ifdef HAVE_SSL
+			acng::globalSslInit();
+		#endif
 
-	tFileItemPtr fi((fileitem*)new tPrintItem);
-	dl.AddJob(fi, &url, nullptr, nullptr);
-	dl.WorkLoop();
-	return (fi->WaitForFinish(NULL) == fileitem::FIST_COMPLETE
-			&& fi->GetHeaderUnlocked().getStatus() == 200) ? 0 : -3;
+		parse_options(argc, argv);
+
+		auto lerr = log::open();
+		if (!lerr.empty())
+		{
+			cerr
+					<< "Problem creating log files in "
+					<< cfg::logdir
+					<< ". " << lerr << ".\n";
+
+			exit(EXIT_FAILURE);
+		}
+
+		check_algos();
+
+		setup_sighandler();
+
+		SetupCacheDir();
+
+		//DelTree(cfg::cacheDirSlash + sReplDir);
+		SetupCleaner();
+
+		if (conserver::Setup() <= 0)
+		{
+			cerr
+					<< "No listening socket(s) could be created/prepared. "
+							"Check the network, check or unset the BindAddress directive.\n";
+			exit(EXIT_FAILURE);
+		}
+
+		if (!cfg::foreground && !fork_away())
+		{
+			tErrnoFmter ef("Failed to change to daemon mode");
+			cerr << ef << endl;
+			exit(43);
+		}
+
+		if (!cfg::pidfile.empty())
+		{
+			mkbasedir(cfg::pidfile);
+			FILE *PID_FILE = fopen(cfg::pidfile.c_str(), "w");
+			if (PID_FILE != nullptr)
+			{
+				fprintf(PID_FILE, "%d", getpid());
+				checkForceFclose(PID_FILE);
+			}
+		}
+	}
+	~tAppStartStop()
+	{
+		evabase::in_shutdown = true;
+		cleaner::GetInstance().Stop();
+		if (!cfg::pidfile.empty())
+			unlink(cfg::pidfile.c_str());
+		conserver::Shutdown();
+		CloseAllCachedConnections();
+		log::close(false);
+		globalSslDeInit();
+	}
+};
+
 }
 
+int main(int argc, const char **argv)
+{
+	using namespace acng;
+	tAppStartStop app(argc, argv);
+	return app.m_base.MainLoop();
+}

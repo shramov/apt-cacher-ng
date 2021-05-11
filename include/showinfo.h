@@ -4,6 +4,8 @@
 #include "maintenance.h"
 #include <list>
 
+namespace acng
+{
 class tMarkupFileSend : public tSpecialRequest
 {
 public:
@@ -21,8 +23,7 @@ protected:
 
 	// uses fallback lookup map, can be feed with data in subclass constructor
 	virtual void SendProp(cmstring &key);
-	// XXX: could make this virtual and customizable, if needed
-	int CheckCondition(LPCSTR key, size_t len); // 0: true, 1: false, <0: unknown condition
+	virtual int CheckCondition(LPCSTR key, size_t len); // 0: true, 1: false, <0: unknown condition
 
 private:
 	tMarkupFileSend(const tMarkupFileSend&) =delete;
@@ -38,17 +39,21 @@ struct tStyleCss : public tMarkupFileSend
 
 class tDeleter : public tMarkupFileSend
 {
-	tStrDeq files;
+	std::set<unsigned> files;
 	tSS sHidParms;
+	mstring sVisualMode; // Truncat or Delet
+	tStrDeq extraFiles;
 public:
-	tDeleter(const tRunParms& parms);
+	tDeleter(const tRunParms& parms, cmstring& vmode);
 	virtual void SendProp(cmstring &key) override;
+	//virtual int CheckCondition(LPCSTR key, size_t len) override; // 0: true, 1: false, <0: unknown condition
+
 };
 
 struct tShowInfo : public tMarkupFileSend
 {
 	tShowInfo(const tRunParms& parms)
-	:tMarkupFileSend(parms, "userinfo.html", "text/html", "404 Usage Information") {};
+	:tMarkupFileSend(parms, "userinfo.html", "text/html", "406 Usage Information") {};
 };
 
 struct tMaintPage : public tMarkupFileSend
@@ -56,4 +61,5 @@ struct tMaintPage : public tMarkupFileSend
 	tMaintPage(const tRunParms& parms);
 	virtual void SendProp(cmstring &key) override;
 };
+}
 #endif /*SHOWINFO_H_*/

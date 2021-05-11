@@ -1,13 +1,15 @@
 
-//#define LOCAL_DEBUG
-#include "debug.h"
-
-#include "config.h"
-
 #include "acbuf.h"
 #include "fileio.h"
+#include "sockio.h"
+#include "acfg.h"
 #include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
+namespace acng
+{
 bool acbuf::setsize(unsigned int c) {
 	if(m_nCapacity==c)
 		return true;
@@ -22,49 +24,94 @@ bool acbuf::setsize(unsigned int c) {
     return true;
 }
 
-bool acbuf::initFromFile(const char *szPath)
+bool acbuf::initFromFile(const char *szPath, off_t limit)
 {
-	struct stat statbuf;
+    Cstat st(szPath);
 
-	if (0!=stat(szPath, &statbuf))
+	unique_fd fd(open(szPath, O_RDONLY));
+	if (!fd.valid())
 		return false;
-
-	int fd=open(szPath, O_RDONLY);
-	if (fd<0)
-		return false;
-
 	clear();
-
-	if(!setsize(statbuf.st_size))
+    if(!setsize(std::min(limit, st.st_size)))
 		return false;
-	
-	while (freecapa()>0)
+	while (freecapa() > 0)
 	{
-		if (sysread(fd) < 0)
-		{
-			forceclose(fd);
+		if (sysread(fd.m_p) < 0)
 			return false;
-		}
 	}
-	forceclose(fd);
-	return true;
+    return size() == st.st_size;
 }
 
-int acbuf::syswrite(int fd, unsigned int maxlen) {
-    size_t todo(std::min(maxlen, size()));
+ssize_t acbuf::dumpall(int fd, ssize_t limit) {
 
-	int n;
-	do
+	if (limit > size())
+        limit = size();
+
+	auto ret = limit;
+
+    while (limit)
+    {
+        errno = 0;
+        auto n = ::write(fd, rptr(), limit);
+
+        if (n > limit) // heh?
+		{
+			errno = EOVERFLOW;
+			return -1;
+		}
+
+        if (n <= 0)
+        {
+            if (errno == EINTR || errno == EAGAIN)
+                continue;
+			ret = -1;
+			break;
+        }
+
+        drop(n);
+        limit -= n;
+
+		if (limit <=0)
+			break;
+    }
+	return ret;
+}
+
+ssize_t acbuf::dumpall(const char *path, int flags, int perms, ssize_t limit, bool doTruncate)
+{
+    unique_fd tmp(open(path, O_WRONLY | O_BINARY | flags, perms));
+	if (!tmp.valid())
+		return -1; // keep the errno
+
+	auto ret = dumpall(tmp.m_p, limit);
+	if (ret == -1)
 	{
-		n=::write(fd, rptr(), todo);
-	} while(n<0 && errno==EINTR);
-	
-	if(n<0 && errno==EAGAIN)
-		n=0;
-    if(n<0)
-        return -errno;
-    drop(n);
-    return n;
+		// rescue the errno of the original error
+		auto e = errno;
+		checkforceclose(tmp.m_p);
+		errno = e;
+		return -1;
+    }
+    while (tmp.valid())
+    {
+		if (doTruncate)
+		{
+			auto pos = lseek(tmp.m_p, 0, SEEK_CUR);
+			if (pos < 0)
+				return -1;
+			pos = ftruncate(tmp.m_p, pos);
+			if (pos < 0)
+				return pos;
+		}
+        if (0 == ::close(tmp.m_p))
+        {
+            tmp.release();
+			return ret;
+        }
+        if (errno != EINTR)
+			return -1;
+    };
+	return ret;
 }
 
 int acbuf::sysread(int fd, unsigned int maxlen)
@@ -81,23 +128,66 @@ int acbuf::sysread(int fd, unsigned int maxlen)
     return(n);
 }
 
-/*
-tSS & tSS::addEscaped(const char *fmt)
+bool tSS::send(int nConFd, mstring* sErrorStatus)
 {
-	if(!fmt || !*fmt)
-		return *this;
-	int nl=strlen(fmt);
-	reserve(length()+nl);
-	char *p=wptr();
-
-	for(;*fmt;fmt++)
+	while (!empty())
 	{
-		if(*fmt=='\\')
-			*(p++)=unEscape(*(++fmt));
-		else
-			*(p++)=*fmt;
+		auto n = ::send(nConFd, rptr(), size(), 0);
+		if (n > 0)
+		{
+			drop(n);
+			continue;
+		}
+		if (n <= 0)
+		{
+			if (EINTR == errno || EAGAIN == errno)
+			{
+				fd_set wfds;
+				FD_ZERO(&wfds);
+				FD_SET(nConFd, &wfds);
+				auto r=::select(nConFd + 1, nullptr, &wfds, nullptr, CTimeVal().ForNetTimeout());
+				if(!r && errno != EINTR)
+				{
+					if(sErrorStatus)
+						*sErrorStatus = "Socket timeout";
+					return false;
+				}
+				continue;
+			}
+
+			if(sErrorStatus)
+				*sErrorStatus = tErrnoFmter("Socket error, ");
+			return false;
+		}
 	}
-	got(p-wptr());
-	return *this;
+	return true;
 }
-*/
+
+bool tSS::recv(int nConFd, mstring* sErrorStatus)
+{
+	fd_set rfds;
+	FD_ZERO(&rfds);
+	FD_SET(nConFd, &rfds);
+	auto r = ::select(nConFd + 1, &rfds, nullptr, nullptr, CTimeVal().ForNetTimeout());
+	if (!r)
+	{
+		if(errno == EINTR)
+			return true;
+
+		if(sErrorStatus)
+			*sErrorStatus = "Socket timeout";
+		return false;
+	}
+	// must be readable
+	r = ::recv(nConFd, wptr(), freecapa(), 0);
+	if(r<=0)
+	{
+		if(sErrorStatus)
+			*sErrorStatus = tErrnoFmter("Socket error, ");
+		return false;
+	}
+	got(r);
+	return true;
+}
+
+}

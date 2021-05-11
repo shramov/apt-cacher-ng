@@ -3,7 +3,6 @@
 .settings
 *.swp
 *~
-build
 TODO.next
 dbgen/tmp/*
 doc/dev/*
@@ -14,3 +13,11 @@ patches
 murks
 dev
 dbgen/dbgenerator.tgz
+conf/zz_pt.conf
+build
+.i*
+builddir
+test/misc
+conf/*test.conf
+doc/Makefile
+**/.gitignore

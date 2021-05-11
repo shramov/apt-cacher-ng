@@ -5,7 +5,9 @@
 #include "config.h"
 #include "acbuf.h"
 #include "fileio.h"
-#include "filelocks.h"
+
+namespace acng
+{
 
 class IDecompressor;
 
@@ -16,7 +18,7 @@ class IDecompressor;
  * Could use boost::iostream templates for most of that, but Boost became such a monster nowadays.
  * And for my work, my class behaves smarter.
  */
-class filereader {
+class ACNG_API filereader {
 	
 public:
 	filereader();
@@ -27,24 +29,29 @@ public:
 	 * 			filename w/o suffix or path prefix back into it
 	 * @param bCriticalOpen Terminate program on failure
 	 */ 
-	bool OpenFile(const mstring & sFilename, bool bNoMagic=false, uint nFakeTrailingNewlines=0);
+	bool OpenFile(const mstring & sFilename, bool bNoMagic=false, unsigned nFakeTrailingNewlines=0);
 	
 	//////! Filename with all prepended path and compressed suffix stripped
 	//////void GetBaseFileName(mstring & sOut);
 	//! Returns lines when beginning with non-space, otherwise empty string. 
 	//! @return False on errors.
 	bool GetOneLine(mstring & sOut, bool bForceUncompress=false);
-	uint GetCurrentLine() const { return m_nCurLine;} ;
-	bool CheckGoodState(bool bTerminateOnErrors, cmstring *reportFilePath=NULL) const;
+	unsigned GetCurrentLine() const { return m_nCurLine;} ;
+	bool CheckGoodState(bool bTerminateOnErrors, cmstring *reportFilePath=nullptr) const;
 	
-	bool GetChecksum(int csType, uint8_t out[], off_t &scannedSize, FILE *pDumpFile=NULL);
+	bool GetChecksum(int csType, uint8_t out[], off_t &scannedSize, FILE *pDumpFile=nullptr);
 	static bool GetChecksum(const mstring & sFileName, int csType, uint8_t out[],
-			bool bTryUnpack, off_t &scannedSize, FILE *pDumpFile=NULL);
+			bool bTryUnpack, off_t &scannedSize, FILE *pDumpFile=nullptr);
 
-	inline const char *GetBuffer() const { return m_szFileBuf; };
-	inline size_t GetSize() const { return m_nBufSize; };
-
+    inline const char *GetBuffer() const { return m_szFileBuf; };
+    inline size_t GetSize() const { return m_nBufSize; };
+    inline string_view getView() { return string_view(m_szFileBuf, m_nBufSize); }
 	void Close();
+
+	const mstring& getSErrorString() const
+	{
+		return m_sErrorString;
+	}
 
 private:
 
@@ -58,26 +65,24 @@ private:
 	acbuf m_UncompBuf; // uncompressed window
 	
 	// visible position reporting
-	uint m_nCurLine;
+	unsigned m_nCurLine;
 	
 	int m_fd;
 	
 	int m_nEofLines;
 
-	std::auto_ptr<IDecompressor> m_Dec;
+	std::unique_ptr<IDecompressor> m_Dec;
 
 	// not to be copied
 	filereader& operator=(const filereader&);
 	filereader(const filereader&);
-
-	std::unique_ptr<filelocks::flock> m_mmapLock;
 };
 
 extern uint_fast16_t hexmap[];
 
 inline bool CsEqual(const char *sz, uint8_t b[], unsigned short binLen)
 {
-	CUCHAR *a=(CUCHAR*)sz;
+	auto* a=(const unsigned char*) sz;
 	if(!a)
 		return false;
 	for(int i=0; i<binLen;i++)
@@ -93,5 +98,15 @@ inline bool CsEqual(const char *sz, uint8_t b[], unsigned short binLen)
 
 bool Bz2compressFile(const char *pathIn, const char*pathOut);
 
-#endif // __FILEREADER_H
+enum class COMP_TYPE {
+	NONE,
+	XZ,
+	GZ,
+	BZ2,
+	LZMA,
+	ZSTD
+};
 
+}
+
+#endif // __FILEREADER_H

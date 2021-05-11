@@ -1,31 +1,29 @@
+#include <memory>
 
 #include "conserver.h"
 #include "meta.h"
 #include "lockable.h"
 #include "conn.h"
-#include "rfc2553emu.h"
 #include "acfg.h"
-
+#include "caddrinfo.h"
 #include "sockio.h"
 #include "fileio.h"
+#include "evabase.h"
+#include "dnsiter.h"
 #include <signal.h>
 #include <arpa/inet.h>
 #include <errno.h>
-
 #include <netdb.h>
 
 #include <cstdio>
-#include <list>
 #include <map>
+#include <unordered_set>
 #include <iostream>
 #include <algorithm>    // std::min_element, std::max_element
+#include <thread>
 
 #ifdef HAVE_LIBWRAP
 #include <tcpd.h>
-#endif
-
-#ifdef HAVE_SD_NOTIFY
-#include <systemd/sd-daemon.h>
 #endif
 
 #include "debug.h"
@@ -37,438 +35,410 @@ using namespace std;
 #define AF_INET6        23              /* IP version 6 */
 #endif
 
-
+namespace acng
+{
+extern std::shared_ptr<IFileItemRegistry> g_registry;
 namespace conserver
 {
 
+int yes(1);
 
-int g_sockunix(-1);
-vector<int> g_vecSocks;
+base_with_condition g_thread_push_cond_var;
+deque<unique_ptr<conn>> g_freshConQueue;
+unsigned g_nStandbyThreads = 0, g_nTotalThreads=0;
+const struct timeval g_resumeTimeout { 2, 11 };
 
-condition g_ThreadPoolCondition;
-list<con*> g_freshConQueue;
-int g_nStandbyThreads(0);
-int g_nAllConThreadCount(0);
-bool bTerminationMode(false);
+void SetupConAndGo(unique_fd fd, const char *szClientName, const char *szPort);
 
 // safety mechanism, detect when the number of incoming connections
 // is growing A LOT faster than it can be processed 
 #define MAX_BACKLOG 200
 
-void * ThreadAction(void *)
+void cb_resume(evutil_socket_t fd, short what, void* arg)
 {
-	lockguard g(g_ThreadPoolCondition);
-	list<con*> & Qu = g_freshConQueue;
-
-	while (true)
-	{
-		while (Qu.empty() && !bTerminationMode)
-			g_ThreadPoolCondition.wait();
-
-		if (bTerminationMode)
-			break;
-
-		con *c=Qu.front();
-		Qu.pop_front();
-
-		g_nStandbyThreads--;
-		g.unLock();
-	
-		c->WorkLoop();
-		delete c;
-
-		g.reLock();
-		g_nStandbyThreads++;
-
-		if (g_nStandbyThreads >= acfg::tpstandbymax)
-			break;
-	}
-	
-	g_nAllConThreadCount--;
-	g_nStandbyThreads--;
-
-	return NULL;
+	if(evabase::in_shutdown) return; // ignore, this stays down now
+	event_add((event*) arg, nullptr);
 }
 
-bool CreateDetachedThread(void *(*__start_routine)(void *))
+void do_accept(evutil_socket_t server_fd, short what, void* arg)
 {
-	pthread_t thr;
-	pthread_attr_t attr; // be detached from the beginning
+	LOGSTARTFUNCxs(server_fd);
+	auto self((event*)arg);
 
-	if (pthread_attr_init(&attr))
-		return false;
-	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-	bool bOK = (0 == pthread_create(&thr, &attr, __start_routine, NULL));
-	pthread_attr_destroy(&attr);
-	return bOK;
-}
-
-//! pushes waiting thread(s) and create threads for each waiting task if needed
-inline bool SpawnThreadsAsNeeded()
-{
-	lockguard g(g_ThreadPoolCondition);
-	list<con*> & Qu = g_freshConQueue;
-
-	// check the kill-switch
-	if(g_nAllConThreadCount+1>=acfg::tpthreadmax || bTerminationMode)
-		return false;
-
-	int nNeeded = Qu.size()-g_nStandbyThreads;
-	
-	while (nNeeded-- > 0)
+	if(evabase::in_shutdown)
 	{
-		if (!CreateDetachedThread(ThreadAction))
-			return false;
-		g_nStandbyThreads++;
-		g_nAllConThreadCount++;
-	}
-
-	g_ThreadPoolCondition.notifyAll();
-
-	return true;
-}
-
-
-void SetupConAndGo(int fd, const char *szClientName=NULL)
-{
-	LOGSTART2s("SetupConAndGo", fd);
-
-	if(!szClientName)
-		szClientName="";
-	
-	USRDBG( "Client name: " << szClientName);
-	con *c(NULL);
-
-	{
-		// thread pool control, and also see Shutdown(), protect from
-		// interference of OS on file descriptor management
-		lockguard g(g_ThreadPoolCondition);
-
-		// DOS prevention
-		if (g_freshConQueue.size() > MAX_BACKLOG)
-		{
-			USRDBG( "Worker queue overrun");
-			goto local_con_failure;
-		}
-
-		try
-		{
-			c = new con(fd, szClientName);
-			if (!c)
-			{
-#ifdef NO_EXCEPTIONS
-				USRDBG( "Out of memory");
-#endif
-				goto local_con_failure;
-			}
-
-			g_freshConQueue.push_back(c);
-			LOG("Connection to backlog, total count: " << g_freshConQueue.size());
-
-
-		} catch (std::bad_alloc&)
-		{
-			USRDBG( "Out of memory");
-			goto local_con_failure;
-		}
-	}
-	
-	if (!SpawnThreadsAsNeeded())
-	{
-		tErrnoFmter fer("Cannot start threads, cleaning up. Reason: ");
-		USRDBG(fer);
-		lockguard g(g_ThreadPoolCondition);
-		while(!g_freshConQueue.empty())
-		{
-			delete g_freshConQueue.back();
-			g_freshConQueue.pop_back();
-		}
-	}
-
-	return;
-
-	local_con_failure:
-	if (c)
-		delete c;
-	USRDBG( "Connection setup error");
-	termsocket_quick(fd);
-}
-
-void CreateUnixSocket() {
-	string & sPath=acfg::fifopath;
-	auto addr_unx = sockaddr_un();
-	
-	int jo=1;
-	size_t size = sPath.length()+1+offsetof(struct sockaddr_un, sun_path);
-	
-	auto die=[]() {
-		cerr << "Error creating Unix Domain Socket, ";
-		cerr.flush();
-		perror(acfg::fifopath.c_str());
-		cerr << "Check socket file and directory permissions" <<endl;
-		exit(EXIT_FAILURE);
-	};
-
-	if(sPath.length()>sizeof(addr_unx.sun_path))
-	{
-		errno=ENAMETOOLONG;
-		die();
-	}
-	
-	addr_unx.sun_family = AF_UNIX;
-	strncpy(addr_unx.sun_path, sPath.c_str(), sPath.length());
-	
-	mkbasedir(sPath);
-	unlink(sPath.c_str());
-	
-	g_sockunix = socket(PF_UNIX, SOCK_STREAM, 0);
-	setsockopt(g_sockunix, SOL_SOCKET, SO_REUSEADDR, &jo, sizeof(jo));
-
-	if (g_sockunix<0)
-		die();
-	
-	if (::bind(g_sockunix, (struct sockaddr *)&addr_unx, size) < 0)
-		die();
-	
-	if (0==listen(g_sockunix, SO_MAXCONN))
-	{
-		g_vecSocks.push_back(g_sockunix);
+		close(server_fd);
+		event_free(self);
 		return;
 	}
 
+	evabase::CheckDnsChange();
 
+	struct sockaddr_storage addr;
+	socklen_t addrlen = sizeof(addr);
+
+	int fd = -1;
+	while(true)
+	{
+		fd = accept(server_fd, (struct sockaddr*) &addr, &addrlen);
+
+		if (fd != -1)
+			break;
+
+		switch (errno)
+		{
+		case EAGAIN:
+		case EINTR:
+			continue;
+		case EMFILE:
+		case ENFILE:
+		case ENOBUFS:
+		case ENOMEM:
+			// resource exhaustion, might recover when another connection handler has stopped, disconnect this one for now
+			event_del(self);
+			event_base_once(evabase::base, -1, EV_TIMEOUT, cb_resume, self, &g_resumeTimeout);
+			return;
+		default:
+			return;
+		}
+	}
+
+	unique_fd man_fd(fd);
+
+	evutil_make_socket_nonblocking(fd);
+	if (addr.ss_family == AF_UNIX)
+	{
+		USRDBG("Detected incoming connection from the UNIX socket");
+		SetupConAndGo(move(man_fd), nullptr, "unix");
+	}
+	else
+	{
+		USRDBG("Detected incoming connection from the TCP socket");
+		char hbuf[NI_MAXHOST];
+		char pbuf[11];
+		if (getnameinfo((struct sockaddr*) &addr, addrlen, hbuf, sizeof(hbuf),
+				pbuf, sizeof(pbuf), NI_NUMERICHOST|NI_NUMERICSERV))
+		{
+			log::err("ERROR: could not resolve hostname for incoming TCP host");
+			return;
+		}
+
+		if (cfg::usewrap)
+		{
+#ifdef HAVE_LIBWRAP
+				// libwrap is non-reentrant stuff, call it from here only
+				request_info req;
+				request_init(&req, RQ_DAEMON, "apt-cacher-ng", RQ_FILE, fd, 0);
+				fromhost(&req);
+				if (!hosts_access(&req))
+				{
+					log::err(string(hbuf) + "|ERROR: access not permitted by hosts files");
+					return;
+				}
+#else
+			log::err(
+					"WARNING: attempted to use libwrap which was not enabled at build time");
+#endif
+		}
+		SetupConAndGo(move(man_fd), hbuf, pbuf);
+	}
 }
 
-void Setup()
+
+auto ThreadAction = []()
 {
-	LOGSTART2s("Setup", 0);
-	using namespace acfg;
+	lockuniq g(g_thread_push_cond_var);
+
+	while (true)
+	{
+		while (g_freshConQueue.empty() && !evabase::in_shutdown)
+			g_thread_push_cond_var.wait(g);
+
+		if (evabase::in_shutdown)
+			break;
+
+		auto c = move(g_freshConQueue.front());
+		g_freshConQueue.pop_front();
+
+		g_nStandbyThreads--;
+
+		g.unLock();
+		c->WorkLoop();
+		c.reset();
+		g.reLock();
+
+		g_nStandbyThreads++;
+
+		if (int(g_nStandbyThreads) >= cfg::tpstandbymax || evabase::in_shutdown)
+			break;
+	}
+
+	// remove from global pool
+	g_nStandbyThreads--;
+	g_nTotalThreads--;
+	g_thread_push_cond_var.notifyAll();
+};
+
+//! pushes waiting thread(s) and create threads for each waiting task if needed
+auto SpawnThreadsAsNeeded = []()
+{
+	// check the kill-switch
+		if(int(g_nTotalThreads+1)>=cfg::tpthreadmax || evabase::in_shutdown)
+		return false;
+
+		// need to prepare additional one for the caller?
+		if(g_nStandbyThreads <= g_freshConQueue.size())
+		{
+			try
+			{
+				thread thr(ThreadAction);
+				// if thread was started w/o exception it will decrement those in the end
+				g_nStandbyThreads++;
+				g_nTotalThreads++;
+				thr.detach();
+			}
+			catch(...)
+			{
+				return false;
+			}
+		}
+		g_thread_push_cond_var.notifyAll();
+		return true;
+	};
+
+void SetupConAndGo(unique_fd man_fd, const char *szClientName, const char *portName)
+{
+	LOGSTARTFUNCs
+
+	if (!szClientName)
+		szClientName = "";
+
+	USRDBG("Client name: " << szClientName << ":" << portName);
+
+	lockguard g(g_thread_push_cond_var);
+
+	// DOS prevention
+	if (g_freshConQueue.size() > MAX_BACKLOG)
+	{
+		USRDBG("Worker queue overrun");
+		return;
+	}
+
+	try
+	{
+		g_freshConQueue.emplace_back(make_unique<conn>(move(man_fd), szClientName, g_registry));
+		LOG("Connection to backlog, total count: " << g_freshConQueue.size());
+	}
+	catch (const std::bad_alloc&)
+	{
+		USRDBG("Out of memory");
+		return;
+	}
+
+	g_thread_push_cond_var.notifyAll();
+
+	if (!SpawnThreadsAsNeeded())
+	{
+		tErrnoFmter fer(
+				"Cannot start threads, cleaning up, aborting all incoming connections. Reason: ");
+		USRDBG(fer);
+		g_freshConQueue.clear();
+	}
+}
+
+bool bind_and_listen(evutil_socket_t mSock, const evutil_addrinfo *pAddrInfo, cmstring& port)
+		{
+			LOGSTARTFUNCxs(formatIpPort(pAddrInfo));
+			if ( ::bind(mSock, pAddrInfo->ai_addr, pAddrInfo->ai_addrlen))
+			{
+				log::flush();
+				perror("Couldn't bind socket");
+				cerr.flush();
+				if(EADDRINUSE == errno)
+				{
+					if(pAddrInfo->ai_family == PF_UNIX)
+						cerr << "Error creating or binding the UNIX domain socket - please check permissions!" <<endl;
+					else
+						cerr << "Port " << port << " is busy, see the manual (Troubleshooting chapter) for details." <<endl;
+				cerr.flush();
+				}
+				return false;
+			}
+			if (listen(mSock, SO_MAXCONN))
+			{
+				perror("Couldn't listen on socket");
+				return false;
+			}
+			auto ev = event_new(evabase::base, mSock, EV_READ|EV_PERSIST, do_accept, event_self_cbarg());
+			if(!ev)
+			{
+				cerr << "Socket creation error" << endl;
+				return false;
+			}
+			event_add(ev, nullptr);
+			return true;
+		};
+
+std::string scratchBuf;
+
+unsigned setup_tcp_listeners(LPCSTR addi, const std::string& port)
+{
+	LOGSTARTFUNCxs(addi, port);
+	USRDBG("Binding on host: " << addi << ", port: " << port);
+
+	auto hints = evutil_addrinfo();
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_flags = AI_PASSIVE;
+	hints.ai_family = PF_UNSPEC;
+
+	evutil_addrinfo* dnsret;
+	int r = evutil_getaddrinfo(addi, port.c_str(), &hints, &dnsret);
+	if(r)
+	{
+		log::flush();
+		perror("Error resolving address for binding");
+		return 0;
+	}
+	tDtorEx dnsclean([dnsret]() {if(dnsret) evutil_freeaddrinfo(dnsret);});
+
+	std::unordered_set<std::string> dedup;
+	tDnsIterator iter(PF_UNSPEC, dnsret);
+	unsigned res(0);
+	for(const evutil_addrinfo *p; !!(p=iter.next());)
+	{
+		// no fit or or seen before?
+		if(!dedup.emplace((const char*) p->ai_addr, p->ai_addrlen).second)
+			continue;
+		int nSockFd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+		if (nSockFd == -1)
+		{
+			// STFU on lack of IPv6?
+			switch(errno)
+			{
+				case EAFNOSUPPORT:
+				case EPFNOSUPPORT:
+				case ESOCKTNOSUPPORT:
+				case EPROTONOSUPPORT:
+				continue;
+				default:
+				perror("Error creating socket");
+				continue;
+			}
+		}
+		// if we have a dual-stack IP implementation (like on Linux) then
+		// explicitly disable the shadow v4 listener. Otherwise it might be
+		// bound or maybe not, and then just sometimes because of configurable
+		// dual-behavior, or maybe because of real errors;
+		// we just cannot know for sure but we need to.
+#if defined(IPV6_V6ONLY) && defined(SOL_IPV6)
+		if(p->ai_family==AF_INET6)
+			setsockopt(nSockFd, SOL_IPV6, IPV6_V6ONLY, &yes, sizeof(yes));
+#endif
+		setsockopt(nSockFd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+		res += bind_and_listen(nSockFd, p, port);
+	}
+	return res;
+};
+
+int ACNG_API Setup()
+{
+	LOGSTARTFUNCs;
 	
-	if (fifopath.empty() && port.empty())
+	if (cfg::udspath.empty() && (cfg::port.empty() && cfg::bindaddr.empty()))
 	{
 		cerr << "Neither TCP nor UNIX interface configured, cannot proceed.\n";
 		exit(EXIT_FAILURE);
 	}
-	
-	if (atoi(port.c_str())>0)
+
+	unsigned nCreated = 0;
+
+	if (cfg::udspath.empty())
+		log::err("Not creating Unix Domain Socket, fifo_path not specified");
+	else
 	{
-		auto hints = addrinfo();
-		hints.ai_socktype = SOCK_STREAM;
-		hints.ai_flags = AI_PASSIVE;
-		hints.ai_family = 0;
-		int yes(1);
-		
-		tStrVec sAdds;
-		if(bindaddr.empty())
-			sAdds.push_back(sEmptyString); // one dummy entry to get one NULL later
-		else
-			Tokenize(bindaddr, SPACECHARS, sAdds);
-		for(auto& sad : sAdds)
+		string & sPath = cfg::udspath;
+		auto addr_unx = sockaddr_un();
+
+		size_t size = sPath.length() + 1 + offsetof(struct sockaddr_un, sun_path);
+
+		auto die = []()
 		{
-			trimString(sad);
-		    struct addrinfo *res, *p;
-		    
-		    if(0!=getaddrinfo(bindaddr.empty() ? NULL : sad.c_str(),
-				   port.c_str(), &hints, &res))
-			   goto error_getaddrinfo;
-		    
-		    for(p=res; p; p=p->ai_next)
-		    {
-		    	int nSockFd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
-				if (nSockFd<0)
-					goto error_socket;
-
-				// if we have a dual-stack IP implementation (like on Linux) then
-				// explicitely disable the shadow v4 listener. Otherwise it might be
-				// bound, or maybe not, and then maybe because of the dual-behaviour,
-				// or maybe because of real errors; we just cannot know for sure but
-				// we have to.
-#if defined(IPV6_V6ONLY) && defined(SOL_IPV6)
-				if(p->ai_family==AF_INET6)
-					setsockopt(nSockFd, SOL_IPV6, IPV6_V6ONLY, &yes, sizeof(yes));
-#endif		    	
-				setsockopt(nSockFd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
-				
-				
-		    	if (::bind(nSockFd, p->ai_addr, p->ai_addrlen))
-		    		goto error_bind;
-		    	if (listen(nSockFd, SO_MAXCONN))
-		    		goto error_listen;
-		    	
-			USRDBG( "created socket, fd: " << nSockFd);// << ", for bindaddr: "<<bindaddr);
-		    	g_vecSocks.push_back(nSockFd);
-		    	
-		    	continue;
-
-				error_socket:
-				
-				if(EAFNOSUPPORT != errno &&
-						EPFNOSUPPORT != errno &&
-						ESOCKTNOSUPPORT != errno &&
-						EPROTONOSUPPORT != errno)
-				{
-					perror("Error creating socket");
-				}
-				goto close_socket;
-
-				error_listen:
-				perror("Couldn't listen on socket");
-				goto close_socket;
-
-				error_bind:
-				perror("Couldn't bind socket");
-				cerr.flush();
-				if(EADDRINUSE == errno)
-					cerr << "Port " << port << " is busy, see the manual (Troubleshooting chapter) for details." <<endl;
-				cerr.flush();
-				goto close_socket;
-
-				close_socket:
-				forceclose(nSockFd);
-		    }
-		    freeaddrinfo(res);
-		    continue;
-		    
-		    error_getaddrinfo:
-		    perror("Error resolving address for binding");
-		}
-		if(g_vecSocks.empty())
-		{
-			cerr << "No socket(s) could be created/prepared. "
-			"Check the network, check or unset the BindAddress directive.\n";
+			cerr << "Error creating Unix Domain Socket, ";
+			cerr.flush();
+			perror(cfg::udspath.c_str());
+			cerr << "Check socket file and directory permissions" <<endl;
 			exit(EXIT_FAILURE);
-		}
-	}
-	else
-		aclog::err("Not creating TCP listening socket, no valid port specified!");
+		};
 
-	if ( !acfg::fifopath.empty() )
-		CreateUnixSocket();
-	else
-		aclog::err("Not creating Unix Domain Socket, fifo_path not specified");
-}
-
-int Run()
-{
-	LOGSTART2s("Run", "GoGoGo");
-
-#ifdef HAVE_SD_NOTIFY
-	sd_notify(0, "READY=1");
-#endif
-
-	fd_set rfds, wfds;
-	int maxfd = 1 + *max_element(g_vecSocks.begin(), g_vecSocks.end());
-	USRDBG( "Listening to incoming connections...");
-
-	while (1)
-	{ // main accept() loop
-
-		FD_ZERO(&rfds);
-		FD_ZERO(&wfds);
-		for(auto soc: g_vecSocks) FD_SET(soc, &rfds);
-		
-		//cerr << "Polling..." <<endl;
-		int nReady=select(maxfd, &rfds, &wfds, NULL, NULL);
-		if (nReady<0)
+		if (sPath.length() > sizeof(addr_unx.sun_path))
 		{
-			if(errno == EINTR)
+			errno = ENAMETOOLONG;
+			die();
+		}
+
+		addr_unx.sun_family = AF_UNIX;
+		strncpy(addr_unx.sun_path, sPath.c_str(), sPath.length());
+
+		mkbasedir(sPath);
+		unlink(sPath.c_str());
+
+		auto sockFd = socket(PF_UNIX, SOCK_STREAM, 0);
+		if(sockFd < 0) die();
+
+		evutil_addrinfo ai;
+		ai.ai_addr =(struct sockaddr *) &addr_unx;
+		ai.ai_addrlen = size;
+		ai.ai_family = PF_UNIX;
+
+		nCreated += bind_and_listen(sockFd, &ai, "0");
+	}
+
+	{
+		bool custom_listen_ip = false;
+		tHttpUrl url;
+		for(const auto& sp: tSplitWalk(cfg::bindaddr))
+		{
+			mstring token(sp);
+			auto isUrl = url.SetHttpUrl(token, false);
+			if(!isUrl && atoi(cfg::port.c_str()) <= 0)
+			{
+				USRDBG("Not creating TCP listening socket for " <<  sp
+						<< ", no custom nor default port specified!");
 				continue;
-			
-			aclog::err("select", "failure");
-			perror("Select died");
-			exit(EXIT_FAILURE);
-		}
-		
-		for(const auto soc: g_vecSocks)
-		{
-			if(!FD_ISSET(soc, &rfds)) 	continue;
-
-			if(g_sockunix == soc)
-			{
-				int fd = accept(g_sockunix, NULL, NULL);
-				if (fd>=0)
-				{
-					set_nb(fd);
-					USRDBG( "Detected incoming connection from the UNIX socket");
-					SetupConAndGo(fd);
-				}
-				else if(errno == EMFILE || errno == ENOMEM || ENOBUFS == errno)
-				{
-					// play nicely, give it a break
-					sleep(1);
-				}
 			}
-			else
-			{
-				struct sockaddr_storage addr;
-
-				socklen_t addrlen = sizeof(addr);
-				int fd=accept(soc,(struct sockaddr *)&addr, &addrlen);
-//fd_accepted:
-				if (fd>=0)
-				{
-					set_nb(fd);
-					char hbuf[NI_MAXHOST];
-					USRDBG( "Detected incoming connection from the TCP socket");
-
-					if (getnameinfo((struct sockaddr*) &addr, addrlen, hbuf, sizeof(hbuf),
-									NULL, 0, NI_NUMERICHOST))
-					{
-						aclog::err("ERROR: could not resolve hostname for incoming TCP host");
-						termsocket_quick(fd);
-						sleep(1);
-						continue;
-					}
-
-					if (acfg::usewrap)
-					{
-#ifdef HAVE_LIBWRAP
-						// libwrap is non-reentrant stuff, call it from here only
-						request_info req;
-						request_init(&req, RQ_DAEMON, "apt-cacher-ng", RQ_FILE, fd, 0);
-						fromhost(&req);
-						if (!hosts_access(&req))
-						{
-							aclog::err("ERROR: access not permitted by hosts files", hbuf);
-							termsocket_quick(fd);
-							continue;
-						}
-#else
-						aclog::err("WARNING: attempted to use libwrap which was not enabled at build time");
-#endif
-					}
-
-					SetupConAndGo(fd, hbuf);
-				}
-				else if(errno == EMFILE || errno == ENOMEM || ENOBUFS == errno)
-				{
-					// play nicely, give it a break
-					sleep(1);
-				}
-			}
+//	XXX: uri parser accepts anything wihtout shema, good for this situation but maybe bad for strict validation...
+//			USRDBG("Binding as host:port URI? " << isUrl << ", addr: " << url.ToURI(false));
+			nCreated += setup_tcp_listeners(isUrl ? url.sHost.c_str() : token.c_str(),
+					isUrl ? url.GetPort(cfg::port) : cfg::port);
+			custom_listen_ip = true;
 		}
+		// just TCP_ANY if none was specified
+		if(!custom_listen_ip)
+			nCreated += setup_tcp_listeners(nullptr, cfg::port);
 	}
-	return 0;
+	return nCreated;
 }
 
 void Shutdown()
 {
-	lockguard g(g_ThreadPoolCondition);
-	
-	if(bTerminationMode)
-		return; // double SIGWHATEVER? Prevent it.
-	
-	//for (map<con*,int>::iterator it=mConStatus.begin(); it !=mConStatus.end(); it++)
-	//	it->first->SignalStop();
-	// TODO: maybe call shutdown on all?
-	//printf("Signaled stop to all cons\n");
-	
-	bTerminationMode=true;
-	printf("Notifying waiting threads\n");
-	g_ThreadPoolCondition.notifyAll();
-	
-	printf("Closing listening sockets\n");
-	for(auto soc: g_vecSocks) termsocket_quick(soc);
+		lockuniq g(g_thread_push_cond_var);
+		// global hint to all conn objects
+		DBGQLOG("Notifying worker threads\n");
+		g_thread_push_cond_var.notifyAll();
+		while(g_nTotalThreads)
+			g_thread_push_cond_var.wait(g);
+}
+
+void FinishConnection(int fd)
+{
+	if(fd == -1 || evabase::in_shutdown)
+		return;
+
+	termsocket_async(fd, evabase::base);
+	// there is a good chance that more resources are available now
+//	do_resume();
+}
+
 }
 
 }
