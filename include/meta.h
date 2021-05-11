@@ -1,14 +1,8 @@
 #ifndef _META_H
 #define _META_H
 
-#include "config.h"
-
-#if defined(_POSIX_C_SOURCE) && (_POSIX_C_SOURCE < 200112L)
-#undef _POSIX_C_SOURCE
-#endif
-#ifndef _POSIX_C_SOURCE
-#define _POSIX_C_SOURCE 200112L
-#endif
+#include "actypes.h"
+#include "actemplates.h"
 
 #include <string>
 #include <map>
@@ -19,7 +13,6 @@
 #include <cstdio>
 #include <ctime>
 #include <cstring>
-#include <functional>
 #include <atomic>
 
 #include <fcntl.h>
@@ -28,20 +21,9 @@
 #include <cstdlib>
 #include <errno.h>
 
+#include "astrop.h"
+
 #define EXTREME_MEMORY_SAVING false
-
-
-#ifdef _MSC_VER
-#define __func__ __FUNCTION__
-#endif
-
-
-// little STFU helper
-#if __GNUC__ >= 7
-#define __just_fall_through [[fallthrough]]
-#else
-#define __just_fall_through
-#endif
 
 #define STRINGIFY(a) STR(a)
 #define STR(a) #a
@@ -51,20 +33,12 @@ namespace acng
 
 class acbuf;
 
-typedef std::string mstring;
-typedef const std::string cmstring;
-
 typedef std::pair<mstring, mstring> tStrPair;
 typedef std::vector<mstring> tStrVec;
 typedef std::set<mstring> tStrSet;
 typedef std::deque<mstring> tStrDeq;
-typedef mstring::size_type tStrPos;
-const static tStrPos stmiss(cmstring::npos);
 typedef unsigned short USHORT;
 typedef unsigned char UCHAR;
-typedef const char * LPCSTR;
-typedef std::pair<LPCSTR, size_t> tPtrLen;
-#define citer const_iterator
 
 #define CPATHSEPUNX '/'
 #define SZPATHSEPUNIX "/"
@@ -75,11 +49,13 @@ extern cmstring sPathSep, sPathSepUnix, hendl;
 
 extern cmstring FAKEDATEMARK;
 
+#define szRN "\r\n"
+
 #ifdef WINDOWS
 #define WIN32
 #define SZPATHSEP SZPATHSEPWIN
 #define CPATHSEP CPATHSEPWIN
-#define szNEWLINE "\r\n"
+#define szNEWLINE szRN
 #else
 #define SZPATHSEP SZPATHSEPUNIX
 #define CPATHSEP CPATHSEPUNX
@@ -107,55 +83,7 @@ int getUUID();
 
 #define SPACECHARS " \f\n\r\t\v"
 
-#ifdef COMPATGCC47
-class tStrMap : public std::map<mstring, mstring>
-{
-public:
-	void emplace(cmstring& key, cmstring& value)
-	{
-		EMPLACE_PAIR_COMPAT(*this, key, value);
-	}
-};
-#else
 typedef std::map<mstring, mstring> tStrMap;
-#endif
-
-inline void trimFront(mstring &s, LPCSTR junk=SPACECHARS)
-{
-	mstring::size_type pos = s.find_first_not_of(junk);
-	if(pos != 0)
-		s.erase(0, pos);
-}
-
-inline void trimBack(mstring &s, LPCSTR junk=SPACECHARS)
-{
-	mstring::size_type pos = s.find_last_not_of(junk);
-	s.erase(pos+1);
-}
-
-inline void trimString(mstring &s, LPCSTR junk=SPACECHARS)
-{
-	trimBack(s, junk);
-	trimFront(s, junk);
-}
-
-#define trimLine(x) { trimFront(x); trimBack(x); }
-
-#define startsWith(where, what) (0==(where).compare(0, (what).size(), (what)))
-#define endsWith(where, what) ((where).size()>=(what).size() && \
-		0==(where).compare((where).size()-(what).size(), (what).size(), (what)))
-#define startsWithSz(where, what) (0==(where).compare(0, sizeof((what))-1, (what)))
-#define endsWithSzAr(where, what) ((where).size()>=(sizeof((what))-1) && \
-		0==(where).compare((where).size()-(sizeof((what))-1), (sizeof((what))-1), (what)))
-#define stripSuffix(where, what) if(endsWithSzAr(where, what)) where.erase(where.size()-sizeof(what)+1);
-#define stripPrefixChars(where, what) where.erase(0, where.find_first_not_of(what))
-
-#define setIfNotEmpty(where, cand) { if(where.empty() && !cand.empty()) where = cand; }
-#define setIfNotEmpty2(where, cand, alt) { if(where.empty()) { if(!cand.empty()) where = cand; else where = alt; } }
-
-mstring GetBaseName(cmstring &in);
-mstring GetDirPart(cmstring &in);
-tStrPair SplitDirPath(cmstring& in);
 
 LPCSTR GetTypeSuffix(cmstring& s);
 
@@ -165,19 +93,6 @@ tStrPos findHostStart(const mstring & sUri);
 #ifndef _countof
 #define _countof(x) sizeof(x)/sizeof(x[0])
 #endif
-
-#define WITHLEN(x) x, (_countof(x)-1)
-#define MAKE_PTR_0_LEN(x) x, 0, (_countof(x)-1)
-
-// there is memchr and strpbrk but nothing like the last one acting on specified RAW memory range
-static inline LPCSTR  mempbrk (LPCSTR  membuf, char const * const needles, size_t len)
-{
-   for(LPCSTR pWhere=membuf ; pWhere<membuf+len ; pWhere++)
-      for(LPCSTR pWhat=needles; *pWhat ; pWhat++)
-         if(*pWhat==*pWhere)
-            return pWhere;
-   return nullptr;
-}
 
 #define ELVIS(x, y) (x ? x : y)
 #define OPTSET(x, y) if(!x) x = y
@@ -249,7 +164,8 @@ public:
 	inline cmstring& GetDefaultPortForProto() const {
 		return bSSL ? sDefPortHTTPS : sDefPortHTTP;
 	}
-	inline cmstring& GetPort() const { return !sPort.empty() ? sPort : GetDefaultPortForProto(); }
+	inline cmstring& GetPort(cmstring& szDefVal) const { return !sPort.empty() ? sPort : szDefVal; }
+	inline cmstring& GetPort() const { return GetPort(GetDefaultPortForProto()); }
 
 	inline tHttpUrl(cmstring &host, cmstring& port, bool ssl) :
 			sPort(port), sHost(host), bSSL(ssl)
@@ -262,8 +178,6 @@ public:
 
 #define POKE(x) for(;;) { ssize_t n=write(x, "", 1); if(n>0 || (EAGAIN!=errno && EINTR!=errno)) break;  }
 
-#define MIN_VAL(x) (std::numeric_limits< x >::min())
-#define MAX_VAL(x) (std::numeric_limits< x >::max())
 
 void appendLong(mstring &s, long val);
 
@@ -311,7 +225,6 @@ tStrDeq ExpandFilePattern(cmstring& pattern, bool bSorted=false, bool bQuiet=fal
 
 //void MakeAbsolutePath(mstring &dirToFix, const mstring &reldir);
 
-
 mstring UrlEscape(cmstring &s);
 void UrlEscapeAppend(cmstring &s, mstring &sTarget);
 bool UrlUnescapeAppend(cmstring &from, mstring & to);
@@ -344,71 +257,11 @@ ACNG_API mstring offttosH(off_t n);
 //template<typename charp>
 ACNG_API off_t strsizeToOfft(const char *sizeString); // XXX: if needed... charp sizeString, charp *next)
 
+bool ParseHeadFromFile(cmstring& path, off_t* contLen, time_t* lastModified, mstring* origSrc);
 
 void replaceChars(mstring &s, LPCSTR szBadChars, char goodChar);
 
-extern cmstring sEmptyString;
-
-//! iterator-like helper for string splitting, for convenient use with for-loops
-// Works exactly once!
-class tSplitWalk
-{
-	cmstring &s;
-	mutable mstring::size_type start, len, oob;
-	LPCSTR m_seps;
-
-public:
-	inline tSplitWalk(cmstring *line, LPCSTR separators=SPACECHARS, unsigned begin=0)
-	: s(*line), start(begin), len(stmiss), oob(line->size()), m_seps(separators) {}
-	inline bool Next() const
-	{
-		if(len != stmiss) // not initial state, find the next position
-			start = start + len + 1;
-
-		if(start>=oob)
-			return false;
-
-		start = s.find_first_not_of(m_seps, start);
-
-		if(start<oob)
-		{
-			len = s.find_first_of(m_seps, start);
-			len = (len == stmiss) ? oob-start : len-start;
-		}
-		else if (len != stmiss) // not initial state, end reached
-			return false;
-		else if(s.empty()) // initial state, no parts
-			return false;
-		else // initial state, use the whole string
-		{
-			start = 0;
-			len = oob;
-		}
-
-		return true;
-	}
-	inline mstring str() const { return s.substr(start, len); }
-	inline operator mstring() const { return str(); }
-	inline LPCSTR remainder() const { return s.c_str() + start; }
-
-	struct iterator
-	{
-		tSplitWalk* _walker = nullptr;
-		// default is end sentinel
-		bool bEol = true;
-		iterator() {}
-		iterator(tSplitWalk& walker) : _walker(&walker) { bEol = !walker.Next(); }
-		// just good enough for basic iteration and end detection
-		bool operator==(const iterator& other) const { return (bEol && other.bEol); }
-		bool operator!=(const iterator& other) const { return !(other == *this); }
-		iterator operator++() { bEol = !_walker->Next(); return *this; }
-		std::string operator*() { return _walker->str(); }
-	};
-	iterator begin() {return iterator(*this); }
-	iterator end() { return iterator(); }
-};
-
-//bool CreateDetachedThread(void *(*threadfunc)(void *));
+extern ACNG_API cmstring sEmptyString;
 
 void DelTree(cmstring &what);
 
@@ -430,16 +283,6 @@ static inline time_t GetTime()
 }
 
 static const time_t END_OF_TIME(MAX_VAL(time_t)-2);
-
-unsigned FormatTime(char *buf, size_t bufLen, const time_t cur);
-
-struct tCurrentTime
-{
-	char buf[30];
-	unsigned len;
-	inline tCurrentTime() { len=FormatTime(buf, sizeof(buf), time(nullptr)); }
-	inline operator mstring() { return mstring(buf, len); }
-};
 
 // represents a boolean value like a normal bool but also carries additional data
 template <typename Textra, Textra defval>
@@ -480,34 +323,6 @@ typedef std::deque<std::pair<std::string, std::string>> tLPS;
 #define ifThereStoreThere(x,y,z) { auto itFind = (x).find(y); if(itFind != (x).end()) z = itFind->second; }
 #define ifThereStoreThereAndBreak(x,y,z) { auto itFind = (x).find(y); if(itFind != (x).end()) { z = itFind->second; break; } }
 
-bool scaseequals(cmstring& a, cmstring& b);
-
-// dirty little RAII helper
-struct tDtorEx {
-	std::function<void(void)> _action;
-	inline tDtorEx(decltype(_action) action) : _action(action) {}
-	inline ~tDtorEx() { _action(); }
-};
-
-// unique_ptr semantics on a very custom type
-template<typename T, void TFreeFunc(T), T inval_default>
-struct auto_raii
-{
-    T m_p;
-    auto_raii(T xp) : m_p(xp) {}
-    ~auto_raii() { if (m_p != inval_default) TFreeFunc(m_p); }
-    T release() { auto ret=m_p; m_p = inval_default; return ret;}
-    T get() const { return m_p; }
-    auto_raii() = delete;
-    auto_raii(const auto_raii&) = delete;
-    auto_raii(auto_raii && other)
-    {
-    	m_p = other.m_p;
-    	other.m_p = inval_default;
-    }
-    operator bool() const { return inval_default != m_p;}
-};
-
 // from bgtask.cc
 cmstring GetFooter();
 
@@ -516,12 +331,6 @@ std::pair<T,T> pairSum(const std::pair<T,T>& a, const std::pair<T,T>& b)
 {
 	return std::pair<T,T>(a.first+b.first, a.second + b.second);
 }
-
-#define RET_SWITCH(label) switch(label) {
-#define RET_CASE(label) case label : goto label;
-#define RET_SWITCH_END }
-
-#define setLockGuardX(x) std::lock_guard<decltype(x)> local_helper_lockguard(x);
 
 namespace cfg
 {
@@ -571,7 +380,21 @@ public:
 	}
 };
 
-extern std::atomic<bool> g_global_shutdown;
+
+struct ltstring {
+    bool operator()(const mstring &s1, const mstring &s2) const {
+        return strcasecmp(s1.c_str(), s2.c_str()) < 0;
+    }
+};
+
+typedef std::map<mstring, mstring, ltstring> NoCaseStringMap;
+
+static constexpr string_view svRN = szRN;
+static constexpr string_view svLF = "\n";
+
+#if !defined(HAVE_STRLCPY) || !HAVE_STRLCPY
+size_t strlcpy(char *tgt, const char *src, size_t tgtSize);
+#endif
 }
 
 #endif // _META_H

@@ -2,10 +2,11 @@
 #ifndef _acbuf_H
 #define _acbuf_H
 
-#include <limits.h>
-#include <string.h>
-#include <stdio.h>
-#include "meta.h"
+#include "actypes.h"
+#include <limits>
+#include <string>
+#include <cstdlib>
+#include <cstring>
 
 namespace acng
 {
@@ -41,21 +42,26 @@ class ACNG_API acbuf
         inline const char *c_str() const { m_buf[w]=0x0; return rptr();}
         //! Equivalent to drop(size()), drops all data
         inline void clear() {w=r=0;}
+
+        inline string_view view() { return string_view(rptr(), size());}
         
         //! Allocate needed memory
         bool setsize(unsigned int capa);
-        bool initFromFile(const char *path);
-
-        /*!
-         * Writes to a (non-blocking) file descriptor, cares about EAGAIN and updates
-         * position indexes. Optional chunklen variable specifies
-         * the maximum of data to write.
-         *
-         * \param fd File descriptor to write to
-         * \param maxlen Maximum amount of data to write
-         * \return Number of written bytes, negative on failures, see write(2)
+        /**
+         * @brief initFromFile Load whole file contents
+         * @param path Absolute path of file to read
+         * @param limit Maximum number of bytes to read. If file is larger, read only that much.
+         * @return True if data could be read and limit was not exceeded.
          */
-        int syswrite(int fd, unsigned int maxlen=MAX_VAL(unsigned int));
+        bool initFromFile(const char *path, off_t limit = MAX_VAL(off_t));
+
+		/**
+		 * Write all data (or limited range) to specified descriptor, draining the buffer.
+		 * @return Number of bytes written, -1 on errors (and sets the errno)
+         */
+		ssize_t dumpall(int fd, ssize_t limit = MAX_VAL(ssize_t));
+
+		ssize_t dumpall(const char *path, int flags, int perms, ssize_t limit = MAX_VAL(ssize_t), bool doTruncate = false);
 
         /*
          * Reads from a file descriptor and append to buffered data, update position indexes.
@@ -85,8 +91,9 @@ class ACNG_API tSS : public acbuf
 public:
 // map char array to buffer pointer and size
 	inline tSS & operator<<(const char *val) { return add(val); }
-	inline tSS & operator<<(cmstring& val) { return add(val); };
+	inline tSS & operator<<(const std::string& val) { return add(val); };
 	inline tSS & operator<<(const acbuf& val) { return add(val.rptr(), val.size()); };
+	inline tSS & operator<<(const string_view& val) { return add(val.data(), val.size()); };
 
 #define __tss_nbrfmt(x, h, y) { reserve_atleast(22); got(sprintf(wptr(), m_fmtmode == hex ? h : x, y)); return *this; }
 	inline tSS & operator<<(int val) __tss_nbrfmt("%d", "%x", val);
@@ -102,7 +109,8 @@ public:
     enum fmtflags : bool { hex, dec };
     inline tSS & operator<<(fmtflags mode) { m_fmtmode=mode; return *this;}
 
-    operator mstring() const { return mstring(rptr(), size()); }
+	operator std::string() const { return std::string(rptr(), size()); }
+    operator string_view() const { return string_view(rptr(), size()); }
     inline size_t length() const { return size();}
     inline const char * data() const { return rptr();}
 
@@ -117,14 +125,47 @@ public:
     inline tSS & clean() { clear(); return *this;}
     inline tSS & append(const char *data, size_t len) { add(data,len); return *this; }
     // similar to syswrite but adapted to socket behavior and reports error codes as HTTP status lines
-    bool send(int nConFd, mstring* sErrorStatus=nullptr);
-    bool recv(int nConFd, mstring* sErrorStatus=nullptr);
+	bool send(int nConFd, std::string* sErrorStatus=nullptr);
+	bool recv(int nConFd, std::string* sErrorStatus=nullptr);
 
     inline tSS & add(const char *data, size_t len)
 	{ reserve_atleast(len); memcpy(wptr(), data, len); got(len); return *this;}
 	inline tSS & add(const char *val)
 	{ if(val) return add(val, strlen(val)); else return add("(null)", 6); }
-	inline tSS & add(cmstring& val) { return add((const char*) val.data(), (size_t) val.size());}
+	inline tSS & add(const std::string& val) { return add((const char*) val.data(), (size_t) val.size());}
+
+
+	template <typename Arg>
+	static void Chain(tSS& fmter, const std::string& delimiter, Arg arg) {
+		(void) delimiter;
+		fmter << arg;
+	}
+	template <typename First, typename... Args>
+	static void Chain(tSS& fmter, const std::string& delimiter, First first, Args... args) {
+		Chain(fmter, delimiter, first);
+		fmter << delimiter;
+		Chain(fmter, delimiter, args...);
+	}
+
+	inline static tSS BitPrint(const std::string& delimiter,
+			int input, int bitMask, const char *bitName) {
+		if ( input & bitMask)
+			return tSS() << bitName << delimiter;
+		return tSS();
+	}
+	template <typename... Args>
+	inline static tSS BitPrint(const std::string& delimiter,
+			int input, int bitMask, const char *bitName,
+			Args... args) {
+		if (input & bitMask)
+		{
+			return BitPrint(delimiter, input, args...)
+					<< BitPrint(delimiter, input, bitMask, bitName);
+		}
+		else
+			return BitPrint(delimiter, input, args...);
+	}
+#define BITNNAME(x) x, #x
 
 protected:
 	fmtflags m_fmtmode;

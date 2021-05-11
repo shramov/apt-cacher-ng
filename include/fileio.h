@@ -8,7 +8,8 @@
 #ifndef FILEIO_H_
 #define FILEIO_H_
 
-#include "meta.h"
+#include "actypes.h"
+#include "actemplates.h"
 
 #include <errno.h>
 #include <sys/types.h>
@@ -16,18 +17,35 @@
 #include <cstdio>
 #include <unistd.h>
 
+#include <inttypes.h>
+#include <climits>
+#include <memory>
+#include <system_error>
+
 #ifdef HAVE_LINUX_SENDFILE
 #include <sys/sendfile.h>
 #endif
+
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
+
+#define ENEMIESOFDOSFS "?[]\\=+<>:;#"
 
 #ifndef O_BINARY
 #define O_BINARY 0 // ignore on Unix
 #endif
 
+extern "C"
+{
+struct evbuffer;
+}
+
 namespace acng
 {
 
 int falloc_helper(int fd, off_t start, off_t len);
+int fdatasync_helper(int fd);
 
 ssize_t sendfile_generic(int out_fd, int in_fd, off_t *offset, size_t count);
 
@@ -35,20 +53,14 @@ class Cstat : public stat
 {
 	bool bResult;
 public:
-	inline Cstat(cmstring &s) { bResult = !::stat(s.c_str(), static_cast<struct stat*>(this)); }
-	inline operator bool() const { return bResult; }
+	Cstat() : bResult(false) {};
+    Cstat(cmstring &s) : bResult(false) { update(s.c_str()); }
+    Cstat(const char *sz) : bResult(false) { update(sz); }
+	operator bool() const { return bResult; }
+    bool update(const char *sz) { return (bResult = !::stat(sz, static_cast<struct stat*>(this))); }
 };
 
-bool FileCopy_generic(cmstring &from, cmstring &to);
-
-// in fact, pipe&splice&splice method works about 10% but only without considering other IO costs
-// with them, the benefit is neglible
-
-//#if defined(HAVE_LINUX_SPLICE) && defined(HAVE_PREAD)
-//bool FileCopy(cmstring &from, cmstring &to);
-//#else
-#define FileCopy(x,y) FileCopy_generic(x,y)
-//#endif
+std::error_code FileCopy(cmstring &from, cmstring &to);
 
 bool LinkOrCopy(const mstring &from, const mstring &to);
 
@@ -56,18 +68,14 @@ bool LinkOrCopy(const mstring &from, const mstring &to);
 void set_nb(int fd);
 void set_block(int fd);
 
-inline void forceclose(int& fd) { while(0 != ::close(fd)) { if(errno != EINTR) break; }; fd=-1; }
 inline void justforceclose(int fd) { while(0 != ::close(fd)) { if(errno != EINTR) break; }; }
 inline void checkforceclose(int &fd)
 {
-	if (fd == -1)
-		return;
-	while (0 != ::close(fd))
+	while (fd != -1)
 	{
-		if (errno != EINTR)
-			break;
-	};
-	fd = -1;
+		if (0 == ::close(fd) || errno != EINTR)
+			fd = -1;
+	}
 }
 
 
@@ -78,7 +86,7 @@ inline void checkForceFclose(FILE* &fh)
 		int fd = fileno(fh);
 		if (0 != ::fclose(fh) && errno != EBADF)
 		{
-			forceclose(fd);
+			checkforceclose(fd);
 		}
 		fh = nullptr;
 	}
@@ -116,6 +124,12 @@ public:
 */
 
 using unique_fd = auto_raii<int, justforceclose, -1>;
+
+/**
+ * @brief evbuffer_dumpall - store all or limited range from the front to a file descriptor
+ * This is actually evbuffer_write_atmost replacement without its random aborting bug.
+ */
+ssize_t evbuffer_dumpall(evbuffer* inbuf, int out_fd, off_t &nSendPos, size_t nMax2SendNow);
 
 }
 

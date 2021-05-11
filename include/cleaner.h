@@ -11,9 +11,13 @@
 #include "lockable.h"
 #include <ctime>
 #include <limits>
+#include <array>
 
 namespace acng
 {
+
+class IFileItemRegistry;
+struct tAppStartStop;
 
 /**
  * @brief Primitive task scheduler for internal helper functions
@@ -30,8 +34,9 @@ namespace acng
  */
 class ACNG_API cleaner : public base_with_condition
 {
+	friend class tAppStartStop;
 public:
-	void Init();
+	cleaner(bool noop, std::shared_ptr<IFileItemRegistry>);
 	virtual ~cleaner();
 
 	void WorkLoop();
@@ -40,16 +45,19 @@ public:
 	enum eType : char
 	{
 		TYPE_EXFILEITEM, TYPE_ACFGHOOKS, /* TYPE_EXDNS,*/ TYPE_EXCONNS,
+	//	DNS_CACHE,
 		ETYPE_MAX
 	};
 	void ScheduleFor(time_t when, eType what);
 	void dump_status();
-	static cleaner& GetInstance(bool initAsNoop=false);
+	static cleaner& GetInstance();
 
 private:
-	cleaner(bool noop=false);
+	void Init();
+
+	std::shared_ptr<IFileItemRegistry> m_itemRegistry;
 	pthread_t m_thr;
-	time_t stamps[cleaner::ETYPE_MAX];
+	std::array<time_t,cleaner::ETYPE_MAX> stamps;
 	bool m_terminating = false;
 	bool m_noop=false;
 };

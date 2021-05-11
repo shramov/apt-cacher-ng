@@ -22,6 +22,7 @@
 #include "fileio.h"
 #include "conserver.h"
 #include "cleaner.h"
+#include "acregistry.h"
 
 #include <iostream>
 using namespace std;
@@ -40,8 +41,6 @@ using namespace std;
 
 #include "maintenance.h"
 #include "evabase.h"
-#include <event2/event.h>
-#include <event2/thread.h>
 
 namespace acng
 {
@@ -55,7 +54,7 @@ void noop_handler(evutil_socket_t fd, short what, void *arg);
 void handle_sigbus();
 void check_algos();
 
-extern mstring sReplDir;
+//extern mstring sReplDir;
 
 typedef struct sigaction tSigAct;
 
@@ -88,7 +87,7 @@ inline bool fork_away()
 }
 #endif
 
-void parse_options(int argc, const char **argv, bool& bStartCleanup)
+void parse_options(int argc, const char **argv)
 {
 	bool bExtraVerb=false;
 	LPCSTR szCfgDir=nullptr;
@@ -105,8 +104,6 @@ void parse_options(int argc, const char **argv, bool& bStartCleanup)
 			ignoreCfgErrors = true;
 		else if (!strncmp(*p, "-v", 2))
 			bExtraVerb = true;
-		else if (!strncmp(*p, "-e", 2))
-			bStartCleanup=true;
 		else if (!strcmp(*p, "-c"))
 		{
 			++p;
@@ -135,9 +132,8 @@ void parse_options(int argc, const char **argv, bool& bStartCleanup)
 
 void setup_sighandler()
 {
-	auto ebase = evabase::instance->base;
 	auto what = EV_SIGNAL|EV_PERSIST;
-#define REGSIG(x,y) event_add(::event_new(ebase, x, what, & y, 0), nullptr);
+#define REGSIG(x,y) event_add(::event_new(evabase::base, x, what, & y, 0), nullptr);
 	for(int snum : {SIGBUS, SIGTERM, SIGINT, SIGQUIT}) REGSIG(snum, term_handler);
 	REGSIG(SIGUSR1, log_handler);
 	REGSIG(SIGUSR2, dump_handler);
@@ -155,7 +151,6 @@ static void usage(int retCode) {
 		"Options:\n"
 		"-h: this help message\n"
 		"-c: configuration directory\n"
-		"-e: on startup, run expiration once\n"
 		"-i: ignore configuration loading errors\n"
 		"-v: extra verbosity in logging\n"
 #if SUPPWHASH
@@ -196,9 +191,9 @@ static void SetupCacheDir()
 	buf << cacheDirSlash << "testfile." << tv.tv_usec * tv.tv_sec * (LPCSTR(buf.wptr()) - LPCSTR(&tv));
 	mkbasedir(buf.c_str()); // try or force its directory creation
 	int t=open( buf.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 00644);
-	if (t>=0)
+	if (t != -1)
 	{
-		forceclose(t);
+		checkforceclose(t);
 		if(0==unlink(buf.c_str()))
 			return;
 	}
@@ -221,7 +216,7 @@ void noop_handler(evutil_socket_t, short, void*)
 
 void term_handler(evutil_socket_t signum, short what, void *arg)
 {
-	dbgprint("caught signal " << signum);
+	DBGQLOG("caught signal " << signum);
 	switch (signum) {
 	case (SIGBUS):
 		/* OH NO!
@@ -237,8 +232,8 @@ void term_handler(evutil_socket_t signum, short what, void *arg)
 	case (SIGINT):
 	case (SIGQUIT):
 	{
-		if(evabase::instance)
-			event_base_loopbreak(evabase::instance->base);
+		evabase::in_shutdown.store(true);
+		evabase::SignalStop();
 		break;
 	}
 	default:
@@ -248,78 +243,78 @@ void term_handler(evutil_socket_t signum, short what, void *arg)
 
 void CloseAllCachedConnections();
 
+ACNG_API void SetupCleaner();
+ACNG_API void TeardownCleaner();
+
 struct tAppStartStop
 {
+	evabase m_base;
+	std::shared_ptr<cleaner> m_victor;
+
 	tAppStartStop(int argc, const char**argv)
 	{
-		evthread_use_pthreads();
-
-		#ifdef HAVE_SSL
+#ifdef HAVE_SSL
 			acng::globalSslInit();
 		#endif
 
-			bool bRunCleanup=false;
+		parse_options(argc, argv);
 
-			parse_options(argc, argv, bRunCleanup);
+		auto lerr = log::open();
+		if (!lerr.empty())
+		{
+			cerr
+					<< "Problem creating log files in "
+					<< cfg::logdir
+					<< ". " << lerr << ".\n";
 
-			if(!log::open())
+			exit(EXIT_FAILURE);
+		}
+
+		check_algos();
+
+		setup_sighandler();
+
+		SetupCacheDir();
+
+		//DelTree(cfg::cacheDirSlash + sReplDir);
+		SetupCleaner();
+
+		if (conserver::Setup() <= 0)
+		{
+			cerr
+					<< "No listening socket(s) could be created/prepared. "
+							"Check the network, check or unset the BindAddress directive.\n";
+			exit(EXIT_FAILURE);
+		}
+
+		if (!cfg::foreground && !fork_away())
+		{
+			tErrnoFmter ef("Failed to change to daemon mode");
+			cerr << ef << endl;
+			exit(43);
+		}
+
+		if (!cfg::pidfile.empty())
+		{
+			mkbasedir(cfg::pidfile);
+			FILE *PID_FILE = fopen(cfg::pidfile.c_str(), "w");
+			if (PID_FILE != nullptr)
 			{
-				cerr << "Problem creating log files. Check permissions of the log directory, "
-					<< cfg::logdir<<endl;
-				exit(EXIT_FAILURE);
+				fprintf(PID_FILE, "%d", getpid());
+				checkForceFclose(PID_FILE);
 			}
-
-			check_algos();
-
-			evabase::instance = std::make_shared<evabase>();
-
-			setup_sighandler();
-
-			SetupCacheDir();
-
-			DelTree(cfg::cacheDirSlash+sReplDir);
-
-			if(conserver::Setup() <= 0)
-			{
-				cerr << "No listening socket(s) could be created/prepared. "
-				"Check the network, check or unset the BindAddress directive.\n";
-				exit(EXIT_FAILURE);
-			}
-
-			if (bRunCleanup)
-			{
-				tSpecialRequest::RunMaintWork(tSpecialRequest::workExExpire,
-						cfg::reportpage + "?abortOnErrors=aOe&doExpire=Start",
-						fileno(stdout));
-				exit(0);
-			}
-
-			if (!cfg::foreground && !fork_away())
-			{
-				tErrnoFmter ef("Failed to change to daemon mode");
-				cerr << ef << endl;
-				exit(43);
-			}
-
-			if (!cfg::pidfile.empty())
-			{
-				mkbasedir(cfg::pidfile);
-				FILE *PID_FILE = fopen(cfg::pidfile.c_str(), "w");
-				if (PID_FILE != nullptr)
-				{
-					fprintf(PID_FILE, "%d", getpid());
-					checkForceFclose(PID_FILE);
-				}
-			}
+		}
 	}
 	~tAppStartStop()
 	{
+		evabase::in_shutdown = true;
 		cleaner::GetInstance().Stop();
 		if (!cfg::pidfile.empty())
 			unlink(cfg::pidfile.c_str());
 		conserver::Shutdown();
 		CloseAllCachedConnections();
 		log::close(false);
+		globalSslDeInit();
 	}
 };
 
@@ -329,6 +324,5 @@ int main(int argc, const char **argv)
 {
 	using namespace acng;
 	tAppStartStop app(argc, argv);
-	return conserver::Run();
-
+	return app.m_base.MainLoop();
 }

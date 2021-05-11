@@ -5,7 +5,6 @@
 #include "config.h"
 #include "acbuf.h"
 #include "fileio.h"
-#include "filelocks.h"
 
 namespace acng
 {
@@ -44,9 +43,9 @@ public:
 	static bool GetChecksum(const mstring & sFileName, int csType, uint8_t out[],
 			bool bTryUnpack, off_t &scannedSize, FILE *pDumpFile=nullptr);
 
-	inline const char *GetBuffer() const { return m_szFileBuf; };
-	inline size_t GetSize() const { return m_nBufSize; };
-
+    inline const char *GetBuffer() const { return m_szFileBuf; };
+    inline size_t GetSize() const { return m_nBufSize; };
+    inline string_view getView() { return string_view(m_szFileBuf, m_nBufSize); }
 	void Close();
 
 	const mstring& getSErrorString() const
@@ -77,14 +76,13 @@ private:
 	// not to be copied
 	filereader& operator=(const filereader&);
 	filereader(const filereader&);
-	std::unique_ptr<TFileShrinkGuard> m_mmapLock;
 };
 
 extern uint_fast16_t hexmap[];
 
 inline bool CsEqual(const char *sz, uint8_t b[], unsigned short binLen)
 {
-	CUCHAR *a=(CUCHAR*)sz;
+	auto* a=(const unsigned char*) sz;
 	if(!a)
 		return false;
 	for(int i=0; i<binLen;i++)
@@ -99,6 +97,15 @@ inline bool CsEqual(const char *sz, uint8_t b[], unsigned short binLen)
 };
 
 bool Bz2compressFile(const char *pathIn, const char*pathOut);
+
+enum class COMP_TYPE {
+	NONE,
+	XZ,
+	GZ,
+	BZ2,
+	LZMA,
+	ZSTD
+};
 
 }
 

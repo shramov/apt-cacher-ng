@@ -1,72 +1,42 @@
 #ifndef _CON_H
 #define _CON_H
 
-#include "config.h"
-#include "lockable.h"
-#include "header.h"
-#include "sockio.h"
-#include <list>
-#include <string>
-#include <thread>
-
-#define RBUFLEN 16384
+#include "actypes.h"
+#include "actemplates.h"
+#include "fileitem.h"
 
 namespace acng
 {
-
 class dlcon;
-class job;
-class header;
 
-class conn;
-typedef SHARED_PTR<conn> tConPtr;
-
-class conn // : public tRunable
+class ISharedConnectionResources
 {
 public:
-	conn(unique_fd fdId, const char *client);
-	virtual ~conn();
+	virtual dlcon* SetupDownloader() =0;
+    virtual void LogDataCounts(cmstring & sFile, mstring xff, off_t nNewIn,
+            off_t nNewOut, bool bAsError) =0;
+	virtual std::shared_ptr<IFileItemRegistry> GetItemRegistry() =0;
+};
 
+class conn : public ISharedConnectionResources
+{
+	class Impl;
+	Impl *_p;
+public:
+	conn(unique_fd fdId, const char *client, std::shared_ptr<IFileItemRegistry>);
+	virtual ~conn();
 	void WorkLoop();
 
+	dlcon* SetupDownloader() override;
+    void LogDataCounts(cmstring & sFile, mstring xff, off_t nNewIn,
+            off_t nNewOut, bool bAsError) override;
 private:
 	conn& operator=(const conn&); // { /* ASSERT(!"Don't copy con objects"); */ };
 	conn(const conn&); // { /* ASSERT(!"Don't copy con objects"); */ };
 
-	unique_fd m_fd;
-	int m_confd;
-	bool m_badState = false;
-
-	std::list<job*> m_jobs2send;
-
-#ifdef KILLABLE
-      // to awake select with dummy data
-      int wakepipe[2];
-#endif
-
-	std::thread m_dlerthr;
-
-	// for jobs
-	friend class job;
-	bool SetupDownloader(const char *xff);
-	std::shared_ptr<dlcon> m_pDlClient;
-	mstring m_sClientHost;
-
-	// some accounting
-	mstring logFile, logClient;
-	off_t fileTransferIn = 0, fileTransferOut = 0;
-	bool m_bLogAsError = false;
-	void writeAnotherLogRecord(const mstring &pNewFile,
-			const mstring &pNewClient);
-
-	// This method collects the logged data counts for certain file.
-	// Since the user might restart the transfer again and again, the counts are accumulated (for each file path)
-	void LogDataCounts(cmstring &file, const char *xff, off_t countIn,
-			off_t countOut, bool bAsError);
-
-#ifdef DEBUG
-      unsigned m_nProcessedJobs;
-#endif
+	// ISharedConnectionResources interface
+public:
+	std::shared_ptr<IFileItemRegistry> GetItemRegistry() override;
 };
 
 }

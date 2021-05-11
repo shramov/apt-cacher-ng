@@ -1,8 +1,10 @@
 
 #include "filereader.h"
+#include "fileio.h"
+#include "meta.h"
+#include "acfg.h"
 
 #include <unistd.h>
-#include "fileio.h"
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <errno.h>
@@ -11,7 +13,6 @@
 
 #include "csmapping.h"
 #include "aclogger.h"
-#include "filelocks.h"
 #include "lockable.h"
 #include "debug.h"
 
@@ -236,6 +237,7 @@ filereader::filereader()
 
 bool filereader::OpenFile(const string & sFilename, bool bNoMagic, unsigned nFakeTrailingNewlines)
 {
+	LOGSTARTFUNCx(sFilename, bNoMagic, nFakeTrailingNewlines);
 	Close(); // reset to clean state
 	m_nEofLines=nFakeTrailingNewlines;
 
@@ -307,9 +309,6 @@ bool filereader::OpenFile(const string & sFilename, bool bNoMagic, unsigned nFak
 		m_sErrorString=tErrnoFmter();
 		return false;
 	}
-
-	// this makes sure not to truncate file while it's mmaped
-	m_mmapLock = TFileShrinkGuard::Acquire(statbuf);
 
 	// LFS on 32bit? That's not good for mmap. Don't risk incorrect behaviour.
 	if(uint64_t(statbuf.st_size) >  MAX_VAL(size_t))
@@ -395,29 +394,14 @@ bool filereader::CheckGoodState(bool bErrorsConsiderFatal, cmstring *reportFileP
 void filereader::Close()
 {
 	m_nCurLine=0;
-	m_mmapLock.reset();
 
 	if (m_szFileBuf != MAP_FAILED)
 	{
-#ifdef SIGBUSHUNTING
-		{
-			lockguard g(g_mmapMemoryLock);
-			for (auto &x : g_mmapMemory)
-			{
-				if (x.valid.load()
-				&& pthread_equal(pthread_self(), x.threadref)
-				&& m_mmapLock.get() && x.path == m_mmapLock->path)
-					x.valid = false;
-			}
-		}
-#endif
-
 		munmap(m_szFileBuf, m_nBufSize);
 		m_szFileBuf = (char*) MAP_FAILED;
 	}
 
 	checkforceclose(m_fd);
-	m_mmapLock.reset();
 	m_Dec.reset();
 
 	m_nBufSize=0;
@@ -450,56 +434,6 @@ void ACNG_API handle_sigbus()
 						"Please check your system logs for related errors reports. Also consider "
 						"using the BusAction option, see Apt-Cacher NG Manual for details");
 	}
-#if 1
-
-#ifdef SIGBUSHUNTING
-	for (auto &x : g_mmapMemory)
-	{
-		if (!x.valid.load())
-			continue;
-		log::err(string("FATAL ERROR: probably IO error occurred, probably while reading the file ")
-			+x.path+" . Please check your system logs for related errors.");
-	}
-#endif
-
-#else
-	// attempt to pass the signal around threads, stopping the one troublemaker
-	std::cerr << "BUS ARRIVED" << std::endl;
-
-	bool metoo = false;
-
-	if (g_nThreadsToKill.load())
-		goto suicid;
-
-	g_degraded.store(true);
-
-	// this must run lock-free
-	for (auto &x : g_mmapMemory)
-	{
-		if (!x.valid.load())
-			continue;
-		log::err(
-				string("FATAL ERROR: probably IO error occurred, probably while reading the file ")
-						+ x.path + " . Please check your system logs for related errors.");
-
-		if (pthread_equal(pthread_self(), x.threadref))
-			metoo = true;
-		else
-		{
-			g_nThreadsToKill.fetch_add(1);
-			pthread_kill(x.threadref, SIGBUS);
-		}
-	}
-
-	if (!metoo)
-		return;
-
-	suicid: log::err("FATAL ERROR: SIGBUS, probably caused by an IO error. "
-			"Please check your system logs for related errors.");
-
-	g_nThreadsToKill.fetch_add(-1);
-	pthread_exit(0);
-#endif
 }
 
 bool filereader::GetOneLine(string & sOut, bool bForceUncompress) {
@@ -803,7 +737,8 @@ bool Bz2compressFile(const char *pathIn, const char*pathOut)
 			{
 				if(BZ_OK == nError)
 				{
-					BZ2_bzWrite(&nError, bzf, (void*) reader.GetBuffer(), reader.GetSize());
+                    auto sv = reader.getView();
+                    BZ2_bzWrite(&nError, bzf, (void*) sv.data(), sv.size());
 					if(BZ_OK == nError)
 						bRet=true;
 				}

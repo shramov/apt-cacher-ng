@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.1)
 
-# enforce minimal C++ language level
-set(CMAKE_CXX_STANDARD 14)
+# try to set the best C++ language level
+set(CMAKE_CXX_STANDARD 20)
 # let it take the lowest version, we need some precursor of C++14x
 #set(CMAKE_CXX_STANDARD_REQUIRED on)
 
@@ -21,6 +21,7 @@ INCLUDE(CheckCXXSourceCompiles)
 INCLUDE(CheckCXXCompilerFlag)
 INCLUDE(CheckTypeSize)
 INCLUDE(TestBigEndian)
+INCLUDE(CheckFunctionExists)
 INCLUDE(CheckLibraryExists)
 INCLUDE(CheckSymbolExists)
 INCLUDE(FindPkgConfig)
@@ -38,6 +39,8 @@ endif()
 if(NOT DEFINED(RUNDIR))
 	set(RUNDIR "/run")
 endif()
+set(SOCKET_PATH "${RUNDIR}/${PACKAGE}/socket")
+
 
 IF(NOT DEFINED(ACNG_CACHE_DIR))
         set(ACNG_CACHE_DIR "/var/tmp" CACHE STRING "Cache folder for examples and default configuration")
@@ -72,6 +75,8 @@ CHECK_TYPE_SIZE(int SIZE_INT)
 CHECK_TYPE_SIZE(long SIZE_LONG)
 TEST_BIG_ENDIAN(WORDS_BIGENDIAN)
 
+CHECK_FUNCTION_EXISTS(strlcpy HAVE_STRLCPY)
+
 # those are appended later via COMPILER_FLAGS. $CXXFLAGS and CMAKE_CXX_FLAGS
 # also influence it, need to be adjusted carefully by user.
 SET(ACNG_COMPFLAGS "-D_FILE_OFFSET_BITS=64")
@@ -104,14 +109,16 @@ foreach(linkarg -Wl,--as-needed -Wl,-O1 -Wl,--discard-all -Wl,--no-undefined -Wl
 	set(CMAKE_REQUIRED_FLAGS "")
 endforeach(linkarg)
 
-set(CMAKE_REQUIRED_FLAGS "-Wl,-fuse-ld=gold -Wl,--threads")
-CHECK_CXX_COMPILER_FLAG("" LD_MULTITHREADED)
-if(LD_MULTITHREADED)
-	_append(CMAKE_EXE_LINKER_FLAGS "-Wl,-fuse-ld=gold -Wl,--threads")
-endif()
-set(CMAKE_REQUIRED_FLAGS "")
+#set(CMAKE_REQUIRED_FLAGS "-Wl,-fuse-ld=gold -Wl,--threads")
+#CHECK_CXX_COMPILER_FLAG("" LD_MULTITHREADED)
+#if(LD_MULTITHREADED)
+#	_append(CMAKE_EXE_LINKER_FLAGS "-Wl,-fuse-ld=gold -Wl,--threads")
+#endif()
+#set(CMAKE_REQUIRED_FLAGS "")
 
 option(USE_SSL "Use OpenSSL library for TLS and other crypto functionality" on)
+option(ENABLE_TOOLS "Build additional command line tools (acngfs, inetd client)" on)
+option(ENABLE_TESTS "Build tests (for development only)" off)
 
 IF(CMAKE_SYSTEM MATCHES "Darwin")
         _append(ACNG_COMPFLAGS -D_DARWIN_C_SOURCE)
@@ -131,7 +138,6 @@ set(USE_LTO_DEFAULT off)
 
 if(CMAKE_BUILD_TYPE MATCHES Debug)
    set(USE_LTO_DEFAULT off)
-   _append(ACNG_COMPFLAGS -DDEBUG)
 else()
    set(CMAKE_REQUIRED_FLAGS "-Wl,--gc-sections")
    CHECK_CXX_COMPILER_FLAG("-Os -fdata-sections -ffunction-sections -Wl,--gc-sections" GC_SECTIONS)
@@ -165,8 +171,10 @@ if(HAVE_SOCKETLIB)
    LIST(APPEND BaseNetworkLibs socket nsl)
 endif(HAVE_SOCKETLIB)
 
+set(TESTKITDIR "tests/build")
+
 SET(CMAKE_REQUIRED_LIBRARIES wrap ${BaseNetworkLibs})
-FILE(READ test/build/HAVE_LIBWRAP.cc TESTSRC)
+FILE(READ ${TESTKITDIR}/HAVE_LIBWRAP.cc TESTSRC)
 CHECK_CXX_SOURCE_COMPILES("${TESTSRC}" HAVE_LIBWRAP)
 IF(HAVE_LIBWRAP)
    LIST(APPEND ServerLibs wrap)
@@ -188,41 +196,41 @@ if(CYGWIN)
 message("!! Not using wordexp on Cygwin, not reliable")
 set(HAVE_WORDEXP off)
 else()
-FILE(READ test/build/HAVE_WORDEXP.cc TESTSRC)
+FILE(READ ${TESTKITDIR}/HAVE_WORDEXP.cc TESTSRC)
 CHECK_CXX_SOURCE_COMPILES("${TESTSRC}" HAVE_WORDEXP)
 endif()
 
 # test some methods explicitly where we want to be sure about the signatures
 # and linkability
 
-FILE(READ test/build/HAVE_GLOB.cc TESTSRC)
+FILE(READ ${TESTKITDIR}/HAVE_GLOB.cc TESTSRC)
 CHECK_CXX_SOURCE_COMPILES("${TESTSRC}" HAVE_GLOB)
 
-FILE(READ test/build/HAVE_FADVISE.cc TESTSRC)
+FILE(READ ${TESTKITDIR}/HAVE_FADVISE.cc TESTSRC)
 CHECK_CXX_SOURCE_COMPILES("${TESTSRC}" HAVE_FADVISE)
 
-FILE(READ test/build/HAVE_MADVISE.cc TESTSRC)
+FILE(READ ${TESTKITDIR}/HAVE_MADVISE.cc TESTSRC)
 CHECK_CXX_SOURCE_COMPILES("${TESTSRC}" HAVE_MADVISE)
 
 if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
 
-   FILE(READ test/build/HAVE_LINUX_FALLOCATE.cc TESTSRC)
+   FILE(READ ${TESTKITDIR}/HAVE_LINUX_FALLOCATE.cc TESTSRC)
    CHECK_CXX_SOURCE_COMPILES("${TESTSRC}" HAVE_LINUX_FALLOCATE)
 
-   FILE(READ test/build/HAVE_LINUX_SENDFILE.cc TESTSRC)
+   FILE(READ ${TESTKITDIR}/HAVE_LINUX_SENDFILE.cc TESTSRC)
    CHECK_CXX_SOURCE_COMPILES("${TESTSRC}" HAVE_LINUX_SENDFILE)
 
-   FILE(READ test/build/HAVE_LINUX_EVENTFD.cc TESTSRC)
+   FILE(READ ${TESTKITDIR}/HAVE_LINUX_EVENTFD.cc TESTSRC)
    CHECK_CXX_SOURCE_COMPILES("${TESTSRC}" HAVE_LINUX_EVENTFD)
 
-   # FILE(READ test/build/HAVE_LINUX_SPLICE.cc TESTSRC)
+   # FILE(READ ${TESTKITDIR}/HAVE_LINUX_SPLICE.cc TESTSRC)
    # CHECK_CXX_SOURCE_COMPILES("${TESTSRC}" HAVE_LINUX_SPLICE)
 endif()
 
-FILE(READ test/build/HAVE_PREAD.cc TESTSRC)
+FILE(READ ${TESTKITDIR}/HAVE_PREAD.cc TESTSRC)
 CHECK_CXX_SOURCE_COMPILES("${TESTSRC}" HAVE_PREAD)
 
-FILE(READ test/build/HAVE_DAEMON.cc TESTSRC)
+FILE(READ ${TESTKITDIR}/HAVE_DAEMON.cc TESTSRC)
 CHECK_CXX_SOURCE_COMPILES("${TESTSRC}" HAVE_DAEMON)
 
 pkg_check_modules(lsd "libsystemd>=209")
@@ -234,9 +242,9 @@ _append(CFLAGS_DAEMON ${lsd_CFLAGS})
 _append(LDFLAGS_DAEMON ${lsd_LDFLAGS})
 set(HAVE_SD_NOTIFY ${lsd_FOUND})
 
-SET(CMAKE_REQUIRED_LIBRARIES dl)
-FILE(READ test/build/HAVE_DLOPEN.cc TESTSRC)
-CHECK_CXX_SOURCE_COMPILES("${TESTSRC}" HAVE_DLOPEN)
+#SET(CMAKE_REQUIRED_LIBRARIES dl)
+#FILE(READ ${TESTKITDIR}/HAVE_DLOPEN.cc TESTSRC)
+#CHECK_CXX_SOURCE_COMPILES("${TESTSRC}" HAVE_DLOPEN)
 
 # XXX: convert the compressor stuff to pkgconfig usage and print an overview of enabled/found values in one final message and collect and process cflags too
 
@@ -264,7 +272,7 @@ endif (BZIP2_FOUND)
 
 SET(CMAKE_REQUIRED_FLAGS ${ACNG_COMPFLAGS})
 SET(CMAKE_REQUIRED_LIBRARIES lzma)
-FILE(READ test/build/HAVE_LZMA.cc TESTSRC)
+FILE(READ ${TESTKITDIR}/HAVE_LZMA.cc TESTSRC)
 CHECK_CXX_SOURCE_COMPILES("${TESTSRC}" HAVE_LZMA)
 IF(HAVE_LZMA)
 	list(APPEND CompLibs lzma)
@@ -276,7 +284,7 @@ SET(CMAKE_REQUIRED_LIBRARIES "")
 
 set(HAVE_CHECKSUM on)
 
-pkg_check_modules(libevent libevent)
+pkg_check_modules(libevent "libevent>=2.1.2")
 if(NOT libevent_FOUND)
         message(FATAL_ERROR "!! Error: proper libevent installation is required")
 else()
@@ -358,11 +366,17 @@ SET(CMAKE_SHARED_LIBRARY_LINK_C_FLAGS "")
 
 CONFIGURE_FILE("${CMAKE_SOURCE_DIR}/include/acsyscap.h.in" "${CMAKE_BINARY_DIR}/acsyscap.h")
 
-add_subdirectory(client)
-add_subdirectory(fs)
+if(ENABLE_TOOLS)
+	add_subdirectory(client)
+	add_subdirectory(fs)
+endif()
 add_subdirectory(source)
 add_subdirectory(conf)
 add_subdirectory(systemd)
+
+if(ENABLE_TESTS)
+        add_subdirectory(tests)
+endif()
 
 ###
 ### Extra install rules for static files
@@ -384,4 +398,6 @@ CMAKE_INSTALL_PREFIX: ${CMAKE_INSTALL_PREFIX}
 CMAKE_INSTALL_FULL_SYSCONFDIR: ${CMAKE_INSTALL_FULL_SYSCONFDIR}
 LIBDIR: ${LIBDIR}
 AVAHIDIR: ${AVAHIDIR}
+DEBUG: ${DEBUG}
+CMAKE_BINARY_DIR: ${CMAKE_BUILD_TYPE}
 ")

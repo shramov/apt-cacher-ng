@@ -47,7 +47,9 @@ SupportDir: @LIBDIR@
 # local interface. DNS resolution is performed using getaddrinfo(3) for all
 # available protocols (IPv4, IPv6, ...). Using a protocol specific format will
 # create binding(s) only on protocol specific socket(s), e.g. 0.0.0.0 will
-# listen only to IPv4.
+# listen only to IPv4. The endpoint can also be specified as host:port (or
+# [ipv6-address]:port) which allows binding on non-standard ports (Port
+# directive is ignored in this case).
 #
 # Default: listens on all interfaces and protocols
 #
@@ -67,6 +69,7 @@ SupportDir: @LIBDIR@
 # Examples:
 Remap-debrep: file:deb_mirror*.gz /debian ; file:backends_debian # Debian Archives
 Remap-uburep: file:ubuntu_mirrors /ubuntu ; file:backends_ubuntu # Ubuntu Archives
+Remap-klxrep: file:kali_mirrors /kali ; file:backends_kali # Kali Linux Archives
 Remap-cygwin: file:cygwin_mirrors /cygwin # ; file:backends_cygwin # incomplete, please create this file or specify preferred mirrors here
 Remap-sfnet:  file:sfnet_mirrors # ; file:backends_sfnet # incomplete, please create this file or specify preferred mirrors here
 Remap-alxrep: file:archlx_mirrors /archlinux # ; file:backend_archlx # Arch Linux
@@ -74,7 +77,7 @@ Remap-fedora: file:fedora_mirrors # Fedora Linux
 Remap-epel:   file:epel_mirrors # Fedora EPEL
 Remap-slrep:  file:sl_mirrors # Scientific Linux
 Remap-gentoo: file:gentoo_mirrors.gz /gentoo ; file:backends_gentoo # Gentoo Archives
-Remap-secdeb: security.debian.org ; security.debian.org deb.debian.org/debian-security
+Remap-secdeb: security.debian.org security.debian.org/debian-security deb.debian.org/debian-security /debian-security ; deb.debian.org/debian-security security.debian.org
 
 # Virtual page accessible in a web browser to see statistics and status
 # information, i.e. under http://localhost:3142/acng-report.html
@@ -87,11 +90,12 @@ Remap-secdeb: security.debian.org ; security.debian.org deb.debian.org/debian-se
 ReportPage: acng-report.html
 
 # Socket file for accessing through local UNIX socket instead of TCP/IP. Can be
-# used with inetd (via bridge tool in.acng from apt-cacher-ng package).
+# used with inetd (via bridge tool in.acng from apt-cacher-ng package), is also
+# used internally for administrative purposes.
 #
-# Default: not set, UNIX socket bridge is disabled.
+# Default: @SOCKET_PATH@
 #
-# SocketPath:/var/run/apt-cacher-ng/socket
+# SocketPath: /var/run/apt-cacher-ng/socket
 
 # If set to 1, makes log files be written to disk on every new line. Default
 # is 0, buffers are flushed after the client disconnects. Technically,
@@ -424,10 +428,11 @@ LocalDirs: acng-doc @CMAKE_INSTALL_FULL_DOCDIR@
 
 # There some broken HTTP servers and proxy servers in the wild which don't
 # support the If-Range header correctly and return incorrect data when the
-# contents of a (volatile) file changed. Setting VfileUseRangeOps to zero
-# disables Range-based requests while retrieving volatile files, using
-# If-Modified-Since and requesting the complete file instead. Setting it to
-# a negative value removes even If-Modified-Since headers.
+# contents of a (volatile) file changed. This also applies to incomplete
+# resumed downloads.  Setting VfileUseRangeOps to 0 disables Range-based
+# requests (using purely If-Modified-Since and requesting the complete file
+# instead, if changed). Setting it to a negative value removes even this check
+# and means fetching the whole file from the beginning.
 #
 # VfileUseRangeOps: 1
 
@@ -442,17 +447,15 @@ LocalDirs: acng-doc @CMAKE_INSTALL_FULL_DOCDIR@
 # Default: ^(bugs\.debian\.org|changelogs\.ubuntu\.com):443$
 # PassThroughPattern: ^(bugs\.debian\.org|changelogs\.ubuntu\.com):443$
 
-# It's possible that an evil client requests a volatile file but does not
-# retrieve the response and keeps the connection effectively stuck over
-# many hours, blocking the particular file for other download attempts (which
-# leads to not reporting file changes on server side to other users). The work
-# around is the use of alternative file descriptors inside of apt-cacher-ng,
-# however this might cost some extra download traffic due to worse cache usage.
-# The ResponseFreezeDetectTime value specifies when a file descriptor in the
-# mentioned state is to be considered defect and will require special handling.
-# Default time is 500 seconds.
+# Interval an overaged local cache item (i.e. active file descriptor) can be
+# considered broken so that a new forced download can be started. Such
+# situation can happen when a very slow clients keeps a hot cache item active
+# for extended amounts of time so that even the remote freshness checks
+# intervals might become overrun.
 #
-# ResponseFreezeDetectTime: 500
+# Default time is based on the value of FreshIndexMaxAge with a safety factor.
+#
+# ResponseFreezeDetectTime: 60
 
 # Keep outgoing connections alive and reuse them for later downloads from
 # the same server as long as possible.
@@ -559,3 +562,11 @@ LocalDirs: acng-doc @CMAKE_INSTALL_FULL_DOCDIR@
 # Set to zero to disable this feature completely. Default: one megabyte
 #
 # ReserveSpace: 1048576
+
+# PermitCacheControl will allow users to specify a few hints for processing
+# of a request, for example bypassing the local cache (see
+# https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cache-Control for
+# no-cache, no-store).
+#
+# PermitCacheControl: no-cache, no-store
+

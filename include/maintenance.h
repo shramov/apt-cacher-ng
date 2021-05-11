@@ -22,6 +22,8 @@ static const std::string sBRLF("<br>\n");
 
 namespace acng
 {
+class ISharedConnectionResources;
+
 class ACNG_API tSpecialRequest
 {
 public:
@@ -58,6 +60,7 @@ public:
 		int fd;
 		tSpecialRequest::eMaintWorkType type;
 		cmstring cmd;
+		ISharedConnectionResources* pDlResProvider;
 	};
 	/*!
 	 *  @brief Main execution method for maintenance tasks.
@@ -68,18 +71,20 @@ public:
 	virtual ~tSpecialRequest();
 
 protected:
-	inline void SendChunk(const mstring &x) { SendChunk(x.data(), x.size()); }
+//	inline void SendChunk(const mstring &x) { SendChunk(x.data(), x.size()); }
 
 	void SendChunk(const char *data, size_t size);
 	void SendChunkRemoteOnly(const char *data, size_t size);
-	inline void SendChunk(const char *x) { SendChunk(x, x?strlen(x):0); }
+    void SendChunkRemoteOnly(string_view sv) { return SendChunkRemoteOnly(sv.data(), sv.size()); }
+//	inline void SendChunk(const char *x) { SendChunk(x, x?strlen(x):0); }
+	void SendChunk(string_view x) { SendChunk(x.data(), x.size()); }
 	inline void SendChunk(const tSS &x){ SendChunk(x.data(), x.length()); }
 	// for customization in base classes
 	virtual void SendChunkLocalOnly(const char* /*data*/, size_t /*size*/) {};
 
 	bool SendRawData(const char *data, size_t len, int flags);
 
-	mstring & GetHostname();
+	cmstring & GetMyHostPort();
 	void SendChunkedPageHeader(const char *httpstatus, const char *mimetype);
 	LPCSTR m_szDecoFile = nullptr;
 	LPCSTR GetTaskName();
@@ -88,7 +93,7 @@ protected:
 private:
 	tSpecialRequest(const tSpecialRequest&);
 	tSpecialRequest& operator=(const tSpecialRequest&);
-	mstring m_sHostname;
+	mstring m_sHostPort;
 	bool m_bChunkHeaderSent=false;
 
 public:
@@ -123,10 +128,10 @@ public:
 	tSS m_fmtHelper;
 
 	static eMaintWorkType DispatchMaintWork(cmstring &cmd, const char *auth);
-	static void RunMaintWork(eMaintWorkType jobType, cmstring& cmd, int fd);
+	static void RunMaintWork(eMaintWorkType jobType, cmstring& cmd, int fd, ISharedConnectionResources* dlResProvider);
 
 protected:
-	static tSpecialRequest* MakeMaintWorker(const tRunParms& parms);
+	static tSpecialRequest* MakeMaintWorker(tRunParms&& parms);
 };
 
 std::string to_base36(unsigned int val);

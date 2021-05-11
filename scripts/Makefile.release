@@ -70,7 +70,7 @@ checktest:
 	test -e builddir/testok || (echo Should run the test suite before release... ; exit 1)
 
 test:
-	bash -x test/apptests.sh
+	bash -x tests/apptests.sh
 	touch builddir/testok
 
 # execute them always and consider done afterwards

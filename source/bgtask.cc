@@ -12,6 +12,7 @@
 #include "acfg.h"
 #include "meta.h"
 #include "filereader.h"
+#include "evabase.h"
 
 #include <limits.h>
 #include <errno.h>
@@ -49,8 +50,11 @@ tSpecOpDetachable::~tSpecOpDetachable()
 cmstring GetFooter()
 {
         return mstring("<hr><address>Server: ") + cfg::agentname
-                + "&nbsp;&nbsp;|&nbsp;&nbsp;<a\nhref=\"https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=QDCK9C2ZGUKZY&source=url\">Donate!"
-                "</a>&nbsp;&nbsp;|&nbsp;&nbsp;<a\nhref=\"http://www.unix-ag.uni-kl.de/~bloch/acng/\">Apt-Cacher NG homepage</a></address>";
+                + "&nbsp;&nbsp;"
+				"|&nbsp;&nbsp;<a\nhref=\"/\">Usage Information</a>&nbsp;&nbsp;"
+				"|&nbsp;&nbsp;<a\nhref=\"https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=QDCK9C2ZGUKZY&source=url\">Donate!"
+                "</a>&nbsp;&nbsp;"
+				"|&nbsp;&nbsp;<a\nhref=\"http://www.unix-ag.uni-kl.de/~bloch/acng/\">Apt-Cacher NG homepage</a></address>";
 }
 
 std::string to_base36(unsigned int val)
@@ -175,15 +179,31 @@ void tSpecOpDetachable::Run()
 			while(true)
 			{
 				int r = sendbuf.sysread(m_logFd);
-				if(r < 0)
+				if(r < 0) // error
 					goto finish_action;
+				if(r == -EAGAIN)
+				{
+					g_StateCv.wait_for(g, 1, 1);
+					if(!nBgTimestamp)
+						break;
+					continue;
+				}
 				if(r == 0)
 				{
-					g_StateCv.wait_for(g, 10, 1);
-					break;
+					g_StateCv.wait_for(g, 5, 1);
+					if(!nBgTimestamp)
+						break;
+					continue;
 				}
 				SendChunkRemoteOnly(sendbuf.rptr(), sendbuf.size());
 				sendbuf.clear();
+				if(r>0)
+				{
+					// read more once?
+					continue;
+				}
+				if(!nBgTimestamp)
+					break;
 			}
 		}
 		// unreachable
@@ -201,7 +221,7 @@ void tSpecOpDetachable::Run()
 
 			SendFmt << "Maintenance task <b>" << GetTaskName()
 					<< "</b>, apt-cacher-ng version: " ACVERSION;
-			string link = "http://" + GetHostname() + ":" + cfg::port + "/" + cfg::reportpage;
+			string link = "http://" + GetMyHostPort() + "/" + cfg::reportpage;
 			SendFmtRemote << " (<a href=\"" << m_parms.cmd << "&sigabort=" << rand()
 					<< "\">Cancel</a>)"
 					<< "\n<!--\n"
@@ -284,7 +304,7 @@ void tSpecOpDetachable::Run()
 bool tSpecOpDetachable::CheckStopSignal()
 {
 	lockguard g(&g_StateCv);
-	return g_sigTaskAbort;
+	return g_sigTaskAbort || evabase::in_shutdown;
 }
 
 void tSpecOpDetachable::DumpLog(time_t id)
@@ -297,9 +317,9 @@ void tSpecOpDetachable::DumpLog(time_t id)
 	tSS path(cfg::logdir.length()+24);
 	path<<cfg::logdir<<CPATHSEP<<MAINT_PFX << id << ".log.html";
 	if (!reader.OpenFile(path))
-		SendChunkRemoteOnly(WITHLEN("Log not available"));
+        SendChunkRemoteOnly("Log not available");
 	else
-		SendChunkRemoteOnly(reader.GetBuffer(), reader.GetSize());
+        SendChunkRemoteOnly(reader.getView());
 }
 
 void tSpecOpDetachable::SendChunkLocalOnly(const char *data, size_t len)

@@ -48,10 +48,9 @@ static cmstring errstring("Information about APT configuration not available, "
 
 void tMarkupFileSend::Run()
 {
-	LOGSTART2("tStaticFileSend::Run", m_parms.cmd);
+	LOGSTARTFUNCx(m_parms.cmd);
 
 	filereader fr;
-	const char *pr(nullptr), *pend(nullptr);
 	if(!m_bFatalError)
 	{
 		m_bFatalError = ! ( fr.OpenFile(cfg::confdir+SZPATHSEP+m_sFileName, true) ||
@@ -63,10 +62,10 @@ void tMarkupFileSend::Run()
 		m_sMimeType="text/plain";
 		return SendRaw(errstring.data(), (size_t) errstring.size());
 	}
-
-	pr = fr.GetBuffer();
-	pend = pr + fr.GetSize();
-
+    auto sv = fr.getView();
+    auto pr = sv.data();
+    auto pend = pr + sv.size();
+    // XXX: redo more nicely with string_view operations?
 	SendChunkedPageHeader(m_sHttpCode, m_sMimeType);
 
 	auto lastchar=pend-1;
@@ -141,7 +140,7 @@ tDeleter::tDeleter(const tRunParms& parms, const mstring& vmode)
 
 	mstring params(m_parms.cmd, qpos+1);
 	mstring blob;
-	for(tSplitWalk split(&params, "&"); split.Next();)
+	for(tSplitWalk split(params, "&"); split.Next();)
 	{
 		mstring tok(split);
 		if(startsWithSz(tok, "kf="))
@@ -149,11 +148,7 @@ tDeleter::tDeleter(const tRunParms& parms, const mstring& vmode)
 			char *end(0);
 			auto val = strtoul(tok.c_str()+3, &end, 36);
 			if(*end == 0 || *end=='&')
-#ifdef COMPATGCC47                           
-				files.insert(val);
-#else
 				files.emplace(val);
-#endif
 		}
 		else if(startsWithSz(tok, "blob="))
 			tok.swap(blob);
@@ -412,8 +407,8 @@ void tMarkupFileSend::SendProp(cmstring &key)
 			return SendChunk(m_fmtHelper.clean() << *pi);
 		return;
 	}
-	if (key == "serverip")
-		return SendChunk(GetHostname());
+	if (key == "serverhostport")
+		return SendChunk(GetMyHostPort());
 	if (key == "footer")
 		return SendChunk(GetFooter());
 

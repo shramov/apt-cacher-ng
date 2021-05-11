@@ -1,7 +1,7 @@
 #ifndef SOCKIO_H_
 #define SOCKIO_H_
 
-#include "meta.h"
+#include "actypes.h"
 #include "fileio.h"
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -40,12 +40,23 @@ using namespace std;
 #define SO_MAXCONN 250
 #endif
 
+#define COMMA ,
+#ifdef HAVE_SSL
+#define IFSSLORFALSE(x) x
+#define SSL_OPT_ARG(x) COMMA x
+#else
+#define IFSSLORFALSE(x) false
+#define SSL_OPT_ARG(x)
+#endif
+
+//! Time after which the pooled sockets are considered EOLed
+#define TIME_SOCKET_EXPIRE_CLOSE 33
+
 namespace acng
 {
 
-#ifdef HAVE_SSL
 void globalSslInit();
-#endif
+void globalSslDeInit();
 
 void termsocket_async(int, event_base*);
 
@@ -84,6 +95,7 @@ std::string formatIpPort(const evutil_addrinfo *info);
 
 // common flags for a CONNECTING socket
 void set_connect_sock_flags(evutil_socket_t fd);
+
 
 }
 

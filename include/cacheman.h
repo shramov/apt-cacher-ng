@@ -9,9 +9,11 @@
 #include "lockable.h"
 #include "csmapping.h"
 #include "bgtask.h"
-#include "fileitem.h"
+#include "conn.h"
+
 #include <unordered_map>
 #include <unordered_set>
+#include <thread>
 
 // #define USEDUPEFILTER
 
@@ -37,9 +39,11 @@ extern time_t m_gMaintTimeNow;
 void DelTree(const string &what);
 
 class cacheman :
-	public IFileHandler,
-	public tSpecOpDetachable
+		public IFileHandler,
+		public tSpecOpDetachable
 {
+protected:
+	ISharedConnectionResources &GetDlRes() { return * m_parms.pDlResProvider; }
 
 public:
 	cacheman(const tSpecialRequest::tRunParms& parms);
@@ -93,7 +97,7 @@ public:
 	// helpers to keep the code cleaner and more readable
 	const tIfileAttribs &GetFlags(cmstring &sPathRel) const;
 
-protected:
+SUTPROTECTED:
 	// this is not unordered because sometimes we make use of iterator references while
 	// doing modification of the map
 	std::map<mstring,tIfileAttribs> m_metaFilesRel;
@@ -101,7 +105,7 @@ protected:
 
 	// evil shortcut, might point to read-only dummy... to be used with care
 	tIfileAttribs &GetRWFlags(cmstring &sPathRel);
-	void UpdateVolatileFiles();
+	bool UpdateVolatileFiles();
 	void _BusyDisplayLogs();
 	void _Usermsg(mstring m);
 	bool AddIFileCandidate(const mstring &sFileRel);
@@ -123,17 +127,15 @@ protected:
 
 	void ProcessSeenIndexFiles(std::function<void(tRemoteFileInfo)> pkgHandler);
 
-	void StartDlder();
-
 	enum eDlMsgPrio
 	{
 		eMsgHideAll,
 		eMsgHideErrors,
 		eMsgShow
 	};
-	bool Download(cmstring& sFilePathRel, bool bIsVolatileFile,
-			eDlMsgPrio msgLevel, tFileItemPtr pForcedItem=tFileItemPtr(),
-			const tHttpUrl *pForcedURL=nullptr, unsigned hints=0, cmstring* sGuessedFrom = nullptr);
+	virtual bool Download(cmstring& sFilePathRel, bool bIsVolatileFile,
+			eDlMsgPrio msgLevel,
+			const tHttpUrl *pForcedURL=nullptr, unsigned hints=0, cmstring* sGuessedFrom = nullptr, bool bForceReDownload = false);
 #define DL_HINT_GUESS_REPLACEMENT 0x1
 #define DL_HINT_NOTAG 0x2
 
@@ -158,8 +160,7 @@ protected:
 	std::unordered_map<mstring,bool> m_forceKeepInTrash;
 
 	bool GetAndCheckHead(cmstring & sHeadfile, cmstring &sFilePathRel, off_t nWantedSize);
-	bool Inject(cmstring &fromRel, cmstring &toRel,
-			bool bSetIfileFlags=true, const header *pForcedHeader=nullptr, bool bTryLink=false);
+    virtual bool Inject(cmstring &fromRel, cmstring &toRel, bool bSetIfileFlags=true, off_t checkSize = -1, LPCSTR forceOrig = nullptr);
 
 	void PrintStats(cmstring &title);
 	mstring m_processedIfile;
@@ -177,7 +178,7 @@ protected:
 	// whitelist patterns do not apply there!
 	tStrSet m_managedDirs;
 
-private:
+SUTPRIVATE:
 
 	void ExtractAllRawReleaseDataFixStrandedPatchIndex(tFileGroups& ret, const tStrDeq& releaseFilesRel);
 	void FilterGroupData(tFileGroups& idxGroups);
@@ -194,18 +195,19 @@ private:
 	cacheman(const cacheman&);
 	cacheman& operator=(const cacheman&);
 
-	dlcon *m_pDlcon = nullptr;
 	cmstring& GetFirstPresentPath(const tFileGroups& groups, const tContentKey& ckey);
 
 	/*
-	 * Analyze patch base candidate, fetch patch files as suggested by index, patch, distribute result
+	 * Analyze patch base candidate, fetch patch files as suggested by index, patch, distribute result.
+	 *
+	 * Returns 0 for success, -1 for "not needed", other values for errors
 	 */
-	void PatchOne(cmstring& pindexPathRel, const tStrDeq& patchBaseCandidates);
+	int PatchOne(cmstring& pindexPathRel, const tStrDeq& patchBaseCandidates);
 	void ParseGenericRfc822File(filereader& reader, cmstring& sExtListFilter,
 			map<string, deque<string> >& contents);
 	bool ParseDebianIndexLine(tRemoteFileInfo& info, cmstring& fline);
 
-protected:
+SUTPROTECTED:
 	bool CalculateBaseDirectories(cmstring& sPath, enumMetaType idxType, mstring& sBaseDir, mstring& sBasePkgDir);
 	bool IsDeprecatedArchFile(cmstring &sFilePathRel);
 	/**

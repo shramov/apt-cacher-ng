@@ -1,16 +1,19 @@
 #ifndef CSMAPPING_H_
 #define CSMAPPING_H_
 
-#include <string.h>
-#include "meta.h"
+#include "actypes.h"
 #include "filereader.h"
-#include "fileio.h"
+
+#include <map>
 
 // XXX: allocate this dynamically?
 #define MAXCSLEN 64
 
 namespace acng
 {
+
+template<bool StringSeparator, bool Strict>
+class tSplitWalkBase;
 
 typedef enum : char {
    CSTYPE_INVALID=0,
@@ -38,7 +41,7 @@ inline unsigned short GetCSTypeLen(CSTYPES t)
 	case CSTYPE_MD5: return 16;
 	case CSTYPE_SHA1: return 20;
 	case CSTYPE_SHA256: return 32;
-	case CSTYPE_SHA512: return 54;
+	case CSTYPE_SHA512: return 64;
 	default: return 0;
 	}
 }
@@ -75,7 +78,7 @@ public:
 };
 
 // kind of file identity, compares by file size and checksum (MD5 or SHA*)
-struct tFingerprint {
+struct ACNG_API tFingerprint {
 	off_t size =0;
 	CSTYPES csType =CSTYPE_INVALID;
 	uint8_t csum[MAXCSLEN];
@@ -95,23 +98,7 @@ struct tFingerprint {
 		return *this;
 	}
 	
-	bool SetCs(const mstring & hexString, CSTYPES eCstype = CSTYPE_INVALID)
-	{
-		auto l = hexString.size();
-		if(!l || l%2) // weird sizes...
-			return false;
-		if(eCstype == CSTYPE_INVALID)
-		{
-			eCstype = GuessCStype(hexString.size() / 2);
-			if(eCstype == CSTYPE_INVALID)
-				return false;
-		}
-		else if(l != 2*GetCSTypeLen(eCstype))
-			return false;
-
-		csType=eCstype;
-		return CsAsciiToBin(hexString.c_str(), csum, l/2);
-	}
+	bool SetCs(const mstring & hexString, CSTYPES eCstype = CSTYPE_INVALID);
 	void Set(uint8_t *pData, CSTYPES eCstype, off_t newsize)
 	{
 		size=newsize;
@@ -130,31 +117,15 @@ struct tFingerprint {
 	}
 
 	/**
-	 * Reads first two tokens from splitter, first considered checksum, second the size.
-	 * Keeps the splitter pointed at last token, expects splitter be set at previous position.
+	 * Extracts just first two tokens from splitter, first considered checksum, second the size.
 	 * @return false if data is crap or wantedType was set but does not fit what's in the first token.
 	 */
-	inline bool Set(const tSplitWalk & splitInput, CSTYPES wantedType = CSTYPE_INVALID)
+    bool Set(tSplitWalkBase<false, false>& splitInput, CSTYPES wantedType = CSTYPE_INVALID);
+	// c'mon C++, I need to pass lvalues when I explicitly want it
+    inline bool Set(tSplitWalkBase<false, false>&& splitInput, CSTYPES wantedType = CSTYPE_INVALID)
 	{
-		if(!splitInput.Next())
-			return false;
-		if(!SetCs(splitInput.str(), wantedType))
-			return false;
-		if(!splitInput.Next())
-			return false;
-		size = atoofft(splitInput.str().c_str(), -1);
-		if(size < 0)
-			return false;
-		return true;
+		return Set(splitInput, wantedType);
 	}
-#if 0
-	/**
-	 * Warning: this function only exists to work around C++ stupidity.
-	 * The const modifier is void, it will still modify splitter state.
-	 */
-	inline bool Set(const tSplitWalk & splitInput, CSTYPES wantedType = CSTYPE_INVALID)
-	{ return Set(std::move(splitInput), wantedType); }
-#endif
 
 	bool ScanFile(const mstring & path, const CSTYPES eCstype, bool bUnpack = false, FILE *fDump=nullptr)
 	{
@@ -168,14 +139,8 @@ struct tFingerprint {
 		csType=CSTYPE_INVALID;
 		size=-1;
 	}
-	mstring GetCsAsString() const
-	{
-		return BytesToHexString(csum, GetCSTypeLen(csType));
-	}
-	operator mstring() const
-	{
-		return GetCsAsString()+"_"+offttos(size);
-	}
+	mstring GetCsAsString() const;
+	operator mstring() const;
 	inline bool csEquals(const tFingerprint& other) const
 	{
 		return 0==memcmp(csum, other.csum, GetCSTypeLen(csType));
@@ -190,15 +155,7 @@ struct tFingerprint {
 	{
 		return !(other == *this);
 	}
-	bool CheckFile(cmstring & sFile) const
-	{
-		if(size != GetFileSize(sFile, -2))
-			return false;
-		tFingerprint probe;
-		if(!probe.ScanFile(sFile, csType, false, nullptr))
-			return false;
-		return probe == *this;
-	}
+	bool CheckFile(cmstring & sFile) const;
 	bool operator<(const tFingerprint & other) const
 	{
 		if(other.csType!=csType)
@@ -209,7 +166,7 @@ struct tFingerprint {
 	}
 };
 
-struct tRemoteFileInfo
+struct ACNG_API tRemoteFileInfo
 {
 	tFingerprint fpr;
 	mstring sDirectory, sFileName;
@@ -222,32 +179,8 @@ struct tRemoteFileInfo
 	inline bool IsUsable() {
 		return (!sFileName.empty() && fpr.csType!=CSTYPE_INVALID && fpr.size>0);
 	}
-	bool SetFromPath(cmstring &sPath, cmstring &sBaseDir)
-	{
-		if (sPath.empty())
-			return false;
-
-		tStrPos pos = sPath.rfind(SZPATHSEPUNIX);
-		if (pos == stmiss)
-		{
-			sFileName = sPath;
-			sDirectory = sBaseDir;
-		}
-		else
-		{
-			sFileName = sPath.substr(pos + 1);
-			sDirectory = sBaseDir + sPath.substr(0, pos + 1);
-		}
-		return true;
-	}
-	inline bool SetSize(LPCSTR szSize)
-	{
-		auto l = atoofft(szSize, -2);
-		if(l<0)
-			return false;
-		fpr.size = l;
-		return true;
-	}
+	bool SetFromPath(cmstring &sPath, cmstring &sBaseDir);
+	bool SetSize(LPCSTR szSize);
 };
 
 

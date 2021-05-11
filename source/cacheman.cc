@@ -28,10 +28,9 @@
 
 #include <unistd.h>
 
-#ifdef DEBUG
-#warning enable, and it will spam a lot!
-//#define DEBUGIDX
-//#define DEBUGSPAM
+#ifdef EXTRA_DEBUG
+#define DEBUGIDX
+#define DEBUGSPAM
 #endif
 
 #define MAX_TOP_COUNT 10
@@ -47,9 +46,13 @@ static cmstring diffIdxSfx(".diff/Index");
 
 time_t m_gMaintTimeNow=0;
 
-static cmstring sPatchCombinedRel("_actmp/combined.diff");
-static cmstring sPatchInputRel("_actmp/patch.base");
-static cmstring sPatchResultRel("_actmp/patch.result");
+#define PATCH_TEMP_DIR "_actmp/"
+#define PATCH_COMBINED_NAME "combined.diff"
+static cmstring sPatchCombinedRel(PATCH_TEMP_DIR PATCH_COMBINED_NAME);
+#define PATCH_BASE_NAME "patch.base"
+static cmstring sPatchInputRel(PATCH_TEMP_DIR PATCH_BASE_NAME);
+#define PATCH_RESULT_NAME "patch.result"
+static cmstring sPatchResultRel(PATCH_TEMP_DIR PATCH_RESULT_NAME);
 
 struct tPatchEntry
 {
@@ -105,8 +108,9 @@ cacheman::cacheman(const tSpecialRequest::tRunParms& parms) :
 	m_bScanInternals(false), m_bByPath(false), m_bByChecksum(false), m_bSkipHeaderChecks(false),
 	m_bTruncateDamaged(false),
 	m_nErrorCount(0),
-	m_nProgIdx(0), m_nProgTell(1), m_pDlcon(nullptr)
+	m_nProgIdx(0), m_nProgTell(1)
 {
+	ASSERT(parms.pDlResProvider);
 	m_szDecoFile="maint.html";
 	m_gMaintTimeNow=GetTime();
 
@@ -123,8 +127,6 @@ cacheman::cacheman(const tSpecialRequest::tRunParms& parms) :
 
 cacheman::~cacheman()
 {
-	delete m_pDlcon;
-	m_pDlcon=nullptr;
 }
 
 bool cacheman::ProcessOthers(const string &, const struct stat &)
@@ -221,7 +223,7 @@ bool cacheman::IsDeprecatedArchFile(cmstring &sFilePathRel)
 		mstring sLine;
 		while(reader.GetOneLine(sLine))
 		{
-			tSplitWalk w(&sLine, SPACECHARS);
+			tSplitWalk w(sLine, SPACECHARS);
 			if(!w.Next() || w.str() != "Architectures:")
 				continue;
 			while(w.Next())
@@ -248,14 +250,21 @@ mstring FindCommonPath(cmstring& a, cmstring& b)
 
 bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 		cacheman::eDlMsgPrio msgVerbosityLevel,
-		tFileItemPtr pFi, const tHttpUrl * pForcedURL, unsigned hints,
-		cmstring* sGuessedFrom)
+		const tHttpUrl * pForcedURL, unsigned hints,
+		cmstring* sGuessedFrom, bool bForceReDownload)
 {
 
 	LOGSTART("tCacheMan::Download");
 
 	mstring sErr;
 	bool bSuccess=false;
+	const tHttpUrl* fallbackUrl = nullptr;
+	fileitem::FiStatus initState = fileitem::FIST_FRESH;
+
+	cfg::tRepoResolvResult repinfo;
+	auto dler = GetDlRes().SetupDownloader();
+	if (!dler)
+		return false;
 
 //	bool holdon = sFilePathRel == "debrep/dists/experimental/contrib/binary-amd64/Packages";
 
@@ -273,23 +282,33 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 
 #define GOTOREPMSG(x) {sErr = x; bSuccess=false; goto rep_dlresult; }
 
-	const cfg::tRepoData *pRepoDesc=nullptr;
-	mstring sRemoteSuffix, sFilePathAbs(SABSPATH(sFilePathRel));
+	mstring sFilePathAbs(SABSPATH(sFilePathRel));
 
-	fileItemMgmt fiaccess;
+	//uint64_t prog_before = 0;
+
 	tHttpUrl parserPath, parserHead;
+	// alternatives!
 	const tHttpUrl *pResolvedDirectUrl=nullptr;
+	cfg::tRepoResolvResult repoSrc;
+
+	std::pair<fileitem::FiStatus, tRemoteStatus> dlres;
+
 
 	// header could contained malformed data and be nuked in the process,
 	// try to get the original source whatever happens
 	header hor;
 	hor.LoadFromFile(sFilePathAbs + ".head");
 
-	if(!pFi)
-	{
-		fiaccess.PrepareRegisteredFileItemWithStorage(sFilePathRel, false);
-		pFi=fiaccess.getFiPtr();
-	}
+	dbgline;
+	auto mode = (m_bForceDownload | bForceReDownload) ? ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY :
+								   (bIsVolatileFile ? ESharingHow::AUTO_MOVE_OUT_OF_THE_WAY :
+													  ESharingHow::ALWAYS_TRY_SHARING);
+
+	fileitem::tSpecialPurposeAttr attr;
+	attr.bVolatile = bIsVolatileFile;
+	auto fiaccess = GetDlRes().GetItemRegistry()->Create(sFilePathRel, mode, attr);
+	auto pFi=fiaccess.get();
+
 	if (!pFi)
 	{
 		if (NEEDED_VERBOSITY_ALL_BUT_ERRORS)
@@ -297,43 +316,37 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 		GOTOREPMSG(" could not create file item handler.");
 	}
 
-	if (bIsVolatileFile && m_bForceDownload)
+	dbgline;
+	if(bIsVolatileFile && m_bSkipIxUpdate)
 	{
-		if (!pFi->SetupClean())
-			GOTOREPMSG("Item busy, cannot reload");
-		if (NEEDED_VERBOSITY_ALL_BUT_ERRORS)
-			SendFmt << "Downloading " << sFilePathRel << "...\n";
-	}
-	else
-	{
-		if(bIsVolatileFile && m_bSkipIxUpdate)
-		{
-			SendFmt << "Checking " << sFilePathRel << "... (skipped, as requested)<br>\n";
-			return true;
-		}
-
-		fileitem::FiStatus initState = pFi->Setup(bIsVolatileFile);
-		if (initState > fileitem::FIST_COMPLETE)
-			GOTOREPMSG(pFi->GetHeader().frontLine);
-		if (fileitem::FIST_COMPLETE == initState)
-		{
-			int hs = pFi->GetHeader().getStatus();
-			if(hs != 200)
-			{
-				SendFmt << "Error downloading " << sFilePathRel << ":\n";
-				goto format_error;
-				//GOTOREPMSG(pFi->GetHeader().frontLine);
-			}
-			SendFmt << "Checking " << sFilePathRel << "... (complete)<br>\n";
-			return true;
-		}
-		if (NEEDED_VERBOSITY_ALL_BUT_ERRORS)
-			SendFmt << (bIsVolatileFile ? "Checking/Updating " : "Downloading ")
-			<< sFilePathRel	<< "...\n";
+		SendFmt << "Checking " << sFilePathRel << "... (skipped, as requested)<br>\n";
+		LOGRET(true);
 	}
 
-	StartDlder();
+    initState = pFi->Setup();
+    {
+        lockguard g(*pFi);
+        if (initState > fileitem::FIST_COMPLETE)
+            GOTOREPMSG(pFi->m_responseStatus.msg);
 
+        if (fileitem::FIST_COMPLETE == initState)
+        {
+            if(pFi->m_responseStatus.code != 200)
+            {
+                SendFmt << "Error downloading " << sFilePathRel << ":\n";
+                goto format_error;
+                //GOTOREPMSG(pFi->GetHeader().frontLine);
+            }
+            SendFmt << "Checking " << sFilePathRel << "... (complete)<br>\n";
+            LOGRET(true);
+        }
+        if (NEEDED_VERBOSITY_ALL_BUT_ERRORS)
+            SendFmt << (bIsVolatileFile ? "Checking/Updating " : "Downloading ")
+            << sFilePathRel	<< "...\n";
+    }
+
+	if(!GetDlRes().GetItemRegistry())
+		return false;
 	if (pForcedURL)
 		pResolvedDirectUrl=pForcedURL;
 	else
@@ -345,11 +358,11 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 				<< " and path: " << parserPath.sPath << ", ok? " << bCachePathAsUriPlausible);
 
 		if(!cfg::stupidfs && bCachePathAsUriPlausible
-				&& 0 != (pRepoDesc = cfg::GetRepoData(parserPath.sHost))
-				&& !pRepoDesc->m_backends.empty())
+				&& nullptr != (repoSrc.repodata = cfg::GetRepoData(parserPath.sHost))
+				&& !repoSrc.repodata->m_backends.empty())
 		{
 			ldbg("will use backend mode, subdirectory is path suffix relative to backend uri");
-			sRemoteSuffix=parserPath.sPath.substr(1);
+			repoSrc.sRestPath = parserPath.sPath.substr(1);
 		}
 		else
 		{
@@ -358,12 +371,18 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 			// if not possible, guessing by looking at related files and making up
 			// the URL as needed
 
-			if(bCachePathAsUriPlausible) // default fallback, unless the next check matches
+			dbgline;
+			if(bCachePathAsUriPlausible) // default option, unless the next check matches
+			{
 				pResolvedDirectUrl = parserPath.NormalizePath();
-
+			}
 			// and prefer the source from xorig which is likely to deliver better result
 			if(hor.h[header::XORIG] && parserHead.SetHttpUrl(hor.h[header::XORIG], false))
+			{
+				dbgline;
+				fallbackUrl = pResolvedDirectUrl;
 				pResolvedDirectUrl = parserHead.NormalizePath();
+			}
 			else if(sGuessedFrom
 					&& hor.LoadFromFile(SABSPATH(*sGuessedFrom + ".head"))
 					&& hor.h[header::XORIG]) // might use a related file as reference
@@ -393,7 +412,7 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 
 			if(!pResolvedDirectUrl)
 			{
-				SendChunkSZ("<b>Failed to resolve original URL</b><br>");
+				SendChunkSZ("<b>Failed to calculate the original URL</b><br>");
 				return false;
 			}
 		}
@@ -402,29 +421,45 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 	// might still need a repo data description
 	if (pResolvedDirectUrl)
 	{
-		cfg::tRepoResolvResult repinfo;
-		cfg::GetRepNameAndPathResidual(*pResolvedDirectUrl, repinfo);
-		auto hereDesc = repinfo.repodata;
+		dbgline;
+		repinfo = cfg::GetRepNameAndPathResidual(*pResolvedDirectUrl);
 		if(repinfo.repodata && !repinfo.repodata->m_backends.empty())
 		{
+			dbgline;
 			pResolvedDirectUrl = nullptr;
-			pRepoDesc = hereDesc;
-			sRemoteSuffix = repinfo.sRestPath;
+			repoSrc = repinfo;
 		}
 	}
 
-	m_pDlcon->AddJob(pFi, pResolvedDirectUrl, pRepoDesc, &sRemoteSuffix, 0, cfg::REDIRMAX_DEFAULT);
-
-	m_pDlcon->WorkLoop();
-	if (pFi->WaitForFinish(nullptr) == fileitem::FIST_COMPLETE
-			&& pFi->GetHeaderUnlocked().getStatus() == 200)
+	if (pResolvedDirectUrl)
+		dler->AddJob(pFi, tHttpUrl(*pResolvedDirectUrl));
+	else
+		dler->AddJob(pFi, decltype (repoSrc) (repoSrc));
+	dlres = pFi->WaitForFinish(1, [&](){ SendChunk("."); return true; } );
+    if (dlres.first == fileitem::FIST_COMPLETE && dlres.second.code == 200)
 	{
+		dbgline;
 		bSuccess = true;
 		if (NEEDED_VERBOSITY_ALL_BUT_ERRORS)
-			SendFmt << "<i>(" << pFi->GetTransferCount() / 1024 << "KiB)</i>\n";
+			SendFmt << "<i>(" << pFi->TakeTransferCount() / 1024 << "KiB)</i>\n";
 	}
 	else
 	{
+		ASSERT(!(dlres.second.code == 500 && dlres.second.msg.empty())); // catch a strange condition
+		LOG("having alternative url and fitem was created here anyway")
+		if(fallbackUrl && fiaccess.get() && (!pResolvedDirectUrl || fallbackUrl != pResolvedDirectUrl))
+		{
+			dbgline;
+			SendChunkSZ("<i>(download error, ignored, guessing alternative URL by path)</i>\n");
+			return Download(sFilePathRel, bIsVolatileFile,
+					msgVerbosityLevel,
+					fallbackUrl, hints, sGuessedFrom, true);
+
+			SendFmt << "<i>Remote peer is not usable but the alternative source might be guessed from the path as "
+					<< fallbackUrl->ToURI(true) << " . If this is the better option, please remove the file "
+					<< sFilePathRel << ".head manually from the cache folder or remove the whole index file with the Delete button below.</i>\n";
+		}
+
 		format_error:
 		if (IsDeprecatedArchFile(sFilePathRel))
 		{
@@ -435,8 +470,7 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 		}
 		else if (flags.forgiveDlErrors
 				||
-				(pFi->GetHeaderUnlocked().getStatus() == 404
-								&& endsWith(sFilePathRel, oldStylei18nIdx))
+                (dlres.second.code == 404 && endsWith(sFilePathRel, oldStylei18nIdx))
 		)
 		{
 			bSuccess = true;
@@ -444,14 +478,14 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 				SendChunkSZ("<i>(ignored)</i>\n");
 		}
 		else
-			GOTOREPMSG(pFi->GetHttpMsg());
+            GOTOREPMSG(dlres.second.msg);
 	}
 
 	rep_dlresult:
 
 	if(pFi)
 	{
-		auto dlCount = pFi->GetTransferCount();
+		auto dlCount = pFi->TakeTransferCount();
 		static cmstring sInternal("[INTERNAL:");
 		// need to account both, this traffic as officially tracked traffic, and also keep the count
 		// separately for expiration about trade-off calculation
@@ -463,7 +497,7 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 
 	if(!bSuccess)
 	{
-		if(pRepoDesc && pRepoDesc->m_backends.empty() && !hor.h[header::XORIG] && !pForcedURL)
+		if(repoSrc.repodata && repoSrc.repodata->m_backends.empty() && !hor.h[header::XORIG] && !pForcedURL)
 		{
 			// oh, that crap: in a repo, but no backends configured, and no original source
 			// to look at because head file is probably damaged :-(
@@ -492,15 +526,14 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 								&& hare.h[header::XORIG])
 						{
 							string url(hare.h[header::XORIG]);
-							url.replace(url.size() - sfx->size(), sfx->size(), sFilePathRel.substr(pos));
+							url.replace(url.size() - sfx->size(), sfx->size(),
+									sFilePathRel.substr(pos));
 							tHttpUrl tu;
 							if(tu.SetHttpUrl(url, false))
 							{
 								SendChunkSZ("Restarting download... ");
-								if(pFi)
-									pFi->ResetCacheState();
 								return Download(sFilePathRel, bIsVolatileFile,
-										msgVerbosityLevel, tFileItemPtr(), &tu);
+										msgVerbosityLevel, &tu, 0, nullptr, true);
 							}
 						}
 					}
@@ -510,8 +543,7 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 				pos--;
 			}
 		}
-		else if((hints&DL_HINT_GUESS_REPLACEMENT)
-				&& pFi->GetHeaderUnlocked().getStatus() == 404)
+        else if((hints&DL_HINT_GUESS_REPLACEMENT) && dlres.second.code == 404)
 		{
 			// another special case, slightly ugly :-(
 			// this is explicit hardcoded repair code
@@ -536,8 +568,9 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 				// if we have it already, use it as-is
 				if (!pResolvedDirectUrl)
 				{
-					auto p = pFi->GetHeaderUnlocked().h[header::XORIG];
-					if (p && parserHead.SetHttpUrl(p))
+                    lockguard g(*pFi);
+                    auto p = pFi->m_responseOrigin;
+                    if (parserHead.SetHttpUrl(p))
 						pResolvedDirectUrl = &parserHead;
 				}
 				auto newurl(*pResolvedDirectUrl);
@@ -546,8 +579,8 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 				newurl.sPath.replace(newurl.sPath.size()-fix.fromEnd.size(), fix.fromEnd.size(),
 						fix.toEnd);
 				if(Download(sFilePathRel.substr(0, sFilePathRel.size() - fix.fromEnd.size())
-						+ fix.toEnd, bIsVolatileFile, msgVerbosityLevel, tFileItemPtr(), &newurl,
-				hints&~DL_HINT_GUESS_REPLACEMENT ))
+						+ fix.toEnd, bIsVolatileFile, msgVerbosityLevel, &newurl,
+				hints &~ DL_HINT_GUESS_REPLACEMENT ))
 				{
 					MarkObsolete(sFilePathRel);
 					return true;
@@ -582,8 +615,8 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 	return bSuccess;
 }
 
-#define ERRMSGABORT if(m_nErrorCount && m_bErrAbort) { SendChunk(sErr); return; }
-#define ERRABORT if(m_nErrorCount && m_bErrAbort) { return; }
+#define ERRMSGABORT  dbgline; if(m_nErrorCount && m_bErrAbort) { SendChunk(sErr); return false; }
+#define ERRABORT dbgline; if(m_nErrorCount && m_bErrAbort) { return false; }
 
 inline tStrPos FindCompSfxPos(const string &s)
 {
@@ -748,184 +781,52 @@ tFingerprint * BuildPatchList(string sFilePathAbs, deque<tPatchEntry> &retList)
 	return ret.csType != CSTYPE_INVALID ? &ret : nullptr;
 }
 
-
-
-bool cacheman::GetAndCheckHead(cmstring & sTempDataRel, cmstring &sReferencePathRel,
-		off_t nWantedSize)
-{
-
-
-	class tHeadOnlyStorage: public fileitem_with_storage
-	{
-	public:
-
-		cmstring & m_sTempDataRel, &m_sReferencePathRel;
-		off_t m_nGotSize;
-
-		tHeadOnlyStorage(cmstring & sTempDataRel, cmstring &sReferencePathRel) :
-
-			fileitem_with_storage(sTempDataRel) // storage ref to physical data file
-					,
-			m_sTempDataRel(sTempDataRel),
-			m_sReferencePathRel(sReferencePathRel), m_nGotSize(-1)
-
-
-		{
-			m_bAllowStoreData = false;
-			m_bHeadOnly = true;
-			m_head.LoadFromFile(SABSPATH(m_sReferencePathRel+".head"));
-		}
-		~tHeadOnlyStorage()
-		{
-			m_head.StoreToFile( CACHE_BASE + m_sPathRel + ".head");
-			m_nGotSize = atoofft(m_head.h[header::CONTENT_LENGTH], -17);
-		}
-	};
-
-	auto p(make_shared<tHeadOnlyStorage>(sTempDataRel, sReferencePathRel));
-	return (Download(sReferencePathRel, true, eMsgHideAll, p)
-			&& ( (tHeadOnlyStorage*) p.get())->m_nGotSize == nWantedSize);
-}
-
-
-
 bool cacheman::Inject(cmstring &fromRel, cmstring &toRel,
-		bool bSetIfileFlags, const header *pHead, bool bTryLink)
+        bool bSetIfileFlags, off_t checkSize, LPCSTR forceOrig)
 {
 	LOGSTART("tCacheMan::Inject");
-
 	// XXX should it really filter it here?
 	if(GetFlags(toRel).uptodate)
-		return true;
-
-	auto sFromAbs(SABSPATH(fromRel)), sToAbs(SABSPATH(toRel));
-
-	Cstat infoFrom(sFromAbs), infoTo(sToAbs);
-	if(infoFrom && infoTo && infoFrom.st_ino == infoTo.st_ino && infoFrom.st_dev == infoTo.st_dev)
-		return true;
-
-#ifdef DEBUG_FLAGS
-	bool nix = stmiss!=fromRel.find("debrep/dists/squeeze/non-free/binary-amd64/");
-	SendFmt<<"Replacing "<<toRel<<" with " << fromRel <<  sBRLF;
-#endif
-
-	if(!infoFrom)
-	{
-		MTLOGASSERT(0, "Bad source file: " << sFromAbs);
+        return true;
+	filereader data;
+	if(!data.OpenFile(SABSPATH(fromRel), true))
 		return false;
-	}
-
-	header head;
-
-	if (!pHead)
-	{
-		pHead = &head;
-
-		if (head.LoadFromFile(sFromAbs+".head") > 0 && head.h[header::CONTENT_LENGTH])
-		{
-			if(infoFrom.st_size != atoofft(head.h[header::CONTENT_LENGTH]))
-			{
-				MTLOGASSERT(0, "Bad file size");
-				return false;
-			}
-		}
-		else if(head.LoadFromFile(sToAbs+".head") > 0)
-		{
-			head.set(header::CONTENT_LENGTH, (off_t) infoFrom.st_size);
-		}
-		else
-		{
-			MTLOGASSERT(0, "Cannot build meta data for " << sToAbs);
-			return false;
-		}
-		head.set(header::CONTENT_TYPE, "octet/stream");
-		head.set(header::LAST_MODIFIED, FAKEDATEMARK);
-	}
-
-	class tInjectItem : public fileitem_with_storage
-	{
-	public:
-		bool m_link;
-		tInjectItem(cmstring &to, bool bTryLink) : fileitem_with_storage(to), m_link(bTryLink)
-		{
-		}
-		// noone else should attempt to store file through it
-		virtual bool DownloadStartedStoreHeader(const header &, size_t, const char *,
-				bool, bool&) override
-		{
-			return false;
-		}
-		virtual bool Inject(cmstring &fromRel, const header &head)
-		{
-			m_head = head;
-			mstring sPathAbs = SABSPATH(m_sPathRel);
-			mkbasedir(sPathAbs);
-			if(head.StoreToFile(sPathAbs+".head") <=0)
-				return false;
-
-			if(m_link)
-			{
-				setLockGuard;
-				if (LinkOrCopy(SABSPATH(fromRel), sPathAbs))
-				{
-					m_status = FIST_COMPLETE;
-					notifyAll();
-					return true;
-				}
-			}
-
-			// shit. Permission problem? Use the old fashioned way :-(
-			filereader data;
-			if(!data.OpenFile(SABSPATH(fromRel), true))
-				return false;
-
-			/* evil...
-			if(!m_link)
-			{
-				// just in case it's the same file, kill the target
-				::unlink(m_sPathAbs.c_str());
-				::unlink((m_sPathAbs+".head").c_str());
-			}
-			*/
-
-			if (Setup(true) > fileitem::FIST_COMPLETE)
-				return false;
-			bool bNix(false);
-			if (!fileitem_with_storage::DownloadStartedStoreHeader(head, 0,
-					nullptr, false, bNix))
-				return false;
-			if(!StoreFileData(data.GetBuffer(), data.GetSize()) || ! StoreFileData(nullptr, 0))
-				return false;
-			if(GetStatus() != FIST_COMPLETE)
-				return false;
-			return true;
-		}
-	};
-	auto pfi(make_shared<tInjectItem>(toRel, bTryLink));
-	// register it in global scope
-	fileItemMgmt fi;
-	if(!fi.RegisterFileItem(pfi))
-	{
-		MTLOGASSERT(false, "Couldn't register copy item");
+	off_t len = data.GetSize();
+	if (checkSize >= 0 && checkSize != len)
 		return false;
-	}
-	bool bOK = pfi->Inject(fromRel, *pHead);
 
-	MTLOGASSERT(bOK, "Inject: failed");
-
-	if(bSetIfileFlags)
-	{
-		tIfileAttribs &atts = SetFlags(toRel);
-		atts.uptodate = atts.vfile_ondisk = bOK;
-	}
-
-	return bOK;
-}
-
-void cacheman::StartDlder()
-{
-	if (!m_pDlcon)
-		m_pDlcon = new dlcon(true);
+	fileitem::tSpecialPurposeAttr attr;
+	attr.bVolatile = rex::GetFiletype(toRel) == rex::FILE_VOLATILE;
+	auto fiUser = GetDlRes().GetItemRegistry()->Create(toRel, ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY, attr);
+	if (!fiUser.get())
+		return false;
+	auto fi = fiUser.get();
+	fiUser.get()->Setup();
+	lockuniq g(*fi);
+    // it's ours, let's play the downloader
+    if (fi->GetStatusUnlocked() > fileitem::FIST_INITED)
+        return false; // already being processing by someone
+    // feed it with some old attributes for now
+    if (!fi->DlStarted(string_view(),
+                       fi->m_responseModDate,
+                       forceOrig ? forceOrig : fi->m_responseOrigin,
+                       {200, "OK"},
+                       0,
+					   len))
+    {
+        return false;
+    }
+	if (!fi->DlAddData(data.getView(), g))
+        return false;
+	fi->DlFinish();
+    if(fileitem::FIST_COMPLETE != fi->GetStatusUnlocked())
+        return false;
+    if(bSetIfileFlags)
+    {
+        tIfileAttribs &atts = SetFlags(toRel);
+        atts.uptodate = atts.vfile_ondisk = true;
+    }
+    return true;
 }
 
 void cacheman::ExtractAllRawReleaseDataFixStrandedPatchIndex(tFileGroups& idxGroups,
@@ -970,7 +871,7 @@ void cacheman::ExtractAllRawReleaseDataFixStrandedPatchIndex(tFileGroups& idxGro
 #ifndef EXPLICIT_INDEX_USE_CHECKING
 			// first, look around for for .diff/Index files on disk, update them, check patch base file
 			// and make sure one is there or something is not right
-			for(const auto cid : file2cid)
+			for(const auto& cid : file2cid)
 			{
 				// not diff index or not in cache?
 				if(!endsWith(cid.first, diffIdxSfx))
@@ -1004,7 +905,7 @@ void cacheman::ExtractAllRawReleaseDataFixStrandedPatchIndex(tFileGroups& idxGro
 						else
 						{
 							SendFmt << "No base file to use patching on " << cid.first << ", trying to fetch " << cand << hendl;
-							if(Download(cand, true, eMsgHideErrors, tFileItemPtr(), 0, 0, &cid.first))
+							if(Download(cand, true, eMsgHideErrors, 0, 0, &cid.first))
 							{
 								SetFlags(cand).vfile_ondisk=true;
 								goto found_base;
@@ -1018,7 +919,7 @@ void cacheman::ExtractAllRawReleaseDataFixStrandedPatchIndex(tFileGroups& idxGro
 			//dbgState();
 
 			// now refine all extracted information and store it in eqClasses for later processing
-			for(auto if2cid : file2cid)
+			for(const auto& if2cid : file2cid)
 			{
 				string sNativeName=if2cid.first.substr(0, FindCompSfxPos(if2cid.first));
 				tContentKey groupId;
@@ -1142,10 +1043,6 @@ void cacheman::SortAndInterconnectGroupData(tFileGroups& idxGroups)
 
 	for(auto& it: idxGroups)
 	{
-#ifdef DEBUG
-		for(auto&x : it.second.paths)
-			assert(!x.empty());
-#endif
 		for(auto jit = it.second.paths.begin(); jit != it.second.paths.end();)
 		{
 			if(FindCompIdx(*jit) < 0) // uncompressed stays for now
@@ -1181,48 +1078,42 @@ void cacheman::SortAndInterconnectGroupData(tFileGroups& idxGroups)
 	}
 }
 
-void cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
+int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 {
-//	cmstring* pBest = nullptr;
-//	const tIfileAttribs* pBestAttr = nullptr;
-	int changeNeedCount = 0;
-	//tStrSet locationsInSidestore;
+#define PATCH_FAIL __LINE__
+	unsigned injected = 0;
 
-	for(const auto& pb: siblings)
-	{
-		auto& fl = GetFlags(pb);
-		if(!fl.vfile_ondisk)
-			continue;
-		if(!fl.parseignore && !fl.uptodate)
-			changeNeedCount++;
-		//locationsInSidestore.emplace( pb.substr(0, FindCompSfxPos(pb)));
-	}
+	auto need_update = std::find_if(siblings.begin(), siblings.end(), [&](cmstring& pb) {
+		const auto& fl = GetFlags(pb);
+		return fl.vfile_ondisk && !fl.parseignore && !fl.uptodate;
+	});
 
-	if(!changeNeedCount)
-		return;
+	if(need_update == siblings.end())
+		return -1;
+
 	filereader reader;
 	if(!reader.OpenFile(SABSPATH(pindexPathRel), true, 1))
-		return;
+		return PATCH_FAIL;
 	map<string, deque<string> > contents;
 	ParseGenericRfc822File(reader, "", contents);
 	auto& sStateCurrent = contents["SHA256-Current"];
 	if(sStateCurrent.empty() || sStateCurrent.front().empty())
-		return;
+		return PATCH_FAIL;
 	auto& csHist = contents["SHA256-History"];
 	if(csHist.empty() || csHist.size() < 2)
-		return;
+		return PATCH_FAIL;
 
 	tFingerprint probeStateWanted, // the target data
 	probe, // temp scan object
 	probeOrig; // appropriate patch base stuff
 
-	if(!probeStateWanted.Set(tSplitWalk(& sStateCurrent.front()), CSTYPE_SHA256))
-				return;
+	if(!probeStateWanted.Set(tSplitWalk(sStateCurrent.front()), CSTYPE_SHA256))
+		return PATCH_FAIL;
 
 	unordered_map<string,tFingerprint> patchSums;
 	for(const auto& line: contents["SHA256-Patches"])
 	{
-		tSplitWalk split(&line);
+		tSplitWalk split(line);
 		tFingerprint probe;
 		if(!probe.Set(split, CSTYPE_SHA256) || !split.Next())
 			continue;
@@ -1233,12 +1124,13 @@ void cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 	cmstring sPatchCombinedAbs(SABSPATH(sPatchCombinedRel));
 
 	// returns true if a new patched file was created
-	auto tryPatch = [&](cmstring& pbaseRel) -> bool
+	auto tryPatch = [&]() -> int
 			{
 		// XXX: use smarter line matching or regex
 		auto probeCS = probeOrig.GetCsAsString();
 		auto probeSize = offttos(probeOrig.size);
 		FILE_RAII pf;
+		string pname;
 		for(const auto& histLine: csHist)
 		{
 			// quick filter
@@ -1246,56 +1138,62 @@ void cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 				continue;
 
 			// analyze the state line
-			tSplitWalk split(&histLine, SPACECHARS);
+			tSplitWalk split(histLine, SPACECHARS);
 			if(!split.Next() || !split.Next())
 				continue;
 			// at size token
 			if(!pf.p && probeSize != split.str())
-				return false; // faulty data?
+				return PATCH_FAIL; // faulty data?
 			if(!split.Next())
 				continue;
-			string pname = split.str();
-			trimString(pname);
-			if(pname.empty())
-				return false; // XXX: maybe throw int with line number
+			pname = split.str();
+			trimBoth(pname);
+			if (!startsWithSz(pname, "T-2"))
+				return PATCH_FAIL;
+			if (pname.empty())
+				return PATCH_FAIL;
+		}
 
-			// ok, first patch of the sequence found
+		if (pname.empty())
+			return PATCH_FAIL;
+
+		// ok, first patch of the sequence found
+		if(!pf.p)
+		{
+			acng::mkbasedir(sPatchCombinedAbs);
+			// append mode!
+			pf.p=fopen(sPatchCombinedAbs.c_str(), "w");
 			if(!pf.p)
 			{
-				acng::mkbasedir(sPatchCombinedAbs);
-				// append mode!
-				pf.p=fopen(sPatchCombinedAbs.c_str(), "w");
-				if(!pf.p)
-				{
-					SendChunk("Failed to create intermediate patch file, stop patching...<br>");
-					return false;
-				}
-			}
-			// ok, so we started collecting patches...
-
-			string patchPathRel(pindexPathRel.substr(0, pindexPathRel.size()-5) +
-					pname + ".gz");
-			if(!Download(patchPathRel, false, eDlMsgPrio::eMsgHideErrors,
-					tFileItemPtr(), nullptr, DL_HINT_NOTAG, &pindexPathRel))
-			{
-				return false;
-			}
-			SetFlags(patchPathRel).parseignore = true; // static stuff, hands off!
-
-			// append context to combined diff while unpacking
-			// XXX: probe result can be checked against contents["SHA256-History"]
-			if(!probe.ScanFile(SABSPATH(patchPathRel), CSTYPE_SHA256, true, pf.p))
-			{
-				if(m_bVerbose)
-					SendFmt << "Failure on checking of intermediate patch data in " << patchPathRel << ", stop patching...<br>";
-				return false;
-			}
-			if(probe != patchSums[pname])
-			{
-				SendFmt<< "Bad patch data in " << patchPathRel <<" , stop patching...<br>";
-				return false;
+				SendChunk("Failed to create intermediate patch file, stop patching...<br>");
+				return PATCH_FAIL;
 			}
 		}
+		// ok, so we started collecting patches...
+
+		string patchPathRel(pindexPathRel.substr(0, pindexPathRel.size()-5) +
+				pname + ".gz");
+		if(!Download(patchPathRel, false, eDlMsgPrio::eMsgHideErrors,
+				nullptr, DL_HINT_NOTAG, &pindexPathRel))
+		{
+			return PATCH_FAIL;
+		}
+		SetFlags(patchPathRel).parseignore = true; // static stuff, hands off!
+
+		// append context to combined diff while unpacking
+		// XXX: probe result can be checked against contents["SHA256-History"]
+		if(!probe.ScanFile(SABSPATH(patchPathRel), CSTYPE_SHA256, true, pf.p))
+		{
+			if(m_bVerbose)
+				SendFmt << "Failure on checking of intermediate patch data in " << patchPathRel << ", stop patching...<br>";
+			return PATCH_FAIL;
+		}
+		if(probe != patchSums[pname])
+		{
+			SendFmt<< "Bad patch data in " << patchPathRel <<" , stop patching...<br>";
+			return PATCH_FAIL;
+		}
+
 		if(pf.p)
 		{
 			::fprintf(pf.p, "w patch.result\n");
@@ -1303,45 +1201,50 @@ void cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 			if(::ferror(pf.p))
 			{
 				SendChunk("Patch application error<br>");
-				return false;
+				return PATCH_FAIL;
 			}
 			checkForceFclose(pf.p);
 
-#ifndef DEBUGIDX
+	#ifndef DEBUGIDX
 			if(m_bVerbose)
-#endif
+	#endif
 				SendChunk("Patching...<br>");
 
 			tSS cmd;
-			cmd << "cd '" << CACHE_BASE << "_actmp' && ";
+			cmd << "cd '" << CACHE_BASE << PATCH_TEMP_DIR "' && ";
 			auto act = cfg::suppdir + SZPATHSEP "acngtool";
 			if(!cfg::suppdir.empty() && 0==access(act.c_str(), X_OK))
-				cmd << "'" << act << "' patch patch.base " << sPatchCombinedAbs << " patch.result";
+			{
+				cmd << "'" << act
+						<< "' patch " PATCH_BASE_NAME " " PATCH_COMBINED_NAME " " PATCH_RESULT_NAME;
+			}
 			else
-				cmd << " red --silent patch.base < " << sPatchCombinedAbs;
+			{
+				cmd << " red --silent " PATCH_BASE_NAME " < " PATCH_COMBINED_NAME;
+			}
 
-			if (::system(cmd.c_str()))
+			auto szCmd = cmd.c_str();
+			if (::system(szCmd))
 			{
 				MTLOGASSERT(false, "Command failed: " << cmd);
-				return false;
+				return PATCH_FAIL;
 			}
 
 			if (!probe.ScanFile(sPatchResultAbs, CSTYPE_SHA256, false))
 			{
 				MTLOGASSERT(false, "Scan failed: " << sPatchResultAbs);
-				return false;
+				return PATCH_FAIL;
 			}
 
 			if(probe != probeStateWanted)
 			{
 				MTLOGASSERT(false,"Final verification failed");
-				return false;
+				return PATCH_FAIL;
 			}
-			return true;
-		}
-		return false;
+			return 0;
 			};
-
+		return PATCH_FAIL;
+			};
 	// start with uncompressed type, xz, bz2, gz, lzma
 	for(auto itype : { -1, 0, 1, 2, 3})
 	{
@@ -1358,7 +1261,7 @@ void cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 			{
 				SendFmt << "Cannot write temporary patch data to "
 						<< sPatchInputRel << "<br>";
-				return;
+				return PATCH_FAIL;
 			}
 			if(!probeOrig.ScanFile(SABSPATH(pb),
 					CSTYPE_SHA256, true, df.p))
@@ -1368,52 +1271,45 @@ void cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 			{
 				SetFlags(pb).uptodate = true;
 				SyncSiblings(pb, siblings);
-				return; // the file is uptodate already...
+				return 0; // the file is uptodate already...
 			}
 
-			if(!tryPatch(pb))
-				continue; // only if fails on file checks
+			if(tryPatch())
+				continue;
 
 			// install to one of uncompressed locations, let SyncSiblings handle the rest
 			for(auto& path: siblings)
 			{
-				// if possible, try to reconstruct reliable download information
-				// inject might need it
-				header h;
-				header *ph(0);
+                // if possible, try to reconstruct reliable download source information
+                header h;
 				if(h.LoadFromFile(SABSPATH(pindexPathRel)+".head")
 						&& h.h[header::XORIG])
 				{
 					auto len=strlen(h.h[header::XORIG]);
 					if(len < diffIdxSfx.length())
-						return; // heh?
-					h.h[header::XORIG][len-diffIdxSfx.length()] = 0;
-					h.set(header::CONTENT_TYPE, "octet/stream");
-					h.set(header::LAST_MODIFIED, FAKEDATEMARK);
-					h.set(header::CONTENT_LENGTH, probeStateWanted.size);
-					ph = &h;
-				}
+                        return PATCH_FAIL; // heh?
+                    h.h[header::XORIG][len-diffIdxSfx.length()] = 0;
+				}                
 
-#ifndef DEBUGIDX
 				if(m_bVerbose)
-#endif
 					SendFmt << "Installing as " << path << ", state: " <<  probeStateWanted << hendl;
 
-
 				if(FindCompIdx(path) < 0
-						&& Inject(sPatchResultRel, path, true, ph, 0))
+                        && Inject(sPatchResultRel, path, true, probeStateWanted.size, h.h[header::XORIG]))
 				{
 					SyncSiblings(path, siblings);
+					injected++;
 				}
 			}
 
 			// patched, installed, DONE!
-			return;
+			return injected ? 0 : PATCH_FAIL;
 		}
 	}
+	return -2;
 }
 
-void cacheman::UpdateVolatileFiles()
+bool cacheman::UpdateVolatileFiles()
 {
 	LOGSTARTFUNC
 
@@ -1425,14 +1321,14 @@ void cacheman::UpdateVolatileFiles()
 		SendChunk("<b>Bringing index files up to date...</b><br>\n");
 		for (auto& f: m_metaFilesRel)
 		{
-			// nope... tell the fileitem to ignore file data instead ::truncate(SZABSPATH(it->first), 0);
+			// tolerate or not, it depends
 			if (!Download(f.first, true, eMsgShow))
 				m_nErrorCount += !m_metaFilesRel[f.first].forgiveDlErrors;
 		}
 		ERRMSGABORT;
-		return;
+		LOGRET(false);
 	}
-
+	dbgline;
 	tFileGroups idxGroups;
 
 	auto dbgState = [&]() {
@@ -1489,19 +1385,29 @@ void cacheman::UpdateVolatileFiles()
 
 	for(auto& sPathRel : goodReleaseFiles)
 	{
-		m_nErrorCount += !ProcessByHashReleaseFileRestoreFiles(sPathRel, "");
-		if(m_nErrorCount)
-			continue; // don't damage that copy
+		if(!ProcessByHashReleaseFileRestoreFiles(sPathRel, ""))
+		{
+			m_nErrorCount++;
+			if(sErr.empty())
+				sErr = "ByHash error at " + sPathRel;
+			continue;
+		}
 
 		if(!Download(sPathRel, true,
 				m_metaFilesRel[sPathRel].hideDlErrors ? eMsgHideErrors : eMsgShow,
-						tFileItemPtr(), 0, DL_HINT_GUESS_REPLACEMENT))
+						0, DL_HINT_GUESS_REPLACEMENT))
 		{
-			m_nErrorCount+=(!m_metaFilesRel[sPathRel].hideDlErrors);
+			if(!m_metaFilesRel[sPathRel].hideDlErrors)
+			{
+				m_nErrorCount++;
+				if(sErr.empty()) sErr = "DL error at " + sPathRel;
+			}
 
 			if(CheckStopSignal())
-				return;
-
+			{
+				SendFmt << "Operation canceled." << hendl;
+				return false;
+			}
 			continue;
 		}
 	}
@@ -1509,19 +1415,22 @@ void cacheman::UpdateVolatileFiles()
 	SendChunk("<b>Bringing index files up to date...</b><br>\n");
 
 	{
-		std::unordered_set<std::string> oldReleaseFiles;
+		std::unordered_set<std::string> oldReleaseFilesInRsnap;
 		auto baseFolder = cfg::cacheDirSlash + cfg::privStoreRelSnapSufix;
-		IFileHandler::FindFiles(baseFolder, [&baseFolder, &oldReleaseFiles](cmstring &sPath, const struct stat &st)
-				-> bool {
-			oldReleaseFiles.emplace(sPath.substr(baseFolder.size() + 1));
-			return true;
-		});
 
-		if(!FixMissingByHashLinks(oldReleaseFiles))
+		IFileHandler::FindFiles(baseFolder,
+				[&baseFolder, &oldReleaseFilesInRsnap](cmstring &sPath, const struct stat &st)
+				-> bool
+				{
+			oldReleaseFilesInRsnap.emplace(sPath.substr(baseFolder.size() + 1));
+			return true;
+				});
+
+		if(!FixMissingByHashLinks(oldReleaseFilesInRsnap))
 		{
 			SendFmt << "Error fixing by-hash links" << hendl;
 			m_nErrorCount++;
-			return;
+			LOGRET(false);
 		}
 	}
 
@@ -1530,7 +1439,7 @@ void cacheman::UpdateVolatileFiles()
 	dbgDump("After group building:", 0);
 
 	if(CheckStopSignal())
-		return;
+		LOGRET(false);
 
 	// OK, the equiv-classes map is built, now post-process the knowledge
 	FilterGroupData(idxGroups);
@@ -1543,10 +1452,13 @@ void cacheman::UpdateVolatileFiles()
 	// there was a quick check during data extraction but its context is lost now.
 	// share it's knowledge between different members of the group
 	for(auto& g: idxGroups)
+	{
 		for(auto& p: g.second.paths)
+		{
 			if(GetFlags(p).uptodate)
 				SyncSiblings(p, g.second.paths);
-
+		}
+	}
 	dbgDump("Refined (5):", 5);
 	dbgState();
 //	DelTree(SABSPATH("_actmp")); // do one to test the permissions
@@ -1600,7 +1512,7 @@ void cacheman::UpdateVolatileFiles()
 			}
 		}
 	}
-
+	dbgline;
 	MTLOGDEBUG("<br><br><b>NOW GET THE REST</b><br><br>");
 
 	// fetch all remaining stuff, at least the relevant parts
@@ -1613,12 +1525,13 @@ void cacheman::UpdateVolatileFiles()
 		string sErr;
 		if(Download(idx2att.first, true,
 				idx2att.second.hideDlErrors ? eMsgHideErrors : eMsgShow,
-						tFileItemPtr(), 0, DL_HINT_GUESS_REPLACEMENT))
+						0, DL_HINT_GUESS_REPLACEMENT))
 		{
 			continue;
 		}
 		m_nErrorCount+=(!idx2att.second.forgiveDlErrors);
 	}
+	LOGRET(true);
 }
 
 void cacheman::SyncSiblings(cmstring &srcPathRel,const tStrDeq& targets)
@@ -1646,7 +1559,7 @@ void cacheman::SyncSiblings(cmstring &srcPathRel,const tStrDeq& targets)
 			&& srcDirFile.second == tgtDirFile.second)
 				//&& 0 == strcmp(srcType, GetTypeSuffix(targetDirFile.second)))
 		{
-			Inject(srcPathRel, tgt, true, 0, false);
+            Inject(srcPathRel, tgt, true);
 		}
 	}
 }
@@ -1743,6 +1656,10 @@ bool cacheman::ParseAndProcessMetaFile(std::function<void(const tRemoteFileInfo&
 	tStrVec vsMetrics;
 	string sStartMark;
 
+	unsigned progHint=0;
+#define STEP 2048
+	tDtorEx postNewline([this, &progHint](){if(progHint>=STEP) SendChunk("<br>\n");});
+
 	switch(idxType)
 	{
 	case EIDX_PACKAGES:
@@ -1755,6 +1672,10 @@ bool cacheman::ParseAndProcessMetaFile(std::function<void(const tRemoteFileInfo&
 		{
 			trimBack(sLine);
 			//cout << "file: " << *it << " line: "  << sLine<<endl;
+			if(0 == ((++progHint) & (STEP-1)))
+				SendChunk("<wbr>.");
+
+
 			if (sLine.empty())
 			{
 				if(info.IsUsable())
@@ -1854,16 +1775,16 @@ bool cacheman::ParseAndProcessMetaFile(std::function<void(const tRemoteFileInfo&
 			if(CheckStopSignal())
 				return true;
 
-			unsigned begin(0);
+			string_view input(sLine);
 			if(startsWithSz(sLine, "install: "))
-				begin=9;
+				input.remove_prefix(9);
 			else if(startsWithSz(sLine, "source: "))
-				begin=8;
+				input.remove_prefix(8);
 			else
 				continue;
-			tSplitWalk split(&sLine, SPACECHARS, begin);
+			tSplitWalk split(input, SPACECHARS);
 			if(split.Next() && info.SetFromPath(split, sPkgBaseDir)
-					&& split.Next() && info.SetSize(split.remainder())
+					&& split.Next() && info.SetSize(split.view().data())
 					&& split.Next() && info.fpr.SetCs(split))
 			{
 				ret(info);
@@ -1878,7 +1799,7 @@ bool cacheman::ParseAndProcessMetaFile(std::function<void(const tRemoteFileInfo&
 			if(CheckStopSignal())
 				return true;
 
-			for(tSplitWalk split(&sLine, "\"'><=/"); split.Next(); )
+			for(tSplitWalk split(sLine, "\"'><=/"); split.Next(); )
 			{
 				cmstring tok(split);
 				LOG("testing filename: " << tok);
@@ -1899,7 +1820,7 @@ bool cacheman::ParseAndProcessMetaFile(std::function<void(const tRemoteFileInfo&
 			if(CheckStopSignal())
 				return true;
 
-			for(tSplitWalk split(&sLine, "\"'><=/"); split.Next(); )
+			for(tSplitWalk split(sLine, "\"'><=/"); split.Next(); )
 			{
 				cmstring tok(split);
 				LOG("testing filename: " << tok);
@@ -1925,7 +1846,7 @@ bool cacheman::ParseAndProcessMetaFile(std::function<void(const tRemoteFileInfo&
 			if(CheckStopSignal())
 				return true;
 
-			tSplitWalk split(&sLine, SPACECHARS);
+			tSplitWalk split(sLine, SPACECHARS);
 			info.fpr.size=-1;
 			if( split.Next() && info.fpr.SetCs(split,
 					idxType == EIDX_MD5DILIST ? CSTYPE_MD5 : CSTYPE_SHA256)
@@ -1959,10 +1880,15 @@ bool cacheman::ParseAndProcessMetaFile(std::function<void(const tRemoteFileInfo&
 				EIDX_TRANSIDX, CSTYPES::CSTYPE_SHA1, "SHA1", byHashMode);
 	case EIDX_RELEASE:
 		if(byHashMode)
+		{
 			return ParseDebianRfc822Index(reader, ret, sBaseDir, sPkgBaseDir,
 					EIDX_RELEASE, CSTYPES::CSTYPE_INVALID, "", true);
-		return ParseDebianRfc822Index(reader, ret, sBaseDir, sPkgBaseDir,
-				EIDX_RELEASE, CSTYPES::CSTYPE_SHA256, "SHA256", false);
+		}
+		else
+		{
+			return ParseDebianRfc822Index(reader, ret, sBaseDir, sPkgBaseDir,
+					EIDX_RELEASE, CSTYPES::CSTYPE_SHA256, "SHA256", false);
+		}
 	default:
 		SendChunk("<span class=\"WARNING\">"
 				"WARNING: unable to read this file (unsupported format)</span>\n<br>\n");
@@ -2023,16 +1949,16 @@ void cacheman::ParseGenericRfc822File(filereader& reader,
 			if (!sExtListFilter.empty() && sExtListFilter != lastKey)
 				continue;
 
-			trimFront(sLine);
+			trimBoth(sLine);
 			pLastVal->push_back(sLine);
 		}
 		else if (ParseKeyValLine(sLine, key, val))
 		{
-			// override the old key if existing, we don't merge
-			auto ins = contents.insert(make_pair(key, deque<string>
-			{ val }));
 			lastKey = key;
-			pLastVal = &ins.first->second;
+			pLastVal = & contents[key];
+			// we don't merge
+			pLastVal->clear();
+			pLastVal->emplace_back(val);
 		}
 	}
 }
@@ -2041,7 +1967,7 @@ bool cacheman::ParseDebianIndexLine(tRemoteFileInfo& info, cmstring& fline)
 {
 	info.sFileName.clear();
 	// ok, read "checksum size filename" into info and check the word count
-	tSplitWalk split(&fline);
+	tSplitWalk split(fline);
 	if (!split.Next()
 			|| !info.fpr.SetCs(split, info.fpr.csType)
 			|| !split.Next())
@@ -2301,34 +2227,6 @@ void cacheman::PrintStats(cmstring &title)
 			SendFmt << "</div>";
 }
 
-#ifdef DEBUG
-int parseidx_demo(LPCSTR file)
-{
-
-	class tParser : public cacheman
-	{
-	public:
-		tParser() : cacheman({2, tSpecialRequest::workIMPORT, "doImport="}) {};
-		inline int demo(LPCSTR file)
-		{
-			return !ParseAndProcessMetaFile([](const tRemoteFileInfo &entry) ->void {
-				cout << "Dir: " << entry.sDirectory << endl << "File: " << entry.sFileName << endl
-									<< "Checksum-" << GetCsName(entry.fpr.csType) << ": " << entry.fpr.GetCsAsString()
-									<< endl;
-				}, file, GuessMetaTypeFromURL(file));
-		}
-		virtual bool ProcessRegular(const mstring &, const struct stat &) override {return true;}
-		virtual bool ProcessOthers(const mstring &, const struct stat &) override {return true;}
-		virtual bool ProcessDirAfter(const mstring &, const struct stat &) override {return true;}
-		virtual void Action() override {};
-	}
-	mgr;
-
-	return mgr.demo(file);
-}
-#endif
-
-
 void cacheman::ProgTell()
 {
 	if (++m_nProgIdx == m_nProgTell)
@@ -2402,31 +2300,34 @@ bool cacheman::ProcessByHashReleaseFileRestoreFiles(cmstring& releasePathRel, cm
 			// return with increased count if error happens
 			errors++;
 
-			header h;
-			// load by-hash header, check URL, rewrite URL, copy the stuff over
-			if(!h.LoadFromFile(SABSPATH(solidPathRel) + ".head") || ! h.h[header::XORIG])
-				{
+            string origin;
+
+            {
+                header h;
+                // load by-hash header, check URL, rewrite URL, copy the stuff over
+                if(!h.LoadFromFile(SABSPATH(solidPathRel) + ".head") || ! h.h[header::XORIG])
+                {
+                    if(m_bVerbose)
+                        SendFmt << "Couldn't read " << SABSPATH(solidPathRel) << ".head<br>";
+                    return;
+                }
+                origin = h.h[header::XORIG];
+                tStrPos pos = origin.rfind("by-hash/");
+                if(pos == stmiss)
+                {
+                    if(m_bVerbose)
+                        SendFmt << SABSPATH(solidPathRel) << " is not from by-hash folder<br>";
+                    return;
+                }
+                origin.erase(pos);
+                origin += entry.sFileName;
+            }
+
+            if(!Inject(solidPathRel, wantedPathRel, false, -1, origin.c_str()))
+			{
 				if(m_bVerbose)
-					SendFmt << "Couldn't read " << SABSPATH(solidPathRel) << ".head<br>";
+					SendFmt << "Couldn't install " << solidPathRel << hendl;
 				return;
-				}
-			string origin(h.h[header::XORIG]);
-			tStrPos pos = origin.rfind("by-hash/");
-			if(pos == stmiss)
-			{
-			if(m_bVerbose)
-				SendFmt << SABSPATH(solidPathRel) << " is not from by-hash folder<br>";
-			return;
-			}
-			h.set(header::XORIG, origin.substr(0, pos) + entry.sFileName);
-			// most servers report crap type on by-hash files, use generic one
-			h.set(header::CONTENT_TYPE, "octet/stream");
-			//	should be ok				h.set(header::CONTENT_LENGTH, entry.fpr.size)
-			if(!Inject(solidPathRel, wantedPathRel, false, &h, false))
-			{
-			if(m_bVerbose)
-				SendChunk("Couldn't install<br>");
-			return;
 			}
 			auto& flags = SetFlags(wantedPathRel);
 			if(flags.vfile_ondisk)
@@ -2438,29 +2339,29 @@ bool cacheman::ProcessByHashReleaseFileRestoreFiles(cmstring& releasePathRel, cm
 	stripPrefix + releasePathRel, enumMetaType::EIDX_RELEASE, true) && errors == 0;
 }
 
-bool cacheman::FixMissingByHashLinks(std::unordered_set<std::string> &oldReleaseFiles)
+bool cacheman::FixMissingByHashLinks(std::unordered_set<std::string> &oldReleaseFilesInRsnap)
 {
 	bool ret = true;
 
-	// path of side store with trailing slash relativ to cache folder
+	// path of side store with trailing slash relative to cache folder
 	auto srcPrefix(cfg::privStoreRelSnapSufix + sPathSep);
 
-	for(const auto& snapPathInXstore: oldReleaseFiles)
+	for(const auto& nameInXstore: oldReleaseFilesInRsnap)
 	{
-		if(endsWithSzAr(snapPathInXstore, ".upgrayedd"))
+		if(endsWithSzAr(nameInXstore, ".upgrayedd"))
 			continue;
 		// path relative to cache folder
-		if(!ProcessByHashReleaseFileRestoreFiles(snapPathInXstore, srcPrefix))
+		if(!ProcessByHashReleaseFileRestoreFiles(nameInXstore, srcPrefix))
 		{
-			SendFmt << "There were error(s) processing " << snapPathInXstore << ", ignoring..."<< hendl;
+			SendFmt << "There were error(s) processing " << nameInXstore << ", ignoring..."<< hendl;
 			if(!m_bVerbose)
-				SendChunk("Enable verbosity to see more");
+				SendFmt << "Enable verbosity to see more" << hendl;
 			return ret;
 		}
 #ifdef DEBUGIDX
-		SendFmt << "Purging " << SABSPATH(srcPrefix + snapPathInXstore) << hendl;
+		SendFmt << "Purging " << SABSPATH(srcPrefix + nameInXstore) << hendl;
 #endif
-		unlink(SABSPATH(srcPrefix + snapPathInXstore).c_str());
+		unlink(SABSPATH(srcPrefix + nameInXstore).c_str());
 	}
 	return ret;
 }

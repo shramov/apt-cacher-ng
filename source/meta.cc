@@ -30,48 +30,10 @@ std::string ACNG_API sDefPortHTTP = "80", sDefPortHTTPS = "443";
 #endif
 
 cmstring PROT_PFX_HTTPS(WITHLEN("https://")), PROT_PFX_HTTP(WITHLEN("http://"));
-cmstring FAKEDATEMARK(WITHLEN("Sat, 26 Apr 1986 01:23:39 GMT+3"));
+cmstring FAKEDATEMARK(WITHLEN("Sat, 26 Apr 1986 01:23:39 GMT"));
 cmstring hendl("<br>\n");
 
-std::atomic<bool> g_global_shutdown;
-
-/*
-int getUUID() {
-    lfd=(lfd+1)%65536;
-   //cerr << "UUID: " << lfd <<endl;
-    return lfd;
-}
-*/
-void set_nb(int fd) {
-    int flags = fcntl(fd, F_GETFL);
-    //ASSERT(flags != -1);
-    flags |= O_NONBLOCK;
-    flags = fcntl(fd, F_SETFL, flags);
-}
-void set_block(int fd) {
-    int flags = fcntl(fd, F_GETFL);
-    //ASSERT(flags != -1);
-    flags &= ~O_NONBLOCK;
-    flags = fcntl(fd, F_SETFL, flags);
-}
-
-
-/*
-inline tStrPos findHostStart(const std::string & sUri)
-{
-	tStrPos p=0, l=sUri.size();
-	if (0==sUri.compare(0, 7, "http://"))
-		p=7;
-	while(p<l && sUri[p]=='/') p++;
-	return p;
-}
-
-void trimProto(std::string & sUri)
-{
-	sUri.erase(findHostStart(sUri));
-}
-*/
-
+ACNG_API std::atomic<bool> g_global_shutdown;
 
 mstring GetBaseName(const string &in)
 {
@@ -235,18 +197,29 @@ bool tHttpUrl::SetHttpUrl(cmstring &sUrlRaw, bool unescape)
 	hEndSuc=url.find('/', hStart);
 	if(stmiss==hEndSuc)
 	{
-		hEndSuc=l;
-		goto extract_host_check_port;
+		// also match http://foo?param=X
+		hEndSuc=url.find('?', hStart);
+		if(stmiss!=hEndSuc)
+		{
+			sPath = mstring("/") + url.substr(hEndSuc);
+			goto extract_host_check_port;
+		}
+
+		hEndSuc = l;
+		goto extract_host_and_path_and_check_port;
+
 	}
 	pStart=hEndSuc;
 	while(pStart<l && url[pStart]=='/') pStart++;
 	pStart--;
 	
-	extract_host_check_port:
+	extract_host_and_path_and_check_port:
 	if(pStart==0)
 		sPath="/";
 	else
 		sPath=url.substr(pStart);
+
+	extract_host_check_port:
 
 	if(url[hStart]=='_') // those are reserved
 		return false;
@@ -385,7 +358,7 @@ void MakeAbsolutePath(std::string &dirToFix, const std::string &reldir)
 
 extern uint_fast16_t hexmap[];
 
-cmstring sEmptyString("");
+cmstring sEmptyString;
 
 /*
 int GetSimilarity(cmstring& wanted, cmstring& candidate)
@@ -886,7 +859,7 @@ mstring offttosH(off_t n)
 
 mstring offttosHdotted(off_t n)
 {
-	mstring ret(to_string(n));
+	mstring ret(std::to_string(n));
 	auto pos = ret.size()-1;
 	for(unsigned i=1; pos > 0; ++i, --pos)
 		if(0 == i%3)
@@ -969,20 +942,7 @@ mstring unEscape(cmstring &s)
 	return ret;
 }
 
-unsigned FormatTime(char *buf, size_t bufLen, const time_t cur)
-{
-	if(bufLen < 26)
-		return 0;
-	struct tm tmp;
-	gmtime_r(&cur, &tmp);
-	asctime_r(&tmp, buf);
-	//memcpy(buf + 24, " GMT", 4); // wrong, only needed for rfc-822 format, not for asctime's
-	//return 28;
-	buf[24]=0;
-	return 24;
-}
-
-bool scaseequals(cmstring& a, cmstring& b)
+bool scaseequals(string_view a, string_view b)
 {
     auto len = a.size();
     if (b.size() != len)
@@ -992,5 +952,28 @@ bool scaseequals(cmstring& a, cmstring& b)
             return false;
     return true;
 }
+
+#if !defined(HAVE_STRLCPY) || !HAVE_STRLCPY
+size_t strlcpy(char *tgt, const char *src, size_t tgtSize)
+{
+    auto p = src;
+    if (tgtSize > 0)
+    {
+        char *const pEnd = tgt + tgtSize - 1;
+        while (tgt < pEnd && *p)
+        {
+            *tgt++ = *p++;
+        }
+        *tgt = '\0';
+    }
+    // count how much we could have copied if not reached
+    while (*p)
+    {
+        ++p;
+    }
+    return p - src;
+}
+#endif
+
 
 }

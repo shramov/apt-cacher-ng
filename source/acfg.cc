@@ -49,6 +49,7 @@ string tmpDontcache, tmpDontcacheReq, tmpDontcacheTgt, optProxyCheckCmd;
 int optProxyCheckInt = 99;
 
 tStrMap localdirs;
+// cached mime type strings, locked in RAM
 static class : public base_with_mutex, public NoCaseStringMap {} mimemap;
 
 std::bitset<TCP_PORT_MAX> *pUserPorts = nullptr;
@@ -93,7 +94,7 @@ MapNameToString n2sTbl[] = {
 		,{  "CacheDir",                &cachedir}
 		,{  "LogDir",                  &logdir}
 		,{  "SupportDir",              &suppdir}
-		,{  "SocketPath",              &fifopath}
+		,{  "SocketPath",              &udspath}
 		,{  "PidFile",                 &pidfile}
 		,{  "ReportPage",              &reportpage}
 		,{  "VfilePattern",            &vfilepat}
@@ -120,6 +121,8 @@ MapNameToString n2sTbl[] = {
 		,{  "BadRedirDetectMime",      &badredmime}
 		,{	"OptProxyCheckCommand",	   &optProxyCheckCmd}
 		,{  "BusAction",                &sigbuscmd} // "Special debugging helper, see manual!"
+        ,{  "EvDnsResolvConf",		 	&dnsresconf}
+
 };
 
 MapNameToInt n2iTbl[] = {
@@ -160,6 +163,7 @@ MapNameToInt n2iTbl[] = {
 		,{  "OptProxyCheckInterval",             &optProxyCheckInt, nullptr,    10, false}
 		,{  "TrackFileUse",		             	 &trackfileuse,		nullptr,    10, false}
         ,{  "ReserveSpace",                      &allocspace, 		nullptr ,   10, false}
+        ,{  "EvDnsOpts",                	     &dnsopts,	 		nullptr ,   10, false}
 
         // octal base interpretation of UNIX file permissions
 		,{  "DirPerms",                          &dirperms,         nullptr,    8, false}
@@ -175,7 +179,7 @@ MapNameToInt n2iTbl[] = {
 
 tProperty n2pTbl[] =
 {
-{ "Proxy", [](cmstring& key, cmstring& value)
+{ "Proxy", [](cmstring&, cmstring& value)
 {
 	if(value.empty()) proxy_info=tHttpUrl();
 	else
@@ -190,7 +194,7 @@ tProperty n2pTbl[] =
 		return string("#");
 	return proxy_info.sHost.empty() ? sEmptyString : proxy_info.ToURI(false);
 } },
-{ "LocalDirs", [](cmstring& key, cmstring& value) -> bool
+{ "LocalDirs", [](cmstring&, cmstring& value) -> bool
 {
 	if(g_bNoComplex)
 	return true;
@@ -216,7 +220,7 @@ tProperty n2pTbl[] =
 		return false;
 	}
 	int type(-1); // nothing =-1; prefixes =0 ; backends =1; flags =2
-		for(tSplitWalk split(&value); split.Next();)
+		for(tSplitWalk split(value); split.Next();)
 		{
 			cmstring s(split);
 			if(s.empty())
@@ -246,11 +250,11 @@ tProperty n2pTbl[] =
 	{
 		return "# mixed options";
 	} },
-{ "AllowUserPorts", [](cmstring& key, cmstring& value) -> bool
+{ "AllowUserPorts", [](cmstring&, cmstring& value) -> bool
 {
 	if(!pUserPorts)
 	pUserPorts=new bitset<TCP_PORT_MAX>;
-	for(tSplitWalk split(&value); split.Next();)
+	for(tSplitWalk split(value); split.Next();)
 	{
 		cmstring s(split);
 		const char *start(s.c_str());
@@ -276,10 +280,10 @@ tProperty n2pTbl[] =
 		}
 	return (string) ret;
 } },
-{ "ConnectProto", [](cmstring& key, cmstring& value) -> bool
+{ "ConnectProto", [](cmstring&, cmstring& value) -> bool
 {
 	int *p = conprotos;
-	for (tSplitWalk split(&value); split.Next(); ++p)
+	for (tSplitWalk split(value); split.Next(); ++p)
 	{
 		cmstring val(split);
 		if (val.empty())
@@ -303,7 +307,7 @@ tProperty n2pTbl[] =
 		ret += string(" ") + (conprotos[1] == PF_INET6 ? "v6" : "v4");
 	return ret;
 } },
-{ "AdminAuth", [](cmstring& key, cmstring& value) -> bool
+{ "AdminAuth", [](cmstring&, cmstring& value) -> bool
 {
 	adminauth=value;
 	adminauthB64=EncodeBase64Auth(value);
@@ -313,7 +317,7 @@ tProperty n2pTbl[] =
 	return "#"; // TOP SECRET";
 } }
 ,
-{ "ExStartTradeOff", [](cmstring& key, cmstring& value) -> bool
+{ "ExStartTradeOff", [](cmstring&, cmstring& value) -> bool
 {
 	exstarttradeoff = strsizeToOfft(value.c_str());
 	return true;
@@ -321,17 +325,26 @@ tProperty n2pTbl[] =
 {
 	return ltos(exstarttradeoff);
 } }
-
- #if SUPPWHASH
- bIsHashedPwd=false;
- }
-
- else if(CHECKOPTKEY("AdminAuthHash"))
- {
- adminauth=value;
- bIsHashedPwd=true;
- #endif
-
+	,
+	{ "PermitCacheControl", [](cmstring&, cmstring& value) -> bool
+	  {
+		  ccNoCache = ccNoStore = false;
+		  tSplitWalk spltr(value, "," SPACECHARS);
+		  for(auto s: spltr)
+		  {
+			  if (s == "no-cache") ccNoCache = true;
+			  else if (s == "no-store") ccNoStore = true;
+		  }
+		  return true;
+	  }, [](bool) -> string
+	  {
+		  string ret;
+		  if (ccNoCache)
+		  ret += " no-cache";
+		  if (ccNoStore)
+		  ret += " no-store";
+		  return ret;
+	  } }
 };
 
 string * GetStringPtr(LPCSTR key) {
@@ -416,6 +429,11 @@ bool DegradedMode()
 	return degraded.load();
 }
 
+void DegradedMode(bool setVal)
+{
+	degraded.store(setVal);
+}
+
 inline void _FixPostPreSlashes(string &val)
 {
 	// fix broken entries
@@ -479,8 +497,8 @@ inline bool ParseOptionLine(const string &sLine, string &key, string &val)
 
 	key=sLine.substr(0, pos);
 	val=sLine.substr(pos+1);
-	trimString(key);
-	trimString(val);
+	trimBoth(key);
+	trimBoth(val);
 	if(key.empty())
 		return false; // weird
 
@@ -560,12 +578,8 @@ tStrDeq ExpandFileTokens(cmstring &token)
 		return res; // errrr... done here
 	// merge them
 	tStrSet dupeFil;
-        for(const auto& s: res)
-#ifdef COMPATGCC47
-           dupeFil.insert(GetBaseName(s));
-#else
-        dupeFil.emplace(GetBaseName(s));
-#endif
+	for(const auto& s: res)
+		dupeFil.emplace(GetBaseName(s));
 	for(const auto& s: suppres)
 		if(!ContHas(dupeFil, GetBaseName(s)))
 			res.emplace_back(s);
@@ -632,8 +646,12 @@ struct tHookHandler: public tRepoData::IHookHandler, public base_with_mutex
 		{
 			if(downTimeNext) // huh, already ticking? reset
 				downTimeNext=0;
-			else if(system(cmdCon.c_str()))
-				log::err(tSS() << "Warning: " << cmdCon << " returned with error code.");
+			else if (!cmdCon.empty())
+			{
+				if (system(cmdCon.c_str()))
+					log::err(tSS() << "Warning: " << cmdCon << " returned with error code.");
+			}
+
 		}
 	}
 };
@@ -652,6 +670,7 @@ inline void _AddHooksFile(cmstring& vname)
 			continue;
 
 		const char *p = key.c_str();
+		trimBoth(val, SPACECHARS "\0");
 		if (strcasecmp("PreUp", p) == 0)
 		{
 			hs.cmdCon = val;
@@ -673,10 +692,10 @@ inline void _AddHooksFile(cmstring& vname)
 
 inline void _ParseLocalDirs(cmstring &value)
 {
-	for(tSplitWalk splitter(&value, ";"); splitter.Next(); )
+	for(tSplitWalk splitter(value, ";"); splitter.Next(); )
 	{
 		mstring token=splitter.str();
-		trimString(token);
+		trimBoth(token);
 		tStrPos pos = token.find_first_of(SPACECHARS);
 		if(stmiss == pos)
 		{
@@ -684,9 +703,9 @@ inline void _ParseLocalDirs(cmstring &value)
 			continue;
 		}
 		string from(token, 0, pos);
-		trimString(from, "/");
+		trimBoth(from, "/");
 		string what(token, pos);
-		trimString(what, SPACECHARS "'\"");
+		trimBoth(what, SPACECHARS "'\"");
 		if(what.empty())
 		{
 			cerr << "Unsupported target of " << from << ": " << what << ", ignoring it" << endl;
@@ -710,7 +729,7 @@ cmstring & GetMimeType(cmstring &path)
 				// # regular types:
 				// text/plain             asc txt text pot brf  # plain ascii files
 
-				tSplitWalk split(&itor.sLine);
+				tSplitWalk split(itor.sLine);
 				if (!split.Next())
 					continue;
 
@@ -732,8 +751,7 @@ cmstring & GetMimeType(cmstring &path)
 	tStrPos dpos = path.find_last_of('.');
 	if (dpos != stmiss)
 	{
-		NoCaseStringMap::const_iterator it = cfg::mimemap.find(path.substr(
-				dpos + 1));
+        auto it = cfg::mimemap.find(path.substr(dpos + 1));
 		if (it != cfg::mimemap.end())
 			return it->second;
 	}
@@ -742,10 +760,10 @@ cmstring & GetMimeType(cmstring &path)
 	filereader f;
 	if(f.OpenFile(path, true))
 	{
-		size_t maxLen = std::min(size_t(255), f.GetSize());
-		for(unsigned i=0; i< maxLen; ++i)
+        auto sv = f.getView().substr(0, 255);
+        for(char c: sv)
 		{
-			if(!isascii((uint) *(f.GetBuffer()+i)))
+            if(!isascii(unsigned(c)))
 				return os;
 		}
 		return tp;
@@ -835,12 +853,14 @@ bool SetOption(const string &sLine, NoCaseStringMap *pDupeCheck)
 	return true;
 }
 
-void GetRepNameAndPathResidual(const tHttpUrl & in, tRepoResolvResult &result)
+tRepoResolvResult GetRepNameAndPathResidual(const tHttpUrl & in)
 {
+	tRepoResolvResult result;
+
 	// get all the URLs matching THE HOSTNAME
 	auto rangeIt=mapUrl2pVname.find(in.sHost+":"+in.GetPort());
 	if(rangeIt == mapUrl2pVname.end())
-		return;
+		return result;
 	
 	tStrPos bestMatchLen(0);
 	auto pBestHit = repoparms.end();
@@ -865,6 +885,7 @@ void GetRepNameAndPathResidual(const tHttpUrl & in, tRepoResolvResult &result)
 		result.sRestPath = in.sPath.substr(bestMatchLen);
 		result.repodata = & pBestHit->second;
 	}
+	return result;
 }
 
 const tRepoData * GetRepoData(cmstring &vname)
@@ -1057,17 +1078,6 @@ void ReadConfigDirectory(const char *szPath, bool bReadErrorIsFatal)
 #else
 	ReadOneConfFile(confdir+SZPATHSEP"acng.conf", bReadErrorIsFatal);
 #endif
-	dump_proc_status();
-	if(debug & log::LOG_DEBUG)
-	{
-		unsigned nUrls=0;
-		for(const auto& x: mapUrl2pVname)
-			nUrls+=x.second.size();
-
-		if(debug&6)
-			cerr << "Loaded " << repoparms.size() << " backend descriptors\nLoaded mappings for "
-				<< mapUrl2pVname.size() << " hosts and " << nUrls<<" paths\n";
-	}
 }
 
 void PostProcConfig()
@@ -1111,7 +1121,8 @@ void PostProcConfig()
 	
    if(cachedir.empty() || cachedir[0] != CPATHSEP)
    {
-	   cerr << "Warning: Cache directory unknown or not absolute, running in degraded mode!" << endl;
+	   if (!g_bQuiet)
+		   cerr << "Warning: Cache directory unknown or not absolute, running in degraded mode!" << endl;
 	   degraded=true;
    }
    if(!rex::CompileExpressions())
@@ -1134,13 +1145,13 @@ void PostProcConfig()
 
    stripPrefixChars(cfg::reportpage, '/');
 
-   trimString(cfg::requestapx);
+   trimBoth(cfg::requestapx);
    if(!cfg::requestapx.empty())
 	   cfg::requestapx = unEscape(cfg::requestapx);
 
    // create working paths before something else fails somewhere
-   if(!fifopath.empty())
-	   mkbasedir(cfg::fifopath);
+   if(!udspath.empty())
+	   mkbasedir(cfg::udspath);
    if(!cachedir.empty())
 	   mkbasedir(cfg::cachedir);
    if(! pidfile.empty())
@@ -1154,6 +1165,9 @@ void PostProcConfig()
    {
 	   fasttimeout = 0;
    }
+
+   if(RESERVED_DEFVAL == stucksecs)
+	   stucksecs = 2 * (maxtempdelay + 3);
 
    if(RESERVED_DEFVAL == forwardsoap)
 	   forwardsoap = !forcemanaged;
@@ -1204,6 +1218,19 @@ void PostProcConfig()
 	   pipelinelen = 1;
    }
 
+	dump_proc_status();
+	if (debug & log::LOG_DEBUG)
+	{
+		unsigned nUrls = 0;
+		for (const auto &x : mapUrl2pVname)
+			nUrls += x.second.size();
+
+		if ((debug & log::LOG_MORE) && repoparms.size() > 0)
+    {
+			cerr << "Loaded " << repoparms.size() << " backend descriptors\nLoaded mappings for "
+					<< mapUrl2pVname.size() << " hosts and " << nUrls << " paths\n";
+    }
+	}
 } // PostProcConfig
 
 void dump_config(bool includeDelicate)
@@ -1211,32 +1238,36 @@ void dump_config(bool includeDelicate)
 	ostream &cmine(cout);
 
 	for (auto& n2s : n2sTbl)
+	{
 		if (n2s.ptr)
 			cmine << n2s.name << " = " << *n2s.ptr << endl;
+	}
 
 	if (cfg::debug >= log::LOG_DEBUG)
 	{
 		cerr << "escaped version:" << endl;
 		for (const auto& n2s : n2sTbl)
 		{
-			if (n2s.ptr)
+			if (!n2s.ptr)
+				continue;
+
+			cerr << n2s.name << " = ";
+			for (const char *p = n2s.ptr->c_str(); *p; p++)
 			{
-				cerr << n2s.name << " = ";
-				for (const char *p = n2s.ptr->c_str(); *p; p++)
-				{
-					if ('\\' == *p)
-						cmine << "\\\\";
-					else
-						cmine << *p;
-				}
-				cmine << endl;
+				if ('\\' == *p)
+					cmine << "\\\\";
+				else
+					cmine << *p;
 			}
+			cmine << endl;
 		}
 	}
 
 	for (const auto& n2i : n2iTbl)
+	{
 		if (n2i.ptr && !n2i.hidden)
 			cmine << n2i.name << " = " << *n2i.ptr << endl;
+	}
 
 	for (const auto& x : n2pTbl)
 	{
@@ -1298,18 +1329,25 @@ time_t BackgroundCleanup()
 		lockguard g(hooks);
 		if (hooks.downTimeNext)
 		{
-			if (hooks.downTimeNext <= now) // time to execute
+			if (hooks.downTimeNext <= now) // is valid & time to execute?
 			{
-				if(cfg::debug & log::LOG_MORE)
-					log::misc(hooks.cmdRel, 'X');
-				if(cfg::debug & log::LOG_FLUSH)
-					log::flush();
+				if(!hooks.cmdRel.empty())
+				{
+					if (cfg::debug & log::LOG_MORE)
+						log::misc(hooks.cmdRel, 'X');
+					if (cfg::debug & log::LOG_FLUSH)
+						log::flush();
 
-				if(system(hooks.cmdRel.c_str()))
-					log::err(tSS() << "Warning: " << hooks.cmdRel << " returned with error code.");
-				hooks.downTimeNext = 0;
+					if (system(hooks.cmdRel.c_str()))
+					{
+						log::err(
+								tSS() << "Warning: " << hooks.cmdRel
+										<< " returned with error code.");
+					}
+					hooks.downTimeNext = 0;
+				}
 			}
-			else // in future, use the soonest time
+			else // it's in future, take the earliest
 				ret = min(ret, hooks.downTimeNext);
 		}
 	}
@@ -1374,7 +1412,7 @@ int CheckAdminAuth(LPCSTR auth)
 
 static bool proxy_failstate = false;
 acmutex proxy_fail_lock;
-const tHttpUrl* GetProxyInfo()
+ACNG_API const tHttpUrl* GetProxyInfo()
 {
 	if(proxy_info.sHost.empty())
 		return nullptr;
@@ -1519,7 +1557,7 @@ inline bool CompileUncachedRex(const string & token, NOCACHE_PATTYPE type, bool 
 
 bool CompileUncExpressions(NOCACHE_PATTYPE type, cmstring& pat)
 {
-	for(tSplitWalk split(&pat); split.Next(); )
+	for(tSplitWalk split(pat); split.Next(); )
 		if (!CompileUncachedRex(split, type, false))
 			return false;
 	return true;

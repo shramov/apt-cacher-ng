@@ -27,14 +27,16 @@ namespace acng
 namespace log
 {
 
-ofstream fErr, fStat;
+ofstream fErr, fStat, fDbg;
 static acmutex mx;
 
 #ifndef DEBUG
-bool logIsEnabled = false;
+ACNG_API bool logIsEnabled = false;
 #else
-bool logIsEnabled = true;
+ACNG_API bool logIsEnabled = true;
 #endif
+
+#define MAX_DBG_LIMIT 500*1000000
 
 std::atomic<off_t> totalIn(0), totalOut(0);
 
@@ -126,17 +128,21 @@ decltype(oldCounters) GetOldCountersInOut(bool calcIncomming, bool calcOutgoing)
 	return oldCounters;
 }
 
-bool open()
+ACNG_API mstring g_szLogPrefix = "apt-cacher";
+
+mstring open()
 {
 	// only called in the beginning or when reopening, already locked...
 	// lockguard g(&mx);
 
 	if(cfg::logdir.empty())
-		return true;
+		return sEmptyString;
 	
 	logIsEnabled = true;
 
-	string apath(cfg::logdir+"/apt-cacher.log"), epath(cfg::logdir+"/apt-cacher.err");
+	string apath = PathCombine(cfg::logdir, g_szLogPrefix + ".log"),
+			epath = PathCombine(cfg::logdir, g_szLogPrefix + ".err"),
+			dpath = PathCombine(cfg::logdir, g_szLogPrefix + ".dbg");
 	
 	mkbasedir(apath);
 
@@ -144,11 +150,19 @@ bool open()
 		fErr.close();
 	if(fStat.is_open())
 		fStat.close();
+	if(fDbg.is_open())
+		fDbg.close();
 
 	fErr.open(epath.c_str(), ios::out | ios::app);
+	if (!fErr.is_open())
+		return tErrnoFmter("Cannot open apt-cacher.err - ");
 	fStat.open(apath.c_str(), ios::out | ios::app);
-
-	return fStat.is_open() && fErr.is_open();
+	if (!fStat.is_open())
+		return tErrnoFmter("Cannot open apt-cacher.log - ");
+	fDbg.open(dpath.c_str(), ios::out | ios::app);
+	if (!fStat.is_open())
+		return tErrnoFmter("Cannot open apt-cacher.dbg - ");
+	return sEmptyString;
 }
 
 void transfer(uint64_t bytesIn,
@@ -201,50 +215,80 @@ void misc(const string & sLine, const char cLogType)
 		fStat.flush();
 }
 
-void err(const char *msg, const char *client)
+void err(const char *msg, size_t len)
 {
-	if(!logIsEnabled)
+	if (!logIsEnabled)
 		return;
 
 	lockguard g(&mx);
+	if (!fErr) return;
 
-	if(!fErr.is_open())
+	if (!cfg::minilog)
 	{
-#ifdef DEBUG // basic debugging of acngtool
-		cerr << msg <<endl;
-#endif
-		return;
+		static char buf[32];
+		const time_t tm = time(nullptr);
+		ctime_r(&tm, buf);
+		buf[24] = '|';
+		fErr.write(buf, 25);
 	}
-	
-	static char buf[32];
-	const time_t tm=time(nullptr);
-	ctime_r(&tm, buf);
-	buf[24]=0;
-	fErr << buf << '|';
-	if(client)
-		fErr << client << ": ";
-	fErr << msg << '\n';
+	fErr.write(msg, len).write(szNEWLINE, 1);
 
-#ifdef DEBUG
-	if(cfg::debug & log::LOG_DEBUG)
-		cerr << buf << msg <<endl;
-#endif
-
-	if(cfg::debug & log::LOG_DEBUG)
+	if (cfg::debug & LOG_FLUSH)
 		fErr.flush();
 }
+
+
+void dbg(const char *msg, size_t len)
+{
+	if (!logIsEnabled)
+		return;
+
+	static char buf[32];
+
+	lockguard g(&mx);
+	if (fDbg.is_open() && (cfg::debug & LOG_DEBUG))
+	{
+		auto tm=time(nullptr);
+		ctime_r(&tm, buf);
+		buf[24]='|';
+		fDbg.write(buf, 25).write(msg, len);
+		if (cfg::debug & LOG_FLUSH)
+			fDbg << endl; // this auto-flushes
+		else
+			fDbg << szNEWLINE;
+	}
+
+	if (cfg::debug & LOG_DEBUG_CONSOLE)
+	{	
+		if (cfg::debug & LOG_FLUSH)
+			cerr << endl; // auto-flushes
+		else
+			cerr.write(msg, len) << szNEWLINE;
+	}
+}
+
 
 void ACNG_API flush()
 {
 	if(!logIsEnabled)
 		return;
+	off_t curSize(-1);
+	{
+		lockguard g(mx);
+		for (auto* h: {&fErr, &fStat, &fDbg})
+		{
+			if(h->is_open())
+				h->flush();
+		}
+		if (fDbg.is_open())
+			curSize = fDbg.tellp();
+	}
+	if (curSize > MAX_DBG_LIMIT)
+		close(true, true);
 
-	lockguard g(mx);
-	if(fErr.is_open()) fErr.flush();
-	if(fStat.is_open()) fStat.flush();
 }
 
-void close(bool bReopen)
+void close(bool bReopen, bool truncateDebugLog)
 {
 	// let's try to store a snapshot of the current stats
 	auto snapIn = offttos(totalIn.exchange(0));
@@ -259,13 +303,19 @@ void close(bool bReopen)
 	ignore_value(symlink(snapOut.c_str(), outLinkPath.c_str()));
 
 
-	if(!logIsEnabled)
+	if (!logIsEnabled)
 		return;
 
 	lockguard g(mx);
 	if(cfg::debug >= LOG_MORE) cerr << (bReopen ? "Reopening logs...\n" : "Closing logs...\n");
-	fErr.close();
-	fStat.close();
+	for (auto* h: {&fErr, &fStat, &fDbg})
+	{
+		if (h->is_open())
+			h->close();
+	}
+	if (truncateDebugLog)
+		truncate(PathCombine(cfg::logdir, "apt-cacher.dbg").c_str(), 0);
+
 	if(bReopen)
 		log::open();
 }
@@ -410,80 +460,79 @@ string GetStatReport()
 #endif
 }
 
-// let the compiler decide between GNU and XSI version
-inline void add_msg(int r, int err, const char* buf, mstring *p)
-{
-	if(r)
-		p->append(tSS() << "UNKNOWN ERROR: " << err);
-	else
-		p->append(buf);
-}
-
-inline void add_msg(const char *msg, int , const char* , mstring *p)
-{
-	p->append(msg);
-}
-
-tErrnoFmter::tErrnoFmter(const char *prefix)
-{
-	int err=errno;
-	char buf[64];
-	buf[0]=buf[sizeof(buf)-1]=0x0;
-	if(prefix)
-		assign(prefix);
-	add_msg(strerror_r(err, buf, sizeof(buf)-1), err, buf, this);
-}
-
 #ifdef DEBUG
 
-static struct : public base_with_mutex, public std::map<pthread_t, int>
-{} indentPerThread;
+thread_local unsigned gtls_indent_level = 0;
 
-t_logger::t_logger(const char *szFuncName,  const void * ptr)
+t_logger::t_logger(const char *szFuncName,  const void * ptr, const char *szIndentString)
+: m_szName(szFuncName), m_szIndentString(szIndentString)
 {
-	m_id = pthread_self();
-	m_szName = szFuncName;
-	callobj = uintptr_t(ptr);
-	{
-		lockguard __lockguard(indentPerThread);
-		m_nLevel = indentPerThread[m_id]++;
-	}
+	if(!cfg::debug)
+		return;
+
+	// explicit truncation, don't care about the PID part of it
+	auto id = uint32_t((uint64_t)pthread_self());
+	m_threadNameBEGIN = std::string(" [T:") + std::to_string(id);
+	m_objectIdEND = std::string(" P:") + std::to_string((uintptr_t)ptr) +"]";
 	// writing to the level of parent since it's being "created there"
-	GetFmter() << ">> " << szFuncName << " [T:"<<m_id<<" P:0x"<< tSS::hex<< callobj << tSS::dec <<"]";
+	GetFmter(" >> ") << m_szName << m_threadNameBEGIN << m_objectIdEND;
 	Write();
-	m_nLevel++;
+	gtls_indent_level++;
 }
 
 t_logger::~t_logger()
 {
-	m_nLevel--;
-	GetFmter() << "<< " << m_szName << " [T:"<<m_id<<" P:0x"<< tSS::hex<< callobj << tSS::dec <<"]";
+	if(!cfg::debug)
+		return;
+	gtls_indent_level--;
+
+	if(m_szName)
+	{
+		GetFmter(" << ") << m_szName << m_threadNameBEGIN << m_objectIdEND;
+	}
+	// otherwise there is unfinished string in buffer for the printing
 	Write();
-	lockguard __lockguard(indentPerThread);
-	indentPerThread[m_id]--;
-	if(0 == indentPerThread[m_id])
-		indentPerThread.erase(m_id);
 }
 
-tSS & t_logger::GetFmter()
+/**
+ * Start formating the last string in this scope, which shall replace the exit string
+ */
+tSS & t_logger::GetFmter4End()
+{
+	//gtls_indent_level--;
+	auto& ret = GetFmter();
+	GetFmter(" << ") << m_szName << m_threadNameBEGIN << m_objectIdEND;
+	m_szName = nullptr;
+	return ret;
+}
+/**
+ * Reset the format object into ready-to-format state, adjust indentation as needed
+ */
+tSS & t_logger::GetFmter(const char *szPrefix)
 {
 	m_strm.clear();
-	for(unsigned i=0;i<m_nLevel;i++)
-		m_strm << "\t";
-	m_strm<< " - ";
+	for(unsigned i=0; i < gtls_indent_level; i++)
+		m_strm << m_szIndentString;
+	if(szPrefix)
+		m_strm << szPrefix;
 	return m_strm;
 }
 
-void t_logger::Write(const char *pFile, unsigned int nLine)
+void t_logger::Write()
 {
-	if(pFile)
+	log::dbg(m_strm);
+	m_strm.clear();
+}
+
+void t_logger::WriteWithContext(const char *pSourceLocation)
+{
+	if(pSourceLocation)
 	{
-		const char *p=strrchr(pFile, CPATHSEP);
-		pFile=p?(p+1):pFile;
-		m_strm << " [T:" << m_id << " S:" << pFile << ":" << tSS::dec << nLine
-				<<" P:0x"<< tSS::hex<< callobj << tSS::dec <<"]";
+		const char *p=strrchr(pSourceLocation, CPATHSEP);
+		pSourceLocation=p?(p+1):pSourceLocation;
+		m_strm << m_threadNameBEGIN << " S:" << pSourceLocation << m_objectIdEND;
 	}
-	log::err(m_strm.c_str());
+	Write();
 }
 
 #endif

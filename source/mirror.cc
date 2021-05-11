@@ -91,8 +91,10 @@ void pkgmirror::Action()
 		}
 	}
 	if(m_bUseDelta)
-		StartDlder();
-
+	{
+		if(!GetDlRes().SetupDownloader())
+			return;
+	}
 	BuildCacheFileList();
 
 	if(CheckStopSignal())
@@ -120,15 +122,13 @@ void pkgmirror::Action()
 	auto TryAdd = [&matchList, &srcs](cmstring &s)
 			{
 				for(const auto& match : matchList)
+				{
 					if(0==fnmatch(match.c_str(), s.c_str(), FNM_PATHNAME))
 					{
-#ifdef COMPATGCC47
-						srcs.insert(s);
-#else
 						srcs.emplace(s);
-#endif
 						break;
 					}
+				}
 			};
 
 	mstring sErr;
@@ -353,7 +353,7 @@ void pkgmirror::HandlePkgEntry(const tRemoteFileInfo &entry)
 			// filter dangerous strings, invalid version strings, higher/same version
 			for(const auto& oldeb: oldebs)
 			{
-				tSplitWalk split(&oldeb, "_");
+				tSplitWalk split(oldeb, "_");
 				if(split.Next() && split.Next())
 				{
 					mstring s(split);
@@ -401,7 +401,7 @@ void pkgmirror::HandlePkgEntry(const tRemoteFileInfo &entry)
 				::unlink(sDeltaPathAbs.c_str());
 				::unlink((sDeltaPathAbs+".head").c_str());
 
-				if(Download(TEMPDELTA, false, eMsgHideAll, nullptr, &uri))
+				if(Download(TEMPDELTA, false, eMsgHideAll, &uri))
 				{
 					::setenv("delta", SZABSPATH(TEMPDELTA), true);
 					::setenv("from", srcAbs.c_str(), true);
@@ -414,7 +414,8 @@ void pkgmirror::HandlePkgEntry(const tRemoteFileInfo &entry)
 
 					if (0 == ::system("debpatch \"$delta\" \"$from\" \"$to\""))
 					{
-						header h;
+                        LPCSTR forceOrig = nullptr;
+                        header h;
 						if (haveSize && h.LoadFromFile(targetAbs + ".head") > 0
 								&& atoofft(h.h[header::CONTENT_LENGTH], -2) == entry.fpr.size)
 						{
@@ -422,26 +423,22 @@ void pkgmirror::HandlePkgEntry(const tRemoteFileInfo &entry)
 						}
 						else
 						{
-							h.frontLine = "HTTP/1.1 200 OK";
-							h.set(header::LAST_MODIFIED, FAKEDATEMARK);
-							h.set(header::CONTENT_LENGTH, entry.fpr.size);
-
 							// construct x-orig from original head
 							srcAbs << ".head";
-							header ho;
-							if (ho.LoadFromFile(srcAbs.c_str()) > 0 && ho.h[header::XORIG])
+                            if (h.LoadFromFile(srcAbs.c_str()) > 0 && h.h[header::XORIG])
 							{
-								mstring xo(ho.h[header::XORIG]);
+                                mstring xo(h.h[header::XORIG]);
 								tStrPos pos = xo.rfind(sPathSep);
 								if (pos < xo.size())
 								{
 									xo.replace(pos + 1, xo.size(), entry.sFileName);
 									h.set(header::XORIG, xo);
+                                    forceOrig = h.h[header::XORIG];
 								}
 							}
 						}
 
-						bhaveit = Inject(TEMPRESULT, tgtRel, false, &h, true);
+                        bhaveit = Inject(TEMPRESULT, tgtRel, false, entry.fpr.size, forceOrig);
 
 						if(bhaveit)
 						{

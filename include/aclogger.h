@@ -1,8 +1,6 @@
 #ifndef _ACLOGGER_H
 #define _ACLOGGER_H
 
-#include "config.h"
-#include "meta.h"
 #include "acbuf.h"
 
 namespace acng
@@ -12,21 +10,21 @@ namespace acng
 
 struct t_logger
 {
-	t_logger(const char *szFuncName, const void * ptr); // starts the logger, shifts stack depth
+	t_logger(const char *szFuncName, const void * ptr, const char* szIndent="   "); // starts the logger, shifts stack depth
 	~t_logger();
-	tSS & GetFmter();
-	void Write(const char *pFile = nullptr, unsigned int nLine = 0);
+	tSS & GetFmter(const char *szPrefix = " - ");
+	tSS & GetFmter4End();
+	void WriteWithContext(const char *pSourceLocation);
+	void Write();
 private:
 	tSS m_strm;
-	pthread_t m_id;
-	unsigned int m_nLevel;
-	const char * m_szName;
-	uintptr_t callobj;
+	const char * m_szName, *m_szIndentString;
+	std::string m_threadNameBEGIN, m_objectIdEND;
 	// don't copy
 	t_logger(const t_logger&);
 	t_logger operator=(const t_logger&);
 };
-#define USRDBG(msg) LOG(msg)
+#define USRDBG(msg) DBGQLOG(msg)
 #else
 // print some extra things when user wants debug with non-debug build
 #define USRDBG(msg) { if(cfg::debug & log::LOG_DEBUG) {log::err( tSS()<<msg); } }
@@ -35,16 +33,31 @@ private:
 namespace log
 {
 
+extern bool logIsEnabled;
+
 enum ETransferType
 	: char
 	{
 		INDATA = 'I', OUTDATA = 'O', ERRORRQ = 'E'
 };
 
-enum ELogFlags
-	: uint8_t
-	{
-		LOG_FLUSH = 1, LOG_MORE = 2, LOG_DEBUG = 4
+enum ELogFlags : uint8_t
+{
+	///	@brief Flush log output after each line
+	///
+	LOG_FLUSH = 1,
+
+	/// @brief Additional error information
+	///
+	LOG_MORE = 2,
+
+	/// @brief Debug information (basic by default, excessive with -DDEBUG
+	///
+	LOG_DEBUG = 4,
+
+	/// @brief Print debug information to console and not just apt-cacher.dbg
+	///
+	LOG_DEBUG_CONSOLE = 8
 };
 
 // access internal counters
@@ -52,19 +65,27 @@ std::pair<off_t, off_t> GetCurrentCountersInOut();
 void ResetOldCounters();
 std::pair<off_t, off_t> GetOldCountersInOut(bool calcIncomming = true, bool calcOutgoing = true);
 
-bool ACNG_API open();
-void ACNG_API close(bool bReopen);
+mstring ACNG_API open();
+void ACNG_API close(bool bReopen = false, bool truncateDebugLog = false);
 void transfer(uint64_t bytesIn, uint64_t bytesOut, cmstring& sClient, cmstring& sPath,
 		bool bAsError);
-void err(const char *msg, const char *client = nullptr);
+void ACNG_API err(const char *msg, size_t len);
+void ACNG_API dbg(const char *msg, size_t len);
 void misc(const mstring & sLine, const char cLogType = 'M');
-inline void err(cmstring &msg)
+inline void err(string_view msg)
 {
-	err(msg.c_str());
+	if(!logIsEnabled) return;
+	err(msg.data(), msg.length());
 }
 inline void err(const tSS& msg)
 {
-	err(msg.c_str());
+	if(!logIsEnabled) return;
+	err(msg.rptr(), msg.length());
+}
+inline void dbg(string_view msg)
+{
+	if(!logIsEnabled) return;
+	dbg(msg.data(), msg.length());
 }
 void flush();
 

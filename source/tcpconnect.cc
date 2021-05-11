@@ -20,6 +20,7 @@
 #include "fileitem.h"
 #include "cleaner.h"
 #include "dnsiter.h"
+#include "evabase.h"
 #include <tuple>
 
 using namespace std;
@@ -47,13 +48,10 @@ atomic_int nConCount(0), nDisconCount(0), nReuseCount(0);
 namespace acng
 {
 
-ACNG_API std::atomic_uint dl_con_factory::g_nconns(0);
 ACNG_API dl_con_factory g_tcp_con_factory;
 
 tcpconnect::tcpconnect(cfg::tRepoData::IHookHandler *pObserver) : m_pStateObserver(pObserver)
 {
-	if(cfg::maxdlspeed != cfg::RESERVED_DEFVAL)
-		dl_con_factory::g_nconns.fetch_add(1);
 	if(pObserver)
 		pObserver->OnAccess();
 }
@@ -62,8 +60,6 @@ tcpconnect::~tcpconnect()
 {
 	LOGSTART("tcpconnect::~tcpconnect, terminating outgoing connection class");
 	Disconnect();
-	if(cfg::maxdlspeed != cfg::RESERVED_DEFVAL)
-		dl_con_factory::g_nconns.fetch_add(-1);
 #ifdef HAVE_SSL
 	if(m_ctx)
 	{
@@ -78,17 +74,75 @@ tcpconnect::~tcpconnect()
 
 	}
 }
+// UNTESTED blocking of IP protocol when appearing to fail permanently
+#ifdef PROTO_BLOCKER
 
-inline bool tcpconnect::_Connect(string & sErrorMsg, int timeout)
+class tProtoBlocker
 {
-	LOGSTART2("tcpconnect::_Connect", "hostname: " << m_sHostName);
+	atomic_uint v4, v6;
+	// block connection type after that many failed attempts
+	const unsigned threshhold=4;
+    struct timeval block_time = {30,0};
 
-	auto dns = CAddrInfo::CachedResolve(m_sHostName, m_sPort, sErrorMsg);
-
-	if(!dns)
+	static void reset_cb(evutil_socket_t, short, void *arg)
 	{
-		USRDBG(sErrorMsg);
-		return false; // sErrorMsg got the info already, no other chance to fix it
+		auto what = (std::atomic_uint*)arg;
+		what->store(0);
+	};
+public:
+	void report(int proto, unsigned fail_count)
+	{
+		if(0 == fail_count) return;
+
+		atomic_uint* what;
+		switch(proto)
+		{
+		case PF_INET: what=&v4; break;
+		case PF_INET6: what=&v6; break;
+		default: return;
+		}
+		auto before = what->fetch_add(fail_count);
+		if(before < threshhold && (before+fail_count) >= threshhold)
+		{
+			event_base_once(evabase::base, -1, EV_TIMEOUT, reset_cb,
+					&what, &block_time);
+		}
+	}
+	bool can_connect(int proto)
+	{
+		switch (proto)
+		{
+		case PF_INET:
+			return v4 < threshhold;
+		case PF_INET6:
+			return v6 < threshhold;
+		default:
+			return true;
+		}
+
+	}
+} proto_blocker;
+#endif
+
+std::string tcpconnect::_Connect(int timeout)
+{
+	LOGSTARTFUNCx(m_sHostName, timeout);
+
+	auto dnsres = CAddrInfo::Resolve(m_sHostName, m_sPort);
+
+	unsigned timeouts_v4(0), timeouts_v6(0);
+#ifdef PROTO_BLOCKER
+
+	tDtorEx transfer_timeout_counts([&](){
+		proto_blocker.report(PF_INET, timeouts_v4);
+		proto_blocker.report(PF_INET6, timeouts_v6);
+	});
+#endif
+
+	if(!dnsres || !dnsres->getTcpAddrInfo())
+	{
+		USRDBG(dnsres->getError());
+		return dnsres->getError();
 	}
 
 	::signal(SIGPIPE, SIG_IGN);
@@ -97,12 +151,12 @@ inline bool tcpconnect::_Connect(string & sErrorMsg, int timeout)
 	auto time_start(GetTime());
 
 	enum ePhase {
-		NO_ALTERNATIVES,
-		NOT_YET,
-		PICK_ADDR,
-		ADDR_PICKED,
-		SELECT_CONN, // shall do select on connection
-		HANDLE_ERROR, // transient error state, to be continued into some recovery or ERROR_STOP; expects a useful errno value!
+		NO_ALTERNATIVES = 0,
+		NOT_YET = 1,
+		PICK_ADDR = 2,
+		ADDR_PICKED = 3,
+		SELECT_CONN = 4, // shall do select on connection
+		HANDLE_ERROR = 5, // transient error state, to be continued into some recovery or ERROR_STOP; expects a useful errno value!
 		ERROR_STOP // basically a non-recoverable error state
 	};
 	struct tConData {
@@ -117,6 +171,15 @@ inline bool tcpconnect::_Connect(string & sErrorMsg, int timeout)
 		{
 			checkforceclose(fd);
 			tmexp = time_exp;
+#ifdef PROTO_BLOCKER
+			// check if temporary blacklisted
+			if(!proto_blocker.can_connect(dns->ai_family))
+			{
+				errno = EAFNOSUPPORT;
+				state = HANDLE_ERROR;
+				return false;
+			}
+#endif
 			fd = ::socket(dns->ai_family, dns->ai_socktype, dns->ai_protocol);
 			if(fd == -1)
 			{
@@ -124,8 +187,9 @@ inline bool tcpconnect::_Connect(string & sErrorMsg, int timeout)
 				return false;
 			}
 			set_connect_sock_flags(fd);
-#if DEBUG
-			log::err(string("Connecting: ") + formatIpPort(dns));
+
+#ifdef DEBUG
+			DBGQLOG("Connecting: " << formatIpPort(dns));
 #endif
 			while (true)
 			{
@@ -147,30 +211,50 @@ inline bool tcpconnect::_Connect(string & sErrorMsg, int timeout)
 			}
 		}
 	};
-	auto iter = tAlternatingDnsIterator(dns->getTcpAddrInfo());
+	auto iter = tAlternatingDnsIterator(dnsres->getTcpAddrInfo());
 	tConData prim {ADDR_PICKED, -1, time_start + timeout, iter.next() };
 	tConData alt {NO_ALTERNATIVES, -1, time_start + cfg::fasttimeout, nullptr };
 	CTimeVal tv;
 	// pickup the first and/or probably the best errno code which can be reported to user
-	int error_prim = 0;
+	int error2report = 0;
 
-	auto retGood = [&](int& fd) { std::swap(fd, m_conFd); return true; };
-	auto retError = [&](const std::string &errStr) { sErrorMsg = errStr; return false; };
-	auto withErrnoError = [&]() { return retError(tErrnoFmter("500 Connection failure: "));	};
+	auto retGood = [&](int &fd)
+	{
+		std::swap(fd, m_conFd);
+
+#ifdef PROTO_BLOCKER
+		// mark this as good protocol, report failure count on other on return later
+			if(condata.dns->ai_family == PF_INET6)
+			timeouts_v6 = 0;
+			else
+			timeouts_v4 = 0;
+#endif
+			return sEmptyString;
+	};
+    auto withErrnoError = [&]() { return tErrnoFmter("Connection failure: ");	};
 	auto withThisErrno = [&withErrnoError](int myErr) { errno = myErr; return withErrnoError(); };
 
 	// ok, initial condition, one target should be always there, iterator would also hop to the next fallback if allowed
 	if(!prim.dns)
-		return withThisErrno(EAFNOSUPPORT);
+	{
+		dbgline;
+		if(cfg::conprotos[0] == PF_UNSPEC)
+            return "No such host";
+		else
+			return withThisErrno(EAFNOSUPPORT);
+	}
+
 	if (cfg::fasttimeout > 0)
 	{
+		dbgline;
 		alt.dns = iter.next();
 		alt.state = alt.dns ? NOT_YET : NO_ALTERNATIVES;
 	}
 
+	dbgline;
 	for(auto op_max=0; op_max < 30000; ++op_max) // fail-safe switch, in case of any mistake here
 	{
-		LOG("state a: " << prim.state << ", state b: " << alt.state );
+		LOG("prestate a: " << prim.state << ", state b: " << alt.state );
 		switch(prim.state)
 		{
 		case PICK_ADDR:
@@ -181,13 +265,14 @@ inline bool tcpconnect::_Connect(string & sErrorMsg, int timeout)
 		case ADDR_PICKED:
 			if(prim.init_con(time_start + cfg::nettimeout))
 				return retGood(prim.fd);
-			OPTSET(error_prim, errno);
+			OPTSET(error2report, errno);
 			__just_fall_through;
 		case SELECT_CONN:
 		{
 			if(GetTime() >= prim.tmexp)
 			{
-				OPTSET(error_prim, ELVIS(errno, ETIMEDOUT));
+				OPTSET(error2report, ELVIS(errno, ETIMEDOUT));
+				++(prim.dns->ai_family == PF_INET ? timeouts_v4 : timeouts_v6);
 				prim.state = HANDLE_ERROR;
 				continue;
 			}
@@ -196,13 +281,14 @@ inline bool tcpconnect::_Connect(string & sErrorMsg, int timeout)
 		case HANDLE_ERROR:
 		{
 			// error on primary, what now? prefer the first seen error code or remember errno
-			OPTSET(error_prim, ELVIS(errno, EINVAL));
+			OPTSET(error2report, ELVIS(errno, EINVAL));
 			// can work around?
 			switch(alt.state)
 			{
 			case NO_ALTERNATIVES:
 			case ERROR_STOP:
-				return withThisErrno(error_prim);
+				LOG("Out of alternatives, reporting error " << error2report);
+				return withThisErrno(error2report);
 			case NOT_YET:
 				prim.state = ERROR_STOP;
 				// push it sooner
@@ -219,9 +305,9 @@ inline bool tcpconnect::_Connect(string & sErrorMsg, int timeout)
 			checkforceclose(prim.fd);
 			break;
 		default: // this should be unreachable
-			return retError("500 Internal error at " STRINGIFY(__LINE__));
+            return "Internal error at " STRINGIFY(__LINE__);
 		}
-
+		LOG("midstate a: " << prim.state << ", state b: " << alt.state );
 		switch(alt.state)
 		{
 		case NO_ALTERNATIVES:
@@ -255,6 +341,7 @@ inline bool tcpconnect::_Connect(string & sErrorMsg, int timeout)
 			}
 			if(now >= alt.tmexp)
 			{
+				++(alt.dns->ai_family == PF_INET ? timeouts_v4 : timeouts_v6);
 				alt.state = HANDLE_ERROR;
 				continue;
 			}
@@ -280,9 +367,9 @@ inline bool tcpconnect::_Connect(string & sErrorMsg, int timeout)
 			break;
 		}
 		default: // this should be unreachable
-			return retError("500 Internal error at " STRINGIFY(__LINE__));
+			return "Internal error at " STRINGIFY(__LINE__);
 		}
-
+		LOG("poststate a: " << prim.state << ", state b: " << alt.state );
 		select_set_t selset;
 		auto time_inter = prim.tmexp;
 		if(prim.state == SELECT_CONN)
@@ -296,6 +383,8 @@ inline bool tcpconnect::_Connect(string & sErrorMsg, int timeout)
 		}
 
 		auto res = select(selset.nfds(), nullptr, &selset.fds, nullptr, tv.Remaining(time_inter));
+		if(evabase::in_shutdown)
+			return withThisErrno(ETIMEDOUT);
 		if (res < 0)
 		{
 			if (EINTR != errno)
@@ -305,6 +394,7 @@ inline bool tcpconnect::_Connect(string & sErrorMsg, int timeout)
 		{
 			for(auto p: {&alt, &prim})
 			{
+				LOG("check " << (uintptr_t)p);
 				// Socket selected for writing.
 				int err;
 				socklen_t optlen = sizeof(err);
@@ -313,8 +403,9 @@ inline bool tcpconnect::_Connect(string & sErrorMsg, int timeout)
 				{
 					if(err)
 					{
-						OPTSET(error_prim, err);
-						prim.state = HANDLE_ERROR;
+						OPTSET(error2report, err);
+						LOG("switch to HANDLE_ERROR")
+						p->state = HANDLE_ERROR;
 					}
 					else
 						return retGood(p->fd);
@@ -329,12 +420,12 @@ inline bool tcpconnect::_Connect(string & sErrorMsg, int timeout)
 		}
 
 	}
-	return withThisErrno(ELVIS(error_prim, EINVAL));
+	return withThisErrno(ELVIS(error2report, EINVAL));
 }
 
 void tcpconnect::Disconnect()
 {
-	LOGSTART("tcpconnect::_Disconnect");
+	LOGSTARTFUNCx(m_sHostName);
 
 #ifdef DEBUG
 	nDisconCount.fetch_add(m_conFd >=0);
@@ -361,10 +452,9 @@ ACNG_API void CloseAllCachedConnections()
 
 tDlStreamHandle dl_con_factory::CreateConnected(cmstring &sHostname, cmstring &sPort,
 		mstring &sErrOut, bool *pbSecondHand, cfg::tRepoData::IHookHandler *pStateTracker
-		,bool bSsl, int timeout, bool nocache)
+		,bool bSsl, int timeout, bool nocache) const
 {
-	LOGSTART2s("tcpconnect::CreateConnected", "hostname: " << sHostname << ", port: " << sPort
-			<< (bSsl?" with ssl":" , no ssl"));
+	LOGSTARTFUNCsx(sHostname, sPort, bSsl);
 
 	tDlStreamHandle p;
 #ifndef HAVE_SSL
@@ -418,18 +508,24 @@ tDlStreamHandle dl_con_factory::CreateConnected(cmstring &sHostname, cmstring &s
 		{
 			p->m_sHostName=sHostname;
 			p->m_sPort=sPort;
+			auto conErr = p->_Connect(timeout);
+			if (!conErr.empty())
+			{
+				sErrOut = conErr;
+				p.reset();
+			}
+			else if(p->GetFD() == -1)
+			{
+				sErrOut = sGenericErrorStatus;
+				p.reset();
+			}
 		}
 
-		if(!p || !p->_Connect(sErrOut, timeout) || p->GetFD()<0) // failed or worthless
-			p.reset();
 #ifdef HAVE_SSL
-		else if(bSsl)
+		if(p && bSsl && !p->SSLinit(sErrOut, sHostname, sPort))
 		{
-			if(!p->SSLinit(sErrOut, sHostname, sPort))
-			{
-				p.reset();
-				LOG("ssl init error");
-			}
+			p.reset();
+			LOG("ssl init error");
 		}
 #endif
 	}
@@ -440,12 +536,12 @@ tDlStreamHandle dl_con_factory::CreateConnected(cmstring &sHostname, cmstring &s
 	return p;
 }
 
-void dl_con_factory::RecycleIdleConnection(tDlStreamHandle & handle)
+void dl_con_factory::RecycleIdleConnection(tDlStreamHandle & handle) const
 {
 	if(!handle)
 		return;
 
-	LOGSTART2s("tcpconnect::RecycleIdleConnection", handle->m_sHostName);
+	LOGSTARTFUNCxs(handle->m_sHostName);
 
 	if(handle->m_pStateObserver)
 	{
@@ -535,7 +631,7 @@ void tcpconnect::KillLastFile()
 	tFileItemPtr p = m_lastFile.lock();
 	if (!p)
 		return;
-	p->SetupClean(true);
+	p->MarkFaulty();
 #endif
 }
 
@@ -571,19 +667,23 @@ bool tcpconnect::SSLinit(mstring &sErr, cmstring &sHostname, cmstring &sPort)
 	SSL * ssl(nullptr);
 	mstring ebuf;
 
-	auto withSslError = [&sErr](const char *perr)
+	auto withSslHeadPfx = [&sErr](const char *perr)
 					{
-		sErr="500 SSL error: ";
+        sErr="SSL error: ";
 		sErr+=(perr?perr:"Generic SSL failure");
 		return false;
 					};
-	auto withLastSslError = [&withSslError]()
+	auto withLastSslError = [&withSslHeadPfx]()
 						{
-		return withSslError(ERR_reason_error_string(ERR_get_error()));
+		auto nErr = ERR_get_error();
+		auto serr = ERR_reason_error_string(nErr);
+		return withSslHeadPfx(serr);
 						};
-	auto withRetCode = [&withSslError, &ssl](int hret)
+	auto withSslRetCode = [&withSslHeadPfx, &withLastSslError, &ssl](int hret)
 				{
-		return withSslError(ERR_reason_error_string(SSL_get_error(ssl, hret)));
+		auto nErr = SSL_get_error(ssl, hret);
+		auto serr =  ERR_reason_error_string(nErr);
+		return serr ? withSslHeadPfx(serr) : withLastSslError();
 				};
 
 	// cleaned up in the destructor on EOL
@@ -619,45 +719,52 @@ bool tcpconnect::SSLinit(mstring &sErr, cmstring &sHostname, cmstring &sPort)
  			| SSL_MODE_ENABLE_PARTIAL_WRITE);
 
  	auto hret=SSL_set_fd(ssl, m_conFd);
- 	if(hret != 1) return withRetCode(hret);
+ 	if(hret != 1) return withSslRetCode(hret);
 
  	while(true)
  	{
  		hret=SSL_connect(ssl);
- 		if(hret == 1 )
- 			break;
- 		if(hret == 0)
- 			return withRetCode(hret);
+		if (hret == 1)
+			break;
 
-		fd_set rfds, wfds;
-		FD_ZERO(&rfds);
-		FD_ZERO(&wfds);
- 		switch(SSL_get_error(ssl, hret))
- 		{
- 		case SSL_ERROR_WANT_READ:
- 			FD_SET(m_conFd, &rfds);
- 			break;
- 		case SSL_ERROR_WANT_WRITE:
- 			FD_SET(m_conFd, &wfds);
- 			break;
- 		default:
- 			return withRetCode(hret);
- 		}
-		int nReady=select(m_conFd+1, &rfds, &wfds, nullptr, CTimeVal().ForNetTimeout());
-		if(!nReady) return withSslError("Socket timeout");
-		if (nReady<0)
+		if (hret == 0)
+			return withSslRetCode(hret);
+
+		if (hret == -1)
 		{
-#ifndef MINIBUILD
-			ebuf=tErrnoFmter("Socket error");
-			return withSslError(ebuf.c_str());
-#else
-			return withSslError("Socket error");
-#endif
+			auto nError = SSL_get_error(ssl, hret);
+			fd_set rfds, wfds;
+			FD_ZERO(&rfds);
+			FD_ZERO(&wfds);
+			switch (nError)
+			{
+			case SSL_ERROR_WANT_READ:
+				FD_SET(m_conFd, &rfds);
+				break;
+			case SSL_ERROR_WANT_WRITE:
+				FD_SET(m_conFd, &wfds);
+				break;
+			default:
+				return withSslRetCode(nError);
+			}
+			int nReady = select(m_conFd + 1, &rfds, &wfds, nullptr, CTimeVal().ForNetTimeout());
+			if (nReady == 1)
+				continue;
+			if (nReady == 0)
+				return withSslHeadPfx("Socket timeout");
+			if (nReady < 0)
+			{
+				ebuf = tErrnoFmter("Socket error");
+				return withSslHeadPfx(ebuf.c_str());
+			}
 		}
+		else
+			return withLastSslError();
+
  	}
  	if(m_bio) BIO_free_all(m_bio);
  	m_bio = BIO_new(BIO_f_ssl());
- 	if(!m_bio) return withSslError("IO initialization error");
+ 	if(!m_bio) return withSslHeadPfx("IO initialization error");
  	// not sure we need it but maybe the handshake can access this data
  	BIO_set_conn_hostname(m_bio, sHostname.c_str());
  	BIO_set_conn_port(m_bio, sPort.c_str());
@@ -672,7 +779,7 @@ bool tcpconnect::SSLinit(mstring &sErr, cmstring &sHostname, cmstring &sPort)
 		X509* server_cert = nullptr;
 		hret=SSL_get_verify_result(ssl);
 		if( hret != X509_V_OK)
-			return withSslError(X509_verify_cert_error_string(hret));
+			return withSslHeadPfx(X509_verify_cert_error_string(hret));
 		server_cert = SSL_get_peer_certificate(ssl);
 		if(server_cert)
 		{
@@ -681,24 +788,9 @@ bool tcpconnect::SSLinit(mstring &sErr, cmstring &sHostname, cmstring &sPort)
 			X509_free(server_cert);
 		}
 		else // The handshake was successful although the server did not provide a certificate
-			return withSslError("Incompatible remote certificate");
+			return withSslHeadPfx("Incompatible remote certificate");
 	}
 	return true;
-}
-
-//! Global initialization helper (might be non-reentrant)
-void ACNG_API globalSslInit()
-{
-	static bool inited=false;
-	if(inited)
-		return;
-	inited = true;
-	SSL_load_error_strings();
-	ERR_load_BIO_strings();
-	ERR_load_crypto_strings();
-	ERR_load_SSL_strings();
-	OpenSSL_add_all_algorithms();
-	SSL_library_init();
 }
 
 #endif
@@ -735,25 +827,25 @@ bool tcpconnect::StartTunnel(const tHttpUrl& realTarget, mstring& sError,
 				return false;
 			if(fmt.freecapa()<=0)
 			{
-				sError = "503 Remote proxy error";
+                sError = "Remote proxy error";
 				return false;
 			}
 
 			header h;
-			auto n = h.Load(fmt.rptr(), fmt.size());
+            auto n = h.Load(fmt.view());
 			if(!n)
 				continue;
 
-			auto st = h.getStatus();
+			auto st = h.getStatusCode();
 			if (n <= 0 || st == 404 /* just be sure it doesn't send crap */)
 			{
-				sError = "503 Tunnel setup failed";
+                sError = "Tunnel setup failed";
 				return false;
 			}
 
 			if (st < 200 || st >= 300)
 			{
-				sError = h.frontLine;
+				sError = h.getStatusMessage();
 				return false;
 			}
 			break;

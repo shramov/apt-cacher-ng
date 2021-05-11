@@ -1,3 +1,212 @@
+apt-cacher-ng (3.7) AND-SOMETIMES-THE-BEAR-EATS-YOU; urgency=low
+
+  * This is an EXPERIMENTAL version. Certain features and code changes should
+    not be consider mature. This version might make some things better than
+    3.6.x series, and some things worse, including damaging existing caches.
+
+    USE AT YOUR OWN RISK!
+    YOU HAVE BEEN WARNED!
+
+  [ BREAKING CHANGES ]
+
+  * "just cleanup" parameter -e was removed. This has been troublesome to
+    implement long time ago and is most likely not used in the wild. This
+    can be replaced easily and with better privilege separation using a
+    shell script which starts apt-cacher-ng in foreground and calls acngtool.
+  * cache processor is now more stric with regards to file metadata. Manually
+    imported files (without use of the official Import function) will no
+    longer be considered valid without at least a timestamp check on the
+    server.
+  * acngfs does not support setting of proxy server and (optional) local extra
+    folder as plain argument, instead those need to be specified as proxy=...
+    and cachedir=... .
+
+  [ BUGFIXES ]
+
+  * Fixes for potential bugfixes with error checking for corner cases all over
+    the place
+  * Cleans up with potential bug sources for incorrect transmission to the
+    client while the item content was sent to cache and to caller
+    simultaneously
+  * Fix potentially incorrect over-insisting file descriptor closing which
+    might have impacted libevent descriptors (Debian bugs #954904, #986356)
+  * Fix potentially incorrect error reporting for IPv6/IPv4 switching
+    connection attempts which eventually ended in failure (timeout, rejected)
+
+  [ INTERNAL REFACTORING ]
+
+  * Overhauling many core components, especially download, delivery and cache
+    management code; probably the heaviest change since 2014:
+
+    a) supposedly using less CPU cycles and fewer critical sections
+    b) supposedly using less memory for regular data serving
+    c) never truncating package files, only appending
+    d) more consistent error codes
+    e) separate debug logging into apt-cacher.dbg file
+    f) precise separation into type classes of the active cache items,
+       therefore better efficiency in case of volatile/non-volatile mixup,
+       also preparing to support cached requests with protected access and
+       individual credentials (Salsa feature requests)
+    g) simplified head file storage for delivery task
+    h) adding dedicated log/err/dbg files for acngfs
+
+  * New switches to disable optional components: ENABLE_TOOLS, ENABLE_TESTS
+  * Direct linking to libfuse for acngfs is mandatory now, the dlopen path was
+    removed since libfuse2 is in wide use nowadays anyway
+
+  [ NEW FEATURES ]
+
+  * Limited support of Cache-Control header from clients (no-cache, no-store)
+    for LP: #1915713
+  * Support for open-end range requests
+  * Support regular variable assignments (like in acngtool) in acngfs command
+    line syntax, although the meanings might be slightly different (CacheDir
+    means local fallback folder)
+
+ -- Eduard Bloch <blade@debian.org>  Tue, 11 May 2021 18:17:13 +0200
+
+apt-cacher-ng (3.6.3) SOHMIETNG-T0-REBMEMER; urgency=medium
+
+  * Amend the file creation scheme for cache files which are rewritten from
+    the beginning, avoiding need for truncation of open files while
+    downloading, therefore avoiding potential termination from mmap triggered
+    SIGBUS (for example in case of maintenance job processing)
+
+ -- Eduard Bloch <blade@debian.org>  Mon, 08 Mar 2021 22:15:48 +0100
+
+apt-cacher-ng (3.6.2) THIS-ONE-WILL-FLY; urgency=medium
+
+  * Dynamic detection of changes of resolv.conf file (again for Debian
+    bug #951005)
+  * Make sure to send event_base_loopbreak in the context of the libevent
+    thread (closes hanging of acngtool on exit, Debian bug #977611)
+
+ -- Eduard Bloch <blade@debian.org>  Wed, 03 Mar 2021 21:32:18 +0100
+
+apt-cacher-ng (3.6.1) THERE-IS-NO-FREE-BRUNCH; urgency=low
+
+  * Minor bugfix and update verion
+  * Avoid potential file descriptor leak in download item collision handling,
+    also various improvements around stale handle detection and resolution of
+    this situation
+  * Extended mirror scan to guess {ftp2, ftp3}.XY.debian.org address aliases
+    (Debian bug #951005)
+  * Extended security.debian.org rewriting to also include deb.debian.org
+    requests and change default mirror for them all to deb.debian.org (Debian
+    bugs #932093, previously #884881)
+  * Fixes potential hanging at the end of download job execution in acngtool
+    (possibly responsible for various Debian bugs)
+  * Workaround for libevent issue with systems having local nameserver and not
+    having nameserver entries in resolv.conf, also adding a couple of
+    "undocumented" Debug options for further investigation (EvDnsResolvConf,
+    EvDnsOpts). For debian bug #982984.
+  * More ACID-like handling of metadata storing when a download starts
+  * Now not destroying the fileitem when aborting on late errors (where risk
+    is compensated by the new metadata behavior) but letting the user know that
+    something is wrong with the filesystem (Salsa issue #9); also dropped the
+    fstat check (triggering "Inconsistent file state" message) because it's
+    intended task is taken over by the subsequent lseek check with SEEK_END,
+    this also should reveal faulty filesystem behavior.
+
+ -- Eduard Bloch <blade@debian.org>  Thu, 25 Feb 2021 22:50:41 +0100
+
+apt-cacher-ng (3.6) SOMETIMES-YOU-EAT-THE-BEAR; urgency=low
+
+  * Allowed specification of different/multiple endpoints to bind with
+    arbitrary ports, i.e. binding with non-default port on specific network interfaces
+  * Admin pages refer to the locally served location of the manual (via
+    built-in webserver)
+  * Fixing construction of request specific X-Forwarded-For headers. This
+    matters only for proxy cascades and only when ExposeOrigin option is set.
+  * Potential hanging of acngtool/acngfs on termination
+  * Fixed potential deadlock in index file processing in maintenance job (only
+    when checksumming was enabled)
+  * Minor speedup in acngfs with reused download agent
+  * Using asynchronous libevent DNS resolver instead of getaddrinfo from OS,
+    since the later turned out to be unreliable in stress tests
+  * Safely ignore the HTTP 102 Processing status code and similar hints 
+  * In case of stuck/creeping download of volatile files, move them out of the
+    way faster and easier (replacing file entry) instead of moving them to a
+    side cache
+  * Fixed error message selection for early fatal SSL errors
+  * Fixed pdiff algorithm to use now available combined patches directly
+  * Vastly improved the CPU consumption of pdiff patching code in acngtool
+  * Database update
+
+ -- Eduard Bloch <blade@debian.org>  Sun, 07 Feb 2021 22:30:55 +0100
+
+apt-cacher-ng (3.5) CLOUDY-WITH-A-CHANCE-OF-VEGGIE-BURGERS; urgency=medium
+
+  * Faster stop of progress observers on maintenance tasks
+  * Avoid earlier stop on download errors in expirations, so all files for
+    expired distros can be easily cleaned manually in one or two runs instead
+    of multiple runs
+  * Automatic blocking of IPv6 connection attempts in case of too many failed
+    attempts (where IPv4 was still working) and vice versa
+
+  [ Various bugfixes]
+  * Data race in DNS result caching, sometimes resulting incorrect resolution
+    error reports and/or marking backends bad temporarily
+  * Added little progress hints in expiration job, so that browsers don't
+    close the connection due to suspected timeout
+
+ -- Eduard Bloch <blade@debian.org>  Mon, 20 Apr 2020 23:33:27 +0200
+
+apt-cacher-ng (3.4) ALTERED-HYDROGEN; urgency=low
+
+  [ Various bugfixes]
+
+  * potential fix for a programming bug where a bad redirection was reported
+    although the source was rewritten correctly (Debian bug 952811)
+  * potential fix for SHA512 related problems (the considered string length
+    was too short which might break comparisons on file import and validation)
+  * Fix bug of the incoming connection thread pool, sometimes not starting IO
+    processing immediately due to miscalculation of required worker thread
+    count. Apparently a regression since version 3.3.
+
+  [ For single request Pass-Through mode (DontCache rule) ]
+
+  * Fix response body corruption in pass-through items
+  * Partial support for directory listing (PT, no caching yet)
+  * Permit non-categorized file extensions when PT rule is active
+  * Permit encoding negotiation on PT items (gzip deflated), previously there
+    was a bug where deflated contents could be delivered although not declared
+    as such, now it's explicitly allowed (where it fits into the flow) or not
+    avoided
+  * Fix potential thread leak
+
+  [ Miscellaneous]
+
+  * Database update
+  * Added CID-Index files to Debian's DEP11 file filter
+  * Internal refactoring, better debug logging
+
+ -- Eduard Bloch <blade@debian.org>  Sun, 05 Apr 2020 18:22:54 +0200
+
+apt-cacher-ng (3.3.1) A-LITTLE-BUGFIX-FOR-A-MAN; urgency=medium
+
+  * POTENTIAL SECURITY ISSUE (CVE-2020-5202):
+    - in certain situations, the maint job run by acngtool could leak the
+      administrator credentials from apt-cacher-ng configuration. This is only
+      likely if the attacker is able to impersonate the daemon with an own
+      server listening on the same port.
+    - The mitigation path for this is:
+      - SocketPath option is configured by default
+      - By default, acngtool only attempts to run the maint job through the
+        Unix Domain Socket. If SocketPath is not set but admin credentials are
+        configured, the operation is denied.
+      - For non-standard cases where acngtool is used to run special arbitrary
+        commands (ACNG_REQ variable) and the operation through SocketPath is not
+        possible (i.e. missing permissions or the tool is run on a different
+        host), the operation through TCP can be enforced with ACNG_INSECURE
+        environment variable
+  * Support .zst compressed packages (reference:
+    https://www.archlinux.org/news/now-using-zstandard-instead-of-xz-for-package-compression/ )
+  * Added global cancelation points for the daemon shutdown phase, now
+    terminating sooner especially when a maintenance jobs runs in background
+
+ -- Eduard Bloch <blade@debian.org>  Wed, 08 Jan 2020 20:47:37 +0100
+
 apt-cacher-ng (3.3) THE-CLAMPS-ARE-MARCHING; urgency=low
 
   [ POSSIBLY BREAKING CHANGES ]

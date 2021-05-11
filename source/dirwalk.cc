@@ -56,10 +56,6 @@ bool dnode::Walk(IFileHandler *h, dnode::tDupeFilter *pFilter, bool bFollowSymli
 		auto r=lstat(sPath.c_str(), &m_stinfo);
 		if(r)
 		{
-	/*		errnoFmter f;
-				log::err(tSS() << sPath <<
-						" IO error [" << f<<"]");
-						*/
 			return true; // slight risk of missing information here... bug ignoring is safer
 		}
 		// yeah, and we ignore symlinks here
@@ -88,16 +84,9 @@ bool dnode::Walk(IFileHandler *h, dnode::tDupeFilter *pFilter, bool bFollowSymli
 	// also make sure we are not visiting the same directory through some symlink construct
 	if(pFilter)
 	{
-#ifdef COMPATGCC47
-               auto thisKey(make_pair(m_stinfo.st_dev, m_stinfo.st_ino));
-               if(ContHas(*pFilter, thisKey))
-                       return true;
-               pFilter->insert(thisKey);
-#else
 		auto key_isnew = pFilter->emplace(m_stinfo.st_dev, m_stinfo.st_ino);
 		if(!key_isnew.second)
 			return true; // visited this before, recursion detected
-#endif
 	}
 
 //	cerr << "Opening: " << sPath<<endl;

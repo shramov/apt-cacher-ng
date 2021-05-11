@@ -20,7 +20,7 @@ ACNG_API void Shutdown();
 void HandleOverload();
 
 /**
- * Return connection handle for proper closing.
+ * Perform a gracefull connection shutdown.
  */
 ACNG_API void FinishConnection(int fd);
 
