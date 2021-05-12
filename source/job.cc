@@ -88,7 +88,7 @@ public:
 	string m_sHeader;
 	const std::string& GetRawResponseHeader() override { return m_sHeader; }
 
-	void DlFinish() override
+	void DlFinish(bool) override
 	{
 		LOGSTARTFUNC;
 		ASSERT(m_obj_mutex.try_lock() == false);

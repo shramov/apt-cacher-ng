@@ -656,7 +656,7 @@ struct tDlJob
 			{
 				ldbg("STATE_FINISHJOB");
 				lockguard g(*m_pStorage);
-				m_pStorage->DlFinish();
+				m_pStorage->DlFinish(false);
 				m_DlState = STATE_GETHEADER;
 				return HINT_DONE;
 			}
@@ -806,7 +806,7 @@ struct tDlJob
             contLen = atoofft(reRes[4].first, -1);
 			auto startPos = atoofft(reRes[2].first, -1);
 
-			// detect quality of the special probe request which reports what we already knew
+			// identify the special probe request which reports what we already knew
             if (m_pStorage->IsVolatile() &&
 					m_pStorage->m_nSizeCachedInitial > 0 &&
                     contLen == m_pStorage->m_nSizeCachedInitial &&
@@ -816,7 +816,7 @@ struct tDlJob
 				m_bAllowStoreData = false;
 				mark_assigned();
 				m_pStorage->m_nSizeChecked = m_pStorage->m_nContentLength = m_pStorage->m_nSizeCachedInitial;
-				m_pStorage->DlFinish();
+				m_pStorage->DlFinish(true);
 				return EResponseEval::GOOD;
 			}
 			// in other cases should resume and the expected position, or else!
@@ -881,8 +881,8 @@ struct tDlJob
 
         if (!m_bAllowStoreData)
         {
-            // finish it asap regardless of trailing body garbage
-            m_pStorage->DlFinish();
+			// XXX: better ensure that it's processed from outside loop and use custom return code?
+			m_pStorage->DlFinish(true);
 		}
 		return EResponseEval::GOOD;
 	}

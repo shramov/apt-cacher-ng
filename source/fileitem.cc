@@ -519,7 +519,7 @@ void fileitem_with_storage::MoveRelease2Sidestore()
 }
 
 
-void fileitem::DlFinish()
+void fileitem::DlFinish(bool forceUpdateHeader)
 {
 	LOGSTARTFUNC;
 	ASSERT_HAVE_LOCK;
@@ -545,9 +545,11 @@ void fileitem::DlFinish()
 	dbgline;
 
 	// we are done! Fix header after chunked transfers?
-	if (m_nContentLength < 0)
+	if (m_nContentLength < 0 || forceUpdateHeader)
 	{
-		m_nContentLength = m_nSizeChecked;
+		if (m_nContentLength < 0)
+			m_nContentLength = m_nSizeChecked;
+
 		if (m_eDestroy == KEEP)
 			SaveHeader(false);
 	}

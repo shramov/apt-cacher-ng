@@ -101,7 +101,7 @@ struct ACNG_API CPrintItemFactory : public IFitemFactory
                         std::cerr << raw << std::endl;
                     return fileitem::DlStarted(raw, dat, orig, status, nseek, ntotal);
 				}
-				void DlFinish() override
+				void DlFinish(bool) override
 				{
 					m_status = FIST_COMPLETE;
 				}
@@ -227,7 +227,7 @@ public:
 	}
 
 protected:
-	void DlFinish() override
+	void DlFinish(bool) override
 	{
 		m_status = FIST_COMPLETE;
 		vprint.fin();

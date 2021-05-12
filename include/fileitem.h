@@ -176,7 +176,7 @@ protected:
 	/**
 	 * @brief Mark the download as finished, and verify that sizeChecked as sane at that moment or move to error state.
 	 */
-	virtual void DlFinish();
+	virtual void DlFinish(bool forceUpdateHeader);
 
 	/**
 	 * @brief Mark this item as defect so its data will be invalidate in cache when released

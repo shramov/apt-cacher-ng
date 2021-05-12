@@ -54,7 +54,7 @@ apt-cacher-ng (3.7) AND-SOMETIMES-THE-BEAR-EATS-YOU; urgency=low
   * Direct linking to libfuse for acngfs is mandatory now, the dlopen path was
     removed since libfuse2 is in wide use nowadays anyway
 
-  [ NEW FEATURES ]
+  [ NEW FEATURES AND IMPROVEMENTS ]
 
   * Limited support of Cache-Control header from clients (no-cache, no-store)
     for LP: #1915713
@@ -62,6 +62,8 @@ apt-cacher-ng (3.7) AND-SOMETIMES-THE-BEAR-EATS-YOU; urgency=low
   * Support regular variable assignments (like in acngtool) in acngfs command
     line syntax, although the meanings might be slightly different (CacheDir
     means local fallback folder)
+  * Better error messages stored in apt-cacher.err, helping to track down
+    filesystem issues
 
  -- Eduard Bloch <blade@debian.org>  Tue, 11 May 2021 18:17:13 +0200
 

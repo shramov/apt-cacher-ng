@@ -784,7 +784,7 @@ tFingerprint * BuildPatchList(string sFilePathAbs, deque<tPatchEntry> &retList)
 bool cacheman::Inject(cmstring &fromRel, cmstring &toRel,
         bool bSetIfileFlags, off_t checkSize, LPCSTR forceOrig)
 {
-	LOGSTART("tCacheMan::Inject");
+	LOGSTARTFUNCx(fromRel, toRel, bSetIfileFlags, checkSize, forceOrig);
 	// XXX should it really filter it here?
 	if(GetFlags(toRel).uptodate)
         return true;
@@ -818,7 +818,7 @@ bool cacheman::Inject(cmstring &fromRel, cmstring &toRel,
     }
 	if (!fi->DlAddData(data.getView(), g))
         return false;
-	fi->DlFinish();
+	fi->DlFinish(true);
     if(fileitem::FIST_COMPLETE != fi->GetStatusUnlocked())
         return false;
     if(bSetIfileFlags)
