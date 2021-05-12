@@ -4,6 +4,8 @@
 
 #include "gmock/gmock.h"
 
+#include <caddrinfo.h>
+
 #if 0 // those is all new stuff from the next branch - might restore when we use them
 TEST(algorithms, checksumming)
 {
@@ -201,4 +203,10 @@ TEST(http, header)
 	hdata = "GET /na/asdfasdfsadf HTTP/1.1\r\n\r\n";
 	r = h.Load(hdata);
 	ASSERT_EQ(r, hdata.size());
+}
+
+TEST(http, misc)
+{
+	auto n = sizeof(acng::acng_addrinfo);
+	ASSERT_GE(n, sizeof(::sockaddr_in6) + 3*sizeof(int));
 }

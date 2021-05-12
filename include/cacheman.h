@@ -36,7 +36,7 @@ static cmstring sslIndex("/Index");
 bool CompDebVerLessThan(cmstring &s1, cmstring s2);
 extern time_t m_gMaintTimeNow;
 
-void DelTree(const string &what);
+void DelTree(cmstring &what);
 
 class ACNG_API cacheman :
 		public IFileHandler,
@@ -204,7 +204,7 @@ SUTPRIVATE:
 	 */
 	int PatchOne(cmstring& pindexPathRel, const tStrDeq& patchBaseCandidates);
 	void ParseGenericRfc822File(filereader& reader, cmstring& sExtListFilter,
-			map<string, deque<string> >& contents);
+			std::map<mstring, std::deque<mstring> >& contents);
 	bool ParseDebianIndexLine(tRemoteFileInfo& info, cmstring& fline);
 
 SUTPROTECTED:

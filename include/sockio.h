@@ -18,9 +18,6 @@
 #include <event2/event.h>
 #include <event2/util.h>
 
-using namespace std;
-
-
 #ifndef AI_NUMERICSERV
 #define AI_NUMERICSERV 0
 #endif
@@ -55,9 +52,6 @@ using namespace std;
 namespace acng
 {
 
-void globalSslInit();
-void globalSslDeInit();
-
 void termsocket_async(int, event_base*);
 
 inline void termsocket_quick(int& fd)
@@ -90,8 +84,6 @@ struct select_set_t
 	int nfds() { return m_max + 1; }
 	operator bool() const { return m_max != -1; }
 };
-
-std::string formatIpPort(const evutil_addrinfo *info);
 
 // common flags for a CONNECTING socket
 void set_connect_sock_flags(evutil_socket_t fd);

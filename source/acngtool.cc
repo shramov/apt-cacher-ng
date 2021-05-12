@@ -1,6 +1,7 @@
 #include "config.h"
 #include "meta.h"
 #include "acfg.h"
+#include "aclogger.h"
 
 #include <acbuf.h>
 #include <aclogger.h>
@@ -35,7 +36,9 @@
 #include "fileio.h"
 #include "acregistry.h"
 #include "sockio.h"
-#ifdef HAVE_SSL
+
+/*
+ * #ifdef HAVE_SSL
 #include "openssl/bio.h"
 #include "openssl/ssl.h"
 #include "openssl/err.h"
@@ -43,6 +46,9 @@
 #include <openssl/sha.h>
 #include <openssl/crypto.h>
 #endif
+*/
+#include "ac3rdparty.h"
+
 #include "filereader.h"
 #include "csmapping.h"
 #include "cleaner.h"
@@ -53,9 +59,12 @@ using namespace acng;
 
 bool g_bVerbose = false;
 
-
 namespace acng {
 extern std::shared_ptr<cleaner> g_victor;
+namespace log
+{
+	extern mstring g_szLogPrefix;
+}
 }
 
 // from sockio.cc in more recent versions
@@ -832,6 +841,11 @@ void parse_options(int argc, const char **argv, function<void (LPCSTR)> f)
 
 	cfg::PostProcConfig();
 
+#ifdef DEBUG
+	log::g_szLogPrefix = "acngtool";
+	log::open();
+#endif
+
 	for(const auto& x: nonoptions)
 		f(x);
 }
@@ -1032,6 +1046,7 @@ std::unordered_map<string, parm> parms = {
 int main(int argc, const char **argv)
 {
 	using namespace acng;
+	ac3rdparty libInit;
 	g_victor.reset(new cleaner(false, SHARED_PTR<IFileItemRegistry>()));
 
 	string exe(argv[0]);
@@ -1070,9 +1085,7 @@ int main(int argc, const char **argv)
 			});
 	if(!mode || !parm)
 		usage(3);
-#ifdef DEBUG
-	log::open();
-#endif
+
 	if(!xargCount) // should run the code at least once?
 	{
 		if(parm->minArg) // uh... needs argument(s)
@@ -1100,8 +1113,6 @@ int wcat(LPCSTR surl, LPCSTR proxy, IFitemFactory* fac, const IDlConFactory &pDl
 	string xurl(surl);
 	if(!url.SetHttpUrl(xurl, false))
 		return -2;
-	if(url.bSSL)
-		globalSslInit();
 
 	evabaseFreeFrunner eb(pDlconFac, true);
 

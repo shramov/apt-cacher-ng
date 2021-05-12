@@ -90,6 +90,18 @@ const tRepoData * GetRepoData(cmstring &vname);
 
 time_t BackgroundCleanup();
 
+/**
+ * @brief GetFirstConTimeout
+ * @return Deliver precalculated timeout structure with initial fast timeout AND a fraction of second on top
+ */
+const struct timeval & ACNG_API GetFirstConTimeout();
+/**
+ * @brief GetFurtherConTimeout
+ * Like GetFirstConTimeout but deliver a probe interval for creation of further connections
+ * @return
+ */
+const struct timeval & ACNG_API GetFurtherConTimeout();
+
 extern tStrMap localdirs;
 cmstring & GetMimeType(cmstring &path);
 #define TCP_PORT_MAX 65536

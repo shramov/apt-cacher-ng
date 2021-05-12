@@ -4,6 +4,8 @@
 #include "dlcon.h"
 #include <thread>
 
+using namespace std;
+
 namespace acng
 {
 void SetupCleaner();
@@ -12,7 +14,7 @@ class evabaseFreeFrunner::Impl
 {
 public:
 	SHARED_PTR<dlcon> dl;
-	std::thread dlthr, evthr;
+	thread dlthr, evthr;
 	unique_ptr<evabase> m_eb;
 
 	Impl(const IDlConFactory &pDlconFac, bool withDownloader)

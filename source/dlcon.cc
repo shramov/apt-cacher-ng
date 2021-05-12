@@ -1139,7 +1139,7 @@ inline unsigned CDlConn::ExchangeData(mstring &sErrorMsg,
 
 		r = select(nMaxFd + 1, &rfds, &wfds, nullptr,
 				CTimeVal().ForNetTimeout());
-		ldbg("returned: " << r << ", errno: " << errno);
+		ldbg("returned: " << r << ", errno: " << tErrnoFmter());
 		if (m_ctrl_hint < 0)
 			return HINT_RECONNECT_NOW;
 

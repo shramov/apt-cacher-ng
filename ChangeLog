@@ -64,6 +64,8 @@ apt-cacher-ng (3.7) AND-SOMETIMES-THE-BEAR-EATS-YOU; urgency=low
     means local fallback folder)
   * Better error messages stored in apt-cacher.err, helping to track down
     filesystem issues
+  * Considering more than two IPs simultaneously when initiating connection,
+    and running this on IO thread, reducing number of select() calls
 
  -- Eduard Bloch <blade@debian.org>  Tue, 11 May 2021 18:17:13 +0200
 

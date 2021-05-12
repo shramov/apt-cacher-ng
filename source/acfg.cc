@@ -56,6 +56,17 @@ std::bitset<TCP_PORT_MAX> *pUserPorts = nullptr;
 
 tHttpUrl proxy_info;
 
+// just the default, filled in by options
+#define ALTERNATIVE_SPAWN_INTERVAL 2
+struct timeval furtherConTimeout
+{
+	ALTERNATIVE_SPAWN_INTERVAL, 200000
+};
+struct timeval initialConTimeout
+{
+	ALTERNATIVE_SPAWN_INTERVAL, 200000
+};
+
 struct MapNameToString
 {
 	const char *name; mstring *ptr;
@@ -1161,9 +1172,9 @@ void PostProcConfig()
 	   cerr << "Warning: NetworkTimeout value too small, using: 5." << endl;
 	   nettimeout = 5;
    }
-   if(fasttimeout < 0)
+   if(fasttimeout < 2)
    {
-	   fasttimeout = 0;
+	   fasttimeout = 2;
    }
 
    if(RESERVED_DEFVAL == stucksecs)
@@ -1231,6 +1242,14 @@ void PostProcConfig()
 					<< mapUrl2pVname.size() << " hosts and " << nUrls << " paths\n";
     }
 	}
+
+	initialConTimeout.tv_sec = fasttimeout;
+	// something sane
+	furtherConTimeout.tv_sec = discotimeout / 8;
+	if (furtherConTimeout.tv_sec >= fasttimeout - 1)
+		furtherConTimeout.tv_sec = fasttimeout - 1;
+	if (furtherConTimeout.tv_sec < 2)
+		furtherConTimeout.tv_sec = 2;
 } // PostProcConfig
 
 void dump_config(bool includeDelicate)
@@ -1440,6 +1459,14 @@ void MarkProxyFailure()
 	proxy_failstate = true;
 }
 
+const timeval &GetFirstConTimeout()
+{
+	return initialConTimeout;
+}
+const timeval & ACNG_API GetFurtherConTimeout()
+{
+	return furtherConTimeout;
+}
 } // namespace acfg
 
 namespace rex

@@ -5,9 +5,7 @@
 #include "lockable.h"
 #include "fileio.h"
 
-#include <event2/dns.h>
 #include <event2/util.h>
-#include <event2/thread.h>
 
 #ifdef HAVE_SD_NOTIFY
 #include <systemd/sd-daemon.h>
@@ -16,6 +14,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <ares.h>
 
 using namespace std;
 
@@ -50,7 +49,6 @@ namespace conserver
 void do_accept(evutil_socket_t server_fd, short what, void* arg);
 }
 
-
 /**
  * Forcibly run each callback and signal shutdown.
  */
@@ -79,21 +77,87 @@ void evabase::addTeardownAction(event_callback_fn matchedCback, std::function<vo
 
 CDnsBase::~CDnsBase()
 {
-    shutdown();
+	shutdown();
+}
+
+void cb_sync_ares(evutil_socket_t, short, void* arg)
+{
+	// who knows what it has done with its FDs, simply recreating them all to be safe
+	auto p=(CDnsBase*) arg;
+	p->dropEvents();
+	p->setupEvents();
+}
+
+void cb_ares_action(evutil_socket_t fd, short what, void* arg)
+{
+	auto p=(CDnsBase*) arg;
+	if (what&EV_TIMEOUT)
+		ares_process_fd(p->get(), ARES_SOCKET_BAD, ARES_SOCKET_BAD);
+	else
+	{
+		auto toread = (what&EV_READ) ? fd : ARES_SOCKET_BAD;
+		auto towrite = (what&EV_WRITE) ? fd : ARES_SOCKET_BAD;
+		ares_process_fd(p->get(), toread, towrite);
+	}
+	// need to run another cycle asap
+	p->sync();
+}
+
+void CDnsBase::sync()
+{
+	if (!m_aresSyncEvent)
+		m_aresSyncEvent = evtimer_new(evabase::base, cb_sync_ares, this);
+	event_add(m_aresSyncEvent, &timeout_asap);
+}
+
+void CDnsBase::dropEvents()
+{
+	for (auto& el: m_aresEvents)
+	{
+		if (el)
+			event_free(el);
+	}
+	m_aresEvents.clear();
+}
+
+void CDnsBase::setupEvents()
+{
+	ASSERT(m_channel);
+	if (!m_channel)
+		return;
+	ares_socket_t socks[ARES_GETSOCK_MAXNUM];
+	auto bitfield = ares_getsock(m_channel, socks, _countof(socks));
+	struct timeval tvbuf;
+	auto tmout = ares_timeout(m_channel, nullptr, &tvbuf);
+	for(unsigned i = 0; i < ARES_GETSOCK_MAXNUM; ++i)
+	{
+		short what(0);
+		if (ARES_GETSOCK_READABLE(bitfield, i))
+			what = EV_READ;
+		else if (ARES_GETSOCK_WRITABLE(bitfield, i))
+			what = EV_WRITE;
+		else
+			continue;
+		m_aresEvents.emplace_back(event_new(evabase::base, socks[i], what, cb_ares_action, this));
+		event_add(m_aresEvents.back(), tmout);
+	}
 }
 
 void CDnsBase::shutdown()
 {
-	if (!m_base)
-		return;
+	if (m_channel)
+	{
+		// Defer this action so it's not impacting the callback processing somewhere
+		evabase::Post([chan = m_channel](bool) {
+			// graceful DNS resolver shutdown
+			ares_destroy(chan);
+		});
+	}
+	dropEvents();
+	if (m_aresSyncEvent)
+		event_free(m_aresSyncEvent), m_aresSyncEvent = nullptr;
 
-	// Defer this action so it's not impacting the callback processing somewhere
-	evabase::Post([toClear = m_base](bool) {
-		// graceful DNS resolver shutdown
-		evdns_base_free(toClear, DNS_ABORT_RETURNING_ERROR);
-	});
-
-  m_base = nullptr;
+	m_channel = nullptr;
 }
 
 std::shared_ptr<CDnsBase> evabase::GetDnsBase()
@@ -116,74 +180,27 @@ void evabase::CheckDnsChange()
 		return;
 	}
 
-	auto newDnsBase = evdns_base_new(base, cfg::dnsopts ? 0 :
-			EVDNS_BASE_INITIALIZE_NAMESERVERS);
-
-	if (!newDnsBase && ! cfg::dnsopts)
+	ares_channel newDnsBase;
+	switch(ares_init(&newDnsBase))
 	{
-		// this might be a libevent bug. If it does not find nameservers in
-		// resolv.conf, it starts doing strange things all over the place.
-		// And even if custom nameserver is added afterwards manually,
-		// and it's seems to communicate with it fine,
-		// libevent still throws EAI_FAIL to user code for no f* reason.
-		//
-		// also, the fallback to localhost DNS is apparently sometimes
-		// added to the server list but not always, needs further
-		// investigation.
-
-		// Initialise w/o servers and add the fallback manually
-		newDnsBase = evdns_base_new(base, 0);
-		if (newDnsBase)
-		{
-			auto err = evdns_base_resolv_conf_parse(newDnsBase, DNS_OPTIONS_ALL,
-							cfg::dnsresconf.c_str());
-			(void) err;
-			// in might be in error state now but it seems to be at least
-			// operational enough to get an additional NS added
-
-			auto backup = "127.0.0.1";
-			// backup = "8.8.8.8";
-			struct sockaddr_in localdns;
-			localdns.sin_addr.s_addr = inet_addr(backup);
-			localdns.sin_family = PF_INET;
-			localdns.sin_port = htons(53);
-
-			if (0 != evdns_base_nameserver_sockaddr_add(newDnsBase,
-							(sockaddr*) &localdns, sizeof(localdns), 0))
-			{
-				log::err("ERROR: cannot add fallback DNS server!");
-			}
-		}
-	}
-
-	if (!newDnsBase)
-	{
-		log::err("ERROR: Failed to setup default DNS service!"sv);
-		// ok, it's bad, but better keep the old nameserver
+	case ARES_SUCCESS:
+		break;
+	case ARES_EFILE:
+		log::err("DNS system error, cannot read config file");
+		return;
+	case ARES_ENOMEM:
+		log::err("DNS system error, out of memory");
+		return;
+	case ARES_ENOTINITIALIZED:
+		log::err("DNS system error, faulty initialization sequence");
+		return;
+	default:
+		log::err("DNS system error, internal error");
 		return;
 	}
-
-	// ok,valid dns_base, but with manual configuration which still needs to be applied?
-
-	if (cfg::dnsopts)
-	{
-		// in any case set a sensible timeout!
-		// XXX: this is not effective without having a nameserver
-		// evdns_base_set_option(evabase::dnsbase, "timeout", "8");
-
-		// XXX: might also make that path configurable, and also allow to pass custom hosts file
-		auto err = evdns_base_resolv_conf_parse(newDnsBase, cfg::dnsopts, cfg::dnsresconf.c_str());
-		if (err)
-		{
-			USRERR("ERROR: Failed to initialize custom DNS! " << evdns_err_to_string(err));
-
-			// we cannot fix it, new nameserver remains broken; keep the old one for now
-			// and if it was not configured before then the new situation is not better either
-			evdns_base_free(newDnsBase, 0);
-			return;
-		}
-	}
 	// ok, found new configuration and it can be applied
+	if (cachedDnsBase)
+		cachedDnsBase->shutdown();
 	cachedDnsBase.reset(new CDnsBase(newDnsBase));
 	cachedDnsFingerprint = tResolvConfStamp
 	{ info.st_dev, info.st_ino, info.st_mtim };
@@ -273,7 +290,6 @@ void evabase::Post(tCancelableAction&& act)
 
 evabase::evabase()
 {
-	evthread_use_pthreads();
 	evabase::base = event_base_new();
 	handover_wakeup = evtimer_new(base, cb_handover, nullptr);
 }

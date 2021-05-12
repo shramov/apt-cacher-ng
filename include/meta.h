@@ -298,7 +298,10 @@ void ACNG_API DelTree(cmstring &what);
 
 struct ACNG_API tErrnoFmter: public mstring
 {
-	tErrnoFmter(LPCSTR prefix = nullptr);
+	tErrnoFmter(LPCSTR prefix = nullptr) { fmt(errno, prefix);}
+	tErrnoFmter(int errnoCode, LPCSTR prefix = nullptr) { fmt(errnoCode, prefix); }
+private:
+	void fmt(int errnoCode, LPCSTR prefix);
 };
 
 ACNG_API mstring EncodeBase64Auth(cmstring &sPwdString);

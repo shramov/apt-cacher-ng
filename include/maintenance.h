@@ -135,7 +135,7 @@ protected:
 };
 
 std::string to_base36(unsigned int val);
-static const string relKey("/Release"), inRelKey("/InRelease");
+static cmstring relKey("/Release"), inRelKey("/InRelease");
 static cmstring sfxXzBz2GzLzma[] = { ".xz", ".bz2", ".gz", ".lzma"};
 static cmstring sfxXzBz2GzLzmaNone[] = { ".xz", ".bz2", ".gz", ".lzma", ""};
 static cmstring sfxMiscRelated[] = { "", ".xz", ".bz2", ".gz", ".lzma", ".gpg", ".diff/Index"};
