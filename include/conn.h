@@ -23,7 +23,7 @@ class conn : public ISharedConnectionResources
 	class Impl;
 	Impl *_p;
 public:
-	conn(unique_fd fdId, const char *client, std::shared_ptr<IFileItemRegistry>);
+	conn(int fdId, const char *client, std::shared_ptr<IFileItemRegistry>);
 	virtual ~conn();
 	void WorkLoop();
 
