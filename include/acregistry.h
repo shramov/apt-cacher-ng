@@ -6,7 +6,7 @@
 namespace acng {
 
 // "owner" of a file item, cares about sharing instances between multiple agents
-class TFileItemHolder
+class ACNG_API TFileItemHolder
 {
         friend class TFileItemRegistry;
 
@@ -26,7 +26,7 @@ private:
         explicit TFileItemHolder(const tFileItemPtr& p) : m_ptr(p) {}
 };
 
-class IFileItemRegistry : public base_with_mutex
+class ACNG_API IFileItemRegistry : public base_with_mutex
 {
         public:
 
@@ -47,7 +47,10 @@ class IFileItemRegistry : public base_with_mutex
         virtual void Unreg(fileitem& ptr) =0;
 };
 
-std::shared_ptr<IFileItemRegistry> MakeRegularItemRegistry();
+// global registry handling, used only in server
+void ACNG_API SetupServerItemRegistry();
+void ACNG_API TeardownServerItemRegistry();
+extern std::shared_ptr<IFileItemRegistry> g_registry;
 
 }
 

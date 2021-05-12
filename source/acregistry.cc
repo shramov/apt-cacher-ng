@@ -9,9 +9,10 @@
 
 #define IN_ABOUT_ONE_DAY 100000
 
+using namespace std;
+
 namespace acng
 {
-using namespace std;
 
 class TFileItemRegistry : public IFileItemRegistry, public enable_shared_from_this<TFileItemRegistry>
 {
@@ -44,9 +45,14 @@ public:
 		}
 };
 
-std::shared_ptr<IFileItemRegistry> ACNG_API MakeRegularItemRegistry()
+void SetupServerItemRegistry()
 {
-		return std::make_shared<TFileItemRegistry>();
+	g_registry = std::make_shared<TFileItemRegistry>();
+}
+
+void TeardownServerItemRegistry()
+{
+	g_registry.reset();
 }
 
 TFileItemHolder::~TFileItemHolder()
@@ -332,7 +338,5 @@ void TFileItemRegistry::dump_status()
 	}
 	log::flush();
 }
-
-
 
 }

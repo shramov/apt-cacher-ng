@@ -127,11 +127,11 @@ public:
 
 	tSS m_fmtHelper;
 
-	static eMaintWorkType DispatchMaintWork(cmstring &cmd, const char *auth);
-	static void RunMaintWork(eMaintWorkType jobType, cmstring& cmd, int fd, ISharedConnectionResources* dlResProvider);
+	static ACNG_API eMaintWorkType DispatchMaintWork(cmstring &cmd, const char *auth);
+	static ACNG_API void RunMaintWork(eMaintWorkType jobType, cmstring& cmd, int fd, ISharedConnectionResources* dlResProvider);
 
 protected:
-	static tSpecialRequest* MakeMaintWorker(tRunParms&& parms);
+	static ACNG_API tSpecialRequest* MakeMaintWorker(tRunParms&& parms);
 };
 
 std::string to_base36(unsigned int val);

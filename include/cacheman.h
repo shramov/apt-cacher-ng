@@ -38,7 +38,7 @@ extern time_t m_gMaintTimeNow;
 
 void DelTree(const string &what);
 
-class cacheman :
+class ACNG_API cacheman :
 		public IFileHandler,
 		public tSpecOpDetachable
 {

@@ -50,31 +50,31 @@ namespace conserver
 void do_accept(evutil_socket_t server_fd, short what, void* arg);
 }
 
-struct t_event_desctor {
-	evutil_socket_t fd;
-	event_callback_fn callback;
-	void *arg;
-};
-
-
 
 /**
  * Forcibly run each callback and signal shutdown.
  */
-int teardown_event_activity(const event_base*, const event* ev, void* ret)
+int collect_event_info(const event_base*, const event* ev, void* ret)
 {
 	t_event_desctor r;
 	event_base *nix;
 	short what;
 	auto lret((deque<t_event_desctor>*)ret);
 	event_get_assignment(ev, &nix, &r.fd, &what, &r.callback, &r.arg);
-#ifdef DEBUG
-	if(r.callback == conserver::do_accept)
-		cout << "stop accept: " << r.arg << endl;
-#endif
-	if(r.callback == conserver::do_accept)
-		lret->emplace_back(move(r));
+	lret->emplace_back(move(r));
 	return 0;
+}
+struct tShutdownAction
+{
+	event_callback_fn filter_cb_ptr;
+	std::function<void(t_event_desctor)> action;
+};
+
+std::vector<tShutdownAction> shutdownActions;
+
+void evabase::addTeardownAction(event_callback_fn matchedCback, std::function<void (t_event_desctor)> action)
+{
+	shutdownActions.emplace_back( tShutdownAction {matchedCback, action});
 }
 
 CDnsBase::~CDnsBase()
@@ -223,12 +223,16 @@ ACNG_API int evabase::MainLoop()
 
 	// send teardown hint to all event callbacks
 	deque<t_event_desctor> todo;
-	event_base_foreach_event(evabase::base, teardown_event_activity, &todo);
+	event_base_foreach_event(evabase::base, collect_event_info, &todo);
 	for (const auto &ptr : todo)
 	{
-		DBGQLOG("Notifying event on " << ptr.fd);
-		ptr.callback(ptr.fd, EV_TIMEOUT, ptr.arg);
+		for(auto& ac: shutdownActions)
+		{
+			if (ac.filter_cb_ptr == ptr.callback && ac.action)
+				ac.action(ptr);
+		}
 	}
+
 	push_loop();
 
 #ifdef HAVE_SD_NOTIFY

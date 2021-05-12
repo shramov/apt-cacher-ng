@@ -200,7 +200,7 @@ LPCSTR tSpecialRequest::GetTaskName()
 	return "SpecialOperation";
 }
 
-tSpecialRequest::eMaintWorkType tSpecialRequest::DispatchMaintWork(cmstring& cmd, const char* auth)
+tSpecialRequest::eMaintWorkType ACNG_API tSpecialRequest::DispatchMaintWork(cmstring& cmd, const char* auth)
 {
 	LOGSTARTs("DispatchMaintWork");
 	LOG("cmd: " << cmd);

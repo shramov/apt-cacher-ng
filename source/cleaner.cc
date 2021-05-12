@@ -186,18 +186,14 @@ cleaner& cleaner::GetInstance()
 	return *g_victor;
 }
 
-// NOT supposed to be accessed from anywhere directly except from the conserver
-extern std::shared_ptr<cleaner> g_victor;
-extern std::shared_ptr<IFileItemRegistry> g_registry;
 ACNG_API void SetupCleaner()
 {
-	g_registry = acng::MakeRegularItemRegistry();
 	g_victor.reset(new cleaner(false, g_registry));
 }
+
 ACNG_API void TeardownCleaner()
 {
 	g_victor.reset();
-	g_registry.reset();
 }
 
 }

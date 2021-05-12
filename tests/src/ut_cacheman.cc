@@ -56,7 +56,7 @@ TEST(cacheman, pdiff)
 		{}
 		virtual std::shared_ptr<IFileItemRegistry> GetItemRegistry() override
 		{
-			return acng::MakeRegularItemRegistry();
+			return g_registry;
 		};
 	} connStuff;
 

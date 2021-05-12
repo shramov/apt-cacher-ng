@@ -10,6 +10,8 @@
 #include "fileio.h"
 #include "evabase.h"
 #include "dnsiter.h"
+#include "acregistry.h"
+
 #include <signal.h>
 #include <arpa/inet.h>
 #include <errno.h>
@@ -37,7 +39,6 @@ using namespace std;
 
 namespace acng
 {
-extern std::shared_ptr<IFileItemRegistry> g_registry;
 namespace conserver
 {
 
@@ -416,6 +417,15 @@ int ACNG_API Setup()
 		if(!custom_listen_ip)
 			nCreated += setup_tcp_listeners(nullptr, cfg::port);
 	}
+
+	if (nCreated)
+	{
+		evabase::addTeardownAction(conserver::do_accept, [](t_event_desctor el){
+			DBGQLOG("Reporting shutdown (stop accepting) to FD " << el.fd);
+			el.callback(el.fd, EV_TIMEOUT, el.arg);
+		});
+	}
+
 	return nCreated;
 }
 

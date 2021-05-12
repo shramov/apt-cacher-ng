@@ -1,15 +1,21 @@
 FILE(GLOB ALL_HEADERS "*.h")
 
+set(SERVER_SPECIFIC_SRCS job.cc bgtask.cc cacheman.cc conn.cc conserver.cc expiration.cc maintenance.cc acregistry.cc mirror.cc pkgimport.cc showinfo.cc)
+
 set(SHAREDSRCS astrop.cc sockio.cc acbuf.cc acfg.cc acfg_defaults.cc aclogger.cc caddrinfo.cc dirwalk.cc dlcon.cc fileio.cc
-    fileitem.cc filereader.cc header.cc meta.cc tcpconnect.cc cleaner.cc job.cc bgtask.cc cacheman.cc conn.cc conserver.cc
-    expiration.cc lockable.cc maintenance.cc mirror.cc pkgimport.cc showinfo.cc evabase.cc dnsiter.cc ebrunner.cc httpdate.cc
-    csmapping.cc acregistry.cc acerrno.cc
+    fileitem.cc filereader.cc header.cc meta.cc tcpconnect.cc cleaner.cc lockable.cc evabase.cc dnsiter.cc ebrunner.cc httpdate.cc
+    csmapping.cc acerrno.cc
+    ${SERVER_SPECIFIC_SRCS}
     ${ALL_HEADERS})
-set(ACNG_SRCS apt-cacher.cc)
+
+# XXX: SERVER_SPECIFIC_SRCS should be only part of the target below, not shared set. To be changed when symbol export is fixed.
+set(ACNG_SRCS apt-cacher.cc )
 
 if(SUP_STATIC)
+        message("-- Configuring shared code as STATIC lib")
 ADD_LIBRARY(supacng STATIC ${SHAREDSRCS})
 else()
+        message("-- Configuring shared code as DYNAMIC lib")
 ADD_LIBRARY(supacng SHARED ${SHAREDSRCS})
 add_definitions(-DACNG_CORE_IN_SO)
 endif()

@@ -16,7 +16,7 @@
 namespace acng
 {
 
-class tSpecOpDetachable : public tSpecialRequest
+class ACNG_API tSpecOpDetachable : public tSpecialRequest
 {
 public:
 	// forward all constructors, no specials here
