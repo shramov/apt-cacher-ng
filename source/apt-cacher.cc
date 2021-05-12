@@ -243,9 +243,6 @@ void term_handler(evutil_socket_t signum, short what, void *arg)
 
 void CloseAllCachedConnections();
 
-ACNG_API void SetupCleaner();
-ACNG_API void TeardownCleaner();
-
 struct tAppStartStop
 {
 	evabase m_base;
@@ -277,6 +274,7 @@ struct tAppStartStop
 		SetupCacheDir();
 
 		//DelTree(cfg::cacheDirSlash + sReplDir);
+		SetupServerItemRegistry();
 		SetupCleaner();
 
 		if (conserver::Setup() <= 0)
@@ -313,6 +311,8 @@ struct tAppStartStop
 			unlink(cfg::pidfile.c_str());
 		conserver::Shutdown();
 		CloseAllCachedConnections();
+		TeardownServerItemRegistry();
+		TeardownCleaner();
 		log::close(false);
 		globalSslDeInit();
 	}

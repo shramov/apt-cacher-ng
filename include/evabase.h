@@ -22,6 +22,12 @@ private:
 	CDnsBase(evdns_base *pBase) : m_base(pBase) {}
 };
 
+struct t_event_desctor {
+	evutil_socket_t fd;
+	event_callback_fn callback;
+	void *arg;
+};
+
 /**
  * This class is an adapter for general libevent handling, roughly fitting it into conventions of the rest of ACNG.
  * Partly static and partly dynamic, for pure convenience! Expected to be a singleton anyway.
@@ -50,6 +56,8 @@ using tCancelableAction = std::function<void(bool)>;
  * Push an action into processing queue. In case operation is not possible, runs the action with the cancel flag (bool argument set to true)
  */
 static void Post(tCancelableAction&&);
+
+static void addTeardownAction(event_callback_fn matchedCback, std::function<void(t_event_desctor)> action);
 
 evabase();
 ~evabase();

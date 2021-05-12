@@ -32,6 +32,7 @@ target_link_libraries(ut_algos ${TEST_LIB_SET})
 add_executable(ut_cacheman
         src/ut_cacheman.cc
         src/main.cc
+        ../source/cacheman.cc
         )
 
 target_link_libraries(ut_cacheman ${TEST_LIB_SET})
@@ -48,6 +49,7 @@ target_link_libraries(ut_http ${TEST_LIB_SET})
 add_executable(it_job
         src/it_job.cc
         src/main.cc
+        ../source/job.cc
         )
 target_link_libraries(it_job ${TEST_LIB_SET})
 

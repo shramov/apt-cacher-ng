@@ -56,7 +56,6 @@ bool g_bVerbose = false;
 
 namespace acng {
 extern std::shared_ptr<cleaner> g_victor;
-extern std::shared_ptr<IFileItemRegistry> g_registry;
 }
 
 // from sockio.cc in more recent versions
@@ -1033,9 +1032,7 @@ std::unordered_map<string, parm> parms = {
 int main(int argc, const char **argv)
 {
 	using namespace acng;
-	// ensure a harmless object just in case any activity wants to run anything there
-	g_registry = acng::MakeRegularItemRegistry();
-	g_victor.reset(new cleaner(false, g_registry));
+	g_victor.reset(new cleaner(false, SHARED_PTR<IFileItemRegistry>()));
 
 	string exe(argv[0]);
 	unsigned aOffset=1;

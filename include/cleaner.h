@@ -62,6 +62,10 @@ private:
 	bool m_noop=false;
 };
 
+// global cleaner instance handling
+ACNG_API void SetupCleaner();
+ACNG_API void TeardownCleaner();
+
 }
 
 #endif /* CLEANER_H_ */
