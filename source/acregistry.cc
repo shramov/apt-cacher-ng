@@ -241,15 +241,14 @@ TFileItemHolder TFileItemRegistry::Create(cmstring &sPathUnescaped, ESharingHow 
 			if (0 == unlink(pathAbs.c_str()) || errno != ENOENT)
 				return abandon_replace();
 			else // unlink failed but file was there
-				log::err(string("Failure to erase stale file item for ") + pathAbs + " - errno: " + tErrnoFmter());
+				USRERR("Failure to erase stale file item for "sv << pathAbs << " - errno: "sv << tErrnoFmter());
 		}
 		else
 		{
 			if (ENOENT == errno) // XXX: replPathAbs doesn't exist but ignore for now
 				return abandon_replace();
 
-			log::err(string("Failure to move file out of the way into ")
-					 + replPathAbs + " - errno: " + tErrnoFmter());
+			USRERR("Failure to move file "sv << pathAbs << " out of the way or cannot create "sv  << replPathAbs << " - errno: "sv << tErrnoFmter());
 		}
 	}
 	catch (std::bad_alloc&)

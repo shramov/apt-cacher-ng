@@ -737,8 +737,7 @@ struct tDlJob
                 fileitem::EDestroyMode destruction = fileitem::EDestroyMode::KEEP) {
             m_bAllowStoreData = false;
 			mark_assigned();
-            log::err(tSS() << sPathRel << " response or storage error [" << message
-                     << "], last errno: " << tErrnoFmter());
+			USRERR(sPathRel << " response or storage error [" << message << "], last errno: " << tErrnoFmter());
             m_pStorage->DlSetError({503, mstring(message)}, destruction);
             return EResponseEval::BUSY_OR_ERROR;
         };
@@ -1405,7 +1404,7 @@ void CDlConn::WorkLoop()
 
 	if (fdWakeRead < 0 || fdWakeWrite < 0)
 	{
-		log::err("Error creating pipe file descriptors");
+		USRERR("Error creating pipe file descriptors");
 		return;
 	}
 

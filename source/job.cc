@@ -469,8 +469,9 @@ void job::Prepare(const header &h, string_view headBuf, cmstring& callerHostname
 	{
 		SetEarlySimpleResponse("403 Configuration error (confusing proxy mode) or prohibited port (see AllowUserPorts)"sv);
 	};
-	auto report_overload = [this]()
+	auto report_overload = [this](int line)
 	{
+		USRDBG("overload error, line " << line);
 		SetEarlySimpleResponse("503 Server overload, try later"sv);
 	};
 	auto report_invpath = [this]()
@@ -677,8 +678,8 @@ void job::Prepare(const header &h, string_view headBuf, cmstring& callerHostname
 															 ESharingHow::ALWAYS_TRY_SHARING, attr);
 		if( ! m_pItem.get())
 		{
-			USRDBG("Error creating file item for " << m_sFileLoc);
-			return report_overload();
+			USRERR("Error creating file item for " << m_sFileLoc << " -- check file permissions!");
+			return report_overload(__LINE__);
 		}
 
 		if(cfg::DegradedMode())
@@ -708,7 +709,7 @@ void job::Prepare(const header &h, string_view headBuf, cmstring& callerHostname
 			if(!m_pParentCon.SetupDownloader())
 			{
 				USRDBG( "Error creating download handler for "<<m_sFileLoc);
-				return report_overload();
+				return report_overload(__LINE__);
 			}
 
 			dbgline;
@@ -753,15 +754,15 @@ void job::Prepare(const header &h, string_view headBuf, cmstring& callerHostname
 			}
 			else
 			{
-				log::err(tSS() << "PANIC! Error creating download job for " << m_sFileLoc);
-				return report_overload();
+				USRERR("PANIC! Error creating download job for " << m_sFileLoc);
+				return report_overload(__LINE__);
 			}
 		}
 	}
 	catch (const std::bad_alloc&) // OOM, may this ever happen here?
 	{
 		USRDBG("Out of memory");
-		return report_overload();
+		return report_overload(__LINE__);
 	}
 	catch(const std::out_of_range&) // better safe...
 	{

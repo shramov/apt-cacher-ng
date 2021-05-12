@@ -158,7 +158,7 @@ void evabase::CheckDnsChange()
 
 	if (!newDnsBase)
 	{
-		log::err("ERROR: Failed to setup default DNS service!");
+		log::err("ERROR: Failed to setup default DNS service!"sv);
 		// ok, it's bad, but better keep the old nameserver
 		return;
 	}
@@ -175,7 +175,7 @@ void evabase::CheckDnsChange()
 		auto err = evdns_base_resolv_conf_parse(newDnsBase, cfg::dnsopts, cfg::dnsresconf.c_str());
 		if (err)
 		{
-			log::err(mstring("ERROR: Failed to initialize custom DNS! ") + evdns_err_to_string(err));
+			USRERR("ERROR: Failed to initialize custom DNS! " << evdns_err_to_string(err));
 
 			// we cannot fix it, new nameserver remains broken; keep the old one for now
 			// and if it was not configured before then the new situation is not better either

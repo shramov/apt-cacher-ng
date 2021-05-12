@@ -25,9 +25,11 @@ private:
 	t_logger operator=(const t_logger&);
 };
 #define USRDBG(msg) DBGQLOG(msg)
+#define USRERR(msg) DBGQLOG(msg)
 #else
 // print some extra things when user wants debug with non-debug build
 #define USRDBG(msg) { if(cfg::debug & log::LOG_DEBUG) {log::err( tSS()<<msg); } }
+#define USRERR(msg) {log::err( tSS()<<msg); }
 #endif
 
 namespace log

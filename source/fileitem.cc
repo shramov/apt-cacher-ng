@@ -53,8 +53,7 @@ void fileitem::DlRefCountDec(const tRemoteStatus& reason)
 	if (m_status < FIST_COMPLETE)
 	{
 		DlSetError(reason, m_eDestroy);
-		if (cfg::debug & log::LOG_MORE)
-			log::misc(string("Download of ") + m_sPathRel + " aborted");
+		USRDBG("Download of " << m_sPathRel << " aborted");
 	}
 }
 
@@ -68,9 +67,8 @@ uint64_t fileitem::TakeTransferCount()
 unique_fd fileitem::GetFileFd()
 {
 	LOGSTART("fileitem::GetFileFd");
-	setLockGuard
-
-			ldbg("Opening " << m_sPathRel);
+	setLockGuard;
+	USRDBG("Opening " << m_sPathRel);
 	int fd = open(SZABSPATH(m_sPathRel), O_RDONLY);
 
 #ifdef HAVE_FADVISE
@@ -198,15 +196,12 @@ std::pair<fileitem::FiStatus, tRemoteStatus> fileitem::WaitForFinish(unsigned ch
 inline void _LogWithErrno(const char *msg, const string & sFile)
 {
 	tErrnoFmter f;
-	log::err(tSS() << sFile <<
-			 " storage error [" << msg << "], last errno: " << f);
+	USRERR(sFile << " storage error [" << msg << "], last errno: " << f);
 }
 
 bool fileitem_with_storage::withError(string_view message, fileitem::EDestroyMode destruction)
 {
-	log::err(tSS() << m_sPathRel << " storage error [" << message
-			 << "], last errno: " << tErrnoFmter());
-
+	USRERR(m_sPathRel << " storage error [" << message << "], check file AND directory permissions, last errno: " << tErrnoFmter());
 	DlSetError({500, "Cache Error, check apt-cacher.err"}, destruction);
 	return false;
 }

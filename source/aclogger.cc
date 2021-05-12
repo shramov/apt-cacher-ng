@@ -343,11 +343,11 @@ inline deque<tRowData> GetStats()
 	for (auto& log : ExpandFilePattern(cfg::logdir + SZPATHSEP "apt-cacher*.log", false))
 	{
 		if (cfg::debug >= LOG_MORE)
-			cerr << "Reading log file: " << log << endl;
+			cerr << "Reading log file: "sv << log << endl;
 		filereader reader;
 		if (!reader.OpenFile(log))
 		{
-			log::err("Error opening a log file");
+			cerr << "Error opening log file "sv << log;
 			continue;
 		}
 		string sLine;

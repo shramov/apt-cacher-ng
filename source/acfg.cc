@@ -649,7 +649,7 @@ struct tHookHandler: public tRepoData::IHookHandler, public base_with_mutex
 			else if (!cmdCon.empty())
 			{
 				if (system(cmdCon.c_str()))
-					log::err(tSS() << "Warning: " << cmdCon << " returned with error code.");
+					USRERR("Warning: " << cmdCon << " returned with error code.");
 			}
 
 		}
@@ -1340,9 +1340,7 @@ time_t BackgroundCleanup()
 
 					if (system(hooks.cmdRel.c_str()))
 					{
-						log::err(
-								tSS() << "Warning: " << hooks.cmdRel
-										<< " returned with error code.");
+						USRERR("Warning: " << hooks.cmdRel << " returned with error code.");
 					}
 					hooks.downTimeNext = 0;
 				}

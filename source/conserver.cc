@@ -120,7 +120,7 @@ void do_accept(evutil_socket_t server_fd, short what, void* arg)
 		if (getnameinfo((struct sockaddr*) &addr, addrlen, hbuf, sizeof(hbuf),
 				pbuf, sizeof(pbuf), NI_NUMERICHOST|NI_NUMERICSERV))
 		{
-			log::err("ERROR: could not resolve hostname for incoming TCP host");
+			USRERR("ERROR: could not resolve hostname for incoming TCP host");
 			return;
 		}
 
@@ -354,7 +354,7 @@ int ACNG_API Setup()
 	unsigned nCreated = 0;
 
 	if (cfg::udspath.empty())
-		log::err("Not creating Unix Domain Socket, fifo_path not specified");
+		cerr << "Not creating Unix Domain Socket, fifo_path not specified";
 	else
 	{
 		string & sPath = cfg::udspath;
