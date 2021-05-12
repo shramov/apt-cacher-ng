@@ -474,6 +474,10 @@ void job::Prepare(const header &h, string_view headBuf, cmstring& callerHostname
 		USRDBG("overload error, line " << line);
 		SetEarlySimpleResponse("503 Server overload, try later"sv);
 	};
+	auto report_badcache = [this]()
+	{
+		SetEarlySimpleResponse("503 Error with cache data, please consult apt-cacher.err"sv);
+	};
 	auto report_invpath = [this]()
 	{
 		SetEarlySimpleResponse("403 Invalid path specification"sv);
@@ -679,7 +683,7 @@ void job::Prepare(const header &h, string_view headBuf, cmstring& callerHostname
 		if( ! m_pItem.get())
 		{
 			USRERR("Error creating file item for " << m_sFileLoc << " -- check file permissions!");
-			return report_overload(__LINE__);
+			return report_badcache();
 		}
 
 		if(cfg::DegradedMode())
