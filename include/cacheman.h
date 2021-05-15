@@ -160,7 +160,7 @@ SUTPROTECTED:
 	std::unordered_map<mstring,bool> m_forceKeepInTrash;
 
 	bool GetAndCheckHead(cmstring & sHeadfile, cmstring &sFilePathRel, off_t nWantedSize);
-    virtual bool Inject(cmstring &fromRel, cmstring &toRel, bool bSetIfileFlags=true, off_t checkSize = -1, LPCSTR forceOrig = nullptr);
+	virtual bool Inject(cmstring &fromRel, cmstring &toRel, bool bSetIfileFlags, off_t contLen, tHttpDate lastModified, LPCSTR forceOrig = nullptr);
 
 	void PrintStats(cmstring &title);
 	mstring m_processedIfile;

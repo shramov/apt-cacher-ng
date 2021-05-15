@@ -65,7 +65,10 @@ apt-cacher-ng (3.7) AND-SOMETIMES-THE-BEAR-EATS-YOU; urgency=low
   * Better error messages stored in apt-cacher.err, helping to track down
     filesystem issues
   * Considering more than two IPs simultaneously when initiating connection,
-    and running this on IO thread, reducing number of select() calls
+    and running this task on IO thread, reducing number of select() calls
+  * When recreating by-hash siblings in the archive, try to restore the
+    modification date where possible, therefore probably avoid redownloading
+    them for (rare) clients which don't follow the by-hash scheme
 
  -- Eduard Bloch <blade@debian.org>  Tue, 11 May 2021 18:17:13 +0200
 

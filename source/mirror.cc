@@ -438,7 +438,7 @@ void pkgmirror::HandlePkgEntry(const tRemoteFileInfo &entry)
 							}
 						}
 
-                        bhaveit = Inject(TEMPRESULT, tgtRel, false, entry.fpr.size, forceOrig);
+						bhaveit = Inject(TEMPRESULT, tgtRel, false, entry.fpr.size, tHttpDate(1), forceOrig);
 
 						if(bhaveit)
 						{

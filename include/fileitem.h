@@ -179,12 +179,12 @@ protected:
 	virtual void DlFinish(bool forceUpdateHeader);
 
 	/**
-	 * @brief Mark this item as defect so its data will be invalidate in cache when released
+	 * @brief Mark this item as defect, optionally so that its data will be invalidated in cache when released
 	 *
-	 * @param erase Delete the internal files if true, only truncate if false
+	 * @param destroyMode Decides the future of data existing in the cache
 	 */
 
-    virtual void DlSetError(const tRemoteStatus& errState, EDestroyMode);
+	virtual void DlSetError(const tRemoteStatus& errState, EDestroyMode destroyMode);
 
 	// flag for shared objects and a self-reference for fast and exact deletion, together with m_globRef
 	std::weak_ptr<IFileItemRegistry> m_owner;
