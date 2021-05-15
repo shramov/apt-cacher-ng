@@ -8,6 +8,7 @@
 #include <conn.h>
 
 using namespace acng;
+using namespace std;
 
 class t_conn_dummy : public ISharedConnectionResources
 {

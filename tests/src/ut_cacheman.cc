@@ -44,6 +44,12 @@ protected:
 #endif
 };
 
+std::string curDir()
+{
+	char pbuf[PATH_MAX];
+	return getcwd(pbuf, _countof(pbuf));
+}
+
 
 TEST(cacheman, pdiff)
 {
@@ -56,6 +62,10 @@ TEST(cacheman, pdiff)
 		{}
 		virtual std::shared_ptr<IFileItemRegistry> GetItemRegistry() override
 		{
+			cfg::cachedir = curDir();
+			cfg::cacheDirSlash = cfg::cachedir + "/";
+			if (!g_registry)
+				SetupServerItemRegistry();
 			return g_registry;
 		};
 	} connStuff;
@@ -69,7 +79,7 @@ TEST(cacheman, pdiff)
 	};
 	testman tm(opts);
 	tStrDeq input { "_tmp/base.doesntexist.Packages.xz" };
-
+	cfg::suppdir = curDir();
 	// those files are not registered, should bounce
 	ASSERT_EQ(-1, tm.PatchOne(IPATH, input));
 	cacheman::tIfileAttribs& setter1 = tm.SetFlags(input.front());
