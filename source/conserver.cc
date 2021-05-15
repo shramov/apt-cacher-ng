@@ -246,11 +246,10 @@ void SetupConAndGo(unique_fd man_fd, const char *szClientName, const char *portN
 	}
 }
 
-bool bind_and_listen(evutil_socket_t mSock, const evutil_addrinfo *pAddrInfo, cmstring& port)
+bool bind_and_listen(evutil_socket_t mSock, const addrinfo *pAddrInfo, cmstring& port)
 {
-#warning format it
-	//			LOGSTARTFUNCxs(formatIpPort(pAddrInfo));
 	LOGSTARTFUNCs;
+	USRDBG("Binding " << acng_addrinfo::formatIpPort(pAddrInfo->ai_addr, pAddrInfo->ai_addrlen, pAddrInfo->ai_family));
 	if ( ::bind(mSock, pAddrInfo->ai_addr, pAddrInfo->ai_addrlen))
 	{
 		log::flush();
@@ -385,7 +384,7 @@ int ACNG_API Setup()
 		auto sockFd = socket(PF_UNIX, SOCK_STREAM, 0);
 		if(sockFd < 0) die();
 
-		evutil_addrinfo ai;
+		addrinfo ai;
 		ai.ai_addr =(struct sockaddr *) &addr_unx;
 		ai.ai_addrlen = size;
 		ai.ai_family = PF_UNIX;

@@ -30,10 +30,10 @@ static const unsigned DNS_ERROR_KEEP_MAX_TIME = 10;
 static const string dns_error_status_prefix("DNS error, ");
 
 
-std::string formatIpPort(const sockaddr *pSock, socklen_t sockLen, int ipFamily)
+std::string acng_addrinfo::formatIpPort(const sockaddr *pAddr, socklen_t addrLen, int ipFamily)
 {
 	char buf[300], pbuf[30];
-	getnameinfo(pSock, sockLen, buf, sizeof(buf), pbuf, sizeof(pbuf),
+	getnameinfo(pAddr, addrLen, buf, sizeof(buf), pbuf, sizeof(pbuf),
 			NI_NUMERICHOST | NI_NUMERICSERV);
 	return string(ipFamily == PF_INET6 ? "[" : "") +
 			buf +
@@ -132,7 +132,7 @@ void CAddrInfo::cb_dns(void *arg,
 		}
 #ifdef DEBUG
 		for (auto p = results->nodes; p; p = p->ai_next)
-			DBGQLOG(formatIpPort(p->ai_addr, p->ai_addrlen, p->ai_family));
+			DBGQLOG("Resolved: " << acng_addrinfo::formatIpPort(p->ai_addr, p->ai_addrlen, p->ai_family));
 #endif
 		auto out = ret->m_orderedInfos;
 		auto takeV4 = cfg::conprotos[0] == PF_INET || cfg::conprotos[0] == PF_UNSPEC

@@ -25,6 +25,7 @@ struct acng_addrinfo
 	socklen_t ai_addrlen = 0;
 	sockaddr_storage ai_addr;
 	acng_addrinfo(ares_addrinfo_node*);
+	static std::string formatIpPort(const sockaddr *pAddr, socklen_t addrLen, int ipFamily);
 };
 
 class CAddrInfo
