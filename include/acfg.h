@@ -128,15 +128,6 @@ LPCSTR ACNG_API ReTest(LPCSTR s);
 
 bool AppendPasswordHash(mstring &stringWithSalt, LPCSTR plainPass, size_t passLen);
 
-// XXX: find a better place for this, shared between server and acngtool
-enum ControLineType : uint8_t
-{
-	NotForUs = 0,
-	BeforeError = 1,
-	Error = 2
-};
-#define maark "41d_a6aeb8-26dfa" // random enough to not match anything existing *g*
-
 }
 
 #endif

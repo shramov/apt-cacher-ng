@@ -80,6 +80,14 @@ public:
 };
 #endif // DEBUG
 
+enum ControLineType : uint8_t
+{
+	NotForUs = 0,
+	BeforeError = 1,
+	Error = 2
+};
+#define maark "41d_a6aeb8-26dfa" // random enough to not match anything existing *g*
+
 }
 
 #endif /* BGTASK_H_ */

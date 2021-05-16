@@ -37,6 +37,7 @@
 #include "fileio.h"
 #include "acregistry.h"
 #include "sockio.h"
+#include "bgtask.h"
 
 /*
  * #ifdef HAVE_SSL
@@ -128,34 +129,6 @@ struct ACNG_API CPrintItemFactory : public IFitemFactory
 // not relevant for the actual connection since it's rerouted through TUdsFactory
 #define FAKE_UDS_HOSTNAME "UNIX-DOMAIN-SOCKET"
 
-struct verbprint
-{
-	int cnt = 0;
-	void dot()
-	{
-		if (!g_bVerbose)
-			return;
-		cnt++;
-		cerr << '.';
-	}
-	void msg(cmstring& msg)
-	{
-		if (!g_bVerbose)
-			return;
-		fin();
-		cerr << msg << endl;
-
-	}
-	void fin()
-	{
-		if (!g_bVerbose)
-			return;
-		if (cnt)
-			cerr << endl;
-		cnt = 0;
-	}
-} vprint;
-
 /**
  * Create a special processor which looks for error markers in the download stream and
  * reports the result afterwards.
@@ -163,7 +136,7 @@ struct verbprint
 
 class tRepItem: public fileitem
 {
-	tSS lineBuf;
+	mstring m_prevRest;
 	string m_key = maark;
 	tStrDeq m_warningCollector;
 
@@ -172,79 +145,72 @@ public:
 	tRepItem() : fileitem("<STREAM>")
 	{
 		m_nSizeChecked = m_nSizeCachedInitial = 0;
-		lineBuf.setsize(1 << 16);
-		memset(lineBuf.wptr(), 0, 1 << 16);
 	}
 	virtual FiStatus Setup() override
 	{
 		return m_status = FIST_INITED;
 	}
-	virtual unique_fd GetFileFd() override
-	{
-		return unique_fd();
-	}
-	ssize_t SendData(int, int, off_t&, size_t) override
-	{
-		return 0;
-	}
 
-	void Analyze()
-	{
-		/*
-		 *
+protected:
+	/*
+	 *
 <span class="ERROR">Found errors during processing, aborting as requested.</span>
 <!--
 41d_a6aeb8-26dfa2Errors found, aborting expiration...
 -->
 <br><b>End of log output. Please reload to run again.</b>
 */
-#warning Still proper tests for this protocol needed!
-		tSplitWalk lineSplit(lineBuf.view(), "\n");
-		for(string_view svLine: lineSplit)
-		{
-			vprint.dot();
-			trimFront(svLine);
-			if (startsWith(svLine, m_key))
-			{
-				// that's for us... "<key><type> content\n"
-				svLine.remove_prefix(m_key.size());
-				auto val = svtol(svLine);
-				if (val < 0)
-					break;
-				switch (ControLineType(val))
-				{
-				case ControLineType::BeforeError:
-					m_warningCollector.emplace_back(svLine);
-					vprint.msg(m_warningCollector.back());
-					break;
-				case ControLineType::Error:
-				{
-					if (!g_bVerbose) // printed before
-					{
-						for (auto l : m_warningCollector)
-							cerr << l << endl;
-					}
-					cerr << svLine << endl;
-					m_warningCollector.clear();
-					vprint.fin();
-					break;
-				}
-				default:
-					continue;
-				}
-			}
-		}
-	}
-
-protected:
-	void DlFinish(bool) override
-	{
-		m_status = FIST_COMPLETE;
-		vprint.fin();
-	}
 	bool DlAddData(acng::string_view chunk, lockuniq&) override
 	{
-		lineBuf << chunk;
+		// glue with the old prefix if needed, later move remainder back the rest buffer if needed
+		string_view input;
+		if (!m_prevRest.empty())
+		{
+			m_prevRest += chunk;
+			input = m_prevRest;
+		}
+		else
+			input = chunk;
+
+		while (true)
+		{
+			auto pos = input.find(m_key);
+			if (pos == stmiss)
+			{
+				// drop all remaining input except for the unfinished line
+				pos = input.rfind('\n');
+				if (pos != stmiss)
+				{
+					input.remove_prefix(pos + 1);
+					m_prevRest = mstring(input);
+				}
+				return true;
+			}
+			input.remove_prefix(pos);
+			auto nEnd = input.find('\n');
+			if (nEnd == stmiss)
+			{
+				// our message but unfinished
+				m_prevRest = mstring(input);
+				return true;
+			}
+			// decode header and get a plain message view
+			auto msgType = ControLineType(input[m_key.size()]);
+			string_view msg(input.data() + m_key.size() + 1, nEnd - m_key.size() - 1);
+			input.remove_prefix(msg.size());
+			if (msg.empty())
+				continue;
+			if (msgType == ControLineType::BeforeError)
+			{
+				m_warningCollector.emplace_back(msg);
+			}
+			else if(msgType == ControLineType::Error)
+			{
+					for (auto l : m_warningCollector)
+						cerr << l << endl;
+					cerr << msg << endl;
+			}
+		}
 		return true;
 	}
 };
@@ -649,7 +615,6 @@ int maint_job()
 		TUdsFactory udsFac;
 		evabaseFreeFrunner eb(udsFac, true);
 		response_ok = DownloadItem(url, eb.getDownloader(), fi);
-		fi->Analyze();
 		DBGQLOG("UDS result: " << response_ok)
 	}
 	if(!response_ok && try_tcp)
@@ -668,7 +633,6 @@ int maint_job()
 			evabaseFreeFrunner eb(g_tcp_con_factory, true);
 			auto fi = make_shared<tRepItem>();
 			response_ok = DownloadItem(url, eb.getDownloader(), fi);
-			fi->Analyze();
 			if (response_ok)
 				break;
 		}
