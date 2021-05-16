@@ -144,10 +144,23 @@ void CAddrInfo::cb_dns(void *arg,
 		ares_addrinfo_node* q4[MAX_ADDR_PER_FAMILY];
 		ares_addrinfo_node* q6[MAX_ADDR_PER_FAMILY];
 		unsigned n4=0, n6=0;
+
+#ifdef DEDUP
+		// strange things, sometimes "localhost" is resolved twice for each family, but the difference is apparently very subtle and is somewhere in the extra bytes of ai_addr
+		std::deque<string_view> dedup;
+#endif
 		for (auto pCur = results->nodes; pCur; pCur = pCur->ai_next)
 		{
 			if (pCur->ai_socktype != SOCK_STREAM || pCur->ai_protocol != IPPROTO_TCP)
 				continue;
+
+#ifdef DEDUP
+			string_view svAddr((LPCSTR) & pCur->ai_addr, pCur->ai_addrlen);
+			auto itExist = find(dedup.begin(), dedup.end(), svAddr);
+			if (itExist != dedup.end())
+				continue;
+			dedup.push_back(svAddr);
+#endif
 			if(n4 < MAX_ADDR_PER_FAMILY && takeV4)
 			{
 				if(pCur->ai_family == PF_INET)

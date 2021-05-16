@@ -24,7 +24,8 @@ public:
 		if (withDownloader)
 			dl = dlcon::CreateRegular(pDlconFac);
 		evthr = std::thread([&]() { m_eb->MainLoop(); });
-		dlthr = std::thread([&]() {dl->WorkLoop();});
+		if (withDownloader)
+			dlthr = std::thread([&]() {dl->WorkLoop();});
 	}
 
 	~Impl()

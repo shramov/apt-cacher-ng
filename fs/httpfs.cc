@@ -22,6 +22,7 @@
 #include "fileio.h"
 #include "dlcon.h"
 #include "acregistry.h"
+#include "ac3rdparty.h"
 
 #ifdef HAVE_SYS_MOUNT_H
 #include <sys/param.h>
@@ -211,90 +212,6 @@ protected:
 		return data.empty();
 	}
 };
-
-#if 0
-	int fetchHot(char *retbuf, const char *, off_t pos, off_t len)
-	{
-		if (pos < bufStart)
-			return -ECONNABORTED;
-		auto inBuf = buf.size();
-		// focus on the start and drop useless data
-		if (pos >= bufStart + inBuf)
-		{
-			// outside current range?
-			bufStart += inBuf;
-			buf.clear();
-		}
-		else if (pos > bufStart && pos < bufStart + inBuf)
-		{
-			// part or whole chunk is available
-			auto drop = pos - bufStart;
-			buf.drop(drop);
-			bufStart += drop;
-		}
-		if ( m_status != FIST_DLRECEIVING && pos+len > bufStart + off_t(buf.size()))
-		{
-			return -ECONNABORTED;
-		}
-		return -ECONNABORTED;
-	}
-
-
-
-/** @brief Deliver some agent from the pool which MAY have the data in the pipe which we need.
-	 */
-SHARED_PTR<tDlStream> getAgent(LPCSTR path, off_t pos)
-{
-	mg g(mx_streams);
-	// if posisble, get one which fits
-	auto its = active_agents.equal_range(path);
-	auto spare_agent = active_agents.end();
-
-	if (its.first != active_agents.end())
-	{
-		for (auto it = its.first; it != its.second; ++it)
-		{
-			auto fi = static_pointer_cast<tConsumingItem>(it->second->hodler.get());
-			if (!fi)
-				continue;
-			if ( pos >= fi->bufStart)
-			{
-				SHARED_PTR<tDlStream> ret = move(it->second);
-				active_agents.erase(it);
-				return ret;
-			}
-			// can we recycle idle resources if we have to create a new one?
-
-			// those are finalized so we can use them and they are most likely to still have a hot connection (FILO, not FIFO, XXX: check efficiency)
-			if (it->second->kind != tDlStream::MID)
-			{
-				spare_agent = it;
-			}
-			// XXX: if not donor found in this range, check others too? Might cause pointless reconnects
-		}
-	}
-	auto ret = make_shared<tDlStream>();
-	if (spare_agent != active_agents.end())
-	{
-		ret->dler.swap(spare_agent->second->dler);
-		ret->runner.swap(spare_agent->second->runner);
-	}
-	else
-	{
-		ret->dler = dlcon::CreateRegular();
-		ret->runner = std::thread([&]() {ret->dler->WorkLoop();});
-	}
-	return ret;
-}
-
-void returnAgent(LPCSTR path, SHARED_PTR<tDlStream> && agent)
-{
-	mg g(mx_streams);
-	if (active_agents.size() > MAX_DL_STREAMS)
-		active_agents.erase(active_agents.begin()); // can purge anyone, should be random enough
-	active_agents.insert(make_pair(path, move(agent)));
-}
-#endif
 
 struct tDlDesc
 {
@@ -701,6 +618,8 @@ void _ExitUsage() {
 int main(int argc, char *argv[])
 {
 	using namespace acng;
+	ac3rdparty libInit;
+
 	memset(&acngfs_oper, 0, sizeof(acngfs_oper));
 	acngfs_oper.getattr	= acngfs_getattr;
 	acngfs_oper.fgetattr	= acngfs_fgetattr;
@@ -788,14 +707,33 @@ int main(int argc, char *argv[])
 	// restore application arguments
 
 	evabaseFreeFrunner eb(g_tcp_con_factory, false);
+
+#ifdef HAVE_DLOPEN
+	auto pLib = dlopen("libfuse.so.2", RTLD_LAZY);
+	if(!pLib)
+	{
+		cerr << "Couldn't find libfuse.so.2" <<endl;
+		return -1;
+	}
+	auto pFuseSetup = (decltype(&fuse_setup)) dlsym(pLib, "fuse_setup");
+	auto pFuseLoop = (decltype(&fuse_loop_mt)) dlsym(pLib, "fuse_loop_mt");
+	if(!pFuseSetup || !pFuseLoop)
+	{
+		cerr << "Error loading libfuse.so.2" <<endl;
+		return -2;
+	}
+#else
+	auto pFuseSetup = &fuse_setup;
+	auto pFuseLoop = &fuse_loop_mt;
+#endif
+
 	int mt = 1;
-	/** This is the part of fuse_main() before the event loop */
-	auto fs = fuse_setup(fuseArgs.size(), &fuseArgs[0],
-				&acngfs_oper, sizeof(acngfs_oper),
-				&argv[2], &mt, nullptr);
+	auto fs = (*pFuseSetup) (fuseArgs.size(), &fuseArgs[0],
+			&acngfs_oper, sizeof(acngfs_oper),
+			&argv[2], &mt, nullptr);
 	if (!fs)
 		return 2;
-	auto ret = fuse_loop_mt(fs);
+	auto ret = (*pFuseLoop) (fs);
 	// shutdown agents in reliable fashion
 	spare_agents.clear();
 	return ret;
