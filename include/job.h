@@ -6,6 +6,8 @@
 #include <sys/types.h>
 #include "acregistry.h"
 
+#include <set>
+
 namespace acng
 {
 
@@ -94,7 +96,7 @@ public:
 #endif
 };
 
-class tTraceData: public tStrSet, public base_with_mutex
+class tTraceData: public std::set<mstring>, public base_with_mutex
 {
 public:
 	static tTraceData& getInstance();
