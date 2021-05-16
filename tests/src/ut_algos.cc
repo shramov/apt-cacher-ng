@@ -3,6 +3,9 @@
 #include "csmapping.h"
 #include "acfg.h"
 
+#include "ahttpurl.h"
+#include "astrop.h"
+
 #include "gmock/gmock.h"
 
 #include <unordered_map>

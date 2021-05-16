@@ -27,7 +27,7 @@ class ISharedConnectionResources;
 class ACNG_API tSpecialRequest
 {
 public:
-	enum eMaintWorkType : char
+	enum eMaintWorkType : uint8_t
 	{
 		workNotSpecial =0,
 

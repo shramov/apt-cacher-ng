@@ -5,10 +5,8 @@
  *      Author: ed
  */
 
-
-#define LOCAL_DEBUG
 #include "debug.h"
-
+#include "remotedb.h"
 #include "mirror.h"
 #include "header.h"
 #include "dirwalk.h"
@@ -282,7 +280,7 @@ inline bool pkgmirror::ConfigDelta(cmstring &sPathRel)
 	if (m_repCutLen != stmiss)
 	{
 		vname.resize(m_repCutLen);
-		const cfg::tRepoData *pRepo = cfg::GetRepoData(vname);
+		const auto *pRepo = remotedb::GetInstance().GetRepoData(vname);
 #ifdef DEBUG
 		if(cfg::debug & log::LOG_MORE)
 		{

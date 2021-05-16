@@ -3,6 +3,7 @@
 #include "fileio.h"
 #include "sockio.h"
 #include "acfg.h"
+#include "meta.h"
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>

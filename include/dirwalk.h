@@ -1,10 +1,13 @@
 #ifndef DIRWALK_H_
 #define DIRWALK_H_
 
-#include "config.h"
-#include <string>
+#include "actypes.h"
+#include <functional>
 
-#include <sys/stat.h>
+extern "C"
+{
+struct stat;
+}
 
 namespace acng
 {

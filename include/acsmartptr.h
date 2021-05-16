@@ -8,7 +8,7 @@
 #ifndef INCLUDE_ACSMARTPTR_H_
 #define INCLUDE_ACSMARTPTR_H_
 
-#include <meta.h>
+#include "actypes.h"
 
 namespace acng {
 

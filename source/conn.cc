@@ -12,7 +12,6 @@
 #include "acbuf.h"
 #include "tcpconnect.h"
 #include "cleaner.h"
-#include "conserver.h"
 
 #include "lockable.h"
 #include "sockio.h"
@@ -31,6 +30,9 @@ using namespace std;
 
 namespace acng
 {
+namespace conserver {
+void FinishConnection(int);
+}
 
 class conn::Impl
 {
@@ -477,7 +479,7 @@ bool conn::Impl::SetupDownloader()
 
 	try
 	{
-		m_pDlClient = dlcon::CreateRegular();
+		m_pDlClient = dlcon::CreateRegular(g_tcp_con_factory);
 		if(!m_pDlClient)
 			return false;
 		auto pin = m_pDlClient;

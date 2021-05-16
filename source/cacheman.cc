@@ -13,7 +13,7 @@
 #include "dirwalk.h"
 #include "header.h"
 #include "job.h"
-
+#include "remotedb.h"
 #include "fileio.h"
 #include <errno.h>
 #include <unistd.h>
@@ -261,7 +261,7 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 	const tHttpUrl* fallbackUrl = nullptr;
 	fileitem::FiStatus initState = fileitem::FIST_FRESH;
 
-	cfg::tRepoResolvResult repinfo;
+	tRepoResolvResult repinfo;
 	auto dler = GetDlRes().SetupDownloader();
 	if (!dler)
 		return false;
@@ -289,7 +289,7 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 	tHttpUrl parserPath, parserHead;
 	// alternatives!
 	const tHttpUrl *pResolvedDirectUrl=nullptr;
-	cfg::tRepoResolvResult repoSrc;
+	tRepoResolvResult repoSrc;
 
 	std::pair<fileitem::FiStatus, tRemoteStatus> dlres;
 
@@ -358,7 +358,7 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 				<< " and path: " << parserPath.sPath << ", ok? " << bCachePathAsUriPlausible);
 
 		if(!cfg::stupidfs && bCachePathAsUriPlausible
-				&& nullptr != (repoSrc.repodata = cfg::GetRepoData(parserPath.sHost))
+				&& nullptr != (repoSrc.repodata = remotedb::GetInstance().GetRepoData(parserPath.sHost))
 				&& !repoSrc.repodata->m_backends.empty())
 		{
 			ldbg("will use backend mode, subdirectory is path suffix relative to backend uri");
@@ -374,14 +374,16 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 			dbgline;
 			if(bCachePathAsUriPlausible) // default option, unless the next check matches
 			{
-				pResolvedDirectUrl = parserPath.NormalizePath();
+				StrSubst(parserPath.sPath, "//", "/");
+				pResolvedDirectUrl = &parserPath;
 			}
 			// and prefer the source from xorig which is likely to deliver better result
 			if(hor.h[header::XORIG] && parserHead.SetHttpUrl(hor.h[header::XORIG], false))
 			{
 				dbgline;
 				fallbackUrl = pResolvedDirectUrl;
-				pResolvedDirectUrl = parserHead.NormalizePath();
+				StrSubst(parserPath.sPath, "//", "/");
+				pResolvedDirectUrl = &parserHead;
 			}
 			else if(sGuessedFrom
 					&& hor.LoadFromFile(SABSPATH(*sGuessedFrom + ".head"))
@@ -406,7 +408,10 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 					refURL += sFilePathRel.substr(spos);
 					//refURL.replace(urlSlashPos, chopLen, sPathSep.substr(spos));
 					if(parserHead.SetHttpUrl(refURL, false))
-						pResolvedDirectUrl = parserHead.NormalizePath();
+					{
+						StrSubst(parserPath.sPath, "//", "/");
+						pResolvedDirectUrl = &parserHead;
+					}
 				}
 			}
 
@@ -422,7 +427,7 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 	if (pResolvedDirectUrl)
 	{
 		dbgline;
-		repinfo = cfg::GetRepNameAndPathResidual(*pResolvedDirectUrl);
+		repinfo = remotedb::GetInstance().GetRepNameAndPathResidual(*pResolvedDirectUrl);
 		if(repinfo.repodata && !repinfo.repodata->m_backends.empty())
 		{
 			dbgline;
@@ -432,9 +437,9 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 	}
 
 	if (pResolvedDirectUrl)
-		dler->AddJob(pFi, tHttpUrl(*pResolvedDirectUrl));
+		dler->AddJob(pFi, *pResolvedDirectUrl);
 	else
-		dler->AddJob(pFi, decltype (repoSrc) (repoSrc));
+		dler->AddJob(pFi, repoSrc);
 	dlres = pFi->WaitForFinish(1, [&](){ SendChunk("."); return true; } );
     if (dlres.first == fileitem::FIST_COMPLETE && dlres.second.code == 200)
 	{

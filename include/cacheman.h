@@ -2,7 +2,6 @@
 #define _CACHEMAN_H_
 
 #include "config.h"
-#include "meta.h"
 #include "acfg.h"
 #include "dirwalk.h"
 #include "maintenance.h"

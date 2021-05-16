@@ -3,6 +3,7 @@
 #include "debug.h"
 #include "meta.h"
 #include "acfg.h"
+#include "remotedb.h"
 
 #include "job.h"
 #include <cstdio>
@@ -224,6 +225,11 @@ public:
 };
 
 static const string miscError(" [HTTP error, code: ");
+
+job::job(ISharedConnectionResources &pParent) : m_pParentCon(pParent), m_eMaintWorkType(tSpecialRequest::workNotSpecial)
+{
+
+}
 
 job::~job()
 {
@@ -658,7 +664,7 @@ void job::Prepare(const header &h, string_view headBuf, cmstring& callerHostname
 		
 		// got something valid, has type now, trace it
 		USRDBG("Processing new job, " << h.getRequestUrl());
-		auto repoSrc = cfg::GetRepNameAndPathResidual(theUrl);
+		auto repoSrc = remotedb::GetInstance().GetRepNameAndPathResidual(theUrl);
 		if(repoSrc.psRepoName && !repoSrc.psRepoName->empty())
 			m_sFileLoc = *repoSrc.psRepoName + SZPATHSEP + repoSrc.sRestPath;
 		else
@@ -806,7 +812,7 @@ job::eJobResult job::SendData(int confd, bool haveMoreJobs)
 	}
 	if (m_eMaintWorkType != tSpecialRequest::eMaintWorkType::workNotSpecial)
 	{
-		tSpecialRequest::RunMaintWork(m_eMaintWorkType, m_sFileLoc, confd, &m_pParentCon);
+		tSpecialRequest::RunMaintWork((tSpecialRequest::eMaintWorkType) m_eMaintWorkType, m_sFileLoc, confd, &m_pParentCon);
 		return return_discon(); // just stop and close connection
 	}
 

@@ -12,6 +12,7 @@
 
 #include "meta.h"
 #include "tcpconnect.h"
+#include "ahttpurl.h"
 
 #include "acfg.h"
 #include "caddrinfo.h"
@@ -50,7 +51,7 @@ namespace acng
 
 ACNG_API dl_con_factory g_tcp_con_factory;
 
-tcpconnect::tcpconnect(cfg::tRepoData::IHookHandler *pObserver) : m_pStateObserver(pObserver)
+tcpconnect::tcpconnect(tRepoUsageHooks *pObserver) : m_pStateObserver(pObserver)
 {
 	if(pObserver)
 		pObserver->OnAccess();
@@ -113,7 +114,7 @@ ACNG_API void CloseAllCachedConnections()
 }
 
 tDlStreamHandle dl_con_factory::CreateConnected(cmstring &sHostname, cmstring &sPort,
-		mstring &sErrOut, bool *pbSecondHand, cfg::tRepoData::IHookHandler *pStateTracker
+		mstring &sErrOut, bool *pbSecondHand, tRepoUsageHooks *pStateTracker
 		,bool bSsl, int timeout, bool nocache) const
 {
 	LOGSTARTFUNCsx(sHostname, sPort, bSsl);

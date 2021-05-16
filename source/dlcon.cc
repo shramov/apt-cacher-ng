@@ -5,6 +5,8 @@
 #include "lockable.h"
 #include "fileitem.h"
 #include "acfg.h"
+#include "meta.h"
+#include "remotedb.h"
 #include "acbuf.h"
 
 #include <unistd.h>
@@ -86,7 +88,7 @@ struct tDlJob
 #define HINT_TGTCHANGE 256
 #define HINT_RECONNECT_SOON 512
 
-	const cfg::tRepoData *m_pRepoDesc = nullptr;
+	const tRepoData *m_pRepoDesc = nullptr;
 
 	/*!
 	 * Returns a reference to http url where host and port and protocol match the current host
@@ -97,7 +99,7 @@ struct tDlJob
 		return m_pCurBackend ? *m_pCurBackend : m_remoteUri;
 	}
 
-	inline cfg::tRepoData::IHookHandler* GetConnStateTracker()
+	inline tRepoUsageHooks* GetConnStateTracker()
 	{
 		return m_pRepoDesc ? m_pRepoDesc->m_pHooks : nullptr;
 	}
@@ -138,7 +140,7 @@ struct tDlJob
         m_fiAttr = pFi->m_spattr;
 	}
 
-	inline tDlJob(CDlConn *p, const tFileItemPtr& pFi, cfg::tRepoResolvResult &&repoSrc, bool isPT, mstring extraHeaders) :
+	inline tDlJob(CDlConn *p, const tFileItemPtr& pFi, tRepoResolvResult &&repoSrc, bool isPT, mstring extraHeaders) :
 					m_pStorage(pFi), m_parent(*p),
 					m_extraHeaders(move(extraHeaders)),
 					m_bIsPassThroughRequest(isPT)
@@ -962,8 +964,8 @@ public:
 
 	// dlcon interface
 public:
-	bool AddJob(const std::shared_ptr<fileitem> &fi, tHttpUrl &&src, bool isPT, mstring extraHeaders) override;
-	bool AddJob(const std::shared_ptr<fileitem> &fi, cfg::tRepoResolvResult &&repoSrc, bool isPT, mstring extraHeaders) override;
+	bool AddJob(const std::shared_ptr<fileitem> &fi, tHttpUrl src, bool isPT, mstring extraHeaders) override;
+	bool AddJob(const std::shared_ptr<fileitem> &fi, tRepoResolvResult repoSrc, bool isPT, mstring extraHeaders) override;
 };
 
 #ifdef HAVE_LINUX_EVENTFD
@@ -1010,7 +1012,7 @@ inline void CDlConn::awaken_check()
 #endif
 
 
-bool CDlConn::AddJob(const std::shared_ptr<fileitem> &fi, tHttpUrl &&src, bool isPT, mstring extraHeaders)
+bool CDlConn::AddJob(const std::shared_ptr<fileitem> &fi, tHttpUrl src, bool isPT, mstring extraHeaders)
 {
 	if (m_ctrl_hint < 0 || evabase::in_shutdown)
 		return false;
@@ -1023,7 +1025,7 @@ bool CDlConn::AddJob(const std::shared_ptr<fileitem> &fi, tHttpUrl &&src, bool i
 	return true;
 }
 
-bool CDlConn::AddJob(const std::shared_ptr<fileitem> &fi, cfg::tRepoResolvResult &&repoSrc, bool isPT, mstring extraHeaders)
+bool CDlConn::AddJob(const std::shared_ptr<fileitem> &fi, tRepoResolvResult repoSrc, bool isPT, mstring extraHeaders)
 {
 	if (m_ctrl_hint < 0 || evabase::in_shutdown)
 		return false;

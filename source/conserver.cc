@@ -6,6 +6,7 @@
 #include "conn.h"
 #include "acfg.h"
 #include "caddrinfo.h"
+#include "ahttpurl.h"
 #include "sockio.h"
 #include "fileio.h"
 #include "evabase.h"

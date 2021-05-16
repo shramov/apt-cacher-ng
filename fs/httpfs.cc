@@ -105,7 +105,7 @@ struct tDlAgent
 
 	tDlAgent()
 	{
-		dler = dlcon::CreateRegular();
+		dler = dlcon::CreateRegular(g_tcp_con_factory);
 		runner = std::thread([&]() { dler->WorkLoop();} );
 	}
 	~tDlAgent()
@@ -437,7 +437,7 @@ public:
 			{
 				if (!m_agent)
 					m_agent = getAgent();
-				m_agent->dler->AddJob(item, tHttpUrl(m_uri));
+				m_agent->dler->AddJob(item, m_uri);
 				res = item->WaitForFinish(5, [](){ return false; });
 				item->markUnused();
 				returnAgent(move(m_agent));
@@ -527,7 +527,7 @@ public:
 			{
 				if (!m_agent)
 					m_agent = getAgent();
-				m_agent->dler->AddJob(item, tHttpUrl(m_uri));
+				m_agent->dler->AddJob(item, m_uri);
 				res = item->WaitForFinish(5, [](){ return false; });
 				item->markUnused();
 				returnAgent(move(m_agent));

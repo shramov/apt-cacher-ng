@@ -7,6 +7,7 @@
 
 #include "debug.h"
 #include "meta.h"
+#include "remotedb.h"
 
 #include "cleaner.h"
 #include "evabase.h"
@@ -71,7 +72,7 @@ void cleaner::WorkLoop()
 			switch (eType(i))
 			{
 			case TYPE_ACFGHOOKS:
-				time_cand = cfg::BackgroundCleanup();
+				time_cand = remotedb::GetInstance().BackgroundCleanup();
 				USRDBG("acng::cfg:ExecutePostponed, nextRunTime now: " << time_cand);
 				break;
 

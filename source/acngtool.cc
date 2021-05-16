@@ -2,6 +2,7 @@
 #include "meta.h"
 #include "acfg.h"
 #include "aclogger.h"
+#include "tcpconnect.h"
 
 #include <acbuf.h>
 #include <aclogger.h>
@@ -258,7 +259,7 @@ bool DownloadItem(tHttpUrl url, dlcon &dlConnector, const SHARED_PTR<fileitem> &
 //	if(fistatus.first != fileitem::FIST_COMPLETE && fistatus.second.code < 400)
 //		fi->GetHeader().frontLine = "909 Incomplete download";
 }
-int wcat(LPCSTR url, LPCSTR proxy, IFitemFactory*, const IDlConFactory &pdlconfa = g_tcp_con_factory);
+int wcat(LPCSTR url, LPCSTR proxy, IFitemFactory*, const IDlConFactory &pdlconfa);
 
 static void usage(int retCode = 0, LPCSTR cmd = nullptr)
 {
@@ -547,7 +548,7 @@ struct TUdsFactory : public ::acng::IDlConFactory
 		// keep going, no recycling/restoring
 	}
 	tDlStreamHandle CreateConnected(cmstring&, cmstring&, mstring& sErrorOut, bool*,
-			cfg::tRepoData::IHookHandler*, bool, int, bool) const override
+			tRepoUsageHooks*, bool, int, bool) const override
 	{
 		struct udsconnection: public tcpconnect
 		{
@@ -957,7 +958,7 @@ std::unordered_map<string, parm> parms = {
 						return;
 
 					CPrintItemFactory fac;
-					auto ret=wcat(p, getenv("http_proxy"), &fac);
+					auto ret=wcat(p, getenv("http_proxy"), &fac, g_tcp_con_factory);
 					if(!g_exitCode)
 						g_exitCode = ret;
 
