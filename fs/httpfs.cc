@@ -634,9 +634,10 @@ int main(int argc, char *argv[])
 	acngfs_oper.release	= acngfs_release;
 	umask(0);
 
-	cfg::agentname = "ACNGFS";
-	cfg::agentheader="User-Agent: ACNGFS\r\n";
-	cfg::requestapx = "User-Agent: ACNGFS\r\nX-Original-Source: 42\r\n";
+	cfg::agentname = "ACNGFS/" ACVERSION;
+	cfg::requestapx = "X-Original-Source: 42\r\n";
+	log::g_szLogPrefix = "acngfs";
+
 	cfg::cachedir.clear();
 	cfg::cacheDirSlash.clear();
 
@@ -691,7 +692,6 @@ int main(int argc, char *argv[])
 #ifdef DEBUG
 	cfg::debug=0xff;
 	cfg::verboselog=1;
-	log::g_szLogPrefix = "acngfs";
 	log::open();
 #endif
 

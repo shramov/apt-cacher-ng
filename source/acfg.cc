@@ -758,9 +758,12 @@ void PostProcConfig()
 
    stripPrefixChars(cfg::reportpage, '/');
 
+   // user-owned header can contain escaped special characters, fixing them
    trimBoth(cfg::requestapx);
    if(!cfg::requestapx.empty())
 	   cfg::requestapx = unEscape(cfg::requestapx);
+   // and adding the final newline suitable for header!
+   cfg::requestapx += svRN;
 
    // create working paths before something else fails somewhere
    if(!udspath.empty())
