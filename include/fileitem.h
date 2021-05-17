@@ -98,7 +98,14 @@ public:
 	// returns when the state changes to complete or error
     std::pair<FiStatus, tRemoteStatus> WaitForFinish();
 
-	std::pair<FiStatus, tRemoteStatus> WaitForFinish(unsigned check_interval, const std::function<bool()> &cbOnTimeout);
+	/**
+	 * @brief WaitForFinish with timeout reporting and feedback.
+	 * Timeout is only a recommendation, the check function might be called sooner and multiple times.
+	 * @param timeout Interval to wait until timeout
+	 * @param cbOnTimeout User function, reporting true to keep waiting or false to abort
+	 * @return Last seen file item state and reported remote status
+	 */
+	std::pair<FiStatus, tRemoteStatus> WaitForFinish(unsigned timeout, const std::function<bool()> &onWaitInterrupted);
 	
 	/// mark the item as complete as-is, assuming that seen size is correct
 	void SetupComplete();

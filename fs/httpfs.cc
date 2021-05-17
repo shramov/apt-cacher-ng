@@ -355,7 +355,8 @@ public:
 				if (!m_agent)
 					m_agent = getAgent();
 				m_agent->dler->AddJob(item, m_uri);
-				res = item->WaitForFinish(5, [](){ return false; });
+				auto exTime = GetTime() + 7;
+				res = item->WaitForFinish(3, [exTime](){ return (GetTime() < exTime); });
 				item->markUnused();
 				returnAgent(move(m_agent));
 			}
