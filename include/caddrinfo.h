@@ -6,7 +6,6 @@
 #include <memory>
 #include <list>
 #include <functional>
-
 #include <arpa/inet.h>
 
 extern "C"
@@ -22,10 +21,12 @@ namespace acng
 struct acng_addrinfo
 {
 	int ai_family;
-	socklen_t ai_addrlen = 0;
+	socklen_t ai_addrlen;
 	sockaddr_storage ai_addr;
 	acng_addrinfo(ares_addrinfo_node*);
 	static std::string formatIpPort(const sockaddr *pAddr, socklen_t addrLen, int ipFamily);
+	bool operator==(const acng_addrinfo& other) const;
+	operator mstring() const;
 };
 
 class CAddrInfo

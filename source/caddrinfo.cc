@@ -27,8 +27,10 @@ namespace acng
 {
 static const unsigned DNS_CACHE_MAX = 255;
 static const unsigned DNS_ERROR_KEEP_MAX_TIME = 10;
+static const unsigned MAX_ADDR = 10;
 static const string dns_error_status_prefix("DNS error, ");
 
+#define MOVE_FRONT_THERE_TO_BACK_HERE(from, to) to.splice(to.end(), from, from.begin())
 
 std::string acng_addrinfo::formatIpPort(const sockaddr *pAddr, socklen_t addrLen, int ipFamily)
 {
@@ -39,6 +41,18 @@ std::string acng_addrinfo::formatIpPort(const sockaddr *pAddr, socklen_t addrLen
 			buf +
 			(ipFamily == PF_INET6 ? "]" : "") +
 			":" + pbuf;
+}
+
+bool acng_addrinfo::operator==(const acng_addrinfo &other) const
+{
+	return this == &other ||
+			(other.ai_addrlen == ai_addrlen &&
+			 other.ai_family == ai_family &&
+			 memcmp(&ai_addr, &other.ai_addr, ai_addrlen) == 0);
+}
+
+acng::acng_addrinfo::operator mstring() const {
+	return formatIpPort((const sockaddr *) &ai_addr, ai_addrlen, ai_family);
 }
 
 static string make_dns_key(const string & sHostname, const string &sPort)
@@ -140,55 +154,44 @@ void CAddrInfo::cb_dns(void *arg,
 		auto takeV6 = cfg::conprotos[0] == PF_INET6 || cfg::conprotos[0] == PF_UNSPEC
 					  || cfg::conprotos[1] == PF_INET6 || cfg::conprotos[1] == PF_UNSPEC;
 
-#define MAX_ADDR_PER_FAMILY 4
-		ares_addrinfo_node* q4[MAX_ADDR_PER_FAMILY];
-		ares_addrinfo_node* q6[MAX_ADDR_PER_FAMILY];
-		unsigned n4=0, n6=0;
+		// strange things, something (localhost) goes resolved twice for each family, however there is apparently subtle difference in the ai_addr bits (padding issues in ares?)
+		std::list<acng_addrinfo> dedup, q4, q6;
 
-#ifdef DEDUP
-		// strange things, sometimes "localhost" is resolved twice for each family, but the difference is apparently very subtle and is somewhere in the extra bytes of ai_addr
-		std::deque<string_view> dedup;
-#endif
 		for (auto pCur = results->nodes; pCur; pCur = pCur->ai_next)
 		{
 			if (pCur->ai_socktype != SOCK_STREAM || pCur->ai_protocol != IPPROTO_TCP)
 				continue;
 
-#ifdef DEDUP
-			string_view svAddr((LPCSTR) & pCur->ai_addr, pCur->ai_addrlen);
+			acng_addrinfo svAddr(pCur);
 			auto itExist = find(dedup.begin(), dedup.end(), svAddr);
 			if (itExist != dedup.end())
 				continue;
-			dedup.push_back(svAddr);
+			dedup.emplace_back(svAddr);
+		}
+#ifdef DEBUG
+		for (auto& it: ret->m_orderedInfos)
+			DBGQLOG("Refined: " << it);
 #endif
-			if(n4 < MAX_ADDR_PER_FAMILY && takeV4)
-			{
-				if(pCur->ai_family == PF_INET)
-					q4[n4++] = pCur;
-			}
-			if (n6 < MAX_ADDR_PER_FAMILY && takeV6)
-			{
-				if(pCur->ai_family == PF_INET6)
-					q6[n6++] = pCur;
-			}
-			else
-				break;
-		}
-		bool sel6 = cfg::conprotos[0] == PF_INET6 || cfg::conprotos[0] == PF_UNSPEC;
-		for (unsigned i4=0, i6=0; i4 < n4 || i6 < n6;)
+		while (!dedup.empty() && (q4.size() + q6.size()) < MAX_ADDR)
 		{
-			if(sel6)
-			{
-				if (i6 < n6)
-					ret->m_orderedInfos.emplace_back(q6[i6++]);
-			}
+			if(takeV4 && dedup.front().ai_family == PF_INET)
+				MOVE_FRONT_THERE_TO_BACK_HERE(dedup, q4);
+			else if (takeV6 && dedup.front().ai_family == PF_INET6)
+				MOVE_FRONT_THERE_TO_BACK_HERE(dedup, q6);
 			else
-			{
-				if (i4 < n4)
-					ret->m_orderedInfos.emplace_back(q4[i4++]);
-			}
-			sel6 = !sel6;
+				dedup.pop_front();
 		}
+
+		for(bool sel6 = cfg::conprotos[0] == PF_INET6 || cfg::conprotos[0] == PF_UNSPEC;
+			q4.size() + q6.size() > 0;
+			sel6 = !sel6)
+		{
+			if(sel6 && !q6.empty())
+				MOVE_FRONT_THERE_TO_BACK_HERE(q6, ret->m_orderedInfos);
+			else if (!sel6 && !q4.empty())
+				MOVE_FRONT_THERE_TO_BACK_HERE(q4, ret->m_orderedInfos);
+		}
+		ASSERT(q4.empty() && q6.empty());
 
 		if (!ret->m_orderedInfos.empty())
 			ret->m_expTime = GetTime() + cfg::dnscachetime;
@@ -198,6 +201,7 @@ void CAddrInfo::cb_dns(void *arg,
 			ret->m_expTime = GetTime() + std::min(cfg::dnscachetime, (int) DNS_ERROR_KEEP_MAX_TIME);
 			ret->m_sError = dns_error_status_prefix + "system error";
 		}
+
 		if (cfg::dnscachetime > 0) // keep a copy for other users
 		{
 			clean_dns_cache();
