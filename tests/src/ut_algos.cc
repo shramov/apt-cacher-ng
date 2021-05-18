@@ -205,3 +205,12 @@ TEST(strop,splitter)
     ASSERT_FALSE(yspliter.Next());
 }
 
+TEST(algorithms, rex)
+{
+	using namespace acng::rex;
+	CompileExpressions();
+	auto type = GetFiletype("http://debug.mirrors.debian.org/debian-debug/dists/sid-debug/main/i18n/Translation-de.xz");
+	ASSERT_EQ(type, FILE_VOLATILE);
+	type = GetFiletype("debrep/dists/unstable/contrib/dep11/by-hash/SHA256/60fe36491abedad8471a0fb3c4fe0b5d73df8b260545ee4aba1a26efa79cdceb");
+	ASSERT_EQ(type, FILE_SOLID);
+}
