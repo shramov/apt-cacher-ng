@@ -861,6 +861,8 @@ job::eJobResult job::SendData(int confd, bool haveMoreJobs)
 			dbgline;
 			if (nBodySizeSoFar > m_nSendPos)
 				break;
+			if (m_bIsHeadOnly && fistate >= fileitem::FIST_DLGOTHEAD)
+				break;
 			fi->wait(g);
 			// XXX: in 2023 or later, add a 5s timeout and send a 102 or so for waiting. Because older version of apt-cacher-ng might not understand it and fail.
 		}
