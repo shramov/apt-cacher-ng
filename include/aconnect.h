@@ -54,7 +54,7 @@ private:
     aconnector() =default;
 
     tCallback m_cback;
-    std::list<acng_addrinfo> m_targets;
+	std::deque<acng_addrinfo> m_targets;
     // linear search is sufficient for this amount of elements
     std::vector<std::pair<int, event*>> m_eventFds;
     unsigned m_pending = 0;

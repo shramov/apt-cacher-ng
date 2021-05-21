@@ -313,8 +313,9 @@ void close(bool bReopen, bool truncateDebugLog)
 		if (h->is_open())
 			h->close();
 	}
+
 	if (truncateDebugLog)
-		truncate(PathCombine(cfg::logdir, "apt-cacher.dbg").c_str(), 0);
+		ignore_value(truncate((cfg::logdir + "/" + g_szLogPrefix + ".dbg").c_str(), 0));
 
 	if(bReopen)
 		log::open();

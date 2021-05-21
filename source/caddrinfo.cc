@@ -29,8 +29,7 @@ static const unsigned DNS_CACHE_MAX = 255;
 static const unsigned DNS_ERROR_KEEP_MAX_TIME = 10;
 static const unsigned MAX_ADDR = 10;
 static const string dns_error_status_prefix("DNS error, ");
-
-#define MOVE_FRONT_THERE_TO_BACK_HERE(from, to) to.splice(to.end(), from, from.begin())
+#define MOVE_FRONT_THERE_TO_BACK_HERE(from, to) to.emplace_back(from.front()), from.pop_front()
 
 std::string acng_addrinfo::formatIpPort(const sockaddr *pAddr, socklen_t addrLen, int ipFamily)
 {
@@ -155,7 +154,7 @@ void CAddrInfo::cb_dns(void *arg,
 					  || cfg::conprotos[1] == PF_INET6 || cfg::conprotos[1] == PF_UNSPEC;
 
 		// strange things, something (localhost) goes resolved twice for each family, however there is apparently subtle difference in the ai_addr bits (padding issues in ares?)
-		std::list<acng_addrinfo> dedup, q4, q6;
+		std::deque<acng_addrinfo> dedup, q4, q6;
 
 		for (auto pCur = results->nodes; pCur; pCur = pCur->ai_next)
 		{

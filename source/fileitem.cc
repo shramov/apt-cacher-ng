@@ -469,7 +469,7 @@ fileitem_with_storage::~fileitem_with_storage()
 		{
 			Cstat st(sPathAbs);
 			if (st)
-				truncate(sPathAbs.c_str(), st.st_size); // CHECKED!
+				ignore_value(truncate(sPathAbs.c_str(), st.st_size)); // CHECKED!
 		}
 		break;
 	}

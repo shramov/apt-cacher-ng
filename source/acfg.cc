@@ -1017,11 +1017,11 @@ void MarkProxyFailure()
 	proxy_failstate = true;
 }
 
-const timeval &GetFirstConTimeout()
+const timeval & GetFirstConTimeout()
 {
 	return initialConTimeout;
 }
-const timeval & ACNG_API GetFurtherConTimeout()
+const timeval & GetFurtherConTimeout()
 {
 	return furtherConTimeout;
 }

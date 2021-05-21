@@ -4,7 +4,7 @@
 #include "actypes.h"
 
 #include <memory>
-#include <list>
+#include <deque>
 #include <functional>
 #include <arpa/inet.h>
 
@@ -41,7 +41,7 @@ class CAddrInfo
 	time_t m_expTime = MAX_VAL(time_t);
 
 	// first entry selected by protocol preferences, others alternating
-	std::list<acng_addrinfo> m_orderedInfos;
+	std::deque<acng_addrinfo> m_orderedInfos;
 
 	void Reset();
 	static void clean_dns_cache();

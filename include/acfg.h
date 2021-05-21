@@ -63,13 +63,13 @@ void DegradedMode(bool newValue);
  * @brief GetFirstConTimeout
  * @return Deliver precalculated timeout structure with initial fast timeout AND a fraction of second on top
  */
-const struct timeval & ACNG_API GetFirstConTimeout();
+ACNG_API const struct timeval & GetFirstConTimeout();
 /**
  * @brief GetFurtherConTimeout
  * Like GetFirstConTimeout but deliver a probe interval for creation of further connections
  * @return
  */
-const struct timeval & ACNG_API GetFurtherConTimeout();
+ACNG_API const struct timeval & GetFurtherConTimeout();
 
 extern std::map<mstring,mstring> localdirs;
 cmstring & GetMimeType(cmstring &path);
