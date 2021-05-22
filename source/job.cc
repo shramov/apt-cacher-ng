@@ -1097,7 +1097,7 @@ inline void job::CookResponseHeader()
 		return;
 	}
 	// also check whether it's a sane range (if set)
-	if (contLen >= 0 && (m_nReqRangeFrom >= contLen || m_nReqRangeTo + 1 >= contLen))
+	if (contLen >= 0 && (m_nReqRangeFrom >= contLen || m_nReqRangeTo + 1 > contLen))
 		return quickResponse("416 Requested Range Not Satisfiable");
 	// okay, date is good, no chunking needed, can serve a range request smoothly (beginning is available) or fall back to 200?
 	if (m_nReqRangeFrom >= 0 && ds > m_nReqRangeFrom && contLen > 0)
