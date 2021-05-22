@@ -10,6 +10,11 @@
 
 #include "config.h"
 
+extern "C"
+{
+struct event_base;
+}
+
 namespace acng
 {
 class dlcon;
@@ -23,6 +28,7 @@ public:
 	evabaseFreeFrunner(const IDlConFactory &pDlconFac, bool withDownloader);
 	~evabaseFreeFrunner();
 	dlcon& getDownloader();
+	event_base* getBase();
 private:
 	Impl *m_pImpl;
 };

@@ -56,4 +56,9 @@ dlcon& evabaseFreeFrunner::getDownloader()
 	return * m_pImpl->dl;
 }
 
+event_base *evabaseFreeFrunner::getBase()
+{
+	return m_pImpl->m_eb.get()->base;
+}
+
 }

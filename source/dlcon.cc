@@ -390,16 +390,16 @@ struct tDlJob
 				m_nUsedRangeStartPos = -1;
 		}
 
-        if (m_fiAttr.nRangeLimit >= 0)
+		if (m_fiAttr.nRangeLimit >= 0)
 		{
-			 if(m_nUsedRangeStartPos < 0)
-			 {
-                m_fiAttr.nRangeLimit = 0;
-			 }
-             else if(AC_UNLIKELY(m_fiAttr.nRangeLimit < m_nUsedRangeStartPos))
+			if(m_nUsedRangeStartPos < 0)
+			{
+				m_fiAttr.nRangeLimit = 0;
+			}
+			else if(AC_UNLIKELY(m_fiAttr.nRangeLimit < m_nUsedRangeStartPos))
 			{
 				// must be BS, fetch the whole remainder!
-                m_fiAttr.nRangeLimit = -1;
+				m_fiAttr.nRangeLimit = -1;
 			}
 		}
 
