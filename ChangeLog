@@ -73,6 +73,10 @@ apt-cacher-ng (3.7) AND-SOMETIMES-THE-BEAR-EATS-YOU; urgency=medium
     modification date where possible, therefore probably avoid redownloading
     them for (rare) clients which don't follow the by-hash scheme
 
+  [ MISCELLANEOUS]
+
+  * Database update
+
  -- Eduard Bloch <blade@debian.org>  Sat, 22 May 2021 14:34:51 +0200
 
 apt-cacher-ng (3.6.3) SOHMIETNG-T0-REBMEMER; urgency=medium
