@@ -34,6 +34,7 @@ apt-cacher-ng (3.7) AND-SOMETIMES-THE-BEAR-EATS-YOU; urgency=medium
     connection attempts which eventually ended in failure (timeout, rejected)
   * Fix missing newline when RequestAppendix header, which caused it's merging
     with some prepending header line
+  * Better reproducible runs of DB generations (Debian bug #988976)
 
   [ INTERNAL REFACTORING ]
 
@@ -72,7 +73,7 @@ apt-cacher-ng (3.7) AND-SOMETIMES-THE-BEAR-EATS-YOU; urgency=medium
     modification date where possible, therefore probably avoid redownloading
     them for (rare) clients which don't follow the by-hash scheme
 
- -- Eduard Bloch <blade@debian.org>  Tue, 18 May 2021 23:19:28 +0200
+ -- Eduard Bloch <blade@debian.org>  Sat, 22 May 2021 14:34:51 +0200
 
 apt-cacher-ng (3.6.3) SOHMIETNG-T0-REBMEMER; urgency=medium
 
