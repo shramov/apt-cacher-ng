@@ -1,12 +1,15 @@
-apt-cacher-ng (0.7.24-1) unstable; urgency=low
+apt-cacher-ng (3.7-1) experimental; urgency=medium
 
-  * Starting with version 0.7.23-1, there is a new sequence of Debconf dialogs 
-    for basic settings (CacheDir, Port, Proxy and BindAdresses). They are
-    stored in an additional *.conf file overriding the settings from acng.conf
-    but there is also a way to disable this override.
-  * Now it's especially recommended to keep acng.conf in /etc/apt-cacher-ng
-    unchanged ("maintainer's version") and store local configuration changes to
-    a system specific file like /etc/apt-cacher-ng/local.conf, in order to make
-    handling of acng.conf much easier in future.
+  * "just cleanup" parameter -e was removed. This has been troublesome to
+    implement long time ago and is most likely not used in the wild. This
+    can be replaced easily and with better privilege separation using a
+    shell script which starts apt-cacher-ng in foreground and calls acngtool.
+  * cache processor is now more stric with regards to file metadata. Manually
+    imported files (without use of the official Import function) will no
+    longer be considered valid without at least a timestamp check on the
+    server.
+  * acngfs does not support setting of proxy server and (optional) local extra
+    folder as plain argument, instead those need to be specified as proxy=...
+    and cachedir=... .
 
- -- Eduard Bloch <blade@debian.org>  Thu, 19 Dec 2013 14:04:50 +0100
+ -- Eduard Bloch <blade@debian.org>  Sat, 22 May 2021 15:34:07 +0200

@@ -1,8 +1,12 @@
-apt-cacher-ng (3.7-1) experimental; urgency=low
+apt-cacher-ng (3.7-1) experimental; urgency=medium
 
   * New EXPERIMENTAL upstream release
+    + various fixes, now this probably really closes: #954904, #986356
+    + minor DB generation reproducibility improvement, closes: #988976
+    + Limited support of Cache-Control header from clients (no-cache,
+      no-store) for LP: #1915713
 
- -- 
+ -- Eduard Bloch <blade@debian.org>  Sat, 22 May 2021 15:34:07 +0200
 
 apt-cacher-ng (3.6.3-1) unstable; urgency=medium
 
