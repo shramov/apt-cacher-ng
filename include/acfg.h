@@ -3,7 +3,8 @@
 #define _ACFG_H
 
 #include "config.h"
-#include "meta.h"
+#include "actypes.h"
+#include <map>
 #include <bitset>
 
 #define NUM_PBKDF2_ITERATIONS 1
@@ -12,6 +13,9 @@
 
 namespace acng
 {
+
+class tHttpUrl;
+class NoCaseStringMap;
 
 namespace cfg
 {
@@ -55,42 +59,19 @@ void ACNG_API PostProcConfig();
 bool DegradedMode();
 void DegradedMode(bool newValue);
 
-struct tRepoData
-{
-	std::vector<tHttpUrl> m_backends;
-
-	// dirty little helper to execute custom actions when a jobs associates or forgets this data set
-	struct IHookHandler {
-		virtual void OnAccess()=0;
-		virtual void OnRelease()=0;
-		virtual ~IHookHandler() {
-		}
-	} *m_pHooks = nullptr;
-	tStrVec m_keyfiles;
-	tHttpUrl m_deltasrc;
-	tHttpUrl *m_pProxy = nullptr;
-	virtual ~tRepoData();
-};
-
-struct tRepoResolvResult {
-	cmstring* psRepoName=nullptr;
-	mstring sRestPath;
-	const tRepoData* repodata=nullptr;
-};
-
-/*
- * Resolves a repository descriptor for the given URL, returns a reference to its descriptor
- * (actually a pair with first: name, second: descriptor).
- *
- * @return: true IFF a repository was found and the by-reference arguments are set
+/**
+ * @brief GetFirstConTimeout
+ * @return Deliver precalculated timeout structure with initial fast timeout AND a fraction of second on top
  */
-tRepoResolvResult GetRepNameAndPathResidual(const tHttpUrl & uri);
+ACNG_API const struct timeval & GetFirstConTimeout();
+/**
+ * @brief GetFurtherConTimeout
+ * Like GetFirstConTimeout but deliver a probe interval for creation of further connections
+ * @return
+ */
+ACNG_API const struct timeval & GetFurtherConTimeout();
 
-const tRepoData * GetRepoData(cmstring &vname);
-
-time_t BackgroundCleanup();
-
-extern tStrMap localdirs;
+extern std::map<mstring,mstring> localdirs;
 cmstring & GetMimeType(cmstring &path);
 #define TCP_PORT_MAX 65536
 extern std::bitset<TCP_PORT_MAX> *pUserPorts;
@@ -146,15 +127,6 @@ LPCSTR ACNG_API ReTest(LPCSTR s);
 #define SZABSPATHEX(x, y) (CACHE_BASE+(x) + (y)).c_str()
 
 bool AppendPasswordHash(mstring &stringWithSalt, LPCSTR plainPass, size_t passLen);
-
-// XXX: find a better place for this, shared between server and acngtool
-enum ControLineType : uint8_t
-{
-	NotForUs = 0,
-	BeforeError = 1,
-	Error = 2
-};
-#define maark "41d_a6aeb8-26dfa" // random enough to not match anything existing *g*
 
 }
 

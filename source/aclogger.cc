@@ -313,8 +313,9 @@ void close(bool bReopen, bool truncateDebugLog)
 		if (h->is_open())
 			h->close();
 	}
+
 	if (truncateDebugLog)
-		truncate(PathCombine(cfg::logdir, "apt-cacher.dbg").c_str(), 0);
+		ignore_value(truncate((cfg::logdir + "/" + g_szLogPrefix + ".dbg").c_str(), 0));
 
 	if(bReopen)
 		log::open();
@@ -343,11 +344,11 @@ inline deque<tRowData> GetStats()
 	for (auto& log : ExpandFilePattern(cfg::logdir + SZPATHSEP "apt-cacher*.log", false))
 	{
 		if (cfg::debug >= LOG_MORE)
-			cerr << "Reading log file: " << log << endl;
+			cerr << "Reading log file: "sv << log << endl;
 		filereader reader;
 		if (!reader.OpenFile(log))
 		{
-			log::err("Error opening a log file");
+			cerr << "Error opening log file "sv << log;
 			continue;
 		}
 		string sLine;

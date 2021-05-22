@@ -13,7 +13,7 @@
 #include "dirwalk.h"
 #include "header.h"
 #include "job.h"
-
+#include "remotedb.h"
 #include "fileio.h"
 #include <errno.h>
 #include <unistd.h>
@@ -261,7 +261,7 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 	const tHttpUrl* fallbackUrl = nullptr;
 	fileitem::FiStatus initState = fileitem::FIST_FRESH;
 
-	cfg::tRepoResolvResult repinfo;
+	tRepoResolvResult repinfo;
 	auto dler = GetDlRes().SetupDownloader();
 	if (!dler)
 		return false;
@@ -289,7 +289,7 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 	tHttpUrl parserPath, parserHead;
 	// alternatives!
 	const tHttpUrl *pResolvedDirectUrl=nullptr;
-	cfg::tRepoResolvResult repoSrc;
+	tRepoResolvResult repoSrc;
 
 	std::pair<fileitem::FiStatus, tRemoteStatus> dlres;
 
@@ -358,7 +358,7 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 				<< " and path: " << parserPath.sPath << ", ok? " << bCachePathAsUriPlausible);
 
 		if(!cfg::stupidfs && bCachePathAsUriPlausible
-				&& nullptr != (repoSrc.repodata = cfg::GetRepoData(parserPath.sHost))
+				&& nullptr != (repoSrc.repodata = remotedb::GetInstance().GetRepoData(parserPath.sHost))
 				&& !repoSrc.repodata->m_backends.empty())
 		{
 			ldbg("will use backend mode, subdirectory is path suffix relative to backend uri");
@@ -374,14 +374,16 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 			dbgline;
 			if(bCachePathAsUriPlausible) // default option, unless the next check matches
 			{
-				pResolvedDirectUrl = parserPath.NormalizePath();
+				StrSubst(parserPath.sPath, "//", "/");
+				pResolvedDirectUrl = &parserPath;
 			}
 			// and prefer the source from xorig which is likely to deliver better result
 			if(hor.h[header::XORIG] && parserHead.SetHttpUrl(hor.h[header::XORIG], false))
 			{
 				dbgline;
 				fallbackUrl = pResolvedDirectUrl;
-				pResolvedDirectUrl = parserHead.NormalizePath();
+				StrSubst(parserPath.sPath, "//", "/");
+				pResolvedDirectUrl = &parserHead;
 			}
 			else if(sGuessedFrom
 					&& hor.LoadFromFile(SABSPATH(*sGuessedFrom + ".head"))
@@ -406,7 +408,10 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 					refURL += sFilePathRel.substr(spos);
 					//refURL.replace(urlSlashPos, chopLen, sPathSep.substr(spos));
 					if(parserHead.SetHttpUrl(refURL, false))
-						pResolvedDirectUrl = parserHead.NormalizePath();
+					{
+						StrSubst(parserPath.sPath, "//", "/");
+						pResolvedDirectUrl = &parserHead;
+					}
 				}
 			}
 
@@ -422,7 +427,7 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 	if (pResolvedDirectUrl)
 	{
 		dbgline;
-		repinfo = cfg::GetRepNameAndPathResidual(*pResolvedDirectUrl);
+		repinfo = remotedb::GetInstance().GetRepNameAndPathResidual(*pResolvedDirectUrl);
 		if(repinfo.repodata && !repinfo.repodata->m_backends.empty())
 		{
 			dbgline;
@@ -432,9 +437,9 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 	}
 
 	if (pResolvedDirectUrl)
-		dler->AddJob(pFi, tHttpUrl(*pResolvedDirectUrl));
+		dler->AddJob(pFi, *pResolvedDirectUrl);
 	else
-		dler->AddJob(pFi, decltype (repoSrc) (repoSrc));
+		dler->AddJob(pFi, repoSrc);
 	dlres = pFi->WaitForFinish(1, [&](){ SendChunk("."); return true; } );
     if (dlres.first == fileitem::FIST_COMPLETE && dlres.second.code == 200)
 	{
@@ -781,47 +786,57 @@ tFingerprint * BuildPatchList(string sFilePathAbs, deque<tPatchEntry> &retList)
 	return ret.csType != CSTYPE_INVALID ? &ret : nullptr;
 }
 
+/*
+ * XXX: most users of this function don't have reliable modification date, therefore it's not used.
+ * TODO: optionally fetch HEAD from remote and use the date from there if the size is matching.
+ */
 bool cacheman::Inject(cmstring &fromRel, cmstring &toRel,
-        bool bSetIfileFlags, off_t checkSize, LPCSTR forceOrig)
+		bool bSetIfileFlags, off_t contLen, tHttpDate lastModified, LPCSTR forceOrig)
 {
-	LOGSTART("tCacheMan::Inject");
+	LOGSTARTFUNCx(fromRel, toRel, bSetIfileFlags, contLen, lastModified.value(0), forceOrig);
 	// XXX should it really filter it here?
 	if(GetFlags(toRel).uptodate)
         return true;
 	filereader data;
 	if(!data.OpenFile(SABSPATH(fromRel), true))
 		return false;
-	off_t len = data.GetSize();
-	if (checkSize >= 0 && checkSize != len)
+	off_t fileSize = data.GetSize();
+	// incomplete might be ok, too large is just wrong
+	if (contLen < 0)
+		contLen = fileSize;
+	else if (fileSize > contLen)
 		return false;
 
 	fileitem::tSpecialPurposeAttr attr;
 	attr.bVolatile = rex::GetFiletype(toRel) == rex::FILE_VOLATILE;
-	auto fiUser = GetDlRes().GetItemRegistry()->Create(toRel, ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY, attr);
-	if (!fiUser.get())
+	auto hodler = GetDlRes().GetItemRegistry()->Create(toRel, ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY, attr);
+	if (!hodler.get())
 		return false;
-	auto fi = fiUser.get();
-	fiUser.get()->Setup();
+	auto fi = hodler.get();
+	hodler.get()->Setup();
 	lockuniq g(*fi);
     // it's ours, let's play the downloader
     if (fi->GetStatusUnlocked() > fileitem::FIST_INITED)
         return false; // already being processing by someone
     // feed it with some old attributes for now
     if (!fi->DlStarted(string_view(),
-                       fi->m_responseModDate,
+					   lastModified,
                        forceOrig ? forceOrig : fi->m_responseOrigin,
                        {200, "OK"},
                        0,
-					   len))
+					   contLen))
     {
         return false;
     }
 	if (!fi->DlAddData(data.getView(), g))
         return false;
-	fi->DlFinish();
-    if(fileitem::FIST_COMPLETE != fi->GetStatusUnlocked())
+	if (fileSize == contLen)
+		fi->DlFinish(true);
+	// and if not, hodler will mark it as interrupted download on exit
+
+	if (fileitem::FIST_COMPLETE != fi->GetStatusUnlocked())
         return false;
-    if(bSetIfileFlags)
+	if (bSetIfileFlags)
     {
         tIfileAttribs &atts = SetFlags(toRel);
         atts.uptodate = atts.vfile_ondisk = true;
@@ -1294,8 +1309,17 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 				if(m_bVerbose)
 					SendFmt << "Installing as " << path << ", state: " <<  probeStateWanted << hendl;
 
+				/*
+				 * We don't know the change date from the index, let's consider it very old.
+				 * Should be an "okay" trade-off because the purpose of that file is mostly for our
+				 * metadata processing, probably no user will download them directly
+				 * (only by-hash variants which are different story).
+				 */
 				if(FindCompIdx(path) < 0
-                        && Inject(sPatchResultRel, path, true, probeStateWanted.size, h.h[header::XORIG]))
+						&& Inject(sPatchResultRel, path, true,
+								  probeStateWanted.size,
+								  tHttpDate(1),
+								  h.h[header::XORIG]))
 				{
 					SyncSiblings(path, siblings);
 					injected++;
@@ -1559,7 +1583,7 @@ void cacheman::SyncSiblings(cmstring &srcPathRel,const tStrDeq& targets)
 			&& srcDirFile.second == tgtDirFile.second)
 				//&& 0 == strcmp(srcType, GetTypeSuffix(targetDirFile.second)))
 		{
-            Inject(srcPathRel, tgt, true);
+			Inject(srcPathRel, tgt, true, -1, tHttpDate(1));
 		}
 	}
 }
@@ -2301,29 +2325,26 @@ bool cacheman::ProcessByHashReleaseFileRestoreFiles(cmstring& releasePathRel, cm
 			errors++;
 
             string origin;
+			header h;
+			// load by-hash header, check URL, rewrite URL, copy the stuff over
+			if(!h.LoadFromFile(SABSPATH(solidPathRel) + ".head") || ! h.h[header::XORIG])
+			{
+				if(m_bVerbose)
+					SendFmt << "Couldn't read " << SABSPATH(solidPathRel) << ".head<br>";
+				return;
+			}
+			origin = h.h[header::XORIG];
+			tStrPos pos = origin.rfind("by-hash/");
+			if(pos == stmiss)
+			{
+				if(m_bVerbose)
+					SendFmt << SABSPATH(solidPathRel) << " is not from by-hash folder<br>";
+				return;
+			}
+			origin.erase(pos);
+			origin += entry.sFileName;
 
-            {
-                header h;
-                // load by-hash header, check URL, rewrite URL, copy the stuff over
-                if(!h.LoadFromFile(SABSPATH(solidPathRel) + ".head") || ! h.h[header::XORIG])
-                {
-                    if(m_bVerbose)
-                        SendFmt << "Couldn't read " << SABSPATH(solidPathRel) << ".head<br>";
-                    return;
-                }
-                origin = h.h[header::XORIG];
-                tStrPos pos = origin.rfind("by-hash/");
-                if(pos == stmiss)
-                {
-                    if(m_bVerbose)
-                        SendFmt << SABSPATH(solidPathRel) << " is not from by-hash folder<br>";
-                    return;
-                }
-                origin.erase(pos);
-                origin += entry.sFileName;
-            }
-
-            if(!Inject(solidPathRel, wantedPathRel, false, -1, origin.c_str()))
+			if(!Inject(solidPathRel, wantedPathRel, false, -1, tHttpDate(h.h[header::LAST_MODIFIED]), origin.c_str()))
 			{
 				if(m_bVerbose)
 					SendFmt << "Couldn't install " << solidPathRel << hendl;

@@ -301,6 +301,11 @@ else()
         LIST(APPEND BaseNetworkLibs ${libevent_pthreads_LDFLAGS})
 endif()
 
+pkg_check_modules(cares REQUIRED "libcares")
+if(cares_FOUND)
+    LIST(APPEND BaseNetworkLibs ${cares_LDFLAGS})
+endif()
+
 if(USE_SSL)
 	pkg_check_modules(openssl "openssl>=1.0.2")
 	if(openssl_FOUND)

@@ -3,6 +3,7 @@
 #include "debug.h"
 #include "meta.h"
 #include "acfg.h"
+#include "remotedb.h"
 
 #include "job.h"
 #include <cstdio>
@@ -88,7 +89,7 @@ public:
 	string m_sHeader;
 	const std::string& GetRawResponseHeader() override { return m_sHeader; }
 
-	void DlFinish() override
+	void DlFinish(bool) override
 	{
 		LOGSTARTFUNC;
 		ASSERT(m_obj_mutex.try_lock() == false);
@@ -224,6 +225,11 @@ public:
 };
 
 static const string miscError(" [HTTP error, code: ");
+
+job::job(ISharedConnectionResources &pParent) : m_pParentCon(pParent), m_eMaintWorkType(tSpecialRequest::workNotSpecial)
+{
+
+}
 
 job::~job()
 {
@@ -469,9 +475,14 @@ void job::Prepare(const header &h, string_view headBuf, cmstring& callerHostname
 	{
 		SetEarlySimpleResponse("403 Configuration error (confusing proxy mode) or prohibited port (see AllowUserPorts)"sv);
 	};
-	auto report_overload = [this]()
+	auto report_overload = [this](int line)
 	{
+		USRDBG("overload error, line " << line);
 		SetEarlySimpleResponse("503 Server overload, try later"sv);
+	};
+	auto report_badcache = [this]()
+	{
+		SetEarlySimpleResponse("503 Error with cache data, please consult apt-cacher.err"sv);
 	};
 	auto report_invpath = [this]()
 	{
@@ -653,7 +664,7 @@ void job::Prepare(const header &h, string_view headBuf, cmstring& callerHostname
 		
 		// got something valid, has type now, trace it
 		USRDBG("Processing new job, " << h.getRequestUrl());
-		auto repoSrc = cfg::GetRepNameAndPathResidual(theUrl);
+		auto repoSrc = remotedb::GetInstance().GetRepNameAndPathResidual(theUrl);
 		if(repoSrc.psRepoName && !repoSrc.psRepoName->empty())
 			m_sFileLoc = *repoSrc.psRepoName + SZPATHSEP + repoSrc.sRestPath;
 		else
@@ -677,8 +688,8 @@ void job::Prepare(const header &h, string_view headBuf, cmstring& callerHostname
 															 ESharingHow::ALWAYS_TRY_SHARING, attr);
 		if( ! m_pItem.get())
 		{
-			USRDBG("Error creating file item for " << m_sFileLoc);
-			return report_overload();
+			USRERR("Error creating file item for " << m_sFileLoc << " -- check file permissions!");
+			return report_badcache();
 		}
 
 		if(cfg::DegradedMode())
@@ -708,7 +719,7 @@ void job::Prepare(const header &h, string_view headBuf, cmstring& callerHostname
 			if(!m_pParentCon.SetupDownloader())
 			{
 				USRDBG( "Error creating download handler for "<<m_sFileLoc);
-				return report_overload();
+				return report_overload(__LINE__);
 			}
 
 			dbgline;
@@ -753,15 +764,15 @@ void job::Prepare(const header &h, string_view headBuf, cmstring& callerHostname
 			}
 			else
 			{
-				log::err(tSS() << "PANIC! Error creating download job for " << m_sFileLoc);
-				return report_overload();
+				USRERR("PANIC! Error creating download job for " << m_sFileLoc);
+				return report_overload(__LINE__);
 			}
 		}
 	}
 	catch (const std::bad_alloc&) // OOM, may this ever happen here?
 	{
 		USRDBG("Out of memory");
-		return report_overload();
+		return report_overload(__LINE__);
 	}
 	catch(const std::out_of_range&) // better safe...
 	{
@@ -801,7 +812,7 @@ job::eJobResult job::SendData(int confd, bool haveMoreJobs)
 	}
 	if (m_eMaintWorkType != tSpecialRequest::eMaintWorkType::workNotSpecial)
 	{
-		tSpecialRequest::RunMaintWork(m_eMaintWorkType, m_sFileLoc, confd, &m_pParentCon);
+		tSpecialRequest::RunMaintWork((tSpecialRequest::eMaintWorkType) m_eMaintWorkType, m_sFileLoc, confd, &m_pParentCon);
 		return return_discon(); // just stop and close connection
 	}
 
@@ -849,6 +860,8 @@ job::eJobResult job::SendData(int confd, bool haveMoreJobs)
 				break;
 			dbgline;
 			if (nBodySizeSoFar > m_nSendPos)
+				break;
+			if (m_bIsHeadOnly && fistate >= fileitem::FIST_DLGOTHEAD)
 				break;
 			fi->wait(g);
 			// XXX: in 2023 or later, add a 5s timeout and send a 102 or so for waiting. Because older version of apt-cacher-ng might not understand it and fail.
@@ -1084,7 +1097,7 @@ inline void job::CookResponseHeader()
 		return;
 	}
 	// also check whether it's a sane range (if set)
-	if (contLen >= 0 && (m_nReqRangeFrom >= contLen || m_nReqRangeTo + 1 >= contLen))
+	if (contLen >= 0 && (m_nReqRangeFrom >= contLen || m_nReqRangeTo + 1 > contLen))
 		return quickResponse("416 Requested Range Not Satisfiable");
 	// okay, date is good, no chunking needed, can serve a range request smoothly (beginning is available) or fall back to 200?
 	if (m_nReqRangeFrom >= 0 && ds > m_nReqRangeFrom && contLen > 0)

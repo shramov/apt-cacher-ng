@@ -25,9 +25,6 @@
 
 #define EXTREME_MEMORY_SAVING false
 
-#define STRINGIFY(a) STR(a)
-#define STR(a) #a
-
 namespace acng
 {
 
@@ -44,7 +41,7 @@ typedef unsigned char UCHAR;
 #define SZPATHSEPUNIX "/"
 #define CPATHSEPWIN '\\'
 #define SZPATHSEPWIN "\\"
-extern std::string sDefPortHTTP, sDefPortHTTPS;
+
 extern cmstring sPathSep, sPathSepUnix, hendl;
 
 extern cmstring FAKEDATEMARK;
@@ -90,10 +87,6 @@ LPCSTR GetTypeSuffix(cmstring& s);
 void trimProto(mstring & sUri);
 tStrPos findHostStart(const mstring & sUri);
 
-#ifndef _countof
-#define _countof(x) sizeof(x)/sizeof(x[0])
-#endif
-
 #define ELVIS(x, y) (x ? x : y)
 #define OPTSET(x, y) if(!x) x = y
 
@@ -107,74 +100,6 @@ void StrSubst(mstring &contents, const mstring &from, const mstring &to, tStrPos
 // TODO: __attribute__((externally_visible))
 bool ParseKeyValLine(const mstring & sIn, mstring & sOutKey, mstring & sOutVal);
 #define keyEq(a, b) (0 == strcasecmp((a), (b).c_str()))
-
-extern cmstring PROT_PFX_HTTPS, PROT_PFX_HTTP;
-
-class ACNG_API tHttpUrl
-{
-
-private:
-	mstring sPort;
-
-public:
-	bool SetHttpUrl(cmstring &uri, bool unescape = true);
-	mstring ToURI(bool bEscaped) const;
-	mstring sHost, sPath, sUserPass;
-
-	bool bSSL=false;
-	inline cmstring & GetProtoPrefix() const
-	{
-		return bSSL ? PROT_PFX_HTTPS : PROT_PFX_HTTP;
-	}
-	tHttpUrl(const acng::tHttpUrl& a)
-	{
-		sHost = a.sHost;
-		sPort = a.sPort;
-		sPath = a.sPath;
-		sUserPass = a.sUserPass;
-		bSSL = a.bSSL;
-	}
-	tHttpUrl & operator=(const tHttpUrl &a)
-	{
-		if(&a == this) return *this;
-		sHost = a.sHost;
-		sPort = a.sPort;
-		sPath = a.sPath;
-		sUserPass = a.sUserPass;
-		bSSL = a.bSSL;
-		return *this;
-	}
-	bool operator==(const tHttpUrl &a) const
-	{
-		return a.sHost == sHost && a.sPort == sPort && a.sPath == sPath
-				&& a.sUserPass == sUserPass && a.bSSL == bSSL;
-	}
-	;bool operator!=(const tHttpUrl &a) const
-	{
-		return !(a == *this);
-	}
-	inline void clear()
-	{
-		sHost.clear();
-		sPort.clear();
-		sPath.clear();
-		sUserPass.clear();
-		bSSL = false;
-	}
-	inline cmstring& GetDefaultPortForProto() const {
-		return bSSL ? sDefPortHTTPS : sDefPortHTTP;
-	}
-	inline cmstring& GetPort(cmstring& szDefVal) const { return !sPort.empty() ? sPort : szDefVal; }
-	inline cmstring& GetPort() const { return GetPort(GetDefaultPortForProto()); }
-
-	inline tHttpUrl(cmstring &host, cmstring& port, bool ssl) :
-			sPort(port), sHost(host), bSSL(ssl)
-	{
-	}
-	inline tHttpUrl() =default;
-	// evil method that should only be called for specific purposes in certain locations
-	tHttpUrl* NormalizePath() { StrSubst(sPath, "//", "/"); return this; }
-};
 
 #define POKE(x) for(;;) { ssize_t n=write(x, "", 1); if(n>0 || (EAGAIN!=errno && EINTR!=errno)) break;  }
 
@@ -298,7 +223,10 @@ void ACNG_API DelTree(cmstring &what);
 
 struct ACNG_API tErrnoFmter: public mstring
 {
-	tErrnoFmter(LPCSTR prefix = nullptr);
+	tErrnoFmter(LPCSTR prefix = nullptr) { fmt(errno, prefix);}
+	tErrnoFmter(int errnoCode, LPCSTR prefix = nullptr) { fmt(errnoCode, prefix); }
+private:
+	void fmt(int errnoCode, LPCSTR prefix);
 };
 
 ACNG_API mstring EncodeBase64Auth(cmstring &sPwdString);
@@ -387,7 +315,9 @@ struct ltstring {
     }
 };
 
-typedef std::map<mstring, mstring, ltstring> NoCaseStringMap;
+class NoCaseStringMap : public std::map<mstring, mstring, ltstring>
+{
+};
 
 static constexpr string_view svRN = szRN;
 static constexpr string_view svLF = "\n";

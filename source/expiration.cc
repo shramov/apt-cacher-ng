@@ -439,10 +439,10 @@ inline void expiration::RemoveAndStoreStatus(bool bPurgeNow)
 
 #ifdef ENABLED
 				SendFmt << "Removing " << sPathRel;
-				if(::unlink(sPathAbs.c_str()))
+				if(::unlink(sPathAbs.c_str()) && errno != ENOENT)
 					SendChunk(tErrnoFmter("<span class=\"ERROR\"> [ERROR] ")+"</span>");
 				SendFmt << sBRLF << "Removing " << sPathRel << ".head";
-				if(::unlink((sPathAbs + ".head").c_str()))
+				if(::unlink((sPathAbs + ".head").c_str()) && errno != ENOENT)
 					SendChunk(tErrnoFmter("<span class=\"ERROR\"> [ERROR] ")+"</span>");
 				SendChunk(sBRLF);
 				::rmdir(SZABSPATH(dir_props.first));

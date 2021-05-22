@@ -5,7 +5,8 @@
 #include "acbuf.h"
 #include <sys/types.h>
 #include "acregistry.h"
-#include "maintenance.h"
+
+#include <set>
 
 namespace acng
 {
@@ -22,7 +23,7 @@ public:
 		R_DONE = 0, R_AGAIN = 1, R_DISCON = 2, R_NOTFORUS = 3
     };
 
-    job(ISharedConnectionResources &pParent) : m_pParentCon(pParent) {}
+	job(ISharedConnectionResources &pParent);
 	~job();
 
 	void Prepare(const header &h, string_view headBuf, cmstring& callerHostname);
@@ -66,7 +67,7 @@ public:
 	tSS m_sendbuf;
     mstring m_sFileLoc; // local_relative_path_to_file
     mstring m_xff;
-	tSpecialRequest::eMaintWorkType m_eMaintWorkType = tSpecialRequest::workNotSpecial;
+	uint8_t m_eMaintWorkType;
 
     tHttpDate m_ifMoSince;
     off_t m_nReqRangeFrom = -1, m_nReqRangeTo = -1;
@@ -95,7 +96,7 @@ public:
 #endif
 };
 
-class tTraceData: public tStrSet, public base_with_mutex
+class tTraceData: public std::set<mstring>, public base_with_mutex
 {
 public:
 	static tTraceData& getInstance();

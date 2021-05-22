@@ -24,9 +24,8 @@ inline void add_msg(const char *msg, int , const char* , mstring *p)
 }
 
 // XXX: use string_view? or use string and move it?
-tErrnoFmter::tErrnoFmter(const char *prefix)
+void tErrnoFmter::fmt(int err, const char *prefix)
 {
-	int err=errno;
 	char buf[64];
 	buf[0]=buf[sizeof(buf)-1]=0x0;
 	if(prefix)

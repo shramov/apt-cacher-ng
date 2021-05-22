@@ -9,9 +9,9 @@
 #define TCPCONNECT_H_
 
 #include <memory>
-#include "meta.h"
 #include "sockio.h"
 #include "acfg.h"
+#include "remotedbtypes.h"
 #include <memory>
 
 #ifdef HAVE_SSL
@@ -22,6 +22,7 @@
 namespace acng
 {
 
+struct tRepoUsageHooks;
 class tcpconnect;
 class fileitem;
 typedef std::shared_ptr<tcpconnect> tDlStreamHandle;
@@ -43,7 +44,7 @@ public:
 protected:
 	tcpconnect operator=(const tcpconnect&);
 	tcpconnect(const tcpconnect&) =default;
-	tcpconnect(cfg::tRepoData::IHookHandler *pStateReport);
+	tcpconnect(tRepoUsageHooks *pStateReport);
 
 	int m_conFd =-1;
 	mstring m_sHostName, m_sPort;
@@ -60,7 +61,7 @@ public:
 
 private:
 	std::string _Connect(int timeout);
-	cfg::tRepoData::IHookHandler *m_pStateObserver=nullptr;
+	tRepoUsageHooks *m_pStateObserver=nullptr;
 
 protected:
 #ifdef HAVE_SSL
@@ -82,7 +83,7 @@ public:
 	virtual tDlStreamHandle CreateConnected(cmstring &sHostname, cmstring &sPort,
 				mstring &sErrOut,
 				bool *pbSecondHand,
-				cfg::tRepoData::IHookHandler *pStateTracker
+				tRepoUsageHooks *pStateTracker
 				,bool ssl
 				,int timeout
 				,bool mustbevirgin
@@ -99,7 +100,7 @@ public:
 	virtual tDlStreamHandle CreateConnected(cmstring &sHostname, cmstring &sPort,
 				mstring &sErrOut,
 				bool *pbSecondHand,
-				cfg::tRepoData::IHookHandler *pStateTracker
+				tRepoUsageHooks *pStateTracker
 				,bool ssl
 				,int timeout
 				,bool mustbevirgin

@@ -3,6 +3,9 @@
 #include "csmapping.h"
 #include "acfg.h"
 
+#include "ahttpurl.h"
+#include "astrop.h"
+
 #include "gmock/gmock.h"
 
 #include <unordered_map>
@@ -202,3 +205,60 @@ TEST(strop,splitter)
     ASSERT_FALSE(yspliter.Next());
 }
 
+TEST(algorithms, rex)
+{
+	using namespace acng;
+	using namespace acng::rex;
+	CompileExpressions();
+	auto type = GetFiletype("http://debug.mirrors.debian.org/debian-debug/dists/sid-debug/main/i18n/Translation-de.xz");
+	ASSERT_EQ(type, FILE_VOLATILE);
+	type = GetFiletype("debrep/dists/unstable/contrib/dep11/by-hash/SHA256/60fe36491abedad8471a0fb3c4fe0b5d73df8b260545ee4aba1a26efa79cdceb");
+	ASSERT_EQ(type, FILE_SOLID);
+	auto misc = R"END(
+http://ftp.ch.debian.org/debian/dists/unstable/InRelease
+http://ftp.ch.debian.org/debian/dists/unstable/main/binary-amd64/Packages.xz
+http://ftp.ch.debian.org/debian/dists/unstable/main/binary-i386/Packages.xz
+http://ftp.ch.debian.org/debian/dists/unstable/main/binary-all/Packages.xz
+http://ftp.ch.debian.org/debian/dists/unstable/main/i18n/Translation-de_DE.xz
+http://ftp.ch.debian.org/debian/dists/unstable/main/i18n/Translation-de.xz
+http://ftp.ch.debian.org/debian/dists/unstable/main/i18n/Translation-en.xz
+http://ftp.ch.debian.org/debian/dists/unstable/main/dep11/Components-amd64.yml.xz
+http://ftp.ch.debian.org/debian/dists/unstable/main/dep11/Components-all.yml.xz
+http://ftp.ch.debian.org/debian/dists/unstable/main/dep11/icons-48x48.tar.xz
+http://ftp.ch.debian.org/debian/dists/unstable/main/dep11/icons-64x64.tar.xz
+http://ftp.ch.debian.org/debian/dists/unstable/main/Contents-amd64.xz
+http://ftp.ch.debian.org/debian/dists/unstable/main/Contents-i386.xz
+http://ftp.ch.debian.org/debian/dists/unstable/main/Contents-all.xz
+http://ftp.ch.debian.org/debian/dists/unstable/non-free/binary-amd64/Packages.xz
+http://ftp.ch.debian.org/debian/dists/unstable/non-free/binary-i386/Packages.gz
+http://ftp.ch.debian.org/debian/dists/unstable/non-free/binary-all/Packages.bz2
+http://ftp.ch.debian.org/debian/dists/unstable/non-free/i18n/Translation-de_DE.xz
+http://ftp.ch.debian.org/debian/dists/unstable/non-free/i18n/Translation-de.xz
+http://ftp.ch.debian.org/debian/dists/unstable/non-free/i18n/Translation-en.xz
+http://ftp.ch.debian.org/debian/dists/unstable/non-free/dep11/Components-amd64.yml.xz
+http://ftp.ch.debian.org/debian/dists/unstable/non-free/dep11/Components-all.yml.xz
+http://ftp.ch.debian.org/debian/dists/unstable/non-free/dep11/icons-48x48.tar.xz
+http://ftp.ch.debian.org/debian/dists/unstable/non-free/dep11/icons-64x64.tar.xz
+http://ftp.ch.debian.org/debian/dists/unstable/non-free/Contents-amd64.xz
+http://ftp.ch.debian.org/debian/dists/unstable/non-free/Contents-i386.xz
+http://ftp.ch.debian.org/debian/dists/unstable/non-free/Contents-all.xz
+http://ftp.ch.debian.org/debian/dists/unstable/contrib/binary-amd64/Packages.xz
+http://ftp.ch.debian.org/debian/dists/unstable/contrib/binary-i386/Packages.xz
+http://ftp.ch.debian.org/debian/dists/unstable/contrib/binary-all/Packages.xz
+http://ftp.ch.debian.org/debian/dists/unstable/contrib/i18n/Translation-de_DE.xz
+http://ftp.ch.debian.org/debian/dists/unstable/contrib/i18n/Translation-de.xz
+http://ftp.ch.debian.org/debian/dists/unstable/contrib/i18n/Translation-en.xz
+http://ftp.ch.debian.org/debian/dists/unstable/contrib/dep11/Components-amd64.yml.xz
+http://ftp.ch.debian.org/debian/dists/unstable/contrib/dep11/Components-all.yml.xz
+http://ftp.ch.debian.org/debian/dists/unstable/contrib/dep11/icons-48x48.tar.xz
+http://ftp.ch.debian.org/debian/dists/unstable/contrib/dep11/icons-64x64.tar.xz
+http://ftp.ch.debian.org/debian/dists/unstable/contrib/Contents-amd64.xz
+http://ftp.ch.debian.org/debian/dists/unstable/contrib/Contents-i386.xz
+http://ftp.ch.debian.org/debian/dists/unstable/contrib/Contents-all.xz
+)END";
+	for(tSplitWalk split(misc); split.Next();)
+	{
+		type = GetFiletype(split);
+		EXPECT_EQ(type, FILE_VOLATILE);
+	}
+}

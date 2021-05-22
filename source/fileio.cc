@@ -7,6 +7,7 @@
 #include "fileio.h"
 #include "acbuf.h"
 #include "acfg.h"
+#include "meta.h"
 #include <fcntl.h>
 #ifdef HAVE_LINUX_FALLOCATE
 #include <linux/falloc.h>

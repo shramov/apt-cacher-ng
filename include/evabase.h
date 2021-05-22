@@ -2,24 +2,43 @@
 #define __EVABASE_H__
 
 #include "config.h"
+#include "actemplates.h"
 #include <memory>
 #include <functional>
+
 #include <event.h>
 
-struct evdns_base;
+extern "C"
+{
+// XXX: forward-declaring only to avoid including ares.h right here; maybe can still do that and use ares_channel typedef directly.
+struct ares_channeldata;
+}
 
 namespace acng
 {
 
-struct CDnsBase
+struct CDnsBase : public std::enable_shared_from_this<CDnsBase>
 {
-	evdns_base* get() { return m_base; }
-  void shutdown();
+	ares_channeldata* get() const { return m_channel; }
+	void shutdown();
 	~CDnsBase();
+	bool Init();
+
+	// ares helpers
+	void sync();
+	void dropEvents();
+	void setupEvents();
+
+
 private:
 	friend class evabase;
-	evdns_base *m_base = nullptr;
-	CDnsBase(evdns_base *pBase) : m_base(pBase) {}
+	ares_channeldata* m_channel = nullptr;
+	//	void Deinit();
+	CDnsBase(decltype(m_channel) pBase) : m_channel(pBase) {}
+
+	// activated when we want something from ares or ares from us
+	event *m_aresSyncEvent = nullptr;
+	std::vector<event*> m_aresEvents;
 };
 
 struct t_event_desctor {
@@ -62,6 +81,8 @@ static void addTeardownAction(event_callback_fn matchedCback, std::function<void
 evabase();
 ~evabase();
 };
+
+using unique_event = auto_raii<event*, event_free, nullptr>;
 
 }
 

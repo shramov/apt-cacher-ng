@@ -4,6 +4,8 @@
 #include "dlcon.h"
 #include <thread>
 
+using namespace std;
+
 namespace acng
 {
 void SetupCleaner();
@@ -12,7 +14,7 @@ class evabaseFreeFrunner::Impl
 {
 public:
 	SHARED_PTR<dlcon> dl;
-	std::thread dlthr, evthr;
+	thread dlthr, evthr;
 	unique_ptr<evabase> m_eb;
 
 	Impl(const IDlConFactory &pDlconFac, bool withDownloader)
@@ -22,7 +24,8 @@ public:
 		if (withDownloader)
 			dl = dlcon::CreateRegular(pDlconFac);
 		evthr = std::thread([&]() { m_eb->MainLoop(); });
-		dlthr = std::thread([&]() {dl->WorkLoop();});
+		if (withDownloader)
+			dlthr = std::thread([&]() {dl->WorkLoop();});
 	}
 
 	~Impl()
@@ -51,6 +54,11 @@ evabaseFreeFrunner::~evabaseFreeFrunner()
 dlcon& evabaseFreeFrunner::getDownloader()
 {
 	return * m_pImpl->dl;
+}
+
+event_base *evabaseFreeFrunner::getBase()
+{
+	return m_pImpl->m_eb.get()->base;
 }
 
 }

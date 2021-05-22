@@ -3,6 +3,7 @@
 #include "debug.h"
 
 #include "acfg.h"
+#include "meta.h"
 #include "astrop.h"
 #include "header.h"
 #include "config.h"

@@ -6,10 +6,10 @@
 #include "conn.h"
 #include "acfg.h"
 #include "caddrinfo.h"
+#include "ahttpurl.h"
 #include "sockio.h"
 #include "fileio.h"
 #include "evabase.h"
-#include "dnsiter.h"
 #include "acregistry.h"
 
 #include <signal.h>
@@ -55,13 +55,13 @@ void SetupConAndGo(unique_fd fd, const char *szClientName, const char *szPort);
 // is growing A LOT faster than it can be processed 
 #define MAX_BACKLOG 200
 
-void cb_resume(evutil_socket_t fd, short what, void* arg)
+void cb_resume(evutil_socket_t, short, void* arg)
 {
 	if(evabase::in_shutdown) return; // ignore, this stays down now
 	event_add((event*) arg, nullptr);
 }
 
-void do_accept(evutil_socket_t server_fd, short what, void* arg)
+void do_accept(evutil_socket_t server_fd, short, void* arg)
 {
 	LOGSTARTFUNCxs(server_fd);
 	auto self((event*)arg);
@@ -120,7 +120,7 @@ void do_accept(evutil_socket_t server_fd, short what, void* arg)
 		if (getnameinfo((struct sockaddr*) &addr, addrlen, hbuf, sizeof(hbuf),
 				pbuf, sizeof(pbuf), NI_NUMERICHOST|NI_NUMERICSERV))
 		{
-			log::err("ERROR: could not resolve hostname for incoming TCP host");
+			USRERR("ERROR: could not resolve hostname for incoming TCP host");
 			return;
 		}
 
@@ -227,7 +227,7 @@ void SetupConAndGo(unique_fd man_fd, const char *szClientName, const char *portN
 
 	try
 	{
-		g_freshConQueue.emplace_back(make_unique<conn>(move(man_fd), szClientName, g_registry));
+		g_freshConQueue.emplace_back(make_unique<conn>(man_fd.release(), szClientName, g_registry));
 		LOG("Connection to backlog, total count: " << g_freshConQueue.size());
 	}
 	catch (const std::bad_alloc&)
@@ -247,38 +247,39 @@ void SetupConAndGo(unique_fd man_fd, const char *szClientName, const char *portN
 	}
 }
 
-bool bind_and_listen(evutil_socket_t mSock, const evutil_addrinfo *pAddrInfo, cmstring& port)
+bool bind_and_listen(evutil_socket_t mSock, const addrinfo *pAddrInfo, cmstring& port)
+{
+	LOGSTARTFUNCs;
+	USRDBG("Binding " << acng_addrinfo::formatIpPort(pAddrInfo->ai_addr, pAddrInfo->ai_addrlen, pAddrInfo->ai_family));
+	if ( ::bind(mSock, pAddrInfo->ai_addr, pAddrInfo->ai_addrlen))
+	{
+		log::flush();
+		perror("Couldn't bind socket");
+		cerr.flush();
+		if(EADDRINUSE == errno)
 		{
-			LOGSTARTFUNCxs(formatIpPort(pAddrInfo));
-			if ( ::bind(mSock, pAddrInfo->ai_addr, pAddrInfo->ai_addrlen))
-			{
-				log::flush();
-				perror("Couldn't bind socket");
-				cerr.flush();
-				if(EADDRINUSE == errno)
-				{
-					if(pAddrInfo->ai_family == PF_UNIX)
-						cerr << "Error creating or binding the UNIX domain socket - please check permissions!" <<endl;
-					else
-						cerr << "Port " << port << " is busy, see the manual (Troubleshooting chapter) for details." <<endl;
-				cerr.flush();
-				}
-				return false;
-			}
-			if (listen(mSock, SO_MAXCONN))
-			{
-				perror("Couldn't listen on socket");
-				return false;
-			}
-			auto ev = event_new(evabase::base, mSock, EV_READ|EV_PERSIST, do_accept, event_self_cbarg());
-			if(!ev)
-			{
-				cerr << "Socket creation error" << endl;
-				return false;
-			}
-			event_add(ev, nullptr);
-			return true;
-		};
+			if(pAddrInfo->ai_family == PF_UNIX)
+				cerr << "Error creating or binding the UNIX domain socket - please check permissions!" <<endl;
+			else
+				cerr << "Port " << port << " is busy, see the manual (Troubleshooting chapter) for details." <<endl;
+			cerr.flush();
+		}
+		return false;
+	}
+	if (listen(mSock, SO_MAXCONN))
+	{
+		perror("Couldn't listen on socket");
+		return false;
+	}
+	auto ev = event_new(evabase::base, mSock, EV_READ|EV_PERSIST, do_accept, event_self_cbarg());
+	if(!ev)
+	{
+		cerr << "Socket creation error" << endl;
+		return false;
+	}
+	event_add(ev, nullptr);
+	return true;
+};
 
 std::string scratchBuf;
 
@@ -287,25 +288,23 @@ unsigned setup_tcp_listeners(LPCSTR addi, const std::string& port)
 	LOGSTARTFUNCxs(addi, port);
 	USRDBG("Binding on host: " << addi << ", port: " << port);
 
-	auto hints = evutil_addrinfo();
+	auto hints = addrinfo();
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_flags = AI_PASSIVE;
 	hints.ai_family = PF_UNSPEC;
 
-	evutil_addrinfo* dnsret;
-	int r = evutil_getaddrinfo(addi, port.c_str(), &hints, &dnsret);
+	addrinfo* dnsret;
+	int r = getaddrinfo(addi, port.c_str(), &hints, &dnsret);
 	if(r)
 	{
 		log::flush();
 		perror("Error resolving address for binding");
 		return 0;
 	}
-	tDtorEx dnsclean([dnsret]() {if(dnsret) evutil_freeaddrinfo(dnsret);});
-
+	tDtorEx dnsclean([dnsret]() {if(dnsret) freeaddrinfo(dnsret);});
 	std::unordered_set<std::string> dedup;
-	tDnsIterator iter(PF_UNSPEC, dnsret);
 	unsigned res(0);
-	for(const evutil_addrinfo *p; !!(p=iter.next());)
+	for(auto p = dnsret; p; p = p->ai_next)
 	{
 		// no fit or or seen before?
 		if(!dedup.emplace((const char*) p->ai_addr, p->ai_addrlen).second)
@@ -354,7 +353,7 @@ int ACNG_API Setup()
 	unsigned nCreated = 0;
 
 	if (cfg::udspath.empty())
-		log::err("Not creating Unix Domain Socket, fifo_path not specified");
+		cerr << "Not creating Unix Domain Socket, fifo_path not specified";
 	else
 	{
 		string & sPath = cfg::udspath;
@@ -386,7 +385,7 @@ int ACNG_API Setup()
 		auto sockFd = socket(PF_UNIX, SOCK_STREAM, 0);
 		if(sockFd < 0) die();
 
-		evutil_addrinfo ai;
+		addrinfo ai;
 		ai.ai_addr =(struct sockaddr *) &addr_unx;
 		ai.ai_addrlen = size;
 		ai.ai_family = PF_UNIX;
@@ -443,10 +442,7 @@ void FinishConnection(int fd)
 {
 	if(fd == -1 || evabase::in_shutdown)
 		return;
-
-	termsocket_async(fd, evabase::base);
-	// there is a good chance that more resources are available now
-//	do_resume();
+	evabase::Post([fd](bool down) { if(!down) termsocket_async(fd, evabase::base);});
 }
 
 }

@@ -31,7 +31,7 @@
 #define stripSuffix(where, what) if(endsWithSzAr(where, what)) where.erase(where.size()-sizeof(what)+1);
 #define stripPrefixChars(where, what) where.erase(0, where.find_first_not_of(what))
 
-#define setIfNotEmpty(where, cand) { if(where.empty() && !cand.empty()) where = cand; }
+#define setIfNotEmpty(where, cand) { if(where.empty()) where = cand; }
 #define setIfNotEmpty2(where, cand, alt) { if(where.empty()) { if(!cand.empty()) where = cand; else where = alt; } }
 
 #define WITHLEN(x) x, (_countof(x)-1)

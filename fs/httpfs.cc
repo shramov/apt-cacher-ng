@@ -22,6 +22,7 @@
 #include "fileio.h"
 #include "dlcon.h"
 #include "acregistry.h"
+#include "ac3rdparty.h"
 
 #ifdef HAVE_SYS_MOUNT_H
 #include <sys/param.h>
@@ -105,7 +106,7 @@ struct tDlAgent
 
 	tDlAgent()
 	{
-		dler = dlcon::CreateRegular();
+		dler = dlcon::CreateRegular(g_tcp_con_factory);
 		runner = std::thread([&]() { dler->WorkLoop();} );
 	}
 	~tDlAgent()
@@ -120,9 +121,9 @@ struct tDlAgent
 };
 
 //std::unordered_multimap<string, SHARED_PTR<tDlStream>> active_agents;
-std::list<SHARED_PTR<tDlAgent>> spare_agents;
-std::mutex mx_streams;
-using mg = lock_guard<std::mutex>;
+deque<pair<time_t, SHARED_PTR<tDlAgent>>> spare_agents;
+mutex mx_streams;
+using mg = lock_guard<mutex>;
 
 SHARED_PTR<tDlAgent> getAgent()
 {
@@ -139,7 +140,7 @@ SHARED_PTR<tDlAgent> getAgent()
 	{
 		auto ret = move(spare_agents.back());
 		spare_agents.pop_back();
-		return ret;
+		return ret.second;
 	}
 	return make_shared<tDlAgent>();
 }
@@ -147,8 +148,19 @@ SHARED_PTR<tDlAgent> getAgent()
 void returnAgent(SHARED_PTR<tDlAgent> && agent)
 {
 	mg g(mx_streams);
-	spare_agents.push_back(move(agent));
+	spare_agents.push_back(make_pair(GetTime(), move(agent)));
 	agent.reset();
+}
+
+void expireAgents(int, short, void*)
+{
+	mg g(mx_streams);
+	if (spare_agents.empty())
+		return;
+	auto ex = GetTime() - 30;
+	auto firstGood = find_if(spare_agents.begin(), spare_agents.end(),
+						  [ex](const auto& el){ return el.first > ex; });
+	spare_agents.erase(spare_agents.begin(), firstGood);
 }
 
 class tConsumingItem : public fileitem
@@ -157,11 +169,12 @@ public:
 	evbuffer* buf;
 	off_t pos;
 
-	tConsumingItem(string_view path, off_t knownLength, tHttpDate knownDate, off_t rangeStart, off_t rangeLen)
+	tConsumingItem(string_view path, off_t knownLength, tHttpDate knownDate,
+				   off_t rangeStart, off_t rangeLen)
 		: fileitem(path),  pos(rangeStart)
 	{
 		m_status = FIST_INITED;
-		m_nSizeCachedInitial = knownLength;
+		m_nSizeCachedInitial = rangeStart;
 		m_responseModDate = knownDate;
 		if (rangeLen < 0)
 			m_spattr.bHeadOnly = true;
@@ -184,7 +197,9 @@ public:
 protected:
 	bool DlAddData(string_view data, lockuniq &) override
 	{
+		LOGSTARTFUNCx(data.size(), m_nSizeChecked);
 		m_status = FIST_DLRECEIVING;
+		notifyAll();
 		if (m_nSizeChecked < 0)
 			m_nSizeChecked = 0;
 		if (evbuffer_get_length(buf) >= CBLOCK_SIZE)
@@ -208,93 +223,11 @@ protected:
 			return false;
 		data.remove_prefix(toTake);
 		// false to abort if too much data already
-		return data.empty();
+		if (data.empty())
+			return true;
+		return false;
 	}
 };
-
-#if 0
-	int fetchHot(char *retbuf, const char *, off_t pos, off_t len)
-	{
-		if (pos < bufStart)
-			return -ECONNABORTED;
-		auto inBuf = buf.size();
-		// focus on the start and drop useless data
-		if (pos >= bufStart + inBuf)
-		{
-			// outside current range?
-			bufStart += inBuf;
-			buf.clear();
-		}
-		else if (pos > bufStart && pos < bufStart + inBuf)
-		{
-			// part or whole chunk is available
-			auto drop = pos - bufStart;
-			buf.drop(drop);
-			bufStart += drop;
-		}
-		if ( m_status != FIST_DLRECEIVING && pos+len > bufStart + off_t(buf.size()))
-		{
-			return -ECONNABORTED;
-		}
-		return -ECONNABORTED;
-	}
-
-
-
-/** @brief Deliver some agent from the pool which MAY have the data in the pipe which we need.
-	 */
-SHARED_PTR<tDlStream> getAgent(LPCSTR path, off_t pos)
-{
-	mg g(mx_streams);
-	// if posisble, get one which fits
-	auto its = active_agents.equal_range(path);
-	auto spare_agent = active_agents.end();
-
-	if (its.first != active_agents.end())
-	{
-		for (auto it = its.first; it != its.second; ++it)
-		{
-			auto fi = static_pointer_cast<tConsumingItem>(it->second->hodler.get());
-			if (!fi)
-				continue;
-			if ( pos >= fi->bufStart)
-			{
-				SHARED_PTR<tDlStream> ret = move(it->second);
-				active_agents.erase(it);
-				return ret;
-			}
-			// can we recycle idle resources if we have to create a new one?
-
-			// those are finalized so we can use them and they are most likely to still have a hot connection (FILO, not FIFO, XXX: check efficiency)
-			if (it->second->kind != tDlStream::MID)
-			{
-				spare_agent = it;
-			}
-			// XXX: if not donor found in this range, check others too? Might cause pointless reconnects
-		}
-	}
-	auto ret = make_shared<tDlStream>();
-	if (spare_agent != active_agents.end())
-	{
-		ret->dler.swap(spare_agent->second->dler);
-		ret->runner.swap(spare_agent->second->runner);
-	}
-	else
-	{
-		ret->dler = dlcon::CreateRegular();
-		ret->runner = std::thread([&]() {ret->dler->WorkLoop();});
-	}
-	return ret;
-}
-
-void returnAgent(LPCSTR path, SHARED_PTR<tDlStream> && agent)
-{
-	mg g(mx_streams);
-	if (active_agents.size() > MAX_DL_STREAMS)
-		active_agents.erase(active_agents.begin()); // can purge anyone, should be random enough
-	active_agents.insert(make_pair(path, move(agent)));
-}
-#endif
 
 struct tDlDesc
 {
@@ -392,6 +325,7 @@ protected:
 	SHARED_PTR<tDlAgent> m_agent;
 	tHttpUrl m_uri;
 	bool m_bItemWasRead = false, m_bDataChangeError = false;
+	std::recursive_mutex m_mx;
 
 public:
 	tDlDescRemote(cmstring &p, uint n) : tDlDesc(p,n)
@@ -417,6 +351,8 @@ public:
 	};
 	int Stat(struct stat *stbuf)
 	{
+		std::unique_lock<std::recursive_mutex> lck(m_mx);
+
 		if (stbuf)
 			*stbuf = statTempl;
 		auto now(GetTime());
@@ -437,8 +373,9 @@ public:
 			{
 				if (!m_agent)
 					m_agent = getAgent();
-				m_agent->dler->AddJob(item, tHttpUrl(m_uri));
-				res = item->WaitForFinish(5, [](){ return false; });
+				m_agent->dler->AddJob(item, m_uri);
+				auto exTime = GetTime() + 7;
+				res = item->WaitForFinish(3, [exTime](){ return (GetTime() < exTime); });
 				item->markUnused();
 				returnAgent(move(m_agent));
 			}
@@ -453,8 +390,8 @@ public:
 				USRDBG(res.second.msg);
 				return -EIO;
 			}
-			auto changed = (item->m_responseModDate != m_meta.m_ctime || item->m_nContentLength != m_meta.m_size);
-			if (changed)
+			auto na = res.second.code >= 400;
+			if (na || (item->m_responseModDate != m_meta.m_ctime || item->m_nContentLength != m_meta.m_size))
 			{
 				// reap all (meta) data that we might need
 #ifdef USE_HT_CACHE
@@ -463,10 +400,16 @@ public:
 				item->buf = 0;
 				m_meta.head = make_shared<unique_evbuf>(stolenBuf);
 #endif
-				m_meta.m_size = item->m_nContentLength;
-				m_meta.m_ctime = item->m_responseModDate;
-				m_meta.validAt = now;
-
+				if (na)
+				{
+					m_meta.m_size = -1;
+				}
+				else
+				{
+					m_meta.m_size = item->m_nContentLength;
+					m_meta.m_ctime = item->m_responseModDate;
+					m_meta.validAt = now;
+				}
 				{
 					// donate back to cache
 					lockguard g(remote_info_cache);
@@ -481,14 +424,15 @@ public:
 		}
 		if(stbuf)
 		{
-			if (m_meta.m_size >= 0)
+			if (m_meta.m_size < 0)
 			{
-				stbuf->st_size = m_meta.m_size;
-				stbuf->st_mode &= ~S_IFDIR;
-				stbuf->st_mode |= S_IFREG;
-				stbuf->st_ctime = m_meta.m_ctime.value(1);
-				return 0;
+				memset(stbuf, 0, sizeof(struct stat));
+				return -ENOENT;
 			}
+			stbuf->st_size = m_meta.m_size;
+			stbuf->st_mode &= ~S_IFDIR;
+			stbuf->st_mode |= S_IFREG;
+			stbuf->st_ctime = m_meta.m_ctime.value(1);
 		}
 		return 0;
 	}
@@ -499,6 +443,8 @@ public:
 
 	int Read(char *retbuf, const char *path, off_t pos, size_t len)
 	{
+		std::unique_lock<std::recursive_mutex> lck(m_mx);
+
 		(void) path;
 		if (Stat(nullptr))
 			return -EBADF;
@@ -511,6 +457,12 @@ public:
 #endif
 		auto blockStartPos = CBLOCK_SIZE * (pos / CBLOCK_SIZE);
 		auto posInBlock = pos % CBLOCK_SIZE;
+		pair<fileitem::FiStatus, tRemoteStatus> res;
+		auto retError = [&res](int where)
+		{
+			DBGQLOG("E: at " << where << ", " << res.first << "/" << res.second.code << "/" << res.second.msg);
+			return -EIO;
+		};
 
 		if (off_t(m_dataPos) != off_t(blockStartPos))
 		{
@@ -522,12 +474,12 @@ public:
 			// string_view path, off_t knownLength, tHttpDate knownDate, off_t rangeStart, off_t rangeLen
 			size_t toGet = min(CBLOCK_SIZE, m_meta.m_size - blockStartPos);
 			auto item = make_shared<tConsumingItem>(m_path, m_meta.m_size, m_meta.m_ctime, blockStartPos, toGet);
-			pair<fileitem::FiStatus, tRemoteStatus> res;
+
 			try
 			{
 				if (!m_agent)
 					m_agent = getAgent();
-				m_agent->dler->AddJob(item, tHttpUrl(m_uri));
+				m_agent->dler->AddJob(item, m_uri);
 				res = item->WaitForFinish(5, [](){ return false; });
 				item->markUnused();
 				returnAgent(move(m_agent));
@@ -537,19 +489,27 @@ public:
 				item->markUnused();
 			}
 			if (res.first != fileitem::FIST_COMPLETE)
-				return -EIO;
+			{
+				// maybe it has sent to much? If so, we can still use the response
+				if (evbuffer_get_length(item->buf) < toGet)
+					return retError(__LINE__);
+			}
 			std::swap(m_data.m_p, item->buf);
-			if (!m_data.valid() || toGet != evbuffer_get_length(m_data.m_p))
-				return -EIO;
+			if (!m_data.valid())
+				return retError(__LINE__);
+			auto fetched = evbuffer_get_length(m_data.m_p);
+			if (fetched != toGet)
+				return retError(__LINE__);
 			m_dataLen = toGet;
 			m_dataPos = blockStartPos;
 		}
 		auto retCount = min(len, m_dataLen - posInBlock);
 		evbuffer_ptr ep;
 		if (0 != evbuffer_ptr_set(m_data.m_p, &ep, posInBlock, EVBUFFER_PTR_SET))
-			return -EIO;
-		auto ret = evbuffer_copyout_from(m_data.m_p, &ep, retbuf, retCount);
-		return ret == -1 ? -EIO : ret;
+			return retError(__LINE__);
+		if(-1 == evbuffer_copyout_from(m_data.m_p, &ep, retbuf, retCount))
+			return retError(__LINE__);
+		return retCount;
 	}
 };
 
@@ -567,16 +527,17 @@ static int acngfs_getattr(const char *path, struct stat *stbuf)
 	{
 		if(0 == tDlDescLocal(path, type).Stat(stbuf))
 			return 0;
-		if(0 == tDlDescRemote(path, type).Stat(stbuf))
-			return 0;
+		return tDlDescRemote(path, type).Stat(stbuf);
 	}
-
-	//ldbg("Be a directory!");
-	memcpy(stbuf, &statTempl, sizeof(statTempl));
-	stbuf->st_mode &= ~S_IFMT; // delete mode flags and set them as needed
-	stbuf->st_mode |= S_IFDIR;
-	stbuf->st_size = 4;
-	return 0;
+	else
+	{
+		// shall be a directory because FUSE probes the path all the way down
+		memcpy(stbuf, &statTempl, sizeof(statTempl));
+		stbuf->st_mode &= ~S_IFMT; // delete mode flags and set them as needed
+		stbuf->st_mode |= S_IFDIR;
+		stbuf->st_size = 4;
+		return 0;
+	}
 }
 
 static int acngfs_fgetattr(const char *path, struct stat *stbuf,
@@ -701,6 +662,8 @@ void _ExitUsage() {
 int main(int argc, char *argv[])
 {
 	using namespace acng;
+	ac3rdparty libInit;
+
 	memset(&acngfs_oper, 0, sizeof(acngfs_oper));
 	acngfs_oper.getattr	= acngfs_getattr;
 	acngfs_oper.fgetattr	= acngfs_fgetattr;
@@ -714,9 +677,10 @@ int main(int argc, char *argv[])
 	acngfs_oper.release	= acngfs_release;
 	umask(0);
 
-	cfg::agentname = "ACNGFS";
-	cfg::agentheader="User-Agent: ACNGFS\r\n";
-	cfg::requestapx = "User-Agent: ACNGFS\r\nX-Original-Source: 42\r\n";
+	cfg::agentname = "ACNGFS/" ACVERSION;
+	cfg::requestapx = "X-Original-Source: 42\r\n";
+	log::g_szLogPrefix = "acngfs";
+
 	cfg::cachedir.clear();
 	cfg::cacheDirSlash.clear();
 
@@ -741,7 +705,6 @@ int main(int argc, char *argv[])
 			_ExitUsage();
 		else if (!cfg::SetOption(*p, nullptr))
 		{
-#warning maybe add a legacy fallback and rewrite to proxy=host:port if input looks like host:port
 			fuseArgs.push_back(*p);
 		}
 	}
@@ -771,7 +734,6 @@ int main(int argc, char *argv[])
 #ifdef DEBUG
 	cfg::debug=0xff;
 	cfg::verboselog=1;
-	log::g_szLogPrefix = "acngfs";
 	log::open();
 #endif
 
@@ -788,14 +750,37 @@ int main(int argc, char *argv[])
 	// restore application arguments
 
 	evabaseFreeFrunner eb(g_tcp_con_factory, false);
+
+	auto expTimer = event_new(eb.getBase(), -1, EV_PERSIST, expireAgents, nullptr);
+	struct timeval expTv { 30, 30 };
+	evtimer_add(expTimer, &expTv);
+
+#ifdef HAVE_DLOPEN
+	auto pLib = dlopen("libfuse.so.2", RTLD_LAZY);
+	if(!pLib)
+	{
+		cerr << "Couldn't find libfuse.so.2" <<endl;
+		return -1;
+	}
+	auto pFuseSetup = (decltype(&fuse_setup)) dlsym(pLib, "fuse_setup");
+	auto pFuseLoop = (decltype(&fuse_loop_mt)) dlsym(pLib, "fuse_loop_mt");
+	if(!pFuseSetup || !pFuseLoop)
+	{
+		cerr << "Error loading libfuse.so.2" <<endl;
+		return -2;
+	}
+#else
+	auto pFuseSetup = &fuse_setup;
+	auto pFuseLoop = &fuse_loop_mt;
+#endif
+
 	int mt = 1;
-	/** This is the part of fuse_main() before the event loop */
-	auto fs = fuse_setup(fuseArgs.size(), &fuseArgs[0],
-				&acngfs_oper, sizeof(acngfs_oper),
-				&argv[2], &mt, nullptr);
+	auto fs = (*pFuseSetup) (fuseArgs.size(), &fuseArgs[0],
+			&acngfs_oper, sizeof(acngfs_oper),
+			&argv[2], &mt, nullptr);
 	if (!fs)
 		return 2;
-	auto ret = fuse_loop_mt(fs);
+	auto ret = (*pFuseLoop) (fs);
 	// shutdown agents in reliable fashion
 	spare_agents.clear();
 	return ret;

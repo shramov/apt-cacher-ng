@@ -37,6 +37,7 @@
 
 #include <string>
 #include <limits>
+#include <memory>
 
 namespace acng {
 
@@ -52,6 +53,12 @@ typedef const char * LPCSTR;
 #define MIN_VAL(x) (std::numeric_limits< x >::min())
 #define MAX_VAL(x) (std::numeric_limits< x >::max())
 
+#define STRINGIFY(a) STR(a)
+#define STR(a) #a
+
+#ifndef _countof
+#define _countof(x) sizeof(x)/sizeof(x[0])
+#endif
 
 using mstring = std::string;
 using cmstring = const std::string;

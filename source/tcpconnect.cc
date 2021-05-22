@@ -12,6 +12,7 @@
 
 #include "meta.h"
 #include "tcpconnect.h"
+#include "ahttpurl.h"
 
 #include "acfg.h"
 #include "caddrinfo.h"
@@ -19,8 +20,8 @@
 #include "fileio.h"
 #include "fileitem.h"
 #include "cleaner.h"
-#include "dnsiter.h"
 #include "evabase.h"
+#include "aconnect.h"
 #include <tuple>
 
 using namespace std;
@@ -50,7 +51,7 @@ namespace acng
 
 ACNG_API dl_con_factory g_tcp_con_factory;
 
-tcpconnect::tcpconnect(cfg::tRepoData::IHookHandler *pObserver) : m_pStateObserver(pObserver)
+tcpconnect::tcpconnect(tRepoUsageHooks *pObserver) : m_pStateObserver(pObserver)
 {
 	if(pObserver)
 		pObserver->OnAccess();
@@ -74,353 +75,15 @@ tcpconnect::~tcpconnect()
 
 	}
 }
-// UNTESTED blocking of IP protocol when appearing to fail permanently
-#ifdef PROTO_BLOCKER
-
-class tProtoBlocker
-{
-	atomic_uint v4, v6;
-	// block connection type after that many failed attempts
-	const unsigned threshhold=4;
-    struct timeval block_time = {30,0};
-
-	static void reset_cb(evutil_socket_t, short, void *arg)
-	{
-		auto what = (std::atomic_uint*)arg;
-		what->store(0);
-	};
-public:
-	void report(int proto, unsigned fail_count)
-	{
-		if(0 == fail_count) return;
-
-		atomic_uint* what;
-		switch(proto)
-		{
-		case PF_INET: what=&v4; break;
-		case PF_INET6: what=&v6; break;
-		default: return;
-		}
-		auto before = what->fetch_add(fail_count);
-		if(before < threshhold && (before+fail_count) >= threshhold)
-		{
-			event_base_once(evabase::base, -1, EV_TIMEOUT, reset_cb,
-					&what, &block_time);
-		}
-	}
-	bool can_connect(int proto)
-	{
-		switch (proto)
-		{
-		case PF_INET:
-			return v4 < threshhold;
-		case PF_INET6:
-			return v6 < threshhold;
-		default:
-			return true;
-		}
-
-	}
-} proto_blocker;
-#endif
 
 std::string tcpconnect::_Connect(int timeout)
 {
 	LOGSTARTFUNCx(m_sHostName, timeout);
-
-	auto dnsres = CAddrInfo::Resolve(m_sHostName, m_sPort);
-
-	unsigned timeouts_v4(0), timeouts_v6(0);
-#ifdef PROTO_BLOCKER
-
-	tDtorEx transfer_timeout_counts([&](){
-		proto_blocker.report(PF_INET, timeouts_v4);
-		proto_blocker.report(PF_INET6, timeouts_v6);
-	});
-#endif
-
-	if(!dnsres || !dnsres->getTcpAddrInfo())
-	{
-		USRDBG(dnsres->getError());
-		return dnsres->getError();
-	}
-
-	::signal(SIGPIPE, SIG_IGN);
-
-	Disconnect();
-	auto time_start(GetTime());
-
-	enum ePhase {
-		NO_ALTERNATIVES = 0,
-		NOT_YET = 1,
-		PICK_ADDR = 2,
-		ADDR_PICKED = 3,
-		SELECT_CONN = 4, // shall do select on connection
-		HANDLE_ERROR = 5, // transient error state, to be continued into some recovery or ERROR_STOP; expects a useful errno value!
-		ERROR_STOP // basically a non-recoverable error state
-	};
-	struct tConData {
-		ePhase state;
-		int fd;
-		time_t tmexp;
-		const evutil_addrinfo *dns;
-		~tConData() { checkforceclose(fd); }
-		//! prepare and start connection
-		//! @return true if connection happened even here, false otherwise (state is then adjusted for further processing)
-		bool init_con(time_t time_exp)
-		{
-			checkforceclose(fd);
-			tmexp = time_exp;
-#ifdef PROTO_BLOCKER
-			// check if temporary blacklisted
-			if(!proto_blocker.can_connect(dns->ai_family))
-			{
-				errno = EAFNOSUPPORT;
-				state = HANDLE_ERROR;
-				return false;
-			}
-#endif
-			fd = ::socket(dns->ai_family, dns->ai_socktype, dns->ai_protocol);
-			if(fd == -1)
-			{
-				state = HANDLE_ERROR;
-				return false;
-			}
-			set_connect_sock_flags(fd);
-
-#ifdef DEBUG
-			DBGQLOG("Connecting: " << formatIpPort(dns));
-#endif
-			while (true)
-			{
-				auto res = connect(fd, dns->ai_addr, dns->ai_addrlen);
-				if (res != -1)
-					return true;
-				if (errno == EINTR)
-					continue;
-				if (errno == EINPROGRESS)
-				{
-					errno = 0;
-					state = SELECT_CONN;
-				}
-				else
-					// interpret that errno
-					state = HANDLE_ERROR;
-				return false;
-
-			}
-		}
-	};
-	auto iter = tAlternatingDnsIterator(dnsres->getTcpAddrInfo());
-	tConData prim {ADDR_PICKED, -1, time_start + timeout, iter.next() };
-	tConData alt {NO_ALTERNATIVES, -1, time_start + cfg::fasttimeout, nullptr };
-	CTimeVal tv;
-	// pickup the first and/or probably the best errno code which can be reported to user
-	int error2report = 0;
-
-	auto retGood = [&](int &fd)
-	{
-		std::swap(fd, m_conFd);
-
-#ifdef PROTO_BLOCKER
-		// mark this as good protocol, report failure count on other on return later
-			if(condata.dns->ai_family == PF_INET6)
-			timeouts_v6 = 0;
-			else
-			timeouts_v4 = 0;
-#endif
-			return sEmptyString;
-	};
-    auto withErrnoError = [&]() { return tErrnoFmter("Connection failure: ");	};
-	auto withThisErrno = [&withErrnoError](int myErr) { errno = myErr; return withErrnoError(); };
-
-	// ok, initial condition, one target should be always there, iterator would also hop to the next fallback if allowed
-	if(!prim.dns)
-	{
-		dbgline;
-		if(cfg::conprotos[0] == PF_UNSPEC)
-            return "No such host";
-		else
-			return withThisErrno(EAFNOSUPPORT);
-	}
-
-	if (cfg::fasttimeout > 0)
-	{
-		dbgline;
-		alt.dns = iter.next();
-		alt.state = alt.dns ? NOT_YET : NO_ALTERNATIVES;
-	}
-
-	dbgline;
-	for(auto op_max=0; op_max < 30000; ++op_max) // fail-safe switch, in case of any mistake here
-	{
-		LOG("prestate a: " << prim.state << ", state b: " << alt.state );
-		switch(prim.state)
-		{
-		case PICK_ADDR:
-		case NO_ALTERNATIVES:
-		case NOT_YET:
-			// XXX: not reachable
-			break;
-		case ADDR_PICKED:
-			if(prim.init_con(time_start + cfg::nettimeout))
-				return retGood(prim.fd);
-			OPTSET(error2report, errno);
-			__just_fall_through;
-		case SELECT_CONN:
-		{
-			if(GetTime() >= prim.tmexp)
-			{
-				OPTSET(error2report, ELVIS(errno, ETIMEDOUT));
-				++(prim.dns->ai_family == PF_INET ? timeouts_v4 : timeouts_v6);
-				prim.state = HANDLE_ERROR;
-				continue;
-			}
-			break;
-		}
-		case HANDLE_ERROR:
-		{
-			// error on primary, what now? prefer the first seen error code or remember errno
-			OPTSET(error2report, ELVIS(errno, EINVAL));
-			// can work around?
-			switch(alt.state)
-			{
-			case NO_ALTERNATIVES:
-			case ERROR_STOP:
-				LOG("Out of alternatives, reporting error " << error2report);
-				return withThisErrno(error2report);
-			case NOT_YET:
-				prim.state = ERROR_STOP;
-				// push it sooner
-				alt.tmexp -= cfg::fasttimeout;
-				break;
-			default:
-				// some intermediate state there? Let it continue
-				prim.state = ERROR_STOP;
-				break;
-			}
-			break;
-		}
-		case ERROR_STOP:
-			checkforceclose(prim.fd);
-			break;
-		default: // this should be unreachable
-            return "Internal error at " STRINGIFY(__LINE__);
-		}
-		LOG("midstate a: " << prim.state << ", state b: " << alt.state );
-		switch(alt.state)
-		{
-		case NO_ALTERNATIVES:
-			break;
-		case NOT_YET:
-			if (GetTime() < alt.tmexp)
-				break;
-			// first DNS info was preselected before
-			ASSERT(alt.dns);
-			alt.state = ADDR_PICKED;
-			__just_fall_through;
-		case ADDR_PICKED:
-		{
-			if(alt.init_con(GetTime() + cfg::fasttimeout))
-				return retGood(alt.fd);
-			continue;
-		}
-		case PICK_ADDR:
-		{
-			alt.dns = iter.next();
-			alt.state = alt.dns ? ADDR_PICKED : ERROR_STOP;
-			continue;
-		}
-		case SELECT_CONN:
-		{
-			auto now(GetTime());
-			if(now >= prim.tmexp)
-			{
-				alt.state = ERROR_STOP;
-				continue;
-			}
-			if(now >= alt.tmexp)
-			{
-				++(alt.dns->ai_family == PF_INET ? timeouts_v4 : timeouts_v6);
-				alt.state = HANDLE_ERROR;
-				continue;
-			}
-			break;
-		}
-		case HANDLE_ERROR:
-		{
-			alt.state = PICK_ADDR;
-			continue;
-		}
-		case ERROR_STOP:
-		{
-			// came here because:
-			// - no more alternative DNS info
-			// - fatal socket/connect errors
-			// - exceeded maximal network timeout
-			if(prim.state == ERROR_STOP)
-			{
-				// reconsider final error state there
-				prim.state = HANDLE_ERROR;
-				continue;
-			}
-			break;
-		}
-		default: // this should be unreachable
-			return "Internal error at " STRINGIFY(__LINE__);
-		}
-		LOG("poststate a: " << prim.state << ", state b: " << alt.state );
-		select_set_t selset;
-		auto time_inter = prim.tmexp;
-		if(prim.state == SELECT_CONN)
-			selset.add(prim.fd);
-		if(alt.state == SELECT_CONN)
-			selset.add(alt.fd);
-		if(alt.state == NOT_YET || alt.state == SELECT_CONN)
-		{
-			if(alt.tmexp < time_inter)
-				time_inter = alt.tmexp;
-		}
-
-		auto res = select(selset.nfds(), nullptr, &selset.fds, nullptr, tv.Remaining(time_inter));
-		if(evabase::in_shutdown)
-			return withThisErrno(ETIMEDOUT);
-		if (res < 0)
-		{
-			if (EINTR != errno)
-				return withErrnoError();
-		}
-		else if (res > 0)
-		{
-			for(auto p: {&alt, &prim})
-			{
-				LOG("check " << (uintptr_t)p);
-				// Socket selected for writing.
-				int err;
-				socklen_t optlen = sizeof(err);
-				if(p->state == SELECT_CONN && selset.is_set(p->fd)
-				&& getsockopt(p->fd, SOL_SOCKET, SO_ERROR, (void*) &err, &optlen) == 0)
-				{
-					if(err)
-					{
-						OPTSET(error2report, err);
-						LOG("switch to HANDLE_ERROR")
-						p->state = HANDLE_ERROR;
-					}
-					else
-						return retGood(p->fd);
-				}
-			}
-		}
-		else
-		{
-			// Timeout.
-			errno = ETIMEDOUT;
-			continue;
-		}
-
-	}
-	return withThisErrno(ELVIS(error2report, EINVAL));
+	auto res = aconnector::Connect(m_sHostName, m_sPort, timeout);
+	if (!res.second.empty())
+		return res.second;
+	m_conFd = res.first.release();
+	return sEmptyString;
 }
 
 void tcpconnect::Disconnect()
@@ -451,7 +114,7 @@ ACNG_API void CloseAllCachedConnections()
 }
 
 tDlStreamHandle dl_con_factory::CreateConnected(cmstring &sHostname, cmstring &sPort,
-		mstring &sErrOut, bool *pbSecondHand, cfg::tRepoData::IHookHandler *pStateTracker
+		mstring &sErrOut, bool *pbSecondHand, tRepoUsageHooks *pStateTracker
 		,bool bSsl, int timeout, bool nocache) const
 {
 	LOGSTARTFUNCsx(sHostname, sPort, bSsl);
@@ -869,18 +532,6 @@ bool tcpconnect::StartTunnel(const tHttpUrl& realTarget, mstring& sError,
 	}
 	return true;
 }
-
-std::string formatIpPort(const evutil_addrinfo *p)
-{
-	char buf[300], pbuf[30];
-	getnameinfo(p->ai_addr, p->ai_addrlen, buf, sizeof(buf), pbuf, sizeof(pbuf),
-			NI_NUMERICHOST | NI_NUMERICSERV);
-	return string(p->ai_family == PF_INET6 ? "[" : "") +
-			buf +
-			(p->ai_family == PF_INET6 ? "]" : "") +
-			":" + pbuf;
-}
-
 
 
 }

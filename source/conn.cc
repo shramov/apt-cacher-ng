@@ -12,7 +12,6 @@
 #include "acbuf.h"
 #include "tcpconnect.h"
 #include "cleaner.h"
-#include "conserver.h"
 
 #include "lockable.h"
 #include "sockio.h"
@@ -31,13 +30,15 @@ using namespace std;
 
 namespace acng
 {
+namespace conserver {
+void FinishConnection(int);
+}
 
 class conn::Impl
 {
 	friend class conn;
 	conn* _q = nullptr;
 
-	unique_fd m_fd;
 	int m_confd;
 	bool m_badState = false;
 
@@ -75,9 +76,8 @@ class conn::Impl
       unsigned m_nProcessedJobs;
 #endif
 
-	Impl(unique_fd fd, const char *c, std::shared_ptr<IFileItemRegistry> ireg) :
-		m_fd(move(fd)),
-		m_confd(m_fd.get()),
+	Impl(int fd, const char *c, std::shared_ptr<IFileItemRegistry> ireg) :
+		m_confd(fd),
 		m_itemRegistry(ireg)
   	{
   		if(c) // if nullptr, pick up later when sent by the wrapper
@@ -105,6 +105,7 @@ class conn::Impl
   		if(m_dlerthr.joinable())
   			m_dlerthr.join();
   		log::flush();
+		// this is not closed here but there, after graceful termination handling
   		conserver::FinishConnection(m_confd);
   	}
 
@@ -112,7 +113,8 @@ class conn::Impl
 };
 
 // call forwarding
-conn::conn(unique_fd fd, const char *c, std::shared_ptr<IFileItemRegistry> ireg) : _p(new Impl(move(fd), move(c), move(ireg))) { _p->_q = this;}
+conn::conn(int fd, const char *c, std::shared_ptr<IFileItemRegistry> ireg) :
+	_p(new Impl(fd, move(c), move(ireg))) { _p->_q = this;}
 
 std::shared_ptr<IFileItemRegistry> conn::GetItemRegistry() { return _p->m_itemRegistry; };
 conn::~conn() { delete _p; }
@@ -477,7 +479,7 @@ bool conn::Impl::SetupDownloader()
 
 	try
 	{
-		m_pDlClient = dlcon::CreateRegular();
+		m_pDlClient = dlcon::CreateRegular(g_tcp_con_factory);
 		if(!m_pDlClient)
 			return false;
 		auto pin = m_pDlClient;

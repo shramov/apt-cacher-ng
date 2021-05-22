@@ -4,6 +4,8 @@
 
 #include "meta.h"
 #include "fileio.h"
+#include "ahttpurl.h"
+
 #include <unistd.h>
 #include <cstring>
 #include <cstdio>

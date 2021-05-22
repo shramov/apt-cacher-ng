@@ -2,7 +2,6 @@
 #define _CACHEMAN_H_
 
 #include "config.h"
-#include "meta.h"
 #include "acfg.h"
 #include "dirwalk.h"
 #include "maintenance.h"
@@ -36,7 +35,7 @@ static cmstring sslIndex("/Index");
 bool CompDebVerLessThan(cmstring &s1, cmstring s2);
 extern time_t m_gMaintTimeNow;
 
-void DelTree(const string &what);
+void DelTree(cmstring &what);
 
 class ACNG_API cacheman :
 		public IFileHandler,
@@ -160,7 +159,7 @@ SUTPROTECTED:
 	std::unordered_map<mstring,bool> m_forceKeepInTrash;
 
 	bool GetAndCheckHead(cmstring & sHeadfile, cmstring &sFilePathRel, off_t nWantedSize);
-    virtual bool Inject(cmstring &fromRel, cmstring &toRel, bool bSetIfileFlags=true, off_t checkSize = -1, LPCSTR forceOrig = nullptr);
+	virtual bool Inject(cmstring &fromRel, cmstring &toRel, bool bSetIfileFlags, off_t contLen, tHttpDate lastModified, LPCSTR forceOrig = nullptr);
 
 	void PrintStats(cmstring &title);
 	mstring m_processedIfile;
@@ -204,7 +203,7 @@ SUTPRIVATE:
 	 */
 	int PatchOne(cmstring& pindexPathRel, const tStrDeq& patchBaseCandidates);
 	void ParseGenericRfc822File(filereader& reader, cmstring& sExtListFilter,
-			map<string, deque<string> >& contents);
+			std::map<mstring, std::deque<mstring> >& contents);
 	bool ParseDebianIndexLine(tRemoteFileInfo& info, cmstring& fline);
 
 SUTPROTECTED:

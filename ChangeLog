@@ -1,4 +1,4 @@
-apt-cacher-ng (3.7) AND-SOMETIMES-THE-BEAR-EATS-YOU; urgency=low
+apt-cacher-ng (3.7) AND-SOMETIMES-THE-BEAR-EATS-YOU; urgency=medium
 
   * This is an EXPERIMENTAL version. Certain features and code changes should
     not be consider mature. This version might make some things better than
@@ -32,6 +32,9 @@ apt-cacher-ng (3.7) AND-SOMETIMES-THE-BEAR-EATS-YOU; urgency=low
     might have impacted libevent descriptors (Debian bugs #954904, #986356)
   * Fix potentially incorrect error reporting for IPv6/IPv4 switching
     connection attempts which eventually ended in failure (timeout, rejected)
+  * Fix missing newline when RequestAppendix header, which caused it's merging
+    with some prepending header line
+  * Better reproducible runs of DB generations (Debian bug #988976)
 
   [ INTERNAL REFACTORING ]
 
@@ -54,7 +57,7 @@ apt-cacher-ng (3.7) AND-SOMETIMES-THE-BEAR-EATS-YOU; urgency=low
   * Direct linking to libfuse for acngfs is mandatory now, the dlopen path was
     removed since libfuse2 is in wide use nowadays anyway
 
-  [ NEW FEATURES ]
+  [ NEW FEATURES AND IMPROVEMENTS ]
 
   * Limited support of Cache-Control header from clients (no-cache, no-store)
     for LP: #1915713
@@ -62,8 +65,19 @@ apt-cacher-ng (3.7) AND-SOMETIMES-THE-BEAR-EATS-YOU; urgency=low
   * Support regular variable assignments (like in acngtool) in acngfs command
     line syntax, although the meanings might be slightly different (CacheDir
     means local fallback folder)
+  * Better error messages stored in apt-cacher.err, helping to track down
+    filesystem issues
+  * Considering more than two IPs simultaneously when initiating connection,
+    and running this task on IO thread, reducing number of select() calls
+  * When recreating by-hash siblings in the archive, try to restore the
+    modification date where possible, therefore probably avoid redownloading
+    them for (rare) clients which don't follow the by-hash scheme
 
- -- Eduard Bloch <blade@debian.org>  Tue, 11 May 2021 18:17:13 +0200
+  [ MISCELLANEOUS]
+
+  * Database update
+
+ -- Eduard Bloch <blade@debian.org>  Sat, 22 May 2021 14:34:51 +0200
 
 apt-cacher-ng (3.6.3) SOHMIETNG-T0-REBMEMER; urgency=medium
 

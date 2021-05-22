@@ -1,7 +1,8 @@
 #ifndef _DLCON_H
 #define _DLCON_H
 
-#include "tcpconnect.h"
+#include "remotedbtypes.h"
+#include "ahttpurl.h"
 
 namespace acng
 {
@@ -27,12 +28,11 @@ class fileitem;
 
 struct dlrequest;
 struct tDlJob;
-class fileitem;
 
 class ACNG_API dlcon
 {
 public:
-	static SHARED_PTR<dlcon> CreateRegular(const IDlConFactory &pConFactory = g_tcp_con_factory);
+	static SHARED_PTR<dlcon> CreateRegular(const IDlConFactory &pConFactory);
 	virtual ~dlcon() =default;
 	virtual void WorkLoop() =0;
 	virtual void SignalStop() =0;
@@ -44,8 +44,8 @@ public:
 	 * @param extraHeaders
 	 * @return
 	 */
-	virtual bool AddJob(const SHARED_PTR<fileitem> &fi, tHttpUrl &&src, bool isPT = false, mstring extraHeaders = sEmptyString) =0;
-	virtual bool AddJob(const SHARED_PTR<fileitem> &fi, cfg::tRepoResolvResult &&repoSrc, bool isPT = false, mstring extraHeaders = sEmptyString) =0;
+	virtual bool AddJob(const SHARED_PTR<fileitem> &fi, tHttpUrl src, bool isPT = false, mstring extraHeaders = "") =0;
+	virtual bool AddJob(const SHARED_PTR<fileitem> &fi, tRepoResolvResult repoSrc, bool isPT = false, mstring extraHeaders = "") =0;
 };
 
 }

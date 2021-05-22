@@ -23,6 +23,7 @@
 #include "conserver.h"
 #include "cleaner.h"
 #include "acregistry.h"
+#include "ac3rdparty.h"
 
 #include <iostream>
 using namespace std;
@@ -38,8 +39,6 @@ using namespace std;
 #ifdef DEBUG
 #include <regex.h>
 #endif
-
-#include "maintenance.h"
 #include "evabase.h"
 
 namespace acng
@@ -250,12 +249,7 @@ struct tAppStartStop
 
 	tAppStartStop(int argc, const char**argv)
 	{
-#ifdef HAVE_SSL
-			acng::globalSslInit();
-		#endif
-
 		parse_options(argc, argv);
-
 		auto lerr = log::open();
 		if (!lerr.empty())
 		{
@@ -314,7 +308,6 @@ struct tAppStartStop
 		TeardownServerItemRegistry();
 		TeardownCleaner();
 		log::close(false);
-		globalSslDeInit();
 	}
 };
 
@@ -323,6 +316,7 @@ struct tAppStartStop
 int main(int argc, const char **argv)
 {
 	using namespace acng;
+	ac3rdparty libInit;
 	tAppStartStop app(argc, argv);
 	return app.m_base.MainLoop();
 }

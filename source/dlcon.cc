@@ -5,6 +5,8 @@
 #include "lockable.h"
 #include "fileitem.h"
 #include "acfg.h"
+#include "meta.h"
+#include "remotedb.h"
 #include "acbuf.h"
 
 #include <unistd.h>
@@ -86,7 +88,7 @@ struct tDlJob
 #define HINT_TGTCHANGE 256
 #define HINT_RECONNECT_SOON 512
 
-	const cfg::tRepoData *m_pRepoDesc = nullptr;
+	const tRepoData *m_pRepoDesc = nullptr;
 
 	/*!
 	 * Returns a reference to http url where host and port and protocol match the current host
@@ -97,7 +99,7 @@ struct tDlJob
 		return m_pCurBackend ? *m_pCurBackend : m_remoteUri;
 	}
 
-	inline cfg::tRepoData::IHookHandler* GetConnStateTracker()
+	inline tRepoUsageHooks* GetConnStateTracker()
 	{
 		return m_pRepoDesc ? m_pRepoDesc->m_pHooks : nullptr;
 	}
@@ -138,7 +140,7 @@ struct tDlJob
         m_fiAttr = pFi->m_spattr;
 	}
 
-	inline tDlJob(CDlConn *p, const tFileItemPtr& pFi, cfg::tRepoResolvResult &&repoSrc, bool isPT, mstring extraHeaders) :
+	inline tDlJob(CDlConn *p, const tFileItemPtr& pFi, tRepoResolvResult &&repoSrc, bool isPT, mstring extraHeaders) :
 					m_pStorage(pFi), m_parent(*p),
 					m_extraHeaders(move(extraHeaders)),
 					m_bIsPassThroughRequest(isPT)
@@ -388,16 +390,16 @@ struct tDlJob
 				m_nUsedRangeStartPos = -1;
 		}
 
-        if (m_fiAttr.nRangeLimit >= 0)
+		if (m_fiAttr.nRangeLimit >= 0)
 		{
-			 if(m_nUsedRangeStartPos < 0)
-			 {
-                m_fiAttr.nRangeLimit = 0;
-			 }
-             else if(AC_UNLIKELY(m_fiAttr.nRangeLimit < m_nUsedRangeStartPos))
+			if(m_nUsedRangeStartPos < 0)
+			{
+				m_fiAttr.nRangeLimit = 0;
+			}
+			else if(AC_UNLIKELY(m_fiAttr.nRangeLimit < m_nUsedRangeStartPos))
 			{
 				// must be BS, fetch the whole remainder!
-                m_fiAttr.nRangeLimit = -1;
+				m_fiAttr.nRangeLimit = -1;
 			}
 		}
 
@@ -656,7 +658,7 @@ struct tDlJob
 			{
 				ldbg("STATE_FINISHJOB");
 				lockguard g(*m_pStorage);
-				m_pStorage->DlFinish();
+				m_pStorage->DlFinish(false);
 				m_DlState = STATE_GETHEADER;
 				return HINT_DONE;
 			}
@@ -737,8 +739,7 @@ struct tDlJob
                 fileitem::EDestroyMode destruction = fileitem::EDestroyMode::KEEP) {
             m_bAllowStoreData = false;
 			mark_assigned();
-            log::err(tSS() << sPathRel << " response or storage error [" << message
-                     << "], last errno: " << tErrnoFmter());
+			USRERR(sPathRel << " response or storage error [" << message << "], last errno: " << tErrnoFmter());
             m_pStorage->DlSetError({503, mstring(message)}, destruction);
             return EResponseEval::BUSY_OR_ERROR;
         };
@@ -807,7 +808,7 @@ struct tDlJob
             contLen = atoofft(reRes[4].first, -1);
 			auto startPos = atoofft(reRes[2].first, -1);
 
-			// detect quality of the special probe request which reports what we already knew
+			// identify the special probe request which reports what we already knew
             if (m_pStorage->IsVolatile() &&
 					m_pStorage->m_nSizeCachedInitial > 0 &&
                     contLen == m_pStorage->m_nSizeCachedInitial &&
@@ -817,7 +818,7 @@ struct tDlJob
 				m_bAllowStoreData = false;
 				mark_assigned();
 				m_pStorage->m_nSizeChecked = m_pStorage->m_nContentLength = m_pStorage->m_nSizeCachedInitial;
-				m_pStorage->DlFinish();
+				m_pStorage->DlFinish(true);
 				return EResponseEval::GOOD;
 			}
 			// in other cases should resume and the expected position, or else!
@@ -882,8 +883,8 @@ struct tDlJob
 
         if (!m_bAllowStoreData)
         {
-            // finish it asap regardless of trailing body garbage
-            m_pStorage->DlFinish();
+			// XXX: better ensure that it's processed from outside loop and use custom return code?
+			m_pStorage->DlFinish(true);
 		}
 		return EResponseEval::GOOD;
 	}
@@ -963,8 +964,8 @@ public:
 
 	// dlcon interface
 public:
-	bool AddJob(const std::shared_ptr<fileitem> &fi, tHttpUrl &&src, bool isPT, mstring extraHeaders) override;
-	bool AddJob(const std::shared_ptr<fileitem> &fi, cfg::tRepoResolvResult &&repoSrc, bool isPT, mstring extraHeaders) override;
+	bool AddJob(const std::shared_ptr<fileitem> &fi, tHttpUrl src, bool isPT, mstring extraHeaders) override;
+	bool AddJob(const std::shared_ptr<fileitem> &fi, tRepoResolvResult repoSrc, bool isPT, mstring extraHeaders) override;
 };
 
 #ifdef HAVE_LINUX_EVENTFD
@@ -1011,7 +1012,7 @@ inline void CDlConn::awaken_check()
 #endif
 
 
-bool CDlConn::AddJob(const std::shared_ptr<fileitem> &fi, tHttpUrl &&src, bool isPT, mstring extraHeaders)
+bool CDlConn::AddJob(const std::shared_ptr<fileitem> &fi, tHttpUrl src, bool isPT, mstring extraHeaders)
 {
 	if (m_ctrl_hint < 0 || evabase::in_shutdown)
 		return false;
@@ -1024,7 +1025,7 @@ bool CDlConn::AddJob(const std::shared_ptr<fileitem> &fi, tHttpUrl &&src, bool i
 	return true;
 }
 
-bool CDlConn::AddJob(const std::shared_ptr<fileitem> &fi, cfg::tRepoResolvResult &&repoSrc, bool isPT, mstring extraHeaders)
+bool CDlConn::AddJob(const std::shared_ptr<fileitem> &fi, tRepoResolvResult repoSrc, bool isPT, mstring extraHeaders)
 {
 	if (m_ctrl_hint < 0 || evabase::in_shutdown)
 		return false;
@@ -1140,7 +1141,7 @@ inline unsigned CDlConn::ExchangeData(mstring &sErrorMsg,
 
 		r = select(nMaxFd + 1, &rfds, &wfds, nullptr,
 				CTimeVal().ForNetTimeout());
-		ldbg("returned: " << r << ", errno: " << errno);
+		ldbg("returned: " << r << ", errno: " << tErrnoFmter());
 		if (m_ctrl_hint < 0)
 			return HINT_RECONNECT_NOW;
 
@@ -1405,7 +1406,7 @@ void CDlConn::WorkLoop()
 
 	if (fdWakeRead < 0 || fdWakeWrite < 0)
 	{
-		log::err("Error creating pipe file descriptors");
+		USRERR("Error creating pipe file descriptors");
 		return;
 	}
 

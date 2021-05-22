@@ -34,7 +34,7 @@ struct tAppStartStop;
  */
 class ACNG_API cleaner : public base_with_condition
 {
-	friend class tAppStartStop;
+	friend struct tAppStartStop;
 public:
 	cleaner(bool noop, std::shared_ptr<IFileItemRegistry>);
 	virtual ~cleaner();

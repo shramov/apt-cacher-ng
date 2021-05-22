@@ -12,7 +12,9 @@
 #include "debug.h"
 #include "lockable.h"
 #include "evabase.h"
-#include <event2/dns.h>
+
+#include <ares.h>
+
 using namespace std;
 
 /**
@@ -24,8 +26,33 @@ using namespace std;
 namespace acng
 {
 static const unsigned DNS_CACHE_MAX = 255;
-static const unsigned DNS_ERROR_KEEP_MAX_TIME = 15;
+static const unsigned DNS_ERROR_KEEP_MAX_TIME = 10;
+static const unsigned MAX_ADDR = 10;
 static const string dns_error_status_prefix("DNS error, ");
+#define MOVE_FRONT_THERE_TO_BACK_HERE(from, to) to.emplace_back(from.front()), from.pop_front()
+
+std::string acng_addrinfo::formatIpPort(const sockaddr *pAddr, socklen_t addrLen, int ipFamily)
+{
+	char buf[300], pbuf[30];
+	getnameinfo(pAddr, addrLen, buf, sizeof(buf), pbuf, sizeof(pbuf),
+			NI_NUMERICHOST | NI_NUMERICSERV);
+	return string(ipFamily == PF_INET6 ? "[" : "") +
+			buf +
+			(ipFamily == PF_INET6 ? "]" : "") +
+			":" + pbuf;
+}
+
+bool acng_addrinfo::operator==(const acng_addrinfo &other) const
+{
+	return this == &other ||
+			(other.ai_addrlen == ai_addrlen &&
+			 other.ai_family == ai_family &&
+			 memcmp(&ai_addr, &other.ai_addr, ai_addrlen) == 0);
+}
+
+acng::acng_addrinfo::operator mstring() const {
+	return formatIpPort((const sockaddr *) &ai_addr, ai_addrlen, ai_family);
+}
 
 static string make_dns_key(const string & sHostname, const string &sPort)
 {
@@ -71,7 +98,10 @@ void CAddrInfo::clean_dns_cache()
 	}
 }
 
-void CAddrInfo::cb_dns(int rc, struct evutil_addrinfo *results, void *arg)
+void CAddrInfo::cb_dns(void *arg,
+					   int status,
+					   int /* timeouts */,
+					   struct ares_addrinfo *results)
 {
 	// take ownership
 	unique_ptr<tDnsResContext> args((tDnsResContext*)arg);
@@ -80,42 +110,97 @@ void CAddrInfo::cb_dns(int rc, struct evutil_addrinfo *results, void *arg)
 	{
 		g_active_resolver_index.erase(make_dns_key(args->sHost, args->sPort));
 		auto ret = std::shared_ptr<CAddrInfo>(new CAddrInfo);
-		tDtorEx invoke_cbs([&args, &ret]() { for(auto& it: args->cbs) it(ret);});
+		tDtorEx invoke_cbs([&args, &ret, results]() {
+			for(auto& it: args->cbs)
+				it(ret);
+			if (results)
+				ares_freeaddrinfo(results);
+		});
 
-		switch (rc)
+		switch (status)
 		{
-		case 0:
+		case ARES_SUCCESS:
 			break;
-		case EAI_AGAIN:
-		case EAI_MEMORY:
-		case EAI_SYSTEM:
+		case ARES_ENOTIMP:
+			ret->m_expTime = 0; // expire this ASAP and retry
+			ret->m_sError = "Unsupported address family";
+			return;
+		case ARES_ENOTFOUND:
+			ret->m_expTime = 0; // expire this ASAP and retry
+			ret->m_sError = "Host not found";
+			return;
+		case ARES_ECANCELLED:
+		case ARES_EDESTRUCTION:
 			ret->m_expTime = 0; // expire this ASAP and retry
 			ret->m_sError = "Temporary DNS resolution error";
 			return;
+		case ARES_ENOMEM: // similar but cache it for some time so things might improve
+			ret->m_expTime = GetTime() + std::min(cfg::dnscachetime, (int) DNS_ERROR_KEEP_MAX_TIME);
+			ret->m_sError = "Out of memory";
+			break;
 		default:
 			ret->m_expTime = GetTime() + std::min(cfg::dnscachetime, (int) DNS_ERROR_KEEP_MAX_TIME);
-			ret->m_sError = dns_error_status_prefix + evutil_gai_strerror(rc); //   fmt_error(rc); //"If this refers to a configured cache repository, please check the corresponding configuration file");
+			ret->m_sError = tErrnoFmter(status);
 			return;
 		}
-		ret->m_rawInfo = results;
 #ifdef DEBUG
-		for (auto p = ret->m_rawInfo; p; p = p->ai_next)
-			DBGQLOG(formatIpPort(p));
+		for (auto p = results->nodes; p; p = p->ai_next)
+			DBGQLOG("Resolved: " << acng_addrinfo::formatIpPort(p->ai_addr, p->ai_addrlen, p->ai_family));
 #endif
-		// find any suitable-looking entry and keep a pointer to it faster lookup
-		for (auto pCur = ret->m_rawInfo; pCur && !ret->m_tcpAddrInfo; pCur = pCur->ai_next)
+		auto out = ret->m_orderedInfos;
+		auto takeV4 = cfg::conprotos[0] == PF_INET || cfg::conprotos[0] == PF_UNSPEC
+					  || cfg::conprotos[1] == PF_INET || cfg::conprotos[1] == PF_UNSPEC;
+		auto takeV6 = cfg::conprotos[0] == PF_INET6 || cfg::conprotos[0] == PF_UNSPEC
+					  || cfg::conprotos[1] == PF_INET6 || cfg::conprotos[1] == PF_UNSPEC;
+
+		// strange things, something (localhost) goes resolved twice for each family, however there is apparently subtle difference in the ai_addr bits (padding issues in ares?)
+		std::deque<acng_addrinfo> dedup, q4, q6;
+
+		for (auto pCur = results->nodes; pCur; pCur = pCur->ai_next)
 		{
-			if (pCur->ai_socktype == SOCK_STREAM && pCur->ai_protocol == IPPROTO_TCP)
-				ret->m_tcpAddrInfo = pCur;
+			if (pCur->ai_socktype != SOCK_STREAM || pCur->ai_protocol != IPPROTO_TCP)
+				continue;
+
+			acng_addrinfo svAddr(pCur);
+			auto itExist = find(dedup.begin(), dedup.end(), svAddr);
+			if (itExist != dedup.end())
+				continue;
+			dedup.emplace_back(svAddr);
 		}
-		if (ret->m_tcpAddrInfo)
+#ifdef DEBUG
+		for (auto& it: ret->m_orderedInfos)
+			DBGQLOG("Refined: " << it);
+#endif
+		while (!dedup.empty() && (q4.size() + q6.size()) < MAX_ADDR)
+		{
+			if(takeV4 && dedup.front().ai_family == PF_INET)
+				MOVE_FRONT_THERE_TO_BACK_HERE(dedup, q4);
+			else if (takeV6 && dedup.front().ai_family == PF_INET6)
+				MOVE_FRONT_THERE_TO_BACK_HERE(dedup, q6);
+			else
+				dedup.pop_front();
+		}
+
+		for(bool sel6 = cfg::conprotos[0] == PF_INET6 || cfg::conprotos[0] == PF_UNSPEC;
+			q4.size() + q6.size() > 0;
+			sel6 = !sel6)
+		{
+			if(sel6 && !q6.empty())
+				MOVE_FRONT_THERE_TO_BACK_HERE(q6, ret->m_orderedInfos);
+			else if (!sel6 && !q4.empty())
+				MOVE_FRONT_THERE_TO_BACK_HERE(q4, ret->m_orderedInfos);
+		}
+		ASSERT(q4.empty() && q6.empty());
+
+		if (!ret->m_orderedInfos.empty())
 			ret->m_expTime = GetTime() + cfg::dnscachetime;
 		else
 		{
 			// nothing found? Report a common error then.
 			ret->m_expTime = GetTime() + std::min(cfg::dnscachetime, (int) DNS_ERROR_KEEP_MAX_TIME);
-			ret->m_sError = dns_error_status_prefix + evutil_gai_strerror(EAI_SYSTEM);
+			ret->m_sError = dns_error_status_prefix + "system error";
 		}
+
 		if (cfg::dnscachetime > 0) // keep a copy for other users
 		{
 			clean_dns_cache();
@@ -149,6 +234,8 @@ void CAddrInfo::Resolve(cmstring & sHostname, cmstring &sPort, tDnsResultReporte
 	// keep a reference on the dns base to extend its lifetime
 	auto cb_invoke_dns_res = [temp_ctx](bool canceled)
 	{
+		evabase::GetDnsBase()->sync();
+
 		auto args = unique_ptr<tDnsResContext>(temp_ctx); //temporarily owned here
 		if(!args || args->cbs.empty() || !(args->cbs.front())) return; // heh?
 		LOGSTARTFUNCsx(temp_ctx->sHost);
@@ -156,7 +243,7 @@ void CAddrInfo::Resolve(cmstring & sHostname, cmstring &sPort, tDnsResultReporte
 		if (AC_UNLIKELY(canceled || evabase::in_shutdown))
 		{
 			args->cbs.front()(make_shared<CAddrInfo>(
-					evutil_gai_strerror(EAI_SYSTEM)));
+					"system error"));
 			return;
 		}
 
@@ -188,29 +275,25 @@ void CAddrInfo::Resolve(cmstring & sHostname, cmstring &sPort, tDnsResultReporte
 
 		g_active_resolver_index[key] = args.get();
 		static bool filter_specific = (cfg::conprotos[0] != PF_UNSPEC && cfg::conprotos[1] == PF_UNSPEC);
-		static const evutil_addrinfo default_connect_hints =
+
+		static const ares_addrinfo_hints default_connect_hints =
 		{
 			// we provide plain port numbers, no resolution needed
 			// also return only probably working addresses
 			AI_NUMERICSERV | AI_ADDRCONFIG,
 			filter_specific ? cfg::conprotos[0] : PF_UNSPEC,
-			SOCK_STREAM, IPPROTO_TCP,
-			0, nullptr, nullptr, nullptr
+			SOCK_STREAM, IPPROTO_TCP
 		};
 		auto pRaw = args.release(); // to be owned by the operation
-		evdns_getaddrinfo(temp_ctx->resolver->get(),
-				pRaw->sHost.empty() ? nullptr : pRaw->sHost.c_str(),
-				pRaw->sPort.empty() ? nullptr : pRaw->sPort.c_str(),
-				&default_connect_hints, CAddrInfo::cb_dns, pRaw);
+		ares_getaddrinfo(temp_ctx->resolver->get(),
+						 pRaw->sHost.empty() ? nullptr : pRaw->sHost.c_str(),
+						 pRaw->sPort.empty() ? nullptr : pRaw->sPort.c_str(),
+						 &default_connect_hints, CAddrInfo::cb_dns, pRaw);
+
+		evabase::GetDnsBase()->sync();
 	};
 
 	evabase::Post(move(cb_invoke_dns_res));
-}
-
-CAddrInfo::~CAddrInfo()
-{
-	if (m_rawInfo) evutil_freeaddrinfo(m_rawInfo);
-	m_tcpAddrInfo = m_rawInfo = nullptr;
 }
 
 void RejectPendingDnsRequests()
@@ -222,10 +305,16 @@ void RejectPendingDnsRequests()
 
 		for (const auto& action: el.second->cbs)
 		{
-			action(make_shared<CAddrInfo>(evutil_gai_strerror(EAI_SYSTEM)));
+			action(make_shared<CAddrInfo>("System shutting down"));
 		}
 		el.second->cbs.clear();
 	}
+}
+
+acng_addrinfo::acng_addrinfo(ares_addrinfo_node *src)
+	: ai_family(src->ai_family), ai_addrlen(src->ai_addrlen)
+{
+	memcpy(&ai_addr, src->ai_addr, ai_addrlen);
 }
 
 }
