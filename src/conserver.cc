@@ -56,23 +56,19 @@ void SetupConAndGo(unique_fd&& man_fd, const char *szClientName, const char *por
 	USRDBG("Client name: " << sClient << ":" << portName);
 	try
 	{
-		// FIXME: cannot capture easily for unknown reason, WTF?
-		// note: ‘acng::conserver::SetupConAndGo(acng::unique_fd&&, const char*, const char*)::<lambda()>::<lambda>(const acng::conserver::SetupConAndGo(acng::unique_fd&&, const char*, const char*)::<lambda()>&)’ is implicitly deleted because the default definition would be ill-formed
-		// passing as plain int for now
-		auto fd = man_fd.release();
-		g_tpool->schedule([fd, sClient]() mutable
+		// cannot move things into a lambda, capture it later again
+		std::function<void()> act = [fd = man_fd.release(), sClient = move(sClient)]() mutable
 		{
-			unique_fd raii(fd);
 			try
 			{
-				auto c = make_unique<conn>(move(raii), sClient, g_registry);
+				auto c = make_unique<conn>(unique_fd(fd), sClient, g_registry);
 
 				c->WorkLoop();
 			}  catch (...) {
 				// ignored, unique_fd will clean up
 			}
-		}
-		);
+		};
+		g_tpool->schedule(move(act));
 	}
 	catch (const std::bad_alloc&)
 	{

@@ -26,7 +26,7 @@ public:
 			if (m_shutdown)
 			{
 				m_nCurSpare--;
-				return;
+				break;
 			}
 			if (m_freshWork.empty())
 			{
@@ -45,12 +45,10 @@ public:
 			g.reLock();
 			m_nCurActive--;
 			if (m_nCurSpare >= m_nMaxSpare || m_shutdown)
-			{
-				notifyAll();
-				return;
-			}
+				break;
 			m_nCurSpare++;
 		}
+		notifyAll();
 	};
 
 

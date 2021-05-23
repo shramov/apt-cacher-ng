@@ -1,10 +1,11 @@
-apt-cacher-ng (3.7.1) WAY-2-COOL-OUTSIDE; urgency=low
+apt-cacher-ng (3.7.1) WAY-2-WINDY-OUTSIDE; urgency=low
 
-  * Fix linking with -DDEBUG and common code built as shared lib
-
-  [ INTERNAL REDESIGN ]
+  [ INTERNAL REDESIGN AND BUGFIXES ]
 
   * Extracting thread pool into reusable class
+  * All source/Header relocation to src folder
+  * Fix linking with -DDEBUG and common code built as shared lib
+  * Fix build with -Werror (forgotten but irrelevant virtual destructor)
 
  -- 
 
