@@ -11,6 +11,7 @@
 #include "fileio.h"
 #include "evabase.h"
 #include "acregistry.h"
+#include "tpool.h"
 
 #include <signal.h>
 #include <arpa/inet.h>
@@ -44,16 +45,40 @@ namespace conserver
 
 int yes(1);
 
-base_with_condition g_thread_push_cond_var;
-deque<unique_ptr<conn>> g_freshConQueue;
-unsigned g_nStandbyThreads = 0, g_nTotalThreads=0;
 const struct timeval g_resumeTimeout { 2, 11 };
 
-void SetupConAndGo(unique_fd fd, const char *szClientName, const char *szPort);
+SHARED_PTR<tpool> g_tpool;
 
-// safety mechanism, detect when the number of incoming connections
-// is growing A LOT faster than it can be processed 
-#define MAX_BACKLOG 200
+void SetupConAndGo(unique_fd&& man_fd, const char *szClientName, const char *portName)
+{
+	LOGSTARTFUNCs;
+	string sClient(szClientName ? szClientName : "");
+	USRDBG("Client name: " << sClient << ":" << portName);
+	try
+	{
+		// FIXME: cannot capture easily for unknown reason, WTF?
+		// note: ‘acng::conserver::SetupConAndGo(acng::unique_fd&&, const char*, const char*)::<lambda()>::<lambda>(const acng::conserver::SetupConAndGo(acng::unique_fd&&, const char*, const char*)::<lambda()>&)’ is implicitly deleted because the default definition would be ill-formed
+		// passing as plain int for now
+		auto fd = man_fd.release();
+		g_tpool->schedule([fd, sClient]() mutable
+		{
+			unique_fd raii(fd);
+			try
+			{
+				auto c = make_unique<conn>(move(raii), sClient, g_registry);
+
+				c->WorkLoop();
+			}  catch (...) {
+				// ignored, unique_fd will clean up
+			}
+		}
+		);
+	}
+	catch (const std::bad_alloc&)
+	{
+		// ignored
+	}
+}
 
 void cb_resume(evutil_socket_t, short, void* arg)
 {
@@ -142,108 +167,6 @@ void do_accept(evutil_socket_t server_fd, short, void* arg)
 #endif
 		}
 		SetupConAndGo(move(man_fd), hbuf, pbuf);
-	}
-}
-
-
-auto ThreadAction = []()
-{
-	lockuniq g(g_thread_push_cond_var);
-
-	while (true)
-	{
-		while (g_freshConQueue.empty() && !evabase::in_shutdown)
-			g_thread_push_cond_var.wait(g);
-
-		if (evabase::in_shutdown)
-			break;
-
-		auto c = move(g_freshConQueue.front());
-		g_freshConQueue.pop_front();
-
-		g_nStandbyThreads--;
-
-		g.unLock();
-		c->WorkLoop();
-		c.reset();
-		g.reLock();
-
-		g_nStandbyThreads++;
-
-		if (int(g_nStandbyThreads) >= cfg::tpstandbymax || evabase::in_shutdown)
-			break;
-	}
-
-	// remove from global pool
-	g_nStandbyThreads--;
-	g_nTotalThreads--;
-	g_thread_push_cond_var.notifyAll();
-};
-
-//! pushes waiting thread(s) and create threads for each waiting task if needed
-auto SpawnThreadsAsNeeded = []()
-{
-	// check the kill-switch
-		if(int(g_nTotalThreads+1)>=cfg::tpthreadmax || evabase::in_shutdown)
-		return false;
-
-		// need to prepare additional one for the caller?
-		if(g_nStandbyThreads <= g_freshConQueue.size())
-		{
-			try
-			{
-				thread thr(ThreadAction);
-				// if thread was started w/o exception it will decrement those in the end
-				g_nStandbyThreads++;
-				g_nTotalThreads++;
-				thr.detach();
-			}
-			catch(...)
-			{
-				return false;
-			}
-		}
-		g_thread_push_cond_var.notifyAll();
-		return true;
-	};
-
-void SetupConAndGo(unique_fd man_fd, const char *szClientName, const char *portName)
-{
-	LOGSTARTFUNCs
-
-	if (!szClientName)
-		szClientName = "";
-
-	USRDBG("Client name: " << szClientName << ":" << portName);
-
-	lockguard g(g_thread_push_cond_var);
-
-	// DOS prevention
-	if (g_freshConQueue.size() > MAX_BACKLOG)
-	{
-		USRDBG("Worker queue overrun");
-		return;
-	}
-
-	try
-	{
-		g_freshConQueue.emplace_back(make_unique<conn>(man_fd.release(), szClientName, g_registry));
-		LOG("Connection to backlog, total count: " << g_freshConQueue.size());
-	}
-	catch (const std::bad_alloc&)
-	{
-		USRDBG("Out of memory");
-		return;
-	}
-
-	g_thread_push_cond_var.notifyAll();
-
-	if (!SpawnThreadsAsNeeded())
-	{
-		tErrnoFmter fer(
-				"Cannot start threads, cleaning up, aborting all incoming connections. Reason: ");
-		USRDBG(fer);
-		g_freshConQueue.clear();
 	}
 }
 
@@ -350,6 +273,8 @@ int ACNG_API Setup()
 		exit(EXIT_FAILURE);
 	}
 
+	g_tpool = tpool::Create(300, 30);
+
 	unsigned nCreated = 0;
 
 	if (cfg::udspath.empty())
@@ -430,12 +355,7 @@ int ACNG_API Setup()
 
 void Shutdown()
 {
-		lockuniq g(g_thread_push_cond_var);
-		// global hint to all conn objects
-		DBGQLOG("Notifying worker threads\n");
-		g_thread_push_cond_var.notifyAll();
-		while(g_nTotalThreads)
-			g_thread_push_cond_var.wait(g);
+	g_tpool->stop();
 }
 
 void FinishConnection(int fd)

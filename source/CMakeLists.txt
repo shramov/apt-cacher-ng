@@ -4,7 +4,7 @@ set(SERVER_SPECIFIC_SRCS job.cc bgtask.cc cacheman.cc conn.cc conserver.cc expir
 
 set(SHAREDSRCS astrop.cc sockio.cc acbuf.cc acfg.cc acfg_defaults.cc aclogger.cc caddrinfo.cc dirwalk.cc dlcon.cc fileio.cc
     fileitem.cc filereader.cc header.cc meta.cc tcpconnect.cc cleaner.cc lockable.cc evabase.cc ebrunner.cc httpdate.cc
-    csmapping.cc acerrno.cc aconnect.cc ac3rdparty.cc remotedb.cc
+    csmapping.cc acerrno.cc aconnect.cc ac3rdparty.cc remotedb.cc tpool.cc
     ${SERVER_SPECIFIC_SRCS}
     ${ALL_HEADERS})
 
