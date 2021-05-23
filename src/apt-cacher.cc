@@ -1,21 +1,6 @@
-#include <acbuf.h>
-#include <aclogger.h>
-#include <fcntl.h>
-
-#include <stddef.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <unistd.h>
-#include <cstdbool>
-#include <cstdint>
-#include <cstdlib>
-#include <ctime>
-#include <string>
-
-
-#define LOCAL_DEBUG
 #include "debug.h"
-
+#include "acbuf.h"
+#include "aclogger.h"
 #include "config.h"
 #include "meta.h"
 #include "acfg.h"
@@ -24,22 +9,32 @@
 #include "cleaner.h"
 #include "acregistry.h"
 #include "ac3rdparty.h"
-
-#include <iostream>
-using namespace std;
-
-#include <cstdio>
-#include <cstring>
-#include <sys/time.h>
-#include <signal.h>
-#include <errno.h>
-
 #include "filereader.h"
 #include "csmapping.h"
 #ifdef DEBUG
 #include <regex.h>
 #endif
 #include "evabase.h"
+
+#include <iostream>
+
+#include <cstdbool>
+#include <cstdint>
+#include <cstdlib>
+#include <ctime>
+#include <cstdio>
+#include <cstring>
+
+#include <fcntl.h>
+#include <stddef.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <sys/time.h>
+#include <signal.h>
+#include <errno.h>
+
+using namespace std;
 
 namespace acng
 {

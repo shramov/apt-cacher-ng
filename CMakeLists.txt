@@ -369,13 +369,13 @@ SET(CMAKE_SHARED_LIBRARY_LINK_C_FLAGS "")
 # all checks done, save configuration #
 #######################################
 
-CONFIGURE_FILE("${CMAKE_SOURCE_DIR}/include/acsyscap.h.in" "${CMAKE_BINARY_DIR}/acsyscap.h")
+CONFIGURE_FILE("${CMAKE_SOURCE_DIR}/src/acsyscap.h.in" "${CMAKE_BINARY_DIR}/acsyscap.h")
 
 if(ENABLE_TOOLS)
 	add_subdirectory(client)
 	add_subdirectory(fs)
 endif()
-add_subdirectory(source)
+add_subdirectory(src)
 add_subdirectory(conf)
 add_subdirectory(systemd)
 

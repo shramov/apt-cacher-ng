@@ -1,7 +1,6 @@
 
 #include "debug.h"
-
-#include <config.h>
+#include "config.h"
 #include "lockable.h"
 
 #include <chrono>

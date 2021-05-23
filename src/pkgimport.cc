@@ -1,5 +1,4 @@
 
-#define LOCAL_DEBUG
 #include "debug.h"
 
 #include "pkgimport.h"
@@ -12,10 +11,9 @@
 #include "csmapping.h"
 #include "httpdate.h"
 
-#include <string>
 #include <iostream>
 #include <fstream>
-#include <meta.h>
+
 #include <cstdio>
 #include <errno.h>
 

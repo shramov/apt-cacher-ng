@@ -1,7 +1,5 @@
 
-//#define LOCAL_DEBUG
 #include "debug.h"
-
 #include "meta.h"
 #include "conn.h"
 #include "acfg.h"
@@ -12,10 +10,10 @@
 #include "acbuf.h"
 #include "tcpconnect.h"
 #include "cleaner.h"
-
 #include "lockable.h"
 #include "sockio.h"
 #include "evabase.h"
+
 #include <iostream>
 #include <thread>
 

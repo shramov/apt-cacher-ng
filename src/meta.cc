@@ -1,14 +1,12 @@
 
-#define LOCAL_DEBUG
 #include "debug.h"
-
 #include "meta.h"
 #include "fileio.h"
 #include "ahttpurl.h"
 
-#include <unistd.h>
 #include <cstring>
 #include <cstdio>
+#include <unistd.h>
 #include <iostream>
 #include <algorithm>
 

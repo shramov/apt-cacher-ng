@@ -1,30 +1,30 @@
 
-//#define LOCAL_DEBUG
+#include "job.h"
+
 #include "debug.h"
 #include "meta.h"
 #include "acfg.h"
 #include "remotedb.h"
-
-#include "job.h"
-#include <cstdio>
-#include <stdexcept>
-#include <limits>
-#include <queue>
-using namespace std;
-
 #include "conn.h"
 #include "acfg.h"
 #include "fileitem.h"
 #include "dlcon.h"
 #include "sockio.h"
 #include "fileio.h" // for ::stat and related macros
-#include <dirent.h>
-#include <algorithm>
 #include "maintenance.h"
 #include "evabase.h"
-#include <event2/buffer.h>
 
+#include <algorithm>
+#include <cstdio>
+#include <stdexcept>
+#include <limits>
+#include <queue>
+
+#include <dirent.h>
+#include <event2/buffer.h>
 #include <errno.h>
+
+using namespace std;
 
 //#define FORCE_CHUNKED
 

@@ -3,27 +3,21 @@
 #include "acfg.h"
 #include "aclogger.h"
 #include "tcpconnect.h"
+#include "acbuf.h"
+#include "aclogger.h"
+#include "dirwalk.h"
+#include "debug.h"
+#include "dlcon.h"
+#include "fileio.h"
+#include "acregistry.h"
+#include "sockio.h"
+#include "bgtask.h"
+#include "ac3rdparty.h"
+#include "filereader.h"
+#include "csmapping.h"
+#include "cleaner.h"
+#include "ebrunner.h"
 
-#include <acbuf.h>
-#include <aclogger.h>
-#include <dirwalk.h>
-#include <fcntl.h>
-
-#include <stddef.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <unistd.h>
-#include <sys/time.h>
-#include <signal.h>
-#include <regex.h>
-#include <errno.h>
-
-#include <cstdbool>
-#include <cstdint>
-#include <cstdlib>
-#include <ctime>
-#include <cstdio>
-#include <cstring>
 #include <functional>
 #include <thread>
 #include <iostream>
@@ -32,29 +26,22 @@
 #include <list>
 #include <queue>
 
-#include "debug.h"
-#include "dlcon.h"
-#include "fileio.h"
-#include "acregistry.h"
-#include "sockio.h"
-#include "bgtask.h"
+#include <cstdbool>
+#include <cstdint>
+#include <cstdlib>
+#include <ctime>
+#include <cstdio>
+#include <cstring>
 
-/*
- * #ifdef HAVE_SSL
-#include "openssl/bio.h"
-#include "openssl/ssl.h"
-#include "openssl/err.h"
-#include <openssl/rand.h>
-#include <openssl/sha.h>
-#include <openssl/crypto.h>
-#endif
-*/
-#include "ac3rdparty.h"
-
-#include "filereader.h"
-#include "csmapping.h"
-#include "cleaner.h"
-#include "ebrunner.h"
+#include <fcntl.h>
+#include <stddef.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <sys/time.h>
+#include <signal.h>
+#include <regex.h>
+#include <errno.h>
 
 using namespace std;
 using namespace acng;

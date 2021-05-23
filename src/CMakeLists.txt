@@ -27,7 +27,7 @@ if(ENABLE_PCH)
 	# this brings about 15% faster builds
 	# OTOH it ruins ccache functionality with default setting - needs ccache config change, see ccache(1) about PRECOMPILED HEADERS
 	if (${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.16")
-		target_precompile_headers(supacng PUBLIC ../include/meta.h ../include/debug.h ../include/filereader.h ../include/acfg.h)
+		target_precompile_headers(supacng PUBLIC meta.h debug.h filereader.h acfg.h)
 		if(CMAKE_COMPILER_IS_CCACHE OR CMAKE_CXX_COMPILER_LAUNCHER MATCHES "ccache")
 			message(WARNING "Precompiled headers are enabled and ccache is in use. Make sure to configure it, see ccache(1) about PRECOMPILED HEADERS, or set ENABLE_PCH to off.")
 		endif()
