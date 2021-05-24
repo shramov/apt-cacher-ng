@@ -53,6 +53,13 @@ public:
 		if(!m_ptr) return;
 		m_ptr->__inc_ref();
 	}
+	lint_ptr(::acng::lint_ptr<T> && orig)
+	{
+		if (this == &orig)
+			return;
+		m_ptr = orig.m_ptr;
+		orig.m_ptr = nullptr;
+	}
 	inline ~lint_ptr<T>()
 	{
 		if(!m_ptr) return;

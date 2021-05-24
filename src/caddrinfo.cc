@@ -12,8 +12,10 @@
 #include "debug.h"
 #include "lockable.h"
 #include "evabase.h"
+#include "acsmartptr.h"
 
 #include <ares.h>
+#include <arpa/nameser.h>
 
 using namespace std;
 
@@ -25,10 +27,14 @@ using namespace std;
 
 namespace acng
 {
+#define DNS_MAX_PER_REQUEST 5
 static const unsigned DNS_CACHE_MAX = 255;
 static const unsigned DNS_ERROR_KEEP_MAX_TIME = 10;
 static const unsigned MAX_ADDR = 10;
 static const string dns_error_status_prefix("DNS error, ");
+// this shall remain global and forever, for last-resort notifications
+auto fatalInternalError = std::make_shared<CAddrInfo>("Fatal Internal DNS error"sv);
+
 #define MOVE_FRONT_THERE_TO_BACK_HERE(from, to) to.emplace_back(from.front()), from.pop_front()
 
 std::string acng_addrinfo::formatIpPort(const sockaddr *pAddr, socklen_t addrLen, int ipFamily)
@@ -68,18 +74,92 @@ map<string,CAddrInfoPtr> dns_cache;
 deque<decltype(dns_cache)::iterator> dns_exp_q;
 
 // descriptor of a running DNS lookup, passed around with libevent callbacks
-struct tDnsResContext
+struct tDnsResContext : public tLintRefcounted
 {
 	string sHost, sPort;
 	std::shared_ptr<CDnsBase> resolver;
 	list<CAddrInfo::tDnsResultReporter> cbs;
+	static map<string, tDnsResContext*> g_active_resolver_index;
+	// holds results of each task and refcounter
+	struct tResult
+	{
+		lint_ptr<tDnsResContext> ownerRef;
+		int status = ARES_EBADFLAGS;
+		ares_addrinfo* results = nullptr;
+		~tResult() { if(results) ares_freeaddrinfo(results); }
+	};
+	vector<tResult> tasks;
+
+	decltype(g_active_resolver_index)::iterator refMe;
+
+	tDnsResContext(string sh, string sp, CAddrInfo::tDnsResultReporter rep)
+		: sHost(sh),
+		  sPort(sp),
+		  resolver(evabase::GetDnsBase()),
+		  cbs({move(rep)})
+	{
+		refMe = g_active_resolver_index.end();
+	}
+	/**
+	  * Eventually commit the results to callers while releasing this.
+	  */
+	~tDnsResContext();
+
+	void start()
+	{
+		ares_query(resolver->get(), (string("_http._tcp.") + sHost).c_str(),
+				   ns_c_in, ns_t_srv, tDnsResContext::cb_srv_query, this);
+		evabase::GetDnsBase()->sync();
+	}
+	void setResTaskCount(unsigned n)
+	{
+		tasks.resize(n);
+		for(auto& el: tasks)
+			el.ownerRef.reset(this);
+	}
+	void runCallbacks(SHARED_PTR<CAddrInfo> &res)
+	{
+		for(auto& el: cbs)
+		{
+			if (!el)
+				continue;
+			try
+			{
+				el(res);
+			}
+			catch (...) {}
+			// el = CAddrInfo::tDnsResultReporter();
+		}
+		cbs.clear();
+	}
+	/**
+	 * @brief Report an existing result object but first modify it into error
+	 * @param Result object, expected to contain the results unless errMsg is set
+	 * @param errMsg Drop result information, i.e. convert it to error report using this message
+	 */
+	void reportAsError(SHARED_PTR<CAddrInfo>& res, string_view errMsg)
+	{
+		res->m_sError = errMsg;
+		res->m_sortedInfos.clear();
+		runCallbacks(res);
+	}
+	void reportNewError(string_view errMsg)
+	{
+		auto res = make_shared<CAddrInfo>(errMsg);
+		runCallbacks(res);
+	}
+
+	// C-style callback for the resolver
+	static void cb_addrinfo(void *arg,
+					   int status,
+					   int timeouts,
+					   struct ares_addrinfo *results);
+
+	static void cb_srv_query(void *arg, int status,
+							 int timeouts,
+							 unsigned char *abuf,
+							 int alen);
 };
-unordered_map<string,tDnsResContext*> g_active_resolver_index;
-
-// this shall remain global and forever, for last-resort notifications
-LPCSTR sGenericErrorStatus = "Fatal system error within apt-cacher-ng processing";
-auto fail_hint = make_shared<CAddrInfo>(sGenericErrorStatus);
-
 
 /**
  * Trash old entries and keep purging until there is enough space for at least one new entry.
@@ -98,79 +178,147 @@ void CAddrInfo::clean_dns_cache()
 	}
 }
 
-void CAddrInfo::cb_dns(void *arg,
-					   int status,
-					   int /* timeouts */,
-					   struct ares_addrinfo *results)
+void tDnsResContext::cb_addrinfo(void *arg,
+								 int status,
+								 int /* timeouts */,
+								 struct ares_addrinfo *results)
 {
-	// take ownership
-	unique_ptr<tDnsResContext> args((tDnsResContext*)arg);
-	arg = nullptr;
+	auto taskCtx((tDnsResContext::tResult*)arg);
+	// reseting refcount on the owning object too early can have side effects
+	auto pin(move(taskCtx->ownerRef));
+	taskCtx->results = results;
+	taskCtx->status = status;
+}
+
+struct tWeightedSrvComp
+{
+	// a less-than b
+	bool operator()(ares_srv_reply*& a, ares_srv_reply*&b)
+	{
+		if (a->priority < b->priority)
+			return true;
+		if (a->priority > b->priority)
+			return false;
+		return a->weight > b->weight;
+	}
+} comp;
+
+void tDnsResContext::cb_srv_query(void *arg, int status, int, unsigned char *abuf, int alen)
+{
+	// comes in unreferenced, clear when leaving unless passed to other callbacks
+	auto me = as_lptr((tDnsResContext*)arg);
+	if (ARES_ECANCELLED == status || ARES_EDESTRUCTION == status)
+		return me->reportNewError("Temporary DNS resolution error");
+	if (ARES_ENOMEM == status)
+		return me->reportNewError("Out of memory");
+
+	auto invoke_getaddrinfo = [&] (cmstring& sHost, tResult* pTaskCtx)
+	{
+		static bool filter_specific = (cfg::conprotos[0] != PF_UNSPEC && cfg::conprotos[1] == PF_UNSPEC);
+
+		static const ares_addrinfo_hints default_connect_hints =
+		{
+			// we provide plain port numbers, no resolution needed
+			// also return only probably working addresses
+			AI_NUMERICSERV | AI_ADDRCONFIG,
+			filter_specific ? cfg::conprotos[0] : PF_UNSPEC,
+			SOCK_STREAM, IPPROTO_TCP
+		};
+		ares_getaddrinfo(me->resolver->get(),
+						 sHost.c_str(),
+						 me->sPort.c_str(),
+						 &default_connect_hints, tDnsResContext::cb_addrinfo, pTaskCtx);
+		me->resolver->sync();
+	};
+	deque<ares_srv_reply*> all;
+	if (status == ARES_SUCCESS)
+	{
+		ares_srv_reply* pReply = nullptr;
+		if (ARES_SUCCESS == ares_parse_srv_reply(abuf, alen, &pReply))
+		{
+			unsigned maxWeight = 1;
+			// that's considering all weights from different priorities in the same way, assuming that too heavy differences won't hurt the precission afterwards
+			for(auto p = pReply; p; p = p->next)
+				maxWeight = std::max((unsigned) p->weight, maxWeight);
+			// factor to bring the dimension of random() into our dimension so that in ever overflows when scaling back
+			auto scaleFac = (INT_MAX / maxWeight + 1);
+			for(auto p = pReply; p; p = p->next)
+			{
+				p->weight *= (random() / scaleFac);
+				if (p->host)
+					all.emplace_back(p);
+			}
+			std::sort(all.begin(), all.end(), comp);
+			auto nHosts = all.size() < DNS_MAX_PER_REQUEST ? all.size() : DNS_MAX_PER_REQUEST;
+			me->setResTaskCount(nHosts);
+			for (unsigned i = 0; i < all.size(); ++i)
+				invoke_getaddrinfo(all[i]->host, & me->tasks[i]);
+			// ASSERT(me->__ref_cnt() == nHosts + 1);
+		}
+		if (pReply)
+			ares_free_data(pReply);
+	}
+	// no or bad SRV, do just regular getaddrinfo
+	if (me->tasks.empty())
+	{
+		me->setResTaskCount(1);
+		invoke_getaddrinfo(me->sHost, & me->tasks.front());
+	}
+
+}
+
+map<string, tDnsResContext*> tDnsResContext::g_active_resolver_index;
+
+tDnsResContext::~tDnsResContext()
+{
+	if (refMe != g_active_resolver_index.end())
+		g_active_resolver_index.erase(refMe);
+
 	try
 	{
-		g_active_resolver_index.erase(make_dns_key(args->sHost, args->sPort));
-		auto ret = std::shared_ptr<CAddrInfo>(new CAddrInfo);
-		tDtorEx invoke_cbs([&args, &ret, results]() {
-			for(auto& it: args->cbs)
-				it(ret);
-			if (results)
-				ares_freeaddrinfo(results);
+		auto ret = std::shared_ptr<CAddrInfo>(new CAddrInfo); // ctor is private
+		tDtorEx invoke_cbs([&ret, this]() mutable
+		{
+			runCallbacks(ret);
+			// ASAP, before releasing resolver
+			//tasks.clear();
 		});
 
-		switch (status)
+		std::deque<acng_addrinfo> dedup, q4, q6;
+		int errStatus = ARES_SUCCESS;
+
+		for(const auto& taskCtx : tasks)
 		{
-		case ARES_SUCCESS:
-			break;
-		case ARES_ENOTIMP:
-			ret->m_expTime = 0; // expire this ASAP and retry
-			ret->m_sError = "Unsupported address family";
-			return;
-		case ARES_ENOTFOUND:
-			ret->m_expTime = 0; // expire this ASAP and retry
-			ret->m_sError = "Host not found";
-			return;
-		case ARES_ECANCELLED:
-		case ARES_EDESTRUCTION:
-			ret->m_expTime = 0; // expire this ASAP and retry
-			ret->m_sError = "Temporary DNS resolution error";
-			return;
-		case ARES_ENOMEM: // similar but cache it for some time so things might improve
-			ret->m_expTime = GetTime() + std::min(cfg::dnscachetime, (int) DNS_ERROR_KEEP_MAX_TIME);
-			ret->m_sError = "Out of memory";
-			break;
-		default:
-			ret->m_expTime = GetTime() + std::min(cfg::dnscachetime, (int) DNS_ERROR_KEEP_MAX_TIME);
-			ret->m_sError = tErrnoFmter(status);
-			return;
-		}
+			auto tres = taskCtx.results;
+			if (errStatus == ARES_SUCCESS)
+				errStatus = taskCtx.status;
+
 #ifdef DEBUG
-		for (auto p = results->nodes; p; p = p->ai_next)
-			DBGQLOG("Resolved: " << acng_addrinfo::formatIpPort(p->ai_addr, p->ai_addrlen, p->ai_family));
+			for (auto p = tres->nodes; p; p = p->ai_next)
+				DBGQLOG("Resolved: " << acng_addrinfo::formatIpPort(p->ai_addr, p->ai_addrlen, p->ai_family));
 #endif
-		auto out = ret->m_orderedInfos;
+			for (auto pCur = tres->nodes; pCur; pCur = pCur->ai_next)
+			{
+				if (pCur->ai_socktype != SOCK_STREAM || pCur->ai_protocol != IPPROTO_TCP)
+					continue;
+
+				acng_addrinfo svAddr(pCur);
+				auto itExist = find(dedup.begin(), dedup.end(), svAddr);
+				if (itExist != dedup.end())
+					continue;
+				dedup.emplace_back(svAddr);
+			}
+		}
+
+#ifdef DEBUG
+		for (auto& it: ret->m_sortedInfos)
+			DBGQLOG("Refined: " << it);
+#endif
 		auto takeV4 = cfg::conprotos[0] == PF_INET || cfg::conprotos[0] == PF_UNSPEC
 					  || cfg::conprotos[1] == PF_INET || cfg::conprotos[1] == PF_UNSPEC;
 		auto takeV6 = cfg::conprotos[0] == PF_INET6 || cfg::conprotos[0] == PF_UNSPEC
 					  || cfg::conprotos[1] == PF_INET6 || cfg::conprotos[1] == PF_UNSPEC;
 
-		// strange things, something (localhost) goes resolved twice for each family, however there is apparently subtle difference in the ai_addr bits (padding issues in ares?)
-		std::deque<acng_addrinfo> dedup, q4, q6;
-
-		for (auto pCur = results->nodes; pCur; pCur = pCur->ai_next)
-		{
-			if (pCur->ai_socktype != SOCK_STREAM || pCur->ai_protocol != IPPROTO_TCP)
-				continue;
-
-			acng_addrinfo svAddr(pCur);
-			auto itExist = find(dedup.begin(), dedup.end(), svAddr);
-			if (itExist != dedup.end())
-				continue;
-			dedup.emplace_back(svAddr);
-		}
-#ifdef DEBUG
-		for (auto& it: ret->m_orderedInfos)
-			DBGQLOG("Refined: " << it);
-#endif
 		while (!dedup.empty() && (q4.size() + q6.size()) < MAX_ADDR)
 		{
 			if(takeV4 && dedup.front().ai_family == PF_INET)
@@ -186,33 +334,53 @@ void CAddrInfo::cb_dns(void *arg,
 			sel6 = !sel6)
 		{
 			if(sel6 && !q6.empty())
-				MOVE_FRONT_THERE_TO_BACK_HERE(q6, ret->m_orderedInfos);
+				MOVE_FRONT_THERE_TO_BACK_HERE(q6, ret->m_sortedInfos);
 			else if (!sel6 && !q4.empty())
-				MOVE_FRONT_THERE_TO_BACK_HERE(q4, ret->m_orderedInfos);
+				MOVE_FRONT_THERE_TO_BACK_HERE(q4, ret->m_sortedInfos);
 		}
 		ASSERT(q4.empty() && q6.empty());
 
-		if (!ret->m_orderedInfos.empty())
-			ret->m_expTime = GetTime() + cfg::dnscachetime;
+		if (ret->m_sortedInfos.empty())
+		{
+			switch (errStatus)
+			{
+			case ARES_ENOTIMP:
+				reportAsError(ret, "Unsupported address family");
+				return;
+			case ARES_ENOTFOUND:
+				reportAsError(ret, "Host not found");
+				return;
+			case ARES_ECANCELLED:
+			case ARES_EDESTRUCTION:
+				reportAsError(ret, "Temporary DNS resolution error");
+				return;
+			case ARES_ENOMEM: // similar but cache it for some time so things might improve
+				reportAsError(ret, "Out of memory");
+				return;
+			default:
+				// not critical, can keep this for a short time to avoid DNS storms
+				ret->m_expTime = GetTime() + std::min(cfg::dnscachetime, (int) DNS_ERROR_KEEP_MAX_TIME);
+				ret->m_sError = tErrnoFmter(errStatus);
+				break;
+			}
+		}
 		else
 		{
-			// nothing found? Report a common error then.
-			ret->m_expTime = GetTime() + std::min(cfg::dnscachetime, (int) DNS_ERROR_KEEP_MAX_TIME);
-			ret->m_sError = dns_error_status_prefix + "system error";
+			ret->m_expTime = GetTime() + cfg::dnscachetime;
 		}
 
 		if (cfg::dnscachetime > 0) // keep a copy for other users
 		{
-			clean_dns_cache();
-			auto newIt = dns_cache.emplace(make_dns_key(args->sHost, args->sPort), ret);
+			ret->clean_dns_cache();
+			auto newIt = dns_cache.emplace(make_dns_key(sHost, sPort), ret);
 			dns_exp_q.push_back(newIt.first);
 		}
+		return;
 	}
-	catch(...)
-	{
-		// nothing above should actually throw, but if it does, make sure to not keep wild pointers
-		g_active_resolver_index.clear();
-	}
+	catch(...) {}
+
+	// this should be unreachable, and if it is, the report method should be harmless
+	runCallbacks(fatalInternalError);
 }
 
 SHARED_PTR<CAddrInfo> CAddrInfo::Resolve(cmstring & sHostname, cmstring &sPort)
@@ -221,76 +389,61 @@ SHARED_PTR<CAddrInfo> CAddrInfo::Resolve(cmstring & sHostname, cmstring &sPort)
 	auto reporter = [&reppro](CAddrInfoPtr result) { reppro.set_value(result); };
 	Resolve(sHostname, sPort, move(reporter));
 	auto res(reppro.get_future().get());
-	return res ? res : fail_hint;
+	return res ? res : fatalInternalError;
 }
 void CAddrInfo::Resolve(cmstring & sHostname, cmstring &sPort, tDnsResultReporter rep)
 {
-	auto temp_ctx = new tDnsResContext {
-		sHostname,
-		sPort,
-		std::shared_ptr<CDnsBase>(),
-		list<CAddrInfo::tDnsResultReporter> {move(rep)}
-	};
 	// keep a reference on the dns base to extend its lifetime
-	auto cb_invoke_dns_res = [temp_ctx](bool canceled)
+	auto cb_invoke_dns_res = [sHostname, sPort, rep = move(rep)](bool canceled) mutable
 	{
-		evabase::GetDnsBase()->sync();
+		LOGSTARTFUNCsx(sHostname);
+		tDnsResContext *ctx = nullptr;
 
-		auto args = unique_ptr<tDnsResContext>(temp_ctx); //temporarily owned here
-		if(!args || args->cbs.empty() || !(args->cbs.front())) return; // heh?
-		LOGSTARTFUNCsx(temp_ctx->sHost);
-
-		if (AC_UNLIKELY(canceled || evabase::in_shutdown))
+		try
 		{
-			args->cbs.front()(make_shared<CAddrInfo>(
-					"system error"));
-			return;
-		}
-
-		auto key=make_dns_key(args->sHost, args->sPort);
-		if(cfg::dnscachetime > 0)
-		{
-			auto caIt = dns_cache.find(key);
-			if(caIt != dns_cache.end())
+			if (AC_UNLIKELY(canceled || evabase::in_shutdown))
 			{
-				args->cbs.front()(caIt->second);
+				rep(make_shared<CAddrInfo>("system error"));
 				return;
 			}
+
+			auto key = make_dns_key(sHostname, sPort);
+			if(cfg::dnscachetime > 0)
+			{
+				auto caIt = dns_cache.find(key);
+				if(caIt != dns_cache.end())
+					return rep(caIt->second);
+			}
+			auto resIt = tDnsResContext::g_active_resolver_index.find(key);
+			// join the waiting crowd, move all callbacks to there...
+			if(resIt != tDnsResContext::g_active_resolver_index.end())
+			{
+				resIt->second->cbs.emplace_back(rep);
+				rep = decltype (rep)();
+				return;
+			}
+
+			// ok, this is fresh, invoke a completely new DNS lookup operation
+			ctx = new tDnsResContext(sHostname, sPort, rep);
+			rep = decltype (rep)();
+			if (AC_UNLIKELY(!ctx || !ctx->resolver))
+			{
+				ctx->cbs.back()(make_shared<CAddrInfo>("503 Bad DNS configuration"));
+				// and defuse the fallback caller
+				ctx->cbs.clear();
+				return;
+			}
+			ctx->refMe = tDnsResContext::g_active_resolver_index.emplace(key, ctx).first;
+			ctx->start();
 		}
-		auto resIt = g_active_resolver_index.find(key);
-		// join the waiting crowd, move all callbacks to there...
-		if(resIt != g_active_resolver_index.end())
+		catch (const std::bad_alloc&)
 		{
-			resIt->second->cbs.splice(resIt->second->cbs.end(), args->cbs);
-			return;
+			if (ctx)
+				delete ctx;
+
+			if (rep)
+				rep(fatalInternalError);
 		}
-
-		// ok, this is fresh, invoke a completely new DNS lookup operation
-		temp_ctx->resolver = evabase::GetDnsBase();
-		if (AC_UNLIKELY(!temp_ctx->resolver || !temp_ctx->resolver->get()))
-		{
-			args->cbs.front()(make_shared<CAddrInfo>("503 Bad DNS configuration"));
-			return;
-		}
-
-		g_active_resolver_index[key] = args.get();
-		static bool filter_specific = (cfg::conprotos[0] != PF_UNSPEC && cfg::conprotos[1] == PF_UNSPEC);
-
-		static const ares_addrinfo_hints default_connect_hints =
-		{
-			// we provide plain port numbers, no resolution needed
-			// also return only probably working addresses
-			AI_NUMERICSERV | AI_ADDRCONFIG,
-			filter_specific ? cfg::conprotos[0] : PF_UNSPEC,
-			SOCK_STREAM, IPPROTO_TCP
-		};
-		auto pRaw = args.release(); // to be owned by the operation
-		ares_getaddrinfo(temp_ctx->resolver->get(),
-						 pRaw->sHost.empty() ? nullptr : pRaw->sHost.c_str(),
-						 pRaw->sPort.empty() ? nullptr : pRaw->sPort.c_str(),
-						 &default_connect_hints, CAddrInfo::cb_dns, pRaw);
-
-		evabase::GetDnsBase()->sync();
 	};
 
 	evabase::Post(move(cb_invoke_dns_res));
@@ -298,16 +451,10 @@ void CAddrInfo::Resolve(cmstring & sHostname, cmstring &sPort, tDnsResultReporte
 
 void RejectPendingDnsRequests()
 {
-	for (auto& el: g_active_resolver_index)
+	for (auto& el: tDnsResContext::g_active_resolver_index)
 	{
-		if (!el.second)
-			continue;
-
-		for (const auto& action: el.second->cbs)
-		{
-			action(make_shared<CAddrInfo>("System shutting down"));
-		}
-		el.second->cbs.clear();
+		if (el.second)
+			el.second->reportNewError("System shutting down"sv);
 	}
 }
 

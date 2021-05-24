@@ -174,7 +174,7 @@ tDlStreamHandle dl_con_factory::CreateConnected(cmstring &sHostname, cmstring &s
 			}
 			else if(p->GetFD() == -1)
 			{
-				sErrOut = sGenericErrorStatus;
+				sErrOut = "General Connection Error"sv;
 				p.reset();
 			}
 		}

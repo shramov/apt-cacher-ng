@@ -28,9 +28,11 @@ struct acng_addrinfo
 	bool operator==(const acng_addrinfo& other) const;
 	operator mstring() const;
 };
+struct tDnsResContext;
 
 class CAddrInfo
 {
+	friend struct tDnsResContext;
 	CAddrInfo() = default;
 	// not to be copied ever
 	CAddrInfo(const CAddrInfo&) = delete;
@@ -41,7 +43,7 @@ class CAddrInfo
 	time_t m_expTime = MAX_VAL(time_t);
 
 	// first entry selected by protocol preferences, others alternating
-	std::deque<acng_addrinfo> m_orderedInfos;
+	std::deque<acng_addrinfo> m_sortedInfos;
 
 	void Reset();
 	static void clean_dns_cache();
@@ -54,24 +56,17 @@ public:
 	// like above but blocking resolution
 	static std::shared_ptr<CAddrInfo> Resolve(cmstring & sHostname, cmstring &sPort);
 
-	const decltype (m_orderedInfos) & getTargets() const { return m_orderedInfos; }
+	const decltype (m_sortedInfos) & getTargets() const { return m_sortedInfos; }
 
 	const std::string& getError() const { return m_sError; }
 
 	// iih, just for building of a special element regardsless of private ctor
 	static std::shared_ptr<CAddrInfo> make_fatal_failure_hint();
 
-	// C-style callback for the resolver
-	static void cb_dns(void *arg,
-					   int status,
-					   int timeouts,
-					   struct ares_addrinfo *results);
-
-	CAddrInfo(const char *szErrorMessage) : m_sError(szErrorMessage) {}
+	CAddrInfo(string_view szErrorMessage) : m_sError(szErrorMessage) {}
 };
 
 typedef std::shared_ptr<CAddrInfo> CAddrInfoPtr;
-extern LPCSTR sGenericErrorStatus;
 
 }
 
