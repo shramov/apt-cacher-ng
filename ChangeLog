@@ -11,6 +11,7 @@ apt-cacher-ng (3.7.1) 2-WINDY-OUTSIDE; urgency=low
     while there is fallback to normal resolution in case where SRV records
     don't resolve in anything, there is no fallback handling when connection
     problems are found later.
+  * Adding cdn-fastly.deb.debian.org as regular or backup mirror
 
   [ INTERNAL REDESIGN ]
 
@@ -24,7 +25,7 @@ apt-cacher-ng (3.7.1) 2-WINDY-OUTSIDE; urgency=low
   * Fix potentially incorrect behavior on shutdown while DNS resolution is
     ongoing
 
- -- 
+ -- Eduard Bloch <blade@debian.org>  Mon, 24 May 2021 23:04:44 +0200
 
 apt-cacher-ng (3.7) AND-SOMETIMES-THE-BEAR-EATS-YOU; urgency=medium
 
