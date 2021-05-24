@@ -2,7 +2,9 @@ apt-cacher-ng (3.7.1-1) experimental; urgency=medium
 
   * New upstream release
     + adds DNS SRV record support (actually closes: #954904)
-    + improves skipping over faulty mirrors (mostly since 3.7, closes: #949656)
+    + improves skipping over faulty mirrors (mostly since 3.7 which
+      closes: #949656), this should also solve old issues (please reopen if
+      needed, for now it closes: #787289, #883482, #792541)
     + stops using incorrect date stamps in manually imported files (actually
       fixed in 3.7, closes: #988517)
     + adding cdn-fastly.deb.debian.org as regular mirror (closes: #987394)
