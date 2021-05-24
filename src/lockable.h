@@ -1,7 +1,7 @@
 #ifndef _LOCKABLE_H
 #define _LOCKABLE_H
 
-#include <config.h>
+#include "config.h"
 
 #include <mutex>
 #include <condition_variable>

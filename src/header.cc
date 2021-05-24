@@ -1,24 +1,22 @@
 
-//#define LOCAL_DEBUG
 #include "debug.h"
-
 #include "acfg.h"
 #include "meta.h"
 #include "astrop.h"
 #include "header.h"
 #include "config.h"
-#include <acbuf.h>
-
-#include <cstdio>
-#include <iostream>
-#include <strings.h>
-#include <unistd.h>
-
+#include "acbuf.h"
 #include "fileio.h"
 #include "filereader.h"
 #include "httpdate.h"
 
 #include <map>
+#include <iostream>
+
+#include <cstdio>
+
+#include <strings.h>
+#include <unistd.h>
 
 using namespace std;
 

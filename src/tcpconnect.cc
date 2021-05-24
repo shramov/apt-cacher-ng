@@ -5,34 +5,22 @@
  *      Author: ed
  */
 
-#include <sys/select.h>
-
-#define LOCAL_DEBUG
-#include "debug.h"
-
-#include "meta.h"
 #include "tcpconnect.h"
+#include "debug.h"
+#include "meta.h"
 #include "ahttpurl.h"
-
 #include "acfg.h"
 #include "caddrinfo.h"
-#include <signal.h>
 #include "fileio.h"
 #include "fileitem.h"
 #include "cleaner.h"
 #include "evabase.h"
 #include "aconnect.h"
+
 #include <tuple>
 
-using namespace std;
-
-//#warning FIXME, hack
-//#define NOCONCACHE
-
-#ifdef DEBUG
-#include <atomic>
-atomic_int nConCount(0), nDisconCount(0), nReuseCount(0);
-#endif
+#include <signal.h>
+#include <sys/select.h>
 
 #ifdef HAVE_SSL
 #include <openssl/evp.h>
@@ -44,6 +32,13 @@ atomic_int nConCount(0), nDisconCount(0), nReuseCount(0);
 #include <openssl/crypto.h>
 #include <openssl/x509_vfy.h>
 #include <openssl/x509v3.h>
+#endif
+
+using namespace std;
+
+#ifdef DEBUG
+#include <atomic>
+atomic_int nConCount(0), nDisconCount(0), nReuseCount(0);
 #endif
 
 namespace acng
@@ -179,7 +174,7 @@ tDlStreamHandle dl_con_factory::CreateConnected(cmstring &sHostname, cmstring &s
 			}
 			else if(p->GetFD() == -1)
 			{
-				sErrOut = sGenericErrorStatus;
+				sErrOut = "General Connection Error"sv;
 				p.reset();
 			}
 		}

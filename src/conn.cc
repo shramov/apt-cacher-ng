@@ -1,7 +1,5 @@
 
-//#define LOCAL_DEBUG
 #include "debug.h"
-
 #include "meta.h"
 #include "conn.h"
 #include "acfg.h"
@@ -12,10 +10,10 @@
 #include "acbuf.h"
 #include "tcpconnect.h"
 #include "cleaner.h"
-
 #include "lockable.h"
 #include "sockio.h"
 #include "evabase.h"
+
 #include <iostream>
 #include <thread>
 
@@ -76,45 +74,41 @@ class conn::Impl
       unsigned m_nProcessedJobs;
 #endif
 
-	Impl(int fd, const char *c, std::shared_ptr<IFileItemRegistry> ireg) :
-		m_confd(fd),
-		m_itemRegistry(ireg)
-  	{
-  		if(c) // if nullptr, pick up later when sent by the wrapper
-  			m_sClientHost=c;
+	Impl(unique_fd fd, mstring c, std::shared_ptr<IFileItemRegistry> ireg) :
+		m_sClientHost(c), m_itemRegistry(ireg)
+	{
+		LOGSTARTx("con::con", fd.get(), c);
+#ifdef DEBUG
+		m_nProcessedJobs=0;
+#endif
+		// ok, it's our responsibility now
+		m_confd = fd.release();
+	};
+	~Impl() {
+		LOGSTART("con::~con (Destroying connection...)");
 
-	LOGSTARTx("con::con", m_confd, c);
+		// our user's connection is released but the downloader task created here may still be serving others
+		// tell it to stop when it gets the chance and delete it then
 
-  	#ifdef DEBUG
-  		m_nProcessedJobs=0;
-  	#endif
+		m_jobs2send.clear();
 
-  	};
-  	~Impl() {
-  		LOGSTART("con::~con (Destroying connection...)");
+		writeAnotherLogRecord(sEmptyString, sEmptyString);
 
-  		// our user's connection is released but the downloader task created here may still be serving others
-  		// tell it to stop when it gets the chance and delete it then
-
-  		m_jobs2send.clear();
-
-  		writeAnotherLogRecord(sEmptyString, sEmptyString);
-
-  		if(m_pDlClient)
-  			m_pDlClient->SignalStop();
-  		if(m_dlerthr.joinable())
-  			m_dlerthr.join();
-  		log::flush();
+		if(m_pDlClient)
+			m_pDlClient->SignalStop();
+		if(m_dlerthr.joinable())
+			m_dlerthr.join();
+		log::flush();
 		// this is not closed here but there, after graceful termination handling
-  		conserver::FinishConnection(m_confd);
-  	}
+		conserver::FinishConnection(m_confd);
+	}
 
   	void WorkLoop();
 };
 
 // call forwarding
-conn::conn(int fd, const char *c, std::shared_ptr<IFileItemRegistry> ireg) :
-	_p(new Impl(fd, move(c), move(ireg))) { _p->_q = this;}
+conn::conn(unique_fd&& fd, mstring sClient, std::shared_ptr<IFileItemRegistry> ireg) :
+	_p(new Impl(move(fd), move(sClient), move(ireg))) { _p->_q = this;}
 
 std::shared_ptr<IFileItemRegistry> conn::GetItemRegistry() { return _p->m_itemRegistry; };
 conn::~conn() { delete _p; }

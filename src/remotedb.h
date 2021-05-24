@@ -43,6 +43,7 @@ public:
 
         virtual time_t BackgroundCleanup();
 
+		virtual ~remotedb() =default;
 private:
         remotedb() =default;
 };

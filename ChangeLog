@@ -1,3 +1,31 @@
+apt-cacher-ng (3.7.1) 2-WINDY-OUTSIDE; urgency=low
+
+  [ NEW FEATURES AND IMPROVEMENTS ]
+
+  * Support SRV DNS records - if they deliver alternative hostnames for the
+    initial _http._tcp.* request, consider up to five hosts specified there
+    instead of regular A/AAAA/CNAME on the hostname itself. The priorities and
+    weights are respected but the precision might vary, depending on the
+    scale of the weights. Balancing happens with random factors, and the
+    calculation results are cached for the configured DNS caching time. Also,
+    while there is fallback to normal resolution in case where SRV records
+    don't resolve in anything, there is no fallback handling when connection
+    problems are found later.
+
+  [ INTERNAL REDESIGN ]
+
+  * Extracting thread pool into reusable class
+  * All source/header relocation to src folder
+
+  [ FIXING POTENTIAL 3.7 REGRESSIONS ]
+
+  * Fix linking with -DDEBUG and common code built as shared lib
+  * Fix build with -Werror (forgotten but irrelevant virtual destructor)
+  * Fix potentially incorrect behavior on shutdown while DNS resolution is
+    ongoing
+
+ -- 
+
 apt-cacher-ng (3.7) AND-SOMETIMES-THE-BEAR-EATS-YOU; urgency=medium
 
   * This is an EXPERIMENTAL version. Certain features and code changes should

@@ -1,7 +1,5 @@
 
-//#define LOCAL_DEBUG
 #include "debug.h"
-
 #include "meta.h"
 #include "fileitem.h"
 #include "header.h"
@@ -9,9 +7,9 @@
 #include "acbuf.h"
 #include "fileio.h"
 
-#include <errno.h>
 #include <algorithm>
 
+#include <errno.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/time.h>

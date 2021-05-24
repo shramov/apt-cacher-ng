@@ -1,7 +1,5 @@
 
-//#define LOCAL_DEBUG
 #include "debug.h"
-
 #include "cacheman.h"
 #include "expiration.h"
 #include "lockable.h"

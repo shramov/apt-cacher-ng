@@ -1,6 +1,4 @@
-//#define LOCAL_DEBUG
 #include "debug.h"
-
 #include "expiration.h"
 #include "meta.h"
 #include "filereader.h"
@@ -8,14 +6,13 @@
 #include "acregistry.h"
 
 #include <fstream>
-
-#include <unistd.h>
-#include <dirent.h>
-
 #include <map>
 #include <string>
 #include <iostream>
 #include <algorithm>
+
+#include <unistd.h>
+#include <dirent.h>
 
 using namespace std;
 

@@ -2,10 +2,10 @@
 
 #define NOLOGATALL
 #include "acsyscap.h"
-#include "../include/debug.h"
-#include "../source/acbuf.cc"
-#include "../include/sockio.h"
-#include "../include/fileio.h"
+#include "debug.h"
+#include "acbuf.cc"
+#include "sockio.h"
+#include "fileio.h"
 
 #include <unistd.h>
 #include <sys/select.h>
