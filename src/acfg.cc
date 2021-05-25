@@ -761,10 +761,16 @@ void PostProcConfig()
    // user-owned header can contain escaped special characters, fixing them
    trimBoth(cfg::requestapx);
    if(!cfg::requestapx.empty())
+   {
 	   cfg::requestapx = unEscape(cfg::requestapx);
-   // and adding the final newline suitable for header!
-   cfg::requestapx += svRN;
-
+	   // and adding the final newline suitable for header!
+	   trimBoth(cfg::requestapx);
+	   if(!cfg::requestapx.empty())
+		   cfg::requestapx += svRN;
+	   // just make sure to not contain broken headers
+	   if (cfg::requestapx.find(':') == stmiss)
+		   cfg::requestapx.clear();
+   }
    // create working paths before something else fails somewhere
    if(!udspath.empty())
 	   mkbasedir(cfg::udspath);
