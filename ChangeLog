@@ -29,6 +29,7 @@ apt-cacher-ng (3.7.1) 2-WINDY-OUTSIDE; urgency=low
 
   * Fix bad requests in case RequestAppendix contain invisible characters or
     other garbage
+  * Drop documentation references to distkill.pl and expire-caller.pl script
 
  -- Eduard Bloch <blade@debian.org>  Tue, 25 May 2021 19:37:17 +0200
 

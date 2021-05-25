@@ -141,13 +141,10 @@ Sometimes it's needed to remove all files from a distribution, i.e. when a new r
 However, this solution will fail if the release files are still available on the server AND apt-cacher-ng learned their real location (i.e. the code name instead of not the release state name) and so they are refreshed during regular expiration.
 </p>
 <p>
-After all, if the old release is no longer used by local cache users then the extra disk usage becomes a problem. This problem will go away after many months when the old release files are finally deleted on the servers, then the package expiration will start complaining for some days (the expiration delay) and only then the finally unreferenced files will be removed.
+After all, if the old release is no longer used by local cache users then the extra disk usage can become problematic. This problem will go away after many months when the old release files are finally deleted on the servers, then the package expiration will start complaining for some days (the expiration delay) and only then the finally unreferenced files will be removed.
 </p>
 <p>
-To speed up this process, the local administrator can remove the index files of the old distribution release from the archive. Either the top-level "Release" files, or even the whole index file trees relevant for certain releases.
-</p>
-<p>
-To make this task easier, there is a special helper mode in the cleanup task of the maintenance page. Run this manually (and maybe enable extra verbosity on the main page) and use the wizard on the bottom of the log page to delete particular index files.
+To speed up this process, the local administrator can remove the index files of the old distribution release from the archive. This can be done by using the Expiration task in the administrator portal. On the end of the cache analysis, a helper form can be expanded where index file can be selected and the destruction of those cache contents can be ordered.
 </p>
 
 <hr><address>Comments to <a href='mailto:blade@debian.org'>blade@debian.org</a>
