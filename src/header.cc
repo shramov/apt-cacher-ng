@@ -114,7 +114,7 @@ int header::Load(string_view input, std::vector<std::pair<string_view,string_vie
 		return -1;
     type = INVALID;
 #define IFCUT(s, t) if(startsWith(input, s)) { type=t; input.remove_prefix(s.size()); }
-	if(input.starts_with("HTTP/1."sv) && input.length() > 7)
+	if(startsWith(input, "HTTP/1."sv) && input.length() > 7)
 	{
 		type = ANSWER;
 		proto = (eHttpType) input[7];

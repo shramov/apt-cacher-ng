@@ -1,7 +1,5 @@
 
-SRV record support for deb.debian.org?
-host -t SRV _http._tcp.deb.debian.org
-_http._tcp.deb.debian.org has SRV record 10 1 80 debian.map.fastlydns.net.
+statvfs inconsistency in httpfs.cc
 
 Rewrite dlcon to run on the IO thread in async fashion. Convert it to a
 DownloadManager which steers a bunch of streams. So, a stream for each target.

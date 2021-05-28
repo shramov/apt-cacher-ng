@@ -14,12 +14,12 @@
 #endif
 #include <unistd.h>
 
-#if __cplusplus >= 201703L
-#include <filesystem>
-using namespace std::filesystem;
-#else
+#if __cplusplus < 201703L || (defined(__GNUC__) && __GNUC__ < 9) // old GCC can be lying and STL might be not complete
 #include <experimental/filesystem>
-using namespace std::experimental::filesystem;
+#define FSNS std::experimental::filesystem
+#else
+#include <filesystem>
+#define FSNS std::filesystem
 #endif
 
 #ifndef BUFSIZ
@@ -61,7 +61,7 @@ int fdatasync_helper(int fd)
 std::error_code FileCopy(cmstring &from, cmstring &to)
 {
 	std::error_code ec;
-	copy(from, to, copy_options::overwrite_existing, ec);
+	FSNS::copy(from, to, FSNS::copy_options::overwrite_existing, ec);
 	return ec;
 }
 

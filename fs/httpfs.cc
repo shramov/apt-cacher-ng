@@ -472,7 +472,7 @@ public:
 
 			// ok, need to fetch it
 			// string_view path, off_t knownLength, tHttpDate knownDate, off_t rangeStart, off_t rangeLen
-			size_t toGet = min(CBLOCK_SIZE, m_meta.m_size - blockStartPos);
+			size_t toGet = std::min(off_t(CBLOCK_SIZE), off_t(m_meta.m_size - blockStartPos));
 			auto item = make_shared<tConsumingItem>(m_path, m_meta.m_size, m_meta.m_ctime, blockStartPos, toGet);
 
 			try
@@ -503,7 +503,7 @@ public:
 			m_dataLen = toGet;
 			m_dataPos = blockStartPos;
 		}
-		auto retCount = min(len, m_dataLen - posInBlock);
+		auto retCount = std::min(off_t(len), off_t(m_dataLen - posInBlock));
 		evbuffer_ptr ep;
 		if (0 != evbuffer_ptr_set(m_data.m_p, &ep, posInBlock, EVBUFFER_PTR_SET))
 			return retError(__LINE__);
