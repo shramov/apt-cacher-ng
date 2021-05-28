@@ -88,7 +88,7 @@ namespace log
 
 // some globals, set only once
 static struct stat statTempl;
-static struct statfs stfsTemp;
+static struct statvfs stvfsTemp;
 tHttpUrl baseUrl;
 cmstring& altPath = cfg::cachedir;
 
@@ -621,7 +621,7 @@ static int acngfs_open(const char *path, struct fuse_file_info *fi)
 
 
 static int acngfs_read(const char *path, char *buf, size_t size, off_t offset,
-      struct fuse_file_info *fi)
+					   struct fuse_file_info *fi)
 {
 	auto p=(tDlDesc*) fi->fh;
 	return p->Read(buf, path, offset, size);
@@ -629,7 +629,7 @@ static int acngfs_read(const char *path, char *buf, size_t size, off_t offset,
 
 static int acngfs_statfs(const char *, struct statvfs *stbuf)
 {
-   memcpy(stbuf, &stfsTemp, sizeof(*stbuf));
+	memcpy(stbuf, &stvfsTemp, sizeof(*stbuf));
 	return 0;
 }
 
@@ -742,7 +742,7 @@ int main(int argc, char *argv[])
 	acng::rex::CompileExpressions();
 
 	// test mount point
-	if(!argv[2] || stat(argv[2], &statTempl) || statfs(argv[2], &stfsTemp))
+	if(!argv[2] || stat(argv[2], &statTempl) || statvfs(argv[2], &stvfsTemp))
 		barf(endl << "Cannot access directory " << argv[2]);
 	if(!S_ISDIR(statTempl.st_mode))
 		barf(endl<< argv[2] << " is not a directory.");
