@@ -169,7 +169,7 @@ public:
 	evbuffer* buf;
 	off_t pos;
 
-	tConsumingItem(string_view path, off_t knownLength, tHttpDate knownDate,
+	tConsumingItem(string_view path, tHttpDate knownDate,
 				   off_t rangeStart, off_t rangeLen)
 		: fileitem(path),  pos(rangeStart)
 	{
@@ -359,7 +359,7 @@ public:
 		if (now >= m_meta.validAt + META_CACHE_EXP_TIME)
 		{
 			// string_view path, off_t knownLength, tHttpDate knownDate, off_t rangeStart, off_t rangeLen
-			auto item = make_shared<tConsumingItem>(m_path, m_meta.m_size, m_meta.m_ctime, 0,
+			auto item = make_shared<tConsumingItem>(m_path, m_meta.m_ctime, 0,
 										#ifdef USE_HT_CACHE
 										#warning this needs a special handler for the condition "not satisfiable range" where it retries without limit
 													HEAD_TAIL_LEN
@@ -473,7 +473,7 @@ public:
 			// ok, need to fetch it
 			// string_view path, off_t knownLength, tHttpDate knownDate, off_t rangeStart, off_t rangeLen
 			size_t toGet = std::min(off_t(CBLOCK_SIZE), off_t(m_meta.m_size - blockStartPos));
-			auto item = make_shared<tConsumingItem>(m_path, m_meta.m_size, m_meta.m_ctime, blockStartPos, toGet);
+			auto item = make_shared<tConsumingItem>(m_path, m_meta.m_ctime, blockStartPos, toGet);
 
 			try
 			{
