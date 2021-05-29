@@ -28,7 +28,7 @@ aconnector::~aconnector()
 	}
 }
 
-void aconnector::Connect(cmstring& target, cmstring& port, unsigned timeout, std::function<void (unique_fd, std::string)> cbReport)
+void aconnector::Connect(cmstring& target, uint16_t port, unsigned timeout, std::function<void (unique_fd, std::string)> cbReport)
 {
 	auto exTime = GetTime() + timeout;
 	evabase::Post([exTime, target, port, cbReport](bool canceled)
@@ -46,7 +46,7 @@ void aconnector::Connect(cmstring& target, cmstring& port, unsigned timeout, std
 	});
 }
 
-pair<unique_fd, std::string> aconnector::Connect(cmstring &target, cmstring &port, unsigned timeout)
+pair<unique_fd, std::string> aconnector::Connect(cmstring &target, uint16_t port, unsigned timeout)
 {
 	std::promise<pair<unique_fd, std::string>> reppro;
 	Connect(target, port, timeout, [&](unique_fd ufd, mstring serr)

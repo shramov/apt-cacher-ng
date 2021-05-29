@@ -96,8 +96,7 @@ unsigned ReadBackendsFile(const string & sFile, const string &sRepName);
 unsigned ReadRewriteFile(const string & sFile, cmstring& sRepName);
 
 MapNameToString n2sTbl[] = {
-		{   "Port",                    &port}
-		,{  "CacheDir",                &cachedir}
+		{  "CacheDir",                &cachedir}
 		,{  "LogDir",                  &logdir}
 		,{  "SupportDir",              &suppdir}
 		,{  "SocketPath",              &udspath}
@@ -132,7 +131,8 @@ MapNameToString n2sTbl[] = {
 };
 
 MapNameToInt n2iTbl[] = {
-		{   "Debug",                             &debug,            nullptr,    10, false}
+		{   "Port",                              &port,             nullptr,    10, false}
+		,{  "Debug",                             &debug,            nullptr,    10, false}
 		,{  "OfflineMode",                       &offlinemode,      nullptr,    10, false}
 		,{  "ForeGround",                        &foreground,       nullptr,    10, false}
 		,{  "ForceManaged",                      &forcemanaged,     nullptr,    10, false}
@@ -697,7 +697,7 @@ void PostProcConfig()
 {
 	remotedb::GetInstance().PostConfig();
 
-	if(port.empty()) // heh?
+	if(!port) // heh?
 		port=ACNG_DEF_PORT;
 
 	if(connectPermPattern == "~~~")

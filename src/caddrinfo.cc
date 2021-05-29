@@ -13,6 +13,8 @@
 #include "lockable.h"
 #include "evabase.h"
 #include "acsmartptr.h"
+#include "ahttpurl.h"
+#include "portutils.h"
 
 #include <ares.h>
 #include <arpa/nameser.h>
@@ -60,9 +62,14 @@ acng::acng_addrinfo::operator mstring() const {
 	return formatIpPort((const sockaddr *) &ai_addr, ai_addrlen, ai_family);
 }
 
-static string make_dns_key(const string & sHostname, const string &sPort)
+string makeHostPortKey(const string & sHostname, uint16_t nPort)
 {
-	return sHostname + ":" + sPort;
+	string ret;
+	ret.reserve(sHostname.length()+2);
+	ret += char(nPort);
+	ret += char(nPort>>8);
+	ret += sHostname;
+	return ret;
 }
 
 // using non-ordered map because of iterator stability, needed for expiration queue;
@@ -76,7 +83,8 @@ deque<decltype(dns_cache)::iterator> dns_exp_q;
 // descriptor of a running DNS lookup, passed around with libevent callbacks
 struct tDnsResContext : public tLintRefcounted
 {
-	string sHost, sPort;
+	string sHost;
+	uint16_t nPort;
 	std::shared_ptr<CDnsBase> resolver;
 	list<CAddrInfo::tDnsResultReporter> cbs;
 	static map<string, tDnsResContext*> g_active_resolver_index;
@@ -92,9 +100,9 @@ struct tDnsResContext : public tLintRefcounted
 
 	decltype(g_active_resolver_index)::iterator refMe;
 
-	tDnsResContext(string sh, string sp, CAddrInfo::tDnsResultReporter rep)
+	tDnsResContext(string sh, uint16_t np, CAddrInfo::tDnsResultReporter rep)
 		: sHost(sh),
-		  sPort(sp),
+		  nPort(np),
 		  resolver(evabase::GetDnsBase()),
 		  cbs({move(rep)})
 	{
@@ -224,9 +232,10 @@ void tDnsResContext::cb_srv_query(void *arg, int status, int, unsigned char *abu
 			filter_specific ? cfg::conprotos[0] : PF_UNSPEC,
 			SOCK_STREAM, IPPROTO_TCP
 		};
+		tPortAsString sp(me->nPort);
 		ares_getaddrinfo(me->resolver->get(),
 						 sHost.c_str(),
-						 me->sPort.c_str(),
+						 sp.s,
 						 &default_connect_hints, tDnsResContext::cb_addrinfo, pTaskCtx);
 		me->resolver->sync();
 	};
@@ -372,7 +381,7 @@ tDnsResContext::~tDnsResContext()
 		if (cfg::dnscachetime > 0) // keep a copy for other users
 		{
 			ret->clean_dns_cache();
-			auto newIt = dns_cache.emplace(make_dns_key(sHost, sPort), ret);
+			auto newIt = dns_cache.emplace(makeHostPortKey(sHost, nPort), ret);
 			dns_exp_q.push_back(newIt.first);
 		}
 		return;
@@ -383,18 +392,18 @@ tDnsResContext::~tDnsResContext()
 	runCallbacks(fatalInternalError);
 }
 
-SHARED_PTR<CAddrInfo> CAddrInfo::Resolve(cmstring & sHostname, cmstring &sPort)
+SHARED_PTR<CAddrInfo> CAddrInfo::Resolve(cmstring & sHostname, uint16_t nPort)
 {
 	promise<CAddrInfoPtr> reppro;
 	auto reporter = [&reppro](CAddrInfoPtr result) { reppro.set_value(result); };
-	Resolve(sHostname, sPort, move(reporter));
+	Resolve(sHostname, nPort, move(reporter));
 	auto res(reppro.get_future().get());
 	return res ? res : fatalInternalError;
 }
-void CAddrInfo::Resolve(cmstring & sHostname, cmstring &sPort, tDnsResultReporter rep)
+void CAddrInfo::Resolve(cmstring & sHostname, uint16_t nPort, tDnsResultReporter rep)
 {
 	// keep a reference on the dns base to extend its lifetime
-	auto cb_invoke_dns_res = [sHostname, sPort, rep = move(rep)](bool canceled) mutable
+	auto cb_invoke_dns_res = [sHostname, nPort, rep = move(rep)](bool canceled) mutable
 	{
 		LOGSTARTFUNCsx(sHostname);
 		tDnsResContext *ctx = nullptr;
@@ -407,7 +416,7 @@ void CAddrInfo::Resolve(cmstring & sHostname, cmstring &sPort, tDnsResultReporte
 				return;
 			}
 
-			auto key = make_dns_key(sHostname, sPort);
+			auto key = makeHostPortKey(sHostname, nPort);
 			if(cfg::dnscachetime > 0)
 			{
 				auto caIt = dns_cache.find(key);
@@ -424,7 +433,7 @@ void CAddrInfo::Resolve(cmstring & sHostname, cmstring &sPort, tDnsResultReporte
 			}
 
 			// ok, this is fresh, invoke a completely new DNS lookup operation
-			ctx = new tDnsResContext(sHostname, sPort, rep);
+			ctx = new tDnsResContext(sHostname, nPort, rep);
 			rep = decltype (rep)();
 			if (AC_UNLIKELY(!ctx || !ctx->resolver))
 			{

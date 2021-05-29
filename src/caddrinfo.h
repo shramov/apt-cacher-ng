@@ -52,9 +52,9 @@ public:
 	typedef std::function<void(std::shared_ptr<CAddrInfo>)> tDnsResultReporter;
 
 	// async. DNS resolution on IO thread. Reports result through the reporter.
-	static void Resolve(cmstring & sHostname, cmstring &sPort, tDnsResultReporter);
+	static void Resolve(cmstring & sHostname, uint16_t nPort, tDnsResultReporter);
 	// like above but blocking resolution
-	static std::shared_ptr<CAddrInfo> Resolve(cmstring & sHostname, cmstring &sPort);
+	static std::shared_ptr<CAddrInfo> Resolve(cmstring & sHostname, uint16_t nPort);
 
 	const decltype (m_sortedInfos) & getTargets() const { return m_sortedInfos; }
 

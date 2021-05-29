@@ -500,7 +500,7 @@ struct TUdsFactory : public ::acng::IDlConFactory
 	{
 		// keep going, no recycling/restoring
 	}
-	tDlStreamHandle CreateConnected(cmstring&, cmstring&, mstring& sErrorOut, bool*,
+	tDlStreamHandle CreateConnected(cmstring&, uint16_t, mstring& sErrorOut, bool*,
 			tRepoUsageHooks*, bool, int, bool) const override
 	{
 		struct udsconnection: public tcpconnect
@@ -512,7 +512,7 @@ struct TUdsFactory : public ::acng::IDlConFactory
 				m_ssl = nullptr;
 				m_bio = nullptr;
 				m_sHostName = FAKE_UDS_HOSTNAME;
-				m_sPort = cfg::port;
+				m_nPort = 0;
 
 				m_conFd = socket(PF_UNIX, SOCK_STREAM, 0);
 				if (m_conFd < 0)

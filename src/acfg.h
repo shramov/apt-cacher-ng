@@ -9,7 +9,7 @@
 
 #define NUM_PBKDF2_ITERATIONS 1
 // 1757961
-#define ACNG_DEF_PORT "3142"
+#define ACNG_DEF_PORT 3142
 
 namespace acng
 {
@@ -25,7 +25,7 @@ static const int REDIRMAX_DEFAULT = 5;
 
 extern mstring cachedir, logdir, confdir, udspath, user, group, pidfile, suppdir,
 reportpage, vfilepat, pfilepat, wfilepat, agentname, adminauth, adminauthB64,
-bindaddr, port, sUmask,
+bindaddr, sUmask,
 tmpDontcacheReq, tmpDontcachetgt, tmpDontcache, mirrorsrcs, requestapx,
 cafile, capath, spfilepat, svfilepat, badredmime, sigbuscmd, connectPermPattern;
 
@@ -33,7 +33,7 @@ extern mstring pfilepatEx, vfilepatEx, wfilepatEx, spfilepatEx, svfilepatEx; // 
 
 extern ACNG_API mstring dnsresconf;
 
-extern ACNG_API int debug, numcores, offlinemode, foreground, verbose, stupidfs, forcemanaged, keepnver,
+extern ACNG_API int port, debug, numcores, offlinemode, foreground, verbose, stupidfs, forcemanaged, keepnver,
 verboselog, extreshhold, exfailabort, tpstandbymax, tpthreadmax, dnscachetime, dlbufsize, usewrap,
 exporigin, logxff, oldupdate, recompbz2, nettimeout, updinterval, forwardsoap, dirperms, fileperms,
 maxtempdelay, redirmax, vrangeops, stucksecs, persistoutgoing, pipelinelen, exsupcount,
