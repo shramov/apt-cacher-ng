@@ -69,6 +69,10 @@ struct timeval initialConTimeout
 {
 	ALTERNATIVE_SPAWN_INTERVAL, 200000
 };
+struct timeval networkTimeout
+{
+	17, 200000
+};
 
 struct MapNameToString
 {
@@ -842,8 +846,11 @@ void PostProcConfig()
 
 	dump_proc_status();
 
+	networkTimeout.tv_sec = nettimeout;
+
 	initialConTimeout.tv_sec = fasttimeout;
-	// something sane
+
+	// find something sane
 	furtherConTimeout.tv_sec = discotimeout / 8;
 	if (furtherConTimeout.tv_sec >= fasttimeout - 1)
 		furtherConTimeout.tv_sec = fasttimeout - 1;
@@ -1023,14 +1030,19 @@ void MarkProxyFailure()
 	proxy_failstate = true;
 }
 
-const timeval & GetFirstConTimeout()
+const timeval* GetFirstConTimeout()
 {
-	return initialConTimeout;
+	return &initialConTimeout;
 }
-const timeval & GetFurtherConTimeout()
+const timeval* GetFurtherConTimeout()
 {
-	return furtherConTimeout;
+	return &furtherConTimeout;
 }
+const timeval* GetNetworkTimeout()
+{
+	return &networkTimeout;
+}
+
 
 tCfgIter::tCfgIter(cmstring &fn) : sFilename(fn)
 {

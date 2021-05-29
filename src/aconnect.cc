@@ -109,7 +109,7 @@ void aconnector::step(int fd, short what)
 	}
 	else
 	{
-		m_timeNextCand = now + cfg::GetFirstConTimeout().tv_sec;
+		m_timeNextCand = now + cfg::GetFirstConTimeout()->tv_sec;
 
 		if (now > m_tmoutTotal)
 			disable(fd, ETIMEDOUT);
@@ -145,7 +145,7 @@ void aconnector::step(int fd, short what)
 			setIfNotEmpty(m_error2report, tErrnoFmter(errno))
 			continue;
 		}
-		auto tmout = isFirst ? & cfg::GetFirstConTimeout() : & cfg::GetFurtherConTimeout();
+		auto tmout = isFirst ? cfg::GetFirstConTimeout() : cfg::GetFurtherConTimeout();
 		pe.m_p = event_new(evabase::base, nextFd.get(), EV_WRITE | EV_PERSIST, cbStep, this);
 		if (AC_LIKELY(pe.valid()))
 		{

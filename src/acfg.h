@@ -59,17 +59,19 @@ void ACNG_API PostProcConfig();
 bool DegradedMode();
 void DegradedMode(bool newValue);
 
+ACNG_API const struct timeval * GetNetworkTimeout();
+
 /**
  * @brief GetFirstConTimeout
  * @return Deliver precalculated timeout structure with initial fast timeout AND a fraction of second on top
  */
-ACNG_API const struct timeval & GetFirstConTimeout();
+ACNG_API const struct timeval * GetFirstConTimeout();
 /**
  * @brief GetFurtherConTimeout
  * Like GetFirstConTimeout but deliver a probe interval for creation of further connections
  * @return
  */
-ACNG_API const struct timeval & GetFurtherConTimeout();
+ACNG_API const struct timeval * GetFurtherConTimeout();
 
 extern std::map<mstring,mstring> localdirs;
 cmstring & GetMimeType(cmstring &path);
