@@ -38,7 +38,7 @@ bool FileCopy_generic(cmstring &from, cmstring &to)
 	int in(-1), out(-1);
 
 	in=::open(from.c_str(), O_RDONLY);
-	if (in<0) // error, here?!
+	if (in == -1) // error, here?!
 		return false;
 
 	while (true)
@@ -55,10 +55,10 @@ bool FileCopy_generic(cmstring &from, cmstring &to)
 		else if (err==0)
 			break;
 		// don't open unless the input is readable, for sure
-		if (out<0)
+		if (out == -1)
 		{
 			out=open(to.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 00644);
-			if (out<0)
+			if (out == -1)
 				goto error_copying;
 		}
 		err=buf.syswrite(out);
@@ -72,8 +72,8 @@ bool FileCopy_generic(cmstring &from, cmstring &to)
 
 	}
 
-	forceclose(in);
-	forceclose(out);
+	checkforceclose(in);
+	checkforceclose(out);
 	return true;
 
 	error_copying:

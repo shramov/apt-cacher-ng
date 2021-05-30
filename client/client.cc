@@ -150,7 +150,7 @@ int main(int argc, char **argv)
 	}
     
 	finished:
-	forceclose(s);
+	checkforceclose(s);
 	::shutdown(s, SHUT_RDWR);
 
 	return 0;

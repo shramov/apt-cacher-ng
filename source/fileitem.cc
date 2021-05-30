@@ -379,13 +379,13 @@ bool fileitem_with_storage::DownloadStartedStoreHeader(const header & h, size_t 
 	auto withErrorAndKillFile = [&](LPCSTR x)
 			{
 		SETERROR(x);
-		if(m_filefd>=0)
+		if(m_filefd != -1)
 		{
 #if _POSIX_SYNCHRONIZED_IO > 0
 			fsync(m_filefd);
 #endif
 			Truncate2checkedSize();
-			forceclose(m_filefd);
+			justforceclose(m_filefd);
 		}
 
 		LOG("Deleting " << sPathAbs);
@@ -492,7 +492,7 @@ bool fileitem_with_storage::DownloadStartedStoreHeader(const header & h, size_t 
 		if(m_bCheckFreshness && pNextData && m_nSizeSeen == mylen && m_nSizeChecked == mylen-1)
 		{
 			int fd=open(sPathAbs.c_str(), O_RDONLY);
-			if(fd>=0)
+			if(fd != -1)
 			{
 				if(m_nSizeChecked==lseek(fd, m_nSizeChecked, SEEK_SET))
 				{
@@ -506,7 +506,7 @@ bool fileitem_with_storage::DownloadStartedStoreHeader(const header & h, size_t 
 					}
 				}
 				// XXX: optimize that, open as RW if possible and keep the file open for writing
-				forceclose(fd);
+				justforceclose(fd);
 			}
 		}
 		break;

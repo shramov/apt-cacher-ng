@@ -334,7 +334,7 @@ int header::StoreToFile(cmstring &sPath) const
 				continue;
 			
 			ret=errno;
-			forceclose(fd);
+			checkforceclose(fd);
 			return -ret;
 		}
 		pos+=ret;

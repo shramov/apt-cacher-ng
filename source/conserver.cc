@@ -226,7 +226,7 @@ void SetupConAndGo(unique_fd man_fd, const char *szClientName, const char *portN
 
 	try
 	{
-		g_freshConQueue.emplace_back(make_unique<conn>(move(man_fd), szClientName));
+		g_freshConQueue.emplace_back(make_unique<conn>(man_fd.release(), szClientName));
 		LOG("Connection to backlog, total count: " << g_freshConQueue.size());
 	}
 	catch (const std::bad_alloc&)
@@ -432,10 +432,7 @@ void FinishConnection(int fd)
 {
 	if(fd == -1 || evabase::in_shutdown)
 		return;
-
-	termsocket_async(fd, evabase::base);
-	// there is a good chance that more resources are available now
-//	do_resume();
+	evabase::Post([fd](bool down) { if(!down) termsocket_async(fd, evabase::base);});
 }
 
 }
