@@ -69,6 +69,10 @@ struct timeval initialConTimeout
 {
 	ALTERNATIVE_SPAWN_INTERVAL, 200000
 };
+struct timeval networkTimeout
+{
+	17, 200000
+};
 
 struct MapNameToString
 {
@@ -96,8 +100,7 @@ unsigned ReadBackendsFile(const string & sFile, const string &sRepName);
 unsigned ReadRewriteFile(const string & sFile, cmstring& sRepName);
 
 MapNameToString n2sTbl[] = {
-		{   "Port",                    &port}
-		,{  "CacheDir",                &cachedir}
+		{  "CacheDir",                &cachedir}
 		,{  "LogDir",                  &logdir}
 		,{  "SupportDir",              &suppdir}
 		,{  "SocketPath",              &udspath}
@@ -132,7 +135,8 @@ MapNameToString n2sTbl[] = {
 };
 
 MapNameToInt n2iTbl[] = {
-		{   "Debug",                             &debug,            nullptr,    10, false}
+		{   "Port",                              &port,             nullptr,    10, false}
+		,{  "Debug",                             &debug,            nullptr,    10, false}
 		,{  "OfflineMode",                       &offlinemode,      nullptr,    10, false}
 		,{  "ForeGround",                        &foreground,       nullptr,    10, false}
 		,{  "ForceManaged",                      &forcemanaged,     nullptr,    10, false}
@@ -697,7 +701,7 @@ void PostProcConfig()
 {
 	remotedb::GetInstance().PostConfig();
 
-	if(port.empty()) // heh?
+	if(!port) // heh?
 		port=ACNG_DEF_PORT;
 
 	if(connectPermPattern == "~~~")
@@ -842,8 +846,11 @@ void PostProcConfig()
 
 	dump_proc_status();
 
+	networkTimeout.tv_sec = nettimeout;
+
 	initialConTimeout.tv_sec = fasttimeout;
-	// something sane
+
+	// find something sane
 	furtherConTimeout.tv_sec = discotimeout / 8;
 	if (furtherConTimeout.tv_sec >= fasttimeout - 1)
 		furtherConTimeout.tv_sec = fasttimeout - 1;
@@ -1023,14 +1030,19 @@ void MarkProxyFailure()
 	proxy_failstate = true;
 }
 
-const timeval & GetFirstConTimeout()
+const timeval* GetFirstConTimeout()
 {
-	return initialConTimeout;
+	return &initialConTimeout;
 }
-const timeval & GetFurtherConTimeout()
+const timeval* GetFurtherConTimeout()
 {
-	return furtherConTimeout;
+	return &furtherConTimeout;
 }
+const timeval* GetNetworkTimeout()
+{
+	return &networkTimeout;
+}
+
 
 tCfgIter::tCfgIter(cmstring &fn) : sFilename(fn)
 {

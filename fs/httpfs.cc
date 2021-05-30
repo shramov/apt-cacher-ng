@@ -88,7 +88,7 @@ namespace log
 
 // some globals, set only once
 static struct stat statTempl;
-static struct statfs stfsTemp;
+static struct statvfs stvfsTemp;
 tHttpUrl baseUrl;
 cmstring& altPath = cfg::cachedir;
 
@@ -169,7 +169,7 @@ public:
 	evbuffer* buf;
 	off_t pos;
 
-	tConsumingItem(string_view path, off_t knownLength, tHttpDate knownDate,
+	tConsumingItem(string_view path, tHttpDate knownDate,
 				   off_t rangeStart, off_t rangeLen)
 		: fileitem(path),  pos(rangeStart)
 	{
@@ -359,7 +359,7 @@ public:
 		if (now >= m_meta.validAt + META_CACHE_EXP_TIME)
 		{
 			// string_view path, off_t knownLength, tHttpDate knownDate, off_t rangeStart, off_t rangeLen
-			auto item = make_shared<tConsumingItem>(m_path, m_meta.m_size, m_meta.m_ctime, 0,
+			auto item = make_shared<tConsumingItem>(m_path, m_meta.m_ctime, 0,
 										#ifdef USE_HT_CACHE
 										#warning this needs a special handler for the condition "not satisfiable range" where it retries without limit
 													HEAD_TAIL_LEN
@@ -472,8 +472,8 @@ public:
 
 			// ok, need to fetch it
 			// string_view path, off_t knownLength, tHttpDate knownDate, off_t rangeStart, off_t rangeLen
-			size_t toGet = min(CBLOCK_SIZE, m_meta.m_size - blockStartPos);
-			auto item = make_shared<tConsumingItem>(m_path, m_meta.m_size, m_meta.m_ctime, blockStartPos, toGet);
+			size_t toGet = std::min(off_t(CBLOCK_SIZE), off_t(m_meta.m_size - blockStartPos));
+			auto item = make_shared<tConsumingItem>(m_path, m_meta.m_ctime, blockStartPos, toGet);
 
 			try
 			{
@@ -503,7 +503,7 @@ public:
 			m_dataLen = toGet;
 			m_dataPos = blockStartPos;
 		}
-		auto retCount = min(len, m_dataLen - posInBlock);
+		auto retCount = std::min(off_t(len), off_t(m_dataLen - posInBlock));
 		evbuffer_ptr ep;
 		if (0 != evbuffer_ptr_set(m_data.m_p, &ep, posInBlock, EVBUFFER_PTR_SET))
 			return retError(__LINE__);
@@ -621,7 +621,7 @@ static int acngfs_open(const char *path, struct fuse_file_info *fi)
 
 
 static int acngfs_read(const char *path, char *buf, size_t size, off_t offset,
-      struct fuse_file_info *fi)
+					   struct fuse_file_info *fi)
 {
 	auto p=(tDlDesc*) fi->fh;
 	return p->Read(buf, path, offset, size);
@@ -629,7 +629,7 @@ static int acngfs_read(const char *path, char *buf, size_t size, off_t offset,
 
 static int acngfs_statfs(const char *, struct statvfs *stbuf)
 {
-   memcpy(stbuf, &stfsTemp, sizeof(*stbuf));
+	memcpy(stbuf, &stvfsTemp, sizeof(*stbuf));
 	return 0;
 }
 
@@ -742,7 +742,7 @@ int main(int argc, char *argv[])
 	acng::rex::CompileExpressions();
 
 	// test mount point
-	if(!argv[2] || stat(argv[2], &statTempl) || statfs(argv[2], &stfsTemp))
+	if(!argv[2] || stat(argv[2], &statTempl) || statvfs(argv[2], &stvfsTemp))
 		barf(endl << "Cannot access directory " << argv[2]);
 	if(!S_ISDIR(statTempl.st_mode))
 		barf(endl<< argv[2] << " is not a directory.");

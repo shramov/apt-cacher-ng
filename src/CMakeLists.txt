@@ -4,7 +4,7 @@ set(SERVER_SPECIFIC_SRCS job.cc bgtask.cc cacheman.cc conn.cc conserver.cc expir
 
 set(SHAREDSRCS astrop.cc sockio.cc acbuf.cc acfg.cc acfg_defaults.cc aclogger.cc caddrinfo.cc dirwalk.cc dlcon.cc fileio.cc
     fileitem.cc filereader.cc header.cc meta.cc tcpconnect.cc cleaner.cc lockable.cc evabase.cc ebrunner.cc httpdate.cc
-    csmapping.cc acerrno.cc aconnect.cc ac3rdparty.cc remotedb.cc tpool.cc
+    csmapping.cc acerrno.cc aconnect.cc ac3rdparty.cc remotedb.cc tpool.cc ahttpurl.cc
     ${SERVER_SPECIFIC_SRCS}
     ${ALL_HEADERS})
 
@@ -46,6 +46,15 @@ ADD_EXECUTABLE(acngtool acngtool.cc)
 SET_TARGET_PROPERTIES(acngtool PROPERTIES COMPILE_FLAGS "${ACNG_COMPFLAGS} ${ACNG_CXXFLAGS} ${CFLAGS_PTHREAD}")
 TARGET_LINK_LIBRARIES(acngtool supacng ${BaseNetworkLibs} ${CompLibs} ${SSL_LIB_LIST} ${CMAKE_THREAD_LIBS_INIT} ${EXTRA_LIBS_ACNGTOOL})
 INSTALL(TARGETS acngtool DESTINATION ${LIBDIR})
+
+option(ENABLE_EXPERIMENTAL "Enables incomplete of unsafe features" off)
+if (ENABLE_EXPERIMENTAL)
+    ADD_LIBRARY(supacng_experimental STATIC atcpstream.cc)
+    ADD_EXECUTABLE(acngtoolX acngtool.cc)
+    SET_TARGET_PROPERTIES(acngtoolX PROPERTIES COMPILE_FLAGS "${ACNG_COMPFLAGS} ${ACNG_CXXFLAGS} ${CFLAGS_PTHREAD} -DENABLE_EXPERIMENTAL")
+    TARGET_LINK_LIBRARIES(acngtoolX supacng ${BaseNetworkLibs} ${CompLibs} ${SSL_LIB_LIST} ${CMAKE_THREAD_LIBS_INIT} ${EXTRA_LIBS_ACNGTOOL} supacng_experimental)
+endif()
+
 
 # build a special version for test with full symbol visibility
 if(ENABLE_TESTS)

@@ -78,7 +78,7 @@ void termsocket_async(int fd, event_base* base)
 	try
 	{
 		LOGSTARTsx("::termsocket", fd);
-		if (!fd)
+		if (fd == -1)
 			return;
 		// initiate shutdown, i.e. sending FIN and giving the remote some time to confirm
 		::shutdown(fd, SHUT_WR);
@@ -95,7 +95,7 @@ void termsocket_async(int fd, event_base* base)
 	} catch (...)
 	{
 	}
-	// error cleanup...
+	// error cleanup, normally unreachable
 	if (dsctor)
 	{
 		if (dsctor->me)

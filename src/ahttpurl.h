@@ -9,15 +9,18 @@ namespace acng
 extern std::string sDefPortHTTP, sDefPortHTTPS;
 extern cmstring PROT_PFX_HTTPS, PROT_PFX_HTTP;
 
+#define DEFAULT_PORT_HTTP 80
+#define DEFAULT_PORT_HTTPS 443
+
 class ACNG_API tHttpUrl
 {
 
 private:
-        mstring sPort;
+		uint16_t nPort = 0;
 
 public:
         bool SetHttpUrl(cmstring &uri, bool unescape = true);
-        mstring ToURI(bool bEscaped) const;
+		mstring ToURI(bool bEscaped, bool hostOnly = false) const;
         mstring sHost, sPath, sUserPass;
 
         bool bSSL=false;
@@ -28,7 +31,7 @@ public:
         tHttpUrl(const acng::tHttpUrl& a)
         {
                 sHost = a.sHost;
-                sPort = a.sPort;
+				nPort = a.nPort;
                 sPath = a.sPath;
                 sUserPass = a.sUserPass;
                 bSSL = a.bSSL;
@@ -37,7 +40,7 @@ public:
         {
                 if(&a == this) return *this;
                 sHost = a.sHost;
-                sPort = a.sPort;
+				nPort = a.nPort;
                 sPath = a.sPath;
                 sUserPass = a.sUserPass;
                 bSSL = a.bSSL;
@@ -45,33 +48,37 @@ public:
         }
         bool operator==(const tHttpUrl &a) const
         {
-                return a.sHost == sHost && a.sPort == sPort && a.sPath == sPath
+				return a.sHost == sHost && a.nPort == nPort && a.sPath == sPath
                                 && a.sUserPass == sUserPass && a.bSSL == bSSL;
         }
-        ;bool operator!=(const tHttpUrl &a) const
+
+		bool operator!=(const tHttpUrl &a) const
         {
                 return !(a == *this);
         }
         inline void clear()
         {
                 sHost.clear();
-                sPort.clear();
+				nPort = 0;
                 sPath.clear();
                 sUserPass.clear();
                 bSSL = false;
         }
-        inline cmstring& GetDefaultPortForProto() const {
-                return bSSL ? sDefPortHTTPS : sDefPortHTTP;
+		uint16_t GetDefaultPortForProto() const {
+				return bSSL ? DEFAULT_PORT_HTTPS : DEFAULT_PORT_HTTP;
         }
-        inline cmstring& GetPort(cmstring& szDefVal) const { return !sPort.empty() ? sPort : szDefVal; }
-        inline cmstring& GetPort() const { return GetPort(GetDefaultPortForProto()); }
+		uint16_t GetPort(uint16_t defVal) const { return nPort ? nPort : defVal; };
+		uint16_t GetPort() const { return GetPort(GetDefaultPortForProto()); }
 
-        inline tHttpUrl(cmstring &host, cmstring& port, bool ssl) :
-                        sPort(port), sHost(host), bSSL(ssl)
+		inline tHttpUrl(cmstring &host, uint16_t port, bool ssl) :
+						nPort(port), sHost(host), bSSL(ssl)
         {
         }
         inline tHttpUrl() =default;
+		// special short version with only hostname and port number
+		std::string GetHostPortKey() const;
 };
+
 
 }
 

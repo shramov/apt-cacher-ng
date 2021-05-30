@@ -125,4 +125,3 @@ TEST(cacheman, pdiff)
 		ASSERT_TRUE(pbase_len > 0);
 	}
 }
-#warning FIXME, check the auto-linking of by-hash files Release -> by-hash/SHA256/07cb692d133dce21dabb9e42201b8e632a7c6a069b53f9ae8173a4ea24606da9 	2017-07-21 03:22:26

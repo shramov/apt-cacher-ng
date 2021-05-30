@@ -9,6 +9,7 @@
 #include "lockable.h"
 #include "cleaner.h"
 #include "debug.h"
+#include "portutils.h"
 
 #include <list>
 #include <iostream>
@@ -101,7 +102,7 @@ void AddRemapInfo(bool bAsBackend, const string & token,
 		if (bAsBackend)
 			repoparms[repname].m_backends.emplace_back(url);
 		else
-			mapUrl2pVname[url.sHost+":"+url.GetPort()].emplace_back(
+			mapUrl2pVname[url.GetHostPortKey()].emplace_back(
 					url.sPath, GetRepoEntryRef(repname));
 	}
 	else
@@ -197,7 +198,7 @@ tRepoResolvResult remotedb::GetRepNameAndPathResidual(const tHttpUrl & in)
 	tRepoResolvResult result;
 
 	// get all the URLs matching THE HOSTNAME
-	auto rangeIt=mapUrl2pVname.find(in.sHost+":"+in.GetPort());
+	auto rangeIt=mapUrl2pVname.find(in.GetHostPortKey());
 	if(rangeIt == mapUrl2pVname.end())
 		return result;
 
@@ -382,7 +383,7 @@ unsigned ReadRewriteFile(const string & sFile, cmstring& sRepName)
 		{
 			_FixPostPreSlashes(url.sPath);
 
-			mapUrl2pVname[url.sHost + ":" + url.GetPort()].emplace_back(url.sPath,
+			mapUrl2pVname[url.GetHostPortKey()].emplace_back(url.sPath,
 					GetRepoEntryRef(sRepName));
 #ifdef DEBUG
 			cerr << "Mapping: " << url.ToURI(false) << " -> " << sRepName << endl;
@@ -416,7 +417,7 @@ unsigned ReadRewriteFile(const string & sFile, cmstring& sRepName)
 					tHttpUrl url;
 					url.sHost=host;
 					url.sPath=path;
-					mapUrl2pVname[url.sHost+":"+url.GetPort()].emplace_back(url.sPath,
+					mapUrl2pVname[url.GetHostPortKey()].emplace_back(url.sPath,
 							GetRepoEntryRef(sRepName));
 
 #ifdef DEBUG

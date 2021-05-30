@@ -12,7 +12,6 @@
 #include "sockio.h"
 #include "acfg.h"
 #include "remotedbtypes.h"
-#include <memory>
 
 #ifdef HAVE_SSL
 #include <openssl/bio.h>
@@ -34,7 +33,7 @@ public:
 
 	virtual int GetFD() { return m_conFd; }
 	inline cmstring & GetHostname() { return m_sHostName; }
-	inline cmstring & GetPort() { return m_sPort; }
+	uint16_t GetPort() { return m_nPort; }
 	void Disconnect();
 
 #ifdef HAVE_SSL
@@ -47,7 +46,8 @@ protected:
 	tcpconnect(tRepoUsageHooks *pStateReport);
 
 	int m_conFd =-1;
-	mstring m_sHostName, m_sPort;
+	int m_nPort = 0;
+	mstring m_sHostName;
 
 	std::weak_ptr<fileitem> m_lastFile;
 
@@ -68,7 +68,7 @@ protected:
 	BIO *m_bio = nullptr;
 	SSL_CTX * m_ctx = nullptr;
 	SSL * m_ssl = nullptr;
-	bool SSLinit(mstring &sErr, cmstring &host, cmstring &port);
+	bool SSLinit(mstring &sErr, cmstring &host, uint16_t nPort);
 #endif
 
 	friend class dl_con_factory;
@@ -80,7 +80,7 @@ public:
 	/// Moves the connection handle to the reserve pool (resets the specified sptr).
 	/// Should only be supplied with IDLE connection handles in a sane state.
 	virtual void RecycleIdleConnection(tDlStreamHandle & handle) const =0;
-	virtual tDlStreamHandle CreateConnected(cmstring &sHostname, cmstring &sPort,
+	virtual tDlStreamHandle CreateConnected(cmstring &sHostname, uint16_t nPort,
 				mstring &sErrOut,
 				bool *pbSecondHand,
 				tRepoUsageHooks *pStateTracker
@@ -97,7 +97,7 @@ public:
 	/// Moves the connection handle to the reserve pool (resets the specified sptr).
 	/// Should only be supplied with IDLE connection handles in a sane state.
 	virtual void RecycleIdleConnection(tDlStreamHandle & handle) const override;
-	virtual tDlStreamHandle CreateConnected(cmstring &sHostname, cmstring &sPort,
+	virtual tDlStreamHandle CreateConnected(cmstring &sHostname, uint16_t nPort,
 				mstring &sErrOut,
 				bool *pbSecondHand,
 				tRepoUsageHooks *pStateTracker

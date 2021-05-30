@@ -28,7 +28,7 @@ aconnector::~aconnector()
 	}
 }
 
-void aconnector::Connect(cmstring& target, cmstring& port, unsigned timeout, std::function<void (unique_fd, std::string)> cbReport)
+void aconnector::Connect(cmstring& target, uint16_t port, unsigned timeout, std::function<void (unique_fd, std::string)> cbReport)
 {
 	auto exTime = GetTime() + timeout;
 	evabase::Post([exTime, target, port, cbReport](bool canceled)
@@ -46,7 +46,7 @@ void aconnector::Connect(cmstring& target, cmstring& port, unsigned timeout, std
 	});
 }
 
-pair<unique_fd, std::string> aconnector::Connect(cmstring &target, cmstring &port, unsigned timeout)
+pair<unique_fd, std::string> aconnector::Connect(cmstring &target, uint16_t port, unsigned timeout)
 {
 	std::promise<pair<unique_fd, std::string>> reppro;
 	Connect(target, port, timeout, [&](unique_fd ufd, mstring serr)
@@ -109,7 +109,7 @@ void aconnector::step(int fd, short what)
 	}
 	else
 	{
-		m_timeNextCand = now + cfg::GetFirstConTimeout().tv_sec;
+		m_timeNextCand = now + cfg::GetFirstConTimeout()->tv_sec;
 
 		if (now > m_tmoutTotal)
 			disable(fd, ETIMEDOUT);
@@ -145,18 +145,15 @@ void aconnector::step(int fd, short what)
 			setIfNotEmpty(m_error2report, tErrnoFmter(errno))
 			continue;
 		}
-		auto tmout = isFirst ? & cfg::GetFirstConTimeout() : & cfg::GetFurtherConTimeout();
+		auto tmout = isFirst ? cfg::GetFirstConTimeout() : cfg::GetFurtherConTimeout();
 		pe.m_p = event_new(evabase::base, nextFd.get(), EV_WRITE | EV_PERSIST, cbStep, this);
-		if (AC_LIKELY(pe.valid()))
+		if (AC_LIKELY(pe.valid() && 0 == event_add(pe.get(), tmout)))
 		{
-			if(AC_LIKELY(0 == event_add(pe.get(), tmout)))
-			{
-				m_eventFds.push_back({nextFd.release(), pe.release()});
-				m_pending++;
-				// advance to the next after timeout
-				m_targets.pop_front();
-				return;
-			}
+			m_eventFds.push_back({nextFd.release(), pe.release()});
+			m_pending++;
+			// advance to the next after timeout
+			m_targets.pop_front();
+			return;
 		}
 		setIfNotEmpty(m_error2report, "Out of memory"sv);
 	}

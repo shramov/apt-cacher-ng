@@ -12,6 +12,7 @@
 #include "evabase.h"
 #include "acregistry.h"
 #include "tpool.h"
+#include "portutils.h"
 
 #include <signal.h>
 #include <arpa/inet.h>
@@ -166,7 +167,7 @@ void do_accept(evutil_socket_t server_fd, short, void* arg)
 	}
 }
 
-bool bind_and_listen(evutil_socket_t mSock, const addrinfo *pAddrInfo, cmstring& port)
+bool bind_and_listen(evutil_socket_t mSock, const addrinfo *pAddrInfo, uint16_t port)
 {
 	LOGSTARTFUNCs;
 	USRDBG("Binding " << acng_addrinfo::formatIpPort(pAddrInfo->ai_addr, pAddrInfo->ai_addrlen, pAddrInfo->ai_family));
@@ -202,7 +203,7 @@ bool bind_and_listen(evutil_socket_t mSock, const addrinfo *pAddrInfo, cmstring&
 
 std::string scratchBuf;
 
-unsigned setup_tcp_listeners(LPCSTR addi, const std::string& port)
+unsigned setup_tcp_listeners(LPCSTR addi, uint16_t port)
 {
 	LOGSTARTFUNCxs(addi, port);
 	USRDBG("Binding on host: " << addi << ", port: " << port);
@@ -213,7 +214,8 @@ unsigned setup_tcp_listeners(LPCSTR addi, const std::string& port)
 	hints.ai_family = PF_UNSPEC;
 
 	addrinfo* dnsret;
-	int r = getaddrinfo(addi, port.c_str(), &hints, &dnsret);
+	tPortAsString sp(port);
+	int r = getaddrinfo(addi, sp.s, &hints, &dnsret);
 	if(r)
 	{
 		log::flush();
@@ -263,7 +265,7 @@ int ACNG_API Setup()
 {
 	LOGSTARTFUNCs;
 	
-	if (cfg::udspath.empty() && (cfg::port.empty() && cfg::bindaddr.empty()))
+	if (cfg::udspath.empty() && (!cfg::port && cfg::bindaddr.empty()))
 	{
 		cerr << "Neither TCP nor UNIX interface configured, cannot proceed.\n";
 		exit(EXIT_FAILURE);
@@ -311,7 +313,7 @@ int ACNG_API Setup()
 		ai.ai_addrlen = size;
 		ai.ai_family = PF_UNIX;
 
-		nCreated += bind_and_listen(sockFd, &ai, "0");
+		nCreated += bind_and_listen(sockFd, &ai, 0);
 	}
 
 	{
@@ -321,7 +323,7 @@ int ACNG_API Setup()
 		{
 			mstring token(sp);
 			auto isUrl = url.SetHttpUrl(token, false);
-			if(!isUrl && atoi(cfg::port.c_str()) <= 0)
+			if(!isUrl && !cfg::port)
 			{
 				USRDBG("Not creating TCP listening socket for " <<  sp
 						<< ", no custom nor default port specified!");

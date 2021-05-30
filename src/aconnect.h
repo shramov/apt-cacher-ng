@@ -34,7 +34,7 @@ public:
          *
          * Thread context: ST, IO thread
          */
-    static void Connect(cmstring& target, cmstring& port, unsigned timeout, tCallback cbReport);
+	static void Connect(cmstring& target, uint16_t port, unsigned timeout, tCallback cbReport);
     /**
          * @brief Connect to a target in synchronous fashion
          * @param target
@@ -43,7 +43,7 @@ public:
          *
          * Thread context: not IO thread, reentrant, blocking!
          */
-    static std::pair<unique_fd, std::string> Connect(cmstring& target, cmstring& port, unsigned timeout);
+	static std::pair<unique_fd, std::string> Connect(cmstring& target, uint16_t port, unsigned timeout);
 
 private:
     // forbid copy operations

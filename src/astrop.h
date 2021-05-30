@@ -274,6 +274,26 @@ inline long svtol(string_view& sv, long errorValue = -1)
         return val;
 }
 
+// C strings don't know length and std::string is wasteful if used optionally -> needing a Short Optional String
+// typical payload is longer than SSO optimized range and shorter than 80 chars
+class sostring
+{
+	char* data;
+	sostring(const sostring&);
+	sostring& operator=(const sostring&);
+public:
+	sostring() : data(nullptr) {}
+	operator string_view() { return string_view(data + 1, (size_t) data[0]); }
+	operator bool() { return data; }
+	~sostring() { delete data; }
+	sostring(string_view sv) {
+		data = new char[sv.size()+2];
+		data[0] = sv.size();
+		memcpy(data+1, sv.data(), size_t(data[0]));
+		data[data[0] + 1] ='\0';
+	}
+};
+
 }
 
 

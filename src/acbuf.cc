@@ -45,7 +45,7 @@ bool acbuf::initFromFile(const char *szPath, off_t limit)
 
 ssize_t acbuf::dumpall(int fd, ssize_t limit) {
 
-	if (limit > size())
+	if (size_t(limit) > size())
         limit = size();
 
 	auto ret = limit;

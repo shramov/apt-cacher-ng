@@ -44,7 +44,6 @@ namespace acng
 static cmstring sGenericError("502 Bad Gateway");
 
 std::atomic_uint g_nDlCons(0);
-using tRemoteBlacklist = std::map<std::pair<cmstring, cmstring>, mstring>;
 class CDlConn;
 
 struct tDlJob
@@ -249,7 +248,7 @@ struct tDlJob
 	}
 
 	bool SetupJobConfig(mstring &sReasonMsg,
-			tRemoteBlacklist &blacklist)
+			tStrMap &blacklist)
 	{
 		LOGSTART("CDlConn::SetupJobConfig");
 
@@ -261,9 +260,7 @@ struct tDlJob
 			{
 				LOG(
 						"Checking [" << m_pCurBackend->sHost << "]:" << m_pCurBackend->GetPort());
-				const auto bliter = blacklist.find(
-						make_pair(m_pCurBackend->sHost,
-								m_pCurBackend->GetPort()));
+				const auto bliter = blacklist.find(m_pCurBackend->GetHostPortKey());
 				if (bliter == blacklist.end())
 					LOGRET(true);
 			}
@@ -271,8 +268,7 @@ struct tDlJob
 			// look in the constant list, either it's usable or it was blacklisted before
 			for (const auto &bend : m_pRepoDesc->m_backends)
 			{
-				const auto bliter = blacklist.find(
-						make_pair(bend.sHost, bend.GetPort()));
+				const auto bliter = blacklist.find(bend.GetHostPortKey());
 				if (bliter == blacklist.end())
 				{
 					m_pCurBackend = &bend;
@@ -292,8 +288,7 @@ struct tDlJob
 		}
 
 		// ok, not backend mode. Check the mirror data (vs. blacklist)
-		auto bliter = blacklist.find(
-				make_pair(GetPeerHost().sHost, GetPeerHost().GetPort()));
+		auto bliter = blacklist.find(GetPeerHost().GetHostPortKey());
 		if (bliter == blacklist.end())
 			LOGRET(true);
 
@@ -920,7 +915,7 @@ class CDlConn : public dlcon
 	mutex m_handover_mutex;
 
 	/// blacklist for permanently failing hosts, with error message
-	tRemoteBlacklist m_blacklist;
+	tStrMap m_blacklist;
 	tSS m_sendBuf, m_inBuf;
 
 	unsigned ExchangeData(mstring &sErrorMsg, tDlStreamHandle &con,
@@ -1425,8 +1420,7 @@ void CDlConn::WorkLoop()
 	auto BlacklistMirror = [&](tDlJob &job)
 	{
 		LOGSTARTFUNCx(job.GetPeerHost().ToURI(false));
-		m_blacklist[std::make_pair(job.GetPeerHost().sHost,
-				job.GetPeerHost().GetPort())] = sErrorMsg;
+		m_blacklist[job.GetPeerHost().GetHostPortKey()] = sErrorMsg;
 	};
 
 	auto prefProxy = [&](tDlJob &cjob) -> const tHttpUrl*
@@ -1571,8 +1565,7 @@ void CDlConn::WorkLoop()
 
 			if (con)
 			{
-				ldbg(
-						"target? [" << con->GetHostname() << "]:" << con->GetPort());
+				ldbg("target? [" << con->GetHostname() << "]:" << con->GetPort());
 
 				// must test this connection, just be sure no crap is in the pipe
 				if (bUsed && check_read_state(con->GetFD()))

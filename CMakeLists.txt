@@ -190,7 +190,13 @@ CHECK_CXX_COMPILER_FLAG("" LD_ATOMIC)
 if(LD_ATOMIC)
 _append(BaseNetworkLibs atomic)
 endif()
+set(CMAKE_REQUIRED_FLAGS "-lstdc++fs")
+CHECK_CXX_COMPILER_FLAG("" HAVE_FSLIB)
+if(HAVE_FSLIB)
+	LIST(APPEND BaseNetworkLibs stdc++fs)
+endif()
 set(CMAKE_REQUIRED_FLAGS "")
+
 
 if(CYGWIN)
 message("!! Not using wordexp on Cygwin, not reliable")

@@ -125,7 +125,7 @@ int maxdlspeed(RESERVED_DEFVAL);
 
 string optproxycmd;
 int optproxycheckint=-1;
-
+int port = ACNG_DEF_PORT;
 int minilog = 0;
 
 #ifdef DEBUG
@@ -135,7 +135,7 @@ int dnscachetime(1800);
 #endif
 
 string ACNG_API agentname("Apt-Cacher-NG/" ACVERSION);
-string ACNG_API remoteport("80"), port(ACNG_DEF_PORT);
+string ACNG_API remoteport("80");
 string ACNG_API agentheader;
 string ACNG_API dnsresconf("/etc/resolv.conf");
 

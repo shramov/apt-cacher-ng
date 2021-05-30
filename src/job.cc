@@ -542,15 +542,7 @@ void job::Prepare(const header &h, string_view headBuf, cmstring& callerHostname
 		LOG("refined path: " << theUrl.sPath << "\n on host: " << theUrl.sHost);
 
 		// extract the actual port from the URL
-		char *pEnd(0);
-		unsigned nPort = 80;
-		LPCSTR sPort=theUrl.GetPort().c_str();
-		if(!*sPort)
-		{
-			nPort = (uint) strtoul(sPort, &pEnd, 10);
-			if('\0' != *pEnd || pEnd == sPort || nPort > TCP_PORT_MAX || !nPort)
-				return report_invport();
-		}
+		unsigned nPort = theUrl.GetPort();
 
 		if(cfg::pUserPorts)
 		{

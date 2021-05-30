@@ -3,6 +3,7 @@
 #define _FILEITEM_H
 
 #include <string>
+#include <atomic>
 
 #include "config.h"
 #include "lockable.h"
@@ -149,7 +150,7 @@ protected:
     tSpecialPurposeAttr m_spattr;
 
 	off_t m_nSizeChecked = -1;
-	std::atomic_int usercount = ATOMIC_VAR_INIT(0);
+	std::atomic<int> usercount = ATOMIC_VAR_INIT(0);
 	FiStatus m_status = FIST_FRESH;
 	EDestroyMode m_eDestroy = EDestroyMode::KEEP;
 	mstring m_sPathRel;
