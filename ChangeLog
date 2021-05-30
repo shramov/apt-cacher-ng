@@ -1,3 +1,24 @@
+apt-cacher-ng (3.6.4) 11TH-HOUR-RELEASE; urgency=low
+
+  * Fix the premature and unsafe closing of file descriptors:
+     - registration in the graceful termination handling was not thread-safe
+     - conn objects did close the handles immediately due to incorrect use
+       of RAII helper, leading to the exact opposite of what the graceful
+       shutdown code was made for (therefore, sometimes suddenly closing
+       sockets without returning all data)
+     - even worse, the graceful shutdown code was able to randomly steal
+       data from unrelated sockets (causing data corruption even in incoming
+       data) or shutdown their stream
+     - the timeout description map was not cleaned properly, therefore
+       causing a (minor) memory leak. This is now dropped completely because
+       the timeout/event data is carried around in own metadata objects.
+  * Minor stability tweaks:
+     - drop obsolete forceclose() function which would make a pointless
+       (although harmless) close(-1) call upon EINTR result
+     - explicit checks for -1 results of open() result instead of < 0
+
+ -- Eduard Bloch <blade@debian.org>  Sun, 30 May 2021 10:32:44 +0200
+
 apt-cacher-ng (3.6.3) SOHMIETNG-T0-REBMEMER; urgency=medium
 
   * Amend the file creation scheme for cache files which are rewritten from
