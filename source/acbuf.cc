@@ -33,7 +33,7 @@ bool acbuf::initFromFile(const char *szPath)
 		return false;
 
 	int fd=::open(szPath, O_RDONLY);
-	if (fd<0)
+	if (fd == -1)
 		return false;
 
 	clear();
@@ -45,11 +45,11 @@ bool acbuf::initFromFile(const char *szPath)
 	{
 		if (sysread(fd) < 0)
 		{
-			forceclose(fd);
+			justforceclose(fd);
 			return false;
 		}
 	}
-	forceclose(fd);
+	justforceclose(fd);
 	return true;
 }
 

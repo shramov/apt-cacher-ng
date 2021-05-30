@@ -36,7 +36,6 @@ class conn::Impl
 	friend class conn;
 	conn* _q = nullptr;
 
-	unique_fd m_fd;
 	int m_confd;
 	bool m_badState = false;
 
@@ -71,9 +70,8 @@ class conn::Impl
       unsigned m_nProcessedJobs;
 #endif
 
-  	Impl(unique_fd fd, const char *c) :
-		m_fd(move(fd)),
-		m_confd(m_fd.get())
+	Impl(int fd, const char *c) :
+		m_confd(fd)
 
   	{
   		if(c) // if nullptr, pick up later when sent by the wrapper
@@ -101,6 +99,7 @@ class conn::Impl
   		if(m_dlerthr.joinable())
   			m_dlerthr.join();
   		log::flush();
+		// this is not closed here but there, after graceful termination handling
   		conserver::FinishConnection(m_confd);
   	}
 
@@ -108,7 +107,7 @@ class conn::Impl
 };
 
 // call forwarding
-conn::conn(unique_fd fd, const char *c) : _p(new Impl(move(fd), move(c))) { _p->_q = this;};
+conn::conn(int fd, const char *c) : _p(new Impl(fd, move(c))) { _p->_q = this;};
 conn::~conn() { delete _p; }
 void conn::WorkLoop() {	return _p->WorkLoop(); }
 void conn::LogDataCounts(cmstring &file, const char *xff, off_t countIn, off_t countOut,
@@ -450,9 +449,9 @@ bool conn::Impl::SetupDownloader()
 		if(!m_pDlClient)
 			return false;
 		auto pin = m_pDlClient;
-		m_dlerthr = move(thread([pin](){
+		m_dlerthr = thread([pin](){
 			pin->WorkLoop();
-		}));
+		});
 		m_badState = false;
 		return true;
 	}

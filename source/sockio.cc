@@ -19,41 +19,56 @@ using namespace std;
 
 // those data structures are used by main thread only
 // helper structure with metadata which can be passed around
-unordered_map<int,time_t> g_discoTimeouts;
-char crapbuf[40];
 
-void termsocket_now(int fd, void *p = nullptr)
+struct tEndingSocketInfo
 {
-	::shutdown(fd, SHUT_RD);
-	forceclose(fd);
-	g_discoTimeouts.erase(fd);
-	if(p) event_free((event*)p);
+	time_t absoluteTimeout;
+	event* me;
+};
+
+static void termsocket_now(int fd)
+{
+	::shutdown(fd, SHUT_RDWR);
+	justforceclose(fd);
 }
 
-void linger_read(int fd, short what, void *p)
+const struct timeval * GetTimeoutInterval()
 {
-	if ((what & EV_TIMEOUT) || !(what & EV_READ))
-		return termsocket_now(fd, p);
-	// ok, have to read junk or terminating zero-read
-	while (true)
+	static struct timeval t { 0, 42};
+	// this should result in something sane, roughly 5-10s
+	if (!t.tv_sec)
+		t.tv_sec = 2 + cfg::discotimeout / 4;
+	return &t;
+}
+bool readCheckDead(int fd, unsigned cycles)
+{
+	char crapbuf[40];
+	while (cycles--)
 	{
-		int r = recv(fd, crapbuf, sizeof(crapbuf), MSG_WAITALL);
+		int r = recv(fd, crapbuf, sizeof(crapbuf), 0);
+		if (r > 0)
+			continue;
 		if (0 == r)
-			return termsocket_now(fd, p);
-		if (r < 0)
-		{
-			if (errno == EAGAIN)
-			{
-				// come again later
-				CTimeVal exp;
-				event_add((event*) p, exp.Remaining(g_discoTimeouts[fd]));
-				return;
-			}
-			if (errno == EINTR)
-				continue;
-			// some other error? Kill it
-			return termsocket_now(fd, p);
-		}
+			return true;
+		return errno != EINTR && errno != EAGAIN;
+	}
+	return false;
+}
+void cbLingerRead(int fd, short what, void *pRaw)
+{
+	auto info((tEndingSocketInfo*)pRaw);
+	bool isDead = false;
+	if(what & EV_READ)
+		isDead = readCheckDead(fd, 200);
+	if (!isDead)
+		isDead = GetTime() > info->absoluteTimeout;
+
+	if (isDead)
+	{
+		termsocket_now(fd);
+		if(info->me)
+			event_free(info->me);
+		delete info;
 	}
 }
 
@@ -65,31 +80,35 @@ void linger_read(int fd, short what, void *p)
  */
 void termsocket_async(int fd, event_base* base)
 {
-	event* ev(nullptr);
+	tEndingSocketInfo* dsctor (nullptr);
 	try
 	{
 		LOGSTARTsx("::termsocket", fd);
-		if (!fd)
+		if (fd == -1)
 			return;
 		// initiate shutdown, i.e. sending FIN and giving the remote some time to confirm
 		::shutdown(fd, SHUT_WR);
-		int r = read(fd, crapbuf, sizeof(crapbuf));
-		if (r == 0) // fine, we are done
-			return termsocket_now(fd, nullptr);
+		if (readCheckDead(fd, 1))
+		{
+			justforceclose(fd);
+			return;
+		}
 		LOG("waiting for peer to react");
-		auto ev = event_new(base, fd, EV_READ, linger_read,
-				event_self_cbarg());
-		g_discoTimeouts[fd] = GetTime() + cfg::discotimeout;
-		struct timeval tmout { cfg::discotimeout, 42 };
-		if (ev && 0 == event_add(ev, &tmout))
+		dsctor = new tEndingSocketInfo { GetTime() + cfg::discotimeout, nullptr};
+		dsctor->me = event_new(base, fd, EV_READ | EV_PERSIST, cbLingerRead, dsctor);
+		if (dsctor && dsctor->me && 0 == event_add(dsctor->me, GetTimeoutInterval()))
 			return; // will cleanup in the callbacks
 	} catch (...)
 	{
 	}
-	// error cleanup... EOM?
-	if (ev)
-		event_free(ev);
-	justforceclose(fd);
+	// error cleanup...
+	if (dsctor)
+	{
+		if (dsctor->me)
+			event_free(dsctor->me);
+		delete dsctor;
+	}
+	termsocket_now(fd);
 }
 
 void set_connect_sock_flags(evutil_socket_t fd)
@@ -104,7 +123,7 @@ void set_connect_sock_flags(evutil_socket_t fd)
 
 #ifdef HAVE_SSL
 std::deque<std::mutex> g_ssl_locks;
-void thread_lock_cb(int mode, int which, const char *f, int l)
+void thread_lock_cb(int mode, int which, const char *, int)
 {
 	if (which >= int(g_ssl_locks.size()))
 		return; // weird
