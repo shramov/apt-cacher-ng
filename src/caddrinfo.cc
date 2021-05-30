@@ -246,10 +246,14 @@ void tDnsResContext::cb_srv_query(void *arg, int status, int, unsigned char *abu
 		if (ARES_SUCCESS == ares_parse_srv_reply(abuf, alen, &pReply))
 		{
 			unsigned maxWeight = 1;
+			bool resNameAmongSrvSet = false;
 			// that's considering all weights from different priorities in the same way, assuming that too heavy differences won't hurt the precission afterwards
 			for(auto p = pReply; p; p = p->next)
+			{
 				maxWeight = std::max((unsigned) p->weight, maxWeight);
-			// factor to bring the dimension of random() into our dimension so that in ever overflows when scaling back
+				resNameAmongSrvSet |= (me->sHost == p->host);
+			}
+			// factor to bring the dimension of random() into our dimension so that in never overflows when scaling back
 			auto scaleFac = (INT_MAX / maxWeight + 1);
 			for(auto p = pReply; p; p = p->next)
 			{
@@ -257,15 +261,27 @@ void tDnsResContext::cb_srv_query(void *arg, int status, int, unsigned char *abu
 				if (p->host)
 					all.emplace_back(p);
 			}
+
 			std::sort(all.begin(), all.end(), comp);
-			auto nHosts = all.size() < DNS_MAX_PER_REQUEST ? all.size() : DNS_MAX_PER_REQUEST;
-			me->setResTaskCount(nHosts);
-			for (unsigned i = 0; i < all.size(); ++i)
-				invoke_getaddrinfo(all[i]->host, & me->tasks[i]);
-			// ASSERT(me->__ref_cnt() == nHosts + 1);
+			auto consideredHosts = std::min(all.size(), size_t(DNS_MAX_PER_REQUEST));
+
+			// extra slot for the fallback request, if not covered by one of those hosts
+			me->setResTaskCount(resNameAmongSrvSet ? consideredHosts : consideredHosts + 1);
+
+			for (unsigned i = 0; i < consideredHosts; ++i)
+			{
+				invoke_getaddrinfo(all[i]->host, & me->tasks.at(i));
+			}
+
+			if (!resNameAmongSrvSet)
+			{
+				invoke_getaddrinfo(me->sHost, & me->tasks.back());
+			}
 		}
 		if (pReply)
+		{
 			ares_free_data(pReply);
+		}
 	}
 	// no or bad SRV, do just regular getaddrinfo
 	if (me->tasks.empty())

@@ -147,16 +147,13 @@ void aconnector::step(int fd, short what)
 		}
 		auto tmout = isFirst ? cfg::GetFirstConTimeout() : cfg::GetFurtherConTimeout();
 		pe.m_p = event_new(evabase::base, nextFd.get(), EV_WRITE | EV_PERSIST, cbStep, this);
-		if (AC_LIKELY(pe.valid()))
+		if (AC_LIKELY(pe.valid() && 0 == event_add(pe.get(), tmout)))
 		{
-			if(AC_LIKELY(0 == event_add(pe.get(), tmout)))
-			{
-				m_eventFds.push_back({nextFd.release(), pe.release()});
-				m_pending++;
-				// advance to the next after timeout
-				m_targets.pop_front();
-				return;
-			}
+			m_eventFds.push_back({nextFd.release(), pe.release()});
+			m_pending++;
+			// advance to the next after timeout
+			m_targets.pop_front();
+			return;
 		}
 		setIfNotEmpty(m_error2report, "Out of memory"sv);
 	}

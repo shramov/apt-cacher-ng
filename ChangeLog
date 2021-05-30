@@ -1,3 +1,19 @@
+apt-cacher-ng (3.7.2) SHIFT_HAPPENZ; urgency=high
+
+  [ BUGFIXES]
+
+  * DNS: fix potential memory corruption if the count of reported SRV hosts
+    exceeds the regular limit
+  * DNS: considers the requested name as the last target candidate if the name
+    is not among the candidates suggested by SRV record
+  * Minor portability issues (32bit and older GCC) resolved
+
+  [ IMPROVEMENTS ]
+
+  * Memory saving by using trivial data type for port specification
+
+ -- Eduard Bloch <blade@debian.org>  Sun, 30 May 2021 20:28:21 +0200
+
 apt-cacher-ng (3.7.1) 2-WINDY-OUTSIDE; urgency=low
 
   [ NEW FEATURES AND IMPROVEMENTS ]
