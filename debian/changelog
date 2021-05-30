@@ -1,3 +1,10 @@
+apt-cacher-ng (3.6.4-1) unstable; urgency=medium
+
+  * New upstream bugfix version
+    + fixes rogue closing of wrong file descriptors (closes: #986749)
+
+ -- Eduard Bloch <blade@debian.org>  Sun, 30 May 2021 11:57:35 +0200
+
 apt-cacher-ng (3.6.3-1) unstable; urgency=medium
 
   * New upstream bugfix version
