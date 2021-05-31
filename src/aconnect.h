@@ -28,6 +28,7 @@ public:
 	{
 		unique_fd fd;
 		std::string sError;
+		bool bForcedSsl;
 	};
 
 	// file descriptor, error message, forcedSsl flag
@@ -67,12 +68,15 @@ private:
 	{
 		int fd;
 		event* ev;
+		bool isGuessedSsl;
 	};
 	std::vector<tProbeInfo> m_eventFds;
     unsigned m_pending = 0;
     time_t m_tmoutTotal, m_timeNextCand;
     mstring m_error2report;
+	uint16_t m_port;
 
+	uint16_t m_guessMode; // for SSL guessing
 	decltype (m_targets)::iterator m_cursor;
 
     void processDnsResult(std::shared_ptr<CAddrInfo>);

@@ -122,6 +122,7 @@ optproxytimeout(-1), patrace(false), maxredlsize(1<<16), nsafriendly(false),
 trackfileuse(false), exstarttradeoff(500000000), fasttimeout(4), discotimeout(15);
 
 int maxdlspeed(RESERVED_DEFVAL);
+int tlsprobing(false);
 
 string optproxycmd;
 int optproxycheckint=-1;

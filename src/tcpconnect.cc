@@ -144,6 +144,7 @@ tDlStreamHandle dl_con_factory::CreateConnected(cmstring &sHostname, uint16_t nP
 	if(!p)
 	{
 		p.reset(new tcpconnect(pStateTracker));
+		bool bForcedTls = false;
 		if(p)
 		{
 			p->m_sHostName = sHostname;
@@ -163,11 +164,12 @@ tDlStreamHandle dl_con_factory::CreateConnected(cmstring &sHostname, uint16_t nP
 			else
 			{
 				p->m_conFd = res.fd.release();
+				bForcedTls = res.bForcedSsl;
 			}
 		}
 
 #ifdef HAVE_SSL
-		if(p && bSsl && !p->SSLinit(sErrOut))
+		if(p && (bSsl|bForcedTls) && !p->SSLinit(sErrOut, bForcedTls))
 		{
 			p.reset();
 			LOG("ssl init error");
@@ -305,7 +307,7 @@ void dl_con_factory::dump_status()
 	log::err(msg);
 }
 #ifdef HAVE_SSL
-bool tcpconnect::SSLinit(mstring &sErr)
+bool tcpconnect::SSLinit(mstring &sErr, bool bGuessedTls)
 {
 	SSL * ssl(nullptr);
 	mstring ebuf;
@@ -343,8 +345,8 @@ bool tcpconnect::SSLinit(mstring &sErr)
 	ssl = SSL_new(m_ctx);
 	if (!m_ctx) return withLastSslError();
 
-	bool disableNameValidation = cfg::nsafriendly == 1;// || (bGuessedTls * cfg::nsafriendly == 2);
-	bool disableAllValidation = cfg::nsafriendly == 1; // || (bGuessedTls * (cfg::nsafriendly == 2 || cfg::nsafriendly == 3));
+	bool disableNameValidation = cfg::nsafriendly == 1 || (bGuessedTls * cfg::nsafriendly == 2);
+	bool disableAllValidation = cfg::nsafriendly == 1 || (bGuessedTls * (cfg::nsafriendly == 2 || cfg::nsafriendly == 3));
 
 	// for SNI
 	SSL_set_tlsext_host_name(ssl, m_sHostName.c_str());
@@ -501,7 +503,7 @@ bool tcpconnect::StartTunnel(const tHttpUrl& realTarget, mstring& sError,
 		m_sHostName = realTarget.sHost;
 		m_nPort = realTarget.GetPort();
 #ifdef HAVE_SSL
-		if (bDoSSL && !SSLinit(sError))
+		if (bDoSSL && !SSLinit(sError, false))
 		{
 			m_sHostName.clear();
 			return false;

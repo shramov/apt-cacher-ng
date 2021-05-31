@@ -541,10 +541,22 @@ LocalDirs: acng-doc @CMAKE_INSTALL_FULL_DOCDIR@
 # BusAction: ls -l /proc/$PPID/ | mail -s SIGBUS! root
 
 # Only set this value for debugging purposes. It disables SSL security checks
-# like strict host verification. 0 means no, any other value can have
-# differrent meaning in the future.
+# like strict host verification. 0 means enabling all checks active, 1 means
+# disabling all checks, 2 means disabling host name checks only for TLS
+# connections where TLS was probed (guessed), 3 is like 2 but also certificate
+# checks are disabled (allowing self-signed certificates).
+#
+# Any other value can have differrent meaning in the future.
 #
 # NoSSLChecks: 0
+
+# Attempt to make an TLS (port 443) connection before trying unencrypted (port
+# 80) connection. After some time (see FastTimeout setting) the connection
+# falls back to original (unencrypted) request. Also see NoSSLChecks option
+# which might be needed because many hosts have wrong certificate for the
+# expected hostname.
+#
+# TlsProbing: 0
 
 # Setting this value means: on file downloads from/via cache, tag relevant
 # files. And when acngtool runs the shrink command, it will look at the day

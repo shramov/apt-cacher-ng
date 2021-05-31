@@ -67,7 +67,7 @@ protected:
 	BIO *m_bio = nullptr;
 	SSL_CTX * m_ctx = nullptr;
 	SSL * m_ssl = nullptr;
-	bool SSLinit(mstring &sErr);
+	bool SSLinit(mstring &sErr, bool bGuessedTls);
 #endif
 
 	friend class dl_con_factory;

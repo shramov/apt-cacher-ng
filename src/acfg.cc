@@ -173,7 +173,8 @@ MapNameToInt n2iTbl[] = {
 		,{  "OptProxyCheckInterval",             &optProxyCheckInt, nullptr,    10, false}
 		,{  "TrackFileUse",		             	 &trackfileuse,		nullptr,    10, false}
         ,{  "ReserveSpace",                      &allocspace, 		nullptr ,   10, false}
-        ,{  "EvDnsOpts",                	     &dnsopts,	 		nullptr ,   10, false}
+		,{  "EvDnsOpts",                	     &dnsopts,	 		nullptr ,   10, false}
+		,{  "TlsProbing",                	     &tlsprobing, 		nullptr ,   10, false}
 
         // octal base interpretation of UNIX file permissions
 		,{  "DirPerms",                          &dirperms,         nullptr,    8, false}

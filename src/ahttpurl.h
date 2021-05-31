@@ -7,11 +7,7 @@
 namespace acng
 {
 
-extern std::string sDefPortHTTP, sDefPortHTTPS;
 extern cmstring PROT_PFX_HTTPS, PROT_PFX_HTTP;
-
-#define DEFAULT_PORT_HTTP 80
-#define DEFAULT_PORT_HTTPS 443
 
 class ACNG_API tHttpUrl
 {
