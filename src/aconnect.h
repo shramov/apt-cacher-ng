@@ -3,11 +3,7 @@
 
 #include "caddrinfo.h"
 #include "fileio.h"
-
-extern "C"
-{
-struct event;
-}
+#include <list>
 
 namespace acng {
 
@@ -22,7 +18,7 @@ public:
     /**
      * Thread context: ST, IO thread
      */
-    ~aconnector();
+	~aconnector() =default;
 
 	struct tConnResult
 	{
@@ -65,10 +61,10 @@ private:
     // linear search is sufficient for this amount of elements
 	struct tProbeInfo
 	{
-		int fd;
-		event* ev;
+		unique_fd fd;
+		unique_event ev;
 	};
-	std::vector<tProbeInfo> m_eventFds;
+	std::list<tProbeInfo> m_eventFds;
     unsigned m_pending = 0;
     time_t m_tmoutTotal, m_timeNextCand;
     mstring m_error2report;

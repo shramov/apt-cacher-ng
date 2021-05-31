@@ -39,6 +39,8 @@
 extern "C"
 {
 struct evbuffer;
+struct event;
+void event_free(struct event*);
 }
 
 namespace acng
@@ -124,6 +126,8 @@ public:
 */
 
 using unique_fd = auto_raii<int, justforceclose, -1>;
+
+using unique_event = auto_raii<event*, event_free, nullptr>;
 
 /**
  * @brief evbuffer_dumpall - store all or limited range from the front to a file descriptor
