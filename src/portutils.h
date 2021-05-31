@@ -4,6 +4,10 @@
 #include "actypes.h"
 #include <cstdio>
 
+#define DEFAULT_PORT_HTTP 80
+#define DEFAULT_PORT_HTTPS 443
+extern std::string sDefPortHTTP, sDefPortHTTPS;
+
 namespace acng {
 
 struct tPortAsString

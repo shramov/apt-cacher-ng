@@ -2,6 +2,7 @@
 #define AHTTPURL_H
 
 #include "actypes.h"
+#include "portutils.h"
 
 namespace acng
 {

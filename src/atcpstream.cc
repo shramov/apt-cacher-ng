@@ -143,11 +143,11 @@ void atcpstream::Create(const tHttpUrl &url, bool forceFresh, int forceTimeout, 
 							proxy ? proxy->GetPort() : port,
 							timeout,
 							[cback, host, port, proxy, doSsl]
-							(unique_fd fd, std::string sErr) mutable
+							(aconnector::tConnResult res) mutable
 		{
-			if (!sErr.empty())
-				return cback(lint_ptr<atcpstream>(), sErr, true);
-			int nFd = fd.release();
+			if (!res.sError.empty())
+				return cback(lint_ptr<atcpstream>(), res.sError, true);
+			int nFd = res.fd.release();
 			atcpstreamImpl *p(nullptr);
 			try
 			{

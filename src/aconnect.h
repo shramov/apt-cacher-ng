@@ -24,7 +24,14 @@ public:
      */
     ~aconnector();
 
-    using tCallback = std::function<void (unique_fd, std::string)>;
+	struct tConnResult
+	{
+		unique_fd fd;
+		std::string sError;
+	};
+
+	// file descriptor, error message, forcedSsl flag
+	using tCallback = std::function<void (tConnResult)>;
 
     /**
          * @brief Start connection asynchronously and report result via callback
@@ -43,7 +50,7 @@ public:
          *
          * Thread context: not IO thread, reentrant, blocking!
          */
-	static std::pair<unique_fd, std::string> Connect(cmstring& target, uint16_t port, unsigned timeout);
+	static tConnResult Connect(cmstring& target, uint16_t port, unsigned timeout);
 
 private:
     // forbid copy operations
@@ -56,11 +63,17 @@ private:
     tCallback m_cback;
 	std::deque<acng_addrinfo> m_targets;
     // linear search is sufficient for this amount of elements
-    std::vector<std::pair<int, event*>> m_eventFds;
+	struct tProbeInfo
+	{
+		int fd;
+		event* ev;
+	};
+	std::vector<tProbeInfo> m_eventFds;
     unsigned m_pending = 0;
     time_t m_tmoutTotal, m_timeNextCand;
     mstring m_error2report;
 
+	decltype (m_targets)::iterator m_cursor;
 
     void processDnsResult(std::shared_ptr<CAddrInfo>);
 
