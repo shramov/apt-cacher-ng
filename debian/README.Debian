@@ -1,0 +1,99 @@
+apt-cacher-ng for Debian
+------------------------
+
+See apt-cacher-ng.pdf for configuration instructions (or HTML version or
+README). A sample configuration file for the clients is provided in
+/usr/share/doc/apt-cacher-ng/examples/000apt-cacher-ng-proxy.
+
+The local cache directory is /var/cache/apt-cacher-ng in the standard package
+setup and can be changed in the configuration and/or via Debconf settings. The
+default directory will be deleted when the package is purged but a changed
+location will remain untouched.
+
+The configuration directory on Debian systems is located in
+/etc/apt-cacher-ng/. By default, it contains three configuration files:
+
+ * acng.conf (main configuration file shipped with the package)
+ * security.conf (a file containing sensitive data like passwords)
+ * zz_debconf.conf (a generated file with basic settings from the package setup)
+
+It's recommended to put special local settings of configuration variables into
+a custom file interpreted after acng.conf but before zz_debconf.conf, like
+/etc/apt-cacher-ng/local.conf . If configured this way, the acng.conf file
+might be replaced with the default version (acng.conf.dpkg-dist) to simplify
+its handling in future.
+
+The logs are stored in /var/log/apt-cacher-ng/ and are expired by logrotate
+except for temporary maintenance logs which are removed automatically. The
+access mode of /etc/apt-cacher-ng/security.conf is explicitly changed to
+restrict access to members of the apt-cacher-ng group.
+
+CRON JOB PITFALLS
+-----------------
+
+The current version of apt-cacher-ng requires the internal report
+and administration page to be enabled and accessible for the daily cron job.
+Therefore, wild west way of system administration (i.e. turning it off
+ReportPage setting and also disabling TCP service for localhost) will make the
+expiration tasks fail, either invisibly or visibly (complaining via cron mails
+after a while).
+
+If the execution of cron job for expiration is really supposed to be disabled
+without further complaints, one might create and set the NO_CRON_RUN variable
+in /etc/default/apt-cacher-ng file.
+
+This constraint might change in future versions of apt-cacher-ng with a
+dedicated admin control socket or some other channel for delicate communication.
+
+As of now, the best way to create obstacles for evil local users while keeping
+the cron job execution alive is currently only working through obfuscation,
+changing reportpage to something secret, optionally making the configuration
+files not readable for local users, and also setting admin credentials (see
+above).
+
+REMOTE MIRROR CONFIGURATION
+---------------------------
+
+The Debian setup comes with a semi-automated backend configuration. The
+remapping rules for many known mirrors are shipped with the package. On
+installation, the setup script picks up a list of preferred backend hosts from
+local machine's current sources.list files and puts them into
+/etc/apt-cacher-ng/backends_* files.
+
+To change the mirrors used by apt-cacher-ng, user needs to add/remove/reorder
+the lists in this backends files. To execute or enable automatic configuration,
+run "dpkg-reconfigure apt-cacher-ng".
+
+It's also possible to update the remote mirror lists using the same generator
+scripts as for the files shipped with the package. The related scripts are
+in the archive /usr/share/doc/apt-cacher-ng/examples/dbgenerator.tgz
+(make and wget packages are also required). Just run "make" and look into conf/
+subdirectory after 5-10 minutes.
+
+DATABASE UPDATE
+---------------
+
+The package includes a set of databases (for Debian, Linux, Fedora and other
+distributions) which help on merging user's request to shared cache
+repositories, improving the cache performance.
+
+This databases can be updated manually using the scripts included in the
+examples/dbgenerator.tar.xz archive. After extracting, run "make" to run the
+lengthy cycle of mirror data retrival, remote host checking, then run (as root)
+"make install".
+
+INETD USAGE
+-----------
+
+For inetd usage, the in.acng binary is shipped with the Debian package.
+However, it needs to be installed manually by adding the line:
+
+3142  stream  tcp nowait  apt-cacher-ng /usr/sbin/tcpd /usr/lib/apt-cacher-ng/in.acng /var/run/apt-cacher-ng/socket
+
+to /etc/inetd.conf and reload of the inetd daemon. The parameters above need to
+be adapted as needed, also see the package documentation for more details.
+
+NOTE: this inetd bridge is not required in order to set ACLs via /etc/host.*
+files. Recent versions of apt-cacher-ng support these access filters natively.
+
+ -- Eduard Bloch <blade@debian.org>  Tue, 09 Sep 2014 22:42:39 +0200

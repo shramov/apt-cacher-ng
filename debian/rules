@@ -1,0 +1,56 @@
+#!/usr/bin/make -f
+
+TGT=$(CURDIR)/debian/apt-cacher-ng
+CDIR=$(TGT)/etc/apt-cacher-ng
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+DPKG_EXPORT_BUILDFLAGS = 1
+include /usr/share/dpkg/buildflags.mk
+# cmake doesn't respect CPPFLAGS, use the workaround as suggested in
+# https://wiki.debian.org/Hardening#Notes_for_packages_using_CMake
+CFLAGS += $(CPPFLAGS)
+CXXFLAGS += $(CPPFLAGS)
+
+DEB_HOST_ARCH ?= $(shell dpkg-architecture -qDEB_HOST_ARCH)
+
+# libatomic provides 8-bytes atomic operation for 32-bit MIPS
+ifneq (,$(filter $(DEB_HOST_ARCH), mips mipsel))
+ EXTRA_LIBS += -DEXTRA_LIBS_ACNG=-latomic
+endif
+
+# gold with --threads crashes there, maybe not enough stack size on those architectures
+#ifneq (,$(filter $(DEB_HOST_ARCH), mipsel mips64el))
+EXTRA_LIBS += -DUSE_GOLD=off -DUSE_GOLD_MT=off
+#endif
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+	dh_auto_configure -- -DSDINSTALL=on -DACNG_CACHE_DIR=/var/cache/apt-cacher-ng -DACNG_LOG_DIR=/var/log/apt-cacher-ng -DUSE_LTO=off $(EXTRA_LIBS) -DCMAKE_SKIP_RPATH=ON
+
+# needs extra build deps and internet -> ignore
+override_dh_auto_test:
+	true
+
+override_dh_install:
+	# let dh_systemd deal with them
+	mv $(TGT)/usr/lib/tmpfiles.d/apt-cacher-ng.conf debian/apt-cacher-ng.tmpfile
+	mv $(TGT)/lib/systemd/system/*.service debian/
+	$(MAKE) -C dbgen package DBGENERATOR=dbgenerator
+	test -r debian/apt-cacher-ng/etc/apt-cacher-ng/backends_debian.default || mv debian/apt-cacher-ng/usr/lib/apt-cacher-ng/backends_debian.default debian/apt-cacher-ng/etc/apt-cacher-ng/
+	test -r debian/apt-cacher-ng/etc/apt-cacher-ng/backends_ubuntu.default || mv debian/apt-cacher-ng/usr/lib/apt-cacher-ng/backends_ubuntu.default debian/apt-cacher-ng/etc/apt-cacher-ng/
+
+override_dh_installinit:
+	dh_installinit --no-restart-on-upgrade --restart-after-upgrade -- defaults 18
+
+override_dh_compress:
+	dh_compress -X.pdf
+
+override_dh_clean:
+	dh_clean
+	rm -rf debian/apt-cacher-ng.service debian/apt-cacher-ng.tmpfile dbgen/dbgenerator.* dbgen/dbupdate
+	debconf-updatepo
+
+override_dh_installchangelogs:
+	dh_installchangelogs ChangeLog
