@@ -4,9 +4,11 @@
 #include "config.h"
 #include "actemplates.h"
 #include <memory>
-#include <functional>
+#include <thread>
 
 #include <event.h>
+
+#define ASSERT_HAVE_MAIN_THREAD ASSERT(std::this_thread::get_id() == evabase::GetMainThreadId())
 
 extern "C"
 {
@@ -60,6 +62,8 @@ static std::atomic<bool> in_shutdown;
 static std::shared_ptr<CDnsBase> GetDnsBase();
 static void CheckDnsChange();
 
+static std::thread::id GetMainThreadId();
+
 /**
  * Runs the main loop for a program around the event_base loop.
  * When finished, clean up some resources left behind (fire off specific events
@@ -69,20 +73,30 @@ int MainLoop();
 
 static void SignalStop();
 
-using tCancelableAction = std::function<void(bool)>;
-
 /**
- * Push an action into processing queue. In case operation is not possible, runs the action with the cancel flag (bool argument set to true)
+ * Push an action into processing queue. In case of ongoing cancelation (like in shutdown case), the action is run with the bool argument set to true.
+ * Method is reentrant and thread-safe - input from the IO thread gets higher processing priority.
  */
 static void Post(tCancelableAction&&);
+
+/**
+ * @brief Post an action which will be run later (provided that the event loop is run), but the actions might be discarded in shutdown scenario.
+ */
+static void Post(tAction&&);
+
+/**
+ * @brief Execute in-place if on main thread, otherwise Post it
+ */
+//static void PostOrRun(tCancelableAction&&);
+
+static inline bool IsMainThread() { return GetMainThreadId() == std::this_thread::get_id(); }
+
 
 static void addTeardownAction(event_callback_fn matchedCback, std::function<void(t_event_desctor)> action);
 
 evabase();
 ~evabase();
 };
-
-using unique_event = auto_raii<event*, event_free, nullptr>;
 
 }
 

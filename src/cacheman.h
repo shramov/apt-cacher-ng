@@ -5,7 +5,6 @@
 #include "acfg.h"
 #include "dirwalk.h"
 #include "maintenance.h"
-#include "lockable.h"
 #include "csmapping.h"
 #include "bgtask.h"
 #include "conn.h"
@@ -19,7 +18,7 @@
 namespace acng
 {
 
-class dlcon;
+class dlcontroller;
 
 // XXX: specific declarations, maybe move to a namespace
 class tDlJobHints;
@@ -42,11 +41,11 @@ class ACNG_API cacheman :
 		public tSpecOpDetachable
 {
 protected:
-	ISharedConnectionResources &GetDlRes() { return * m_parms.pDlResProvider; }
+	IConnBase &GetDlRes() { return * m_parms.pDlResProvider; }
 
 public:
 	cacheman(const tSpecialRequest::tRunParms& parms);
-	virtual ~cacheman();
+	virtual ~cacheman() =default;
 
 	enum enumMetaType
 		: uint8_t

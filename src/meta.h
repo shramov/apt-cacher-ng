@@ -173,8 +173,6 @@ ACNG_API mstring UserinfoEscape(cmstring &s);
 #define StrHasFrom(haystack, needle, startpos) (haystack.find(needle, startpos) != stmiss)
 #define StrEraseEnd(s,len) (s).erase((s).size() - len)
 
-off_t GetFileSize(cmstring & path, off_t defret);
-
 ACNG_API mstring offttos(off_t n);
 ACNG_API mstring ltos(long n);
 ACNG_API mstring offttosH(off_t n);
@@ -321,6 +319,7 @@ class NoCaseStringMap : public std::map<mstring, mstring, ltstring>
 
 static constexpr string_view svRN = szRN;
 static constexpr string_view svLF = "\n";
+static constexpr string_view svEmpty = "";
 
 #if !defined(HAVE_STRLCPY) || !HAVE_STRLCPY
 size_t strlcpy(char *tgt, const char *src, size_t tgtSize);

@@ -73,7 +73,8 @@ protected:
 	friend class dl_con_factory;
 };
 
-class IDlConFactory
+#if 0
+class IDlConFactoryOld
 {
 public:
 	/// Moves the connection handle to the reserve pool (resets the specified sptr).
@@ -112,7 +113,7 @@ protected:
 };
 
 extern dl_con_factory g_tcp_con_factory;
-
+#endif
 /*
 // little tool for related classes, helps counting all object instances
 class instcount

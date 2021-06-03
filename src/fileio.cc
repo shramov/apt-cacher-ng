@@ -8,6 +8,8 @@
 #include "acbuf.h"
 #include "acfg.h"
 #include "meta.h"
+#include "aevutil.h"
+
 #include <fcntl.h>
 #ifdef HAVE_LINUX_FALLOCATE
 #include <linux/falloc.h>
@@ -165,7 +167,7 @@ void set_block(int fd) {
  * @brief evbuffer_dumpall - store all or limited range from the front to a file descriptor
  * This is actually evbuffer_write_atmost replacement without its random aborting bug.
  */
-ssize_t evbuffer_dumpall(evbuffer *m_q, int out_fd, off_t &nSendPos, size_t nMax2SendNow)
+ssize_t eb_dump_atmost(evbuffer *m_q, int out_fd, size_t nMax2SendNow)
 {
 	evbuffer_iovec ivs[64];
 	auto nbufs = evbuffer_peek(m_q, nMax2SendNow, nullptr, ivs, _countof(ivs));
@@ -185,10 +187,74 @@ ssize_t evbuffer_dumpall(evbuffer *m_q, int out_fd, off_t &nSendPos, size_t nMax
 	auto r = writev(out_fd, ivs, nbufs);
 	if (r > 0)
 	{
-		nSendPos += r;
 		evbuffer_drain(m_q, got);
 	}
 	return r;
 }
+
+ssize_t eb_move_atmost(evbuffer *dest, evbuffer *src, ssize_t maxLen)
+{
+	if (maxLen == 0)
+		return 0;
+	auto lenSrc = evbuffer_get_length(src);
+	if (maxLen < 0)
+		return evbuffer_add_buffer(dest, src) ? -1 : lenSrc;
+
+	auto ret = std::min(lenSrc, size_t(maxLen));
+	if (sizeof(int) == sizeof(ssize_t))
+		return evbuffer_remove_buffer(src, dest, ret);
+
+	for (auto todo = ret; todo > 0; )
+		todo -= evbuffer_remove_buffer(src, dest, todo);
+	return ret;
+
+#warning remove?
+#if 0 // BS
+
+	if (maxLen < 0 || (ret = evbuffer_get_length(src)) == (size_t) maxLen)
+	{
+		if(evbuffer_add_buffer(dest, src))
+			return -1;
+		return ret;
+	}
+#if 0 // XXX: maybe too complicated, add test and perf. check
+	evbuffer_iovec ivs[32];
+	while(maxLen > 0)
+	{
+		// make the action atomic if locking was enabled on source buffer
+		TEbUniqueLock g(src);
+		// XXX: this is evil copying by value, should be a more efficient built-in of libevent
+		auto nbufs = evbuffer_peek(src, maxLen, nullptr, ivs, _countof(ivs));
+		size_t toDrain = 0;
+		bool last = false;
+		for (int i = 0; i < nbufs && !last; ++i)
+		{
+			last = ivs[i].iov_len >= size_t(maxLen);
+			size_t toMove = last ? maxLen : ivs[i].iov_len;
+			if (evbuffer_add(dest, ivs[i].iov_base, toMove))
+				return -1;
+			toDrain += toMove;
+			maxLen -= toMove;
+			ret += toMove;
+		}
+		evbuffer_drain(src, toDrain);
+	}
+#endif
+#if 0
+	while(maxLen > 0)
+	{
+		auto nNext = evbuffer_get_contiguous_space(src);
+		if (ssize_t(nNext) > maxLen)
+			nNext = maxLen;
+		if (evbuffer_add(dest, evbuffer_pullup(src, nNext), nNext))
+			return -1;
+		maxLen -= nNext;
+		ret += nNext;
+	}
+#endif
+	return ret;
+#endif
+}
+
 
 }

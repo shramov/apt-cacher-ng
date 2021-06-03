@@ -3,6 +3,7 @@
 #include "meta.h"
 #include "fileio.h"
 #include "ahttpurl.h"
+#include "acfg.h"
 
 #include <cstring>
 #include <cstdio>
@@ -29,9 +30,11 @@ cmstring sPathSepUnix(SZPATHSEPUNIX);
 std::string ACNG_API sDefPortHTTP = "80", sDefPortHTTPS = "443";
 #endif
 
-cmstring PROT_PFX_HTTPS(WITHLEN("https://")), PROT_PFX_HTTP(WITHLEN("http://"));
-cmstring FAKEDATEMARK(WITHLEN("Sat, 26 Apr 1986 01:23:39 GMT"));
-cmstring hendl("<br>\n");
+cmstring PROT_PFX_HTTPS("https://"sv),
+PROT_PFX_HTTP("http://"sv),
+PROT_PFX_UNIX("unix://"sv),
+FAKEDATEMARK("Sat, 26 Apr 1986 01:23:39 GMT"sv),
+hendl("<br>\n"sv);
 
 ACNG_API std::atomic<bool> g_global_shutdown;
 
@@ -830,6 +833,26 @@ size_t strlcpy(char *tgt, const char *src, size_t tgtSize)
     return p - src;
 }
 #endif
+
+cmstring GetFooter()
+{
+		return mstring("<hr><address>Server: ") + cfg::agentname
+				+ "&nbsp;&nbsp;"
+				"|&nbsp;&nbsp;<a\nhref=\"/\">Usage Information</a>&nbsp;&nbsp;"
+				"|&nbsp;&nbsp;<a\nhref=\"https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=QDCK9C2ZGUKZY&source=url\">Donate!"
+				"</a>&nbsp;&nbsp;"
+				"|&nbsp;&nbsp;<a\nhref=\"http://www.unix-ag.uni-kl.de/~bloch/acng/\">Apt-Cacher NG homepage</a></address>";
+}
+
+std::string to_base36(unsigned int val)
+{
+	static std::string base36 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+	std::string result;
+	do {
+		result.insert(0, 1, base36[val % 36]);
+	} while (val /= 36);
+	return result;
+}
 
 
 }

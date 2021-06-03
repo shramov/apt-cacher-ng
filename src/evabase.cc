@@ -2,8 +2,10 @@
 #include "meta.h"
 #include "debug.h"
 #include "acfg.h"
-#include "lockable.h"
 #include "fileio.h"
+
+#include <mutex>
+#include <condition_variable>
 
 #include <event2/util.h>
 
@@ -38,8 +40,10 @@ std::atomic<bool> evabase::in_shutdown = ATOMIC_VAR_INIT(false);
 
 struct event *handover_wakeup;
 const struct timeval timeout_asap{0,0};
-deque<evabase::tCancelableAction> incoming_q, processing_q;
-mutex handover_mx;
+#warning add unlocked queues which are only used when installing thread is the main thread
+deque<tCancelableAction> incoming_cancelable_q, processing_cancelable_q;
+deque<tAction> incoming_simple_q, processing_simple_q;
+std::mutex handover_mx;
 void RejectPendingDnsRequests();
 
 namespace conserver
@@ -148,7 +152,7 @@ void CDnsBase::shutdown()
 	if (m_channel)
 	{
 		// Defer this action so it's not impacting the callback processing somewhere
-		evabase::Post([chan = m_channel](bool) {
+		evabase::Post([chan = m_channel]() {
 			// graceful DNS resolver shutdown
 			ares_destroy(chan);
 		});
@@ -186,16 +190,16 @@ void evabase::CheckDnsChange()
 	case ARES_SUCCESS:
 		break;
 	case ARES_EFILE:
-		log::err("DNS system error, cannot read config file");
+		log::err("DNS system error, cannot read config file"sv);
 		return;
 	case ARES_ENOMEM:
-		log::err("DNS system error, out of memory");
+		log::err("DNS system error, out of memory"sv);
 		return;
 	case ARES_ENOTINITIALIZED:
-		log::err("DNS system error, faulty initialization sequence");
+		log::err("DNS system error, faulty initialization sequence"sv);
 		return;
 	default:
-		log::err("DNS system error, internal error");
+		log::err("DNS system error, internal error"sv);
 		return;
 	}
 	// ok, found new configuration and it can be applied
@@ -203,7 +207,14 @@ void evabase::CheckDnsChange()
 		cachedDnsBase->shutdown();
 	cachedDnsBase.reset(new CDnsBase(newDnsBase));
 	cachedDnsFingerprint = tResolvConfStamp
-	{ info.st_dev, info.st_ino, info.st_mtim };
+        { info.st_dev, info.st_ino, info.st_mtim };
+}
+
+std::thread::id g_main_thread;
+
+thread::id evabase::GetMainThreadId()
+{
+	return g_main_thread;
 }
 
 ACNG_API int evabase::MainLoop()
@@ -260,7 +271,7 @@ ACNG_API int evabase::MainLoop()
 
 void evabase::SignalStop()
 {
-	Post([](bool)
+	Post([]()
 	{
 		if(evabase::base)
 		event_base_loopbreak(evabase::base);
@@ -269,27 +280,74 @@ void evabase::SignalStop()
 
 void cb_handover(evutil_socket_t, short, void*)
 {
+	for(const auto& ac: processing_cancelable_q)
 	{
-		lockguard g(handover_mx);
-		processing_q.swap(incoming_q);
+		if(AC_LIKELY(ac))
+			ac(evabase::in_shutdown);
 	}
-	for(const auto& ac: processing_q)
-		ac(evabase::in_shutdown);
-	processing_q.clear();
+	processing_cancelable_q.clear();
+
+	{
+		std::lock_guard g(handover_mx);
+		processing_cancelable_q.swap(incoming_cancelable_q);
+		processing_simple_q.swap(incoming_simple_q);
+	}
+
+	for(const auto& ac: processing_simple_q)
+	{
+		if(AC_LIKELY(ac))
+			ac();
+	}
+	processing_simple_q.clear();
+
+	for(const auto& ac: processing_cancelable_q)
+	{
+		if(AC_LIKELY(ac))
+			ac(evabase::in_shutdown);
+	}
+	for(const auto& ac: processing_simple_q)
+	{
+		if(AC_LIKELY(ac))
+			ac();
+	}
+	processing_cancelable_q.clear();
+	processing_simple_q.clear();
 }
 
 void evabase::Post(tCancelableAction&& act)
 {
+	if (evabase::IsMainThread())
 	{
-		lockguard g(handover_mx);
-		incoming_q.emplace_back(move(act));
+		processing_cancelable_q.emplace_back(move(act));
+	}
+	else
+	{
+		std::lock_guard g(handover_mx);
+		incoming_cancelable_q.emplace_back(move(act));
 	}
 	ASSERT(handover_wakeup);
 	event_add(handover_wakeup, &timeout_asap);
 }
 
+void evabase::Post(tAction && act)
+{
+	if (evabase::IsMainThread())
+	{
+		processing_simple_q.emplace_back(move(act));
+	}
+	else
+	{
+		std::lock_guard g(handover_mx);
+		incoming_simple_q.emplace_back(move(act));
+	}
+	ASSERT(handover_wakeup);
+	event_add(handover_wakeup, &timeout_asap);
+}
+
+
 evabase::evabase()
 {
+	g_main_thread = std::this_thread::get_id();
 	evabase::base = event_base_new();
 	handover_wakeup = evtimer_new(base, cb_handover, nullptr);
 }

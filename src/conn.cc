@@ -8,11 +8,13 @@
 #include "dlcon.h"
 #include "job.h"
 #include "acbuf.h"
-#include "tcpconnect.h"
-#include "cleaner.h"
-#include "lockable.h"
+#include "atransport.h"
 #include "sockio.h"
 #include "evabase.h"
+#include "acsmartptr.h"
+#include "aconnect.h"
+#include "tcpconnect.h"
+#include "astrop.h"
 
 #include <iostream>
 #include <thread>
@@ -28,499 +30,398 @@ using namespace std;
 
 namespace acng
 {
-namespace conserver {
-void FinishConnection(int);
-}
 
-class conn::Impl
+class connImpl;
+
+static uint64_t g_ivJobId = 0;
+
+unordered_map<uintptr_t, lint_ptr<connImpl>> global_index;
+
+void StartServing(unique_bufferevent_fdclosing be, string clientName);
+
+class connImpl : public IConnBase
 {
-	friend class conn;
-	conn* _q = nullptr;
+	unique_bufferevent_flushclosing m_be;
+	header m_h;
+	size_t m_hSize = 0;
+	enum ETeardownMode
+	{
+		ACTIVE,
+		PREP_SHUTDOWN,
+		PREP_TYPECHANGE
+	} m_opMode;
 
-	int m_confd;
-	bool m_badState = false;
-
-	deque<job> m_jobs2send;
-
-#ifdef KILLABLE
-      // to awake select with dummy data
-      int wakepipe[2];
-#endif
-
-	std::thread m_dlerthr;
-
-	// for jobs
-	friend class job;
-	bool SetupDownloader();
-	std::shared_ptr<dlcon> m_pDlClient;
+	deque<job> m_jobs;
+	lint_ptr<dlcontroller> m_pDlClient;
 	mstring m_sClientHost;
 
-	// some accounting
-	mstring logFile, logClient;
-	off_t fileTransferIn = 0, fileTransferOut = 0;
-	bool m_bLogAsError = false;
+public:
+	dlcontroller* SetupDownloader() override
+	{
+		if(!m_pDlClient)
+			m_pDlClient = dlcontroller::CreateRegular();
+		return m_pDlClient.get();
+	}
 
-	std::shared_ptr<IFileItemRegistry> m_itemRegistry;
-
+	lint_ptr<IFileItemRegistry> m_itemRegistry;
 
 	void writeAnotherLogRecord(const mstring &pNewFile,
 			const mstring &pNewClient);
-	// This method collects the logged data counts for certain file.
-	// Since the user might restart the transfer again and again, the counts are accumulated (for each file path)
-    void LogDataCounts(cmstring &file, std::string xff, off_t countIn,
-			off_t countOut, bool bAsError);
 
-#ifdef DEBUG
-      unsigned m_nProcessedJobs;
-#endif
+	connImpl(header&& he, size_t hRawSize, mstring clientName, lint_ptr<IFileItemRegistry> ireg) :
+		m_h(move(he)),
+		m_hSize(hRawSize),
+		m_sClientHost(move(clientName)),
+		m_itemRegistry(move(ireg))
 
-	Impl(unique_fd fd, mstring c, std::shared_ptr<IFileItemRegistry> ireg) :
-		m_sClientHost(c), m_itemRegistry(ireg)
 	{
-		LOGSTARTx("con::con", fd.get(), c);
-#ifdef DEBUG
-		m_nProcessedJobs=0;
-#endif
-		// ok, it's our responsibility now
-		m_confd = fd.release();
+		LOGSTARTFUNCx(m_sClientHost);
 	};
-	~Impl() {
+	virtual ~connImpl()
+	{
 		LOGSTART("con::~con (Destroying connection...)");
-
 		// our user's connection is released but the downloader task created here may still be serving others
 		// tell it to stop when it gets the chance and delete it then
-
-		m_jobs2send.clear();
-
-		writeAnotherLogRecord(sEmptyString, sEmptyString);
-
 		if(m_pDlClient)
-			m_pDlClient->SignalStop();
-		if(m_dlerthr.joinable())
-			m_dlerthr.join();
-		log::flush();
-		// this is not closed here but there, after graceful termination handling
-		conserver::FinishConnection(m_confd);
+			m_pDlClient->Dispose();
+		m_jobs.clear();
 	}
 
-  	void WorkLoop();
-};
-
-// call forwarding
-conn::conn(unique_fd&& fd, mstring sClient, std::shared_ptr<IFileItemRegistry> ireg) :
-	_p(new Impl(move(fd), move(sClient), move(ireg))) { _p->_q = this;}
-
-std::shared_ptr<IFileItemRegistry> conn::GetItemRegistry() { return _p->m_itemRegistry; };
-conn::~conn() { delete _p; }
-void conn::WorkLoop() {	_p->WorkLoop(); }
-void conn::LogDataCounts(cmstring &file, mstring xff, off_t countIn, off_t countOut,
-        bool bAsError) {return _p->LogDataCounts(file, move(xff), countIn, countOut, bAsError); }
-dlcon* conn::SetupDownloader()
-{ return _p->SetupDownloader() ? _p->m_pDlClient.get() : nullptr; }
-
-namespace RawPassThrough
-{
-
-#define BDOURL "http://bugs.debian.org:80/"
-#define POSTMARK "POST " BDOURL
-
-inline static bool CheckListbugs(const header &ph)
-{
-	return ph.type == header::POST && startsWithSz(ph.getRequestUrl(), BDOURL);
-}
-inline static void RedirectBto2https(int fdClient, cmstring& uri)
-{
-	tSS clientBufOut;
-	clientBufOut << "HTTP/1.1 302 Redirect\r\nLocation: https://bugs.debian.org:443/";
-	constexpr auto offset = _countof(POSTMARK) - 6;
-	clientBufOut.append(uri.c_str() + offset, uri.size() - offset);
-	clientBufOut << "\r\nConnection: close\r\n\r\n";
-	clientBufOut.send(fdClient);
-	// XXX: there is a minor risk of confusing the client if the POST body is bigger than the
-	// incoming buffer (probably 64k). But OTOH we shutdown the connection properly, so a not
-	// fully stupid client should cope with that. Maybe this should be investigate better.
-	return;
-}
-void PassThrough(acbuf &clientBufIn, int fdClient, cmstring& uri)
-{
-	tDlStreamHandle m_spOutCon;
-
-	string sErr;
-	tSS clientBufOut;
-	clientBufOut.setsize(32 * 1024); // out to be enough for any BTS response
-
-	// arbitrary target/port, client cares about SSL handshake and other stuff
-	tHttpUrl url;
-	if (!url.SetHttpUrl(uri))
-		return;
-	auto proxy = cfg::GetProxyInfo();
-
-	signal(SIGPIPE, SIG_IGN);
-
-	if (!proxy)
+	/**
+	 * @brief poke
+	 * @param jobId
+	 * @return
+	 */
+	bool poke(uint_fast32_t jobId) override
 	{
-		direct_connect:
-		m_spOutCon = g_tcp_con_factory.CreateConnected(url.sHost, url.GetPort(), sErr, 0, 0,
-				false, cfg::nettimeout, true);
-	}
-	else
-	{
-		// switch to HTTPS tunnel in order to get a direct connection through the proxy
-		m_spOutCon = g_tcp_con_factory.CreateConnected(proxy->sHost, proxy->GetPort(),
-				sErr, 0, 0, false, cfg::optproxytimeout > 0 ?
-						cfg::optproxytimeout : cfg::nettimeout,
-						true);
-
-		if (m_spOutCon)
+		if (m_jobs.empty())
+			return false;
+		unsigned offset = 0;
+		if (m_jobs.size() > 1)
 		{
-			if (!m_spOutCon->StartTunnel(tHttpUrl(url.sHost, url.GetPort(),
-					true), sErr, & proxy->sUserPass, false))
-			{
-				m_spOutCon.reset();
-			}
+			offset = jobId - m_jobs.front().GetId();
+			if (offset > m_jobs.size())
+				return false;
 		}
-		else if(cfg::optproxytimeout > 0) // ok... try without
+		ASSERT(m_jobs[offset].GetId() == jobId);
+		if (offset > 0) // not an active job, push it anyway so it can synchronize state as needed
+			m_jobs[offset].Poke(m_be.get());
+		else
+			continueJobs();
+
+		return !m_jobs.empty() && m_jobs.front().GetId() <= jobId;
+	}
+
+	void setup()
+	{
+		LOGSTARTFUNC;
+		bufferevent_setcb(*m_be, cbRead, cbCanWrite, cbStatus, this);
+		if (m_hSize > 0)
+			addOneJob(svEmpty);
+	}
+
+	static void go(bufferevent* pBE, header&& h, size_t hRawSize, string clientName)
+	{
+		lint_ptr<connImpl> worker;
+		try
 		{
-			cfg::MarkProxyFailure();
-			goto direct_connect;
+			//connImpl(header&& he, size_t hRawSize, mstring clientName, std::shared_ptr<IFileItemRegistry> ireg)
+			worker.reset(new connImpl(move(h), hRawSize, move(clientName), SetupServerItemRegistry()));
+			worker->m_be.m_p = pBE;
+			pBE = nullptr;
+			worker->setup();
+			(void) worker.release(); // cleaned by its own callback
+		}
+		catch (const bad_alloc&)
+		{
+			if (pBE)
+				be_free_fd_close(pBE);
 		}
 	}
 
-	if (m_spOutCon)
-		clientBufOut << "HTTP/1.0 200 Connection established\r\n\r\n";
-	else
+	// ISharedConnectionResources interface
+public:
+	// This method collects the logged data counts for certain file.
+	// Since the user might restart the transfer again and again, the counts are accumulated (for each file path)
+//	void LogDataCounts(cmstring &sFile, mstring xff, off_t nNewIn, off_t nNewOut, bool bAsError) override;
+	lint_ptr<IFileItemRegistry> GetItemRegistry() override { return m_itemRegistry; }
+
+	static void cbStatus(bufferevent*, short what, void* ctx)
 	{
-		clientBufOut << "HTTP/1.0 502 CONNECT error: " << sErr << "\r\n\r\n";
-		clientBufOut.send(fdClient);
-		return;
-	}
-
-	if (!m_spOutCon)
-		return;
-
-	// for convenience
-	int ofd = m_spOutCon->GetFD();
-	acbuf &serverBufOut = clientBufIn, &serverBufIn = clientBufOut;
-
-	int maxfd = 1 + std::max(fdClient, ofd);
-
-	while (true)
-	{
-		fd_set rfds, wfds;
-		FD_ZERO(&rfds);
-		FD_ZERO(&wfds);
-
-		// can send to client?
-		if (clientBufOut.size() > 0)
-			FD_SET(fdClient, &wfds);
-
-		// can receive from client?
-		if (clientBufIn.freecapa() > 0)
-			FD_SET(fdClient, &rfds);
-
-		if (serverBufOut.size() > 0)
-			FD_SET(ofd, &wfds);
-
-		if (serverBufIn.freecapa() > 0)
-			FD_SET(ofd, &rfds);
-
-		int nReady = select(maxfd, &rfds, &wfds, nullptr, nullptr);
-		if (nReady < 0)
-			return;
-
-		if (FD_ISSET(ofd, &wfds))
+		if (what & (BEV_EVENT_EOF | BEV_EVENT_ERROR | BEV_EVENT_TIMEOUT))
 		{
-			if (serverBufOut.dumpall(ofd) < 0)
-				return;
-		}
-
-		if (FD_ISSET(fdClient, &wfds))
-		{
-			if (clientBufOut.dumpall(fdClient) < 0)
-				return;
-		}
-
-		if (FD_ISSET(ofd, &rfds))
-		{
-			if (serverBufIn.sysread(ofd) <= 0)
-				return;
-		}
-
-		if (FD_ISSET(fdClient, &rfds))
-		{
-			if (clientBufIn.sysread(fdClient) <= 0)
-				return;
+			auto destroyer = as_lptr((connImpl*)ctx, false);
+			if (destroyer->m_be.get())
+				be_free_fd_close(destroyer->m_be.release());
 		}
 	}
-	return;
-}
-}
-
-void conn::Impl::WorkLoop() {
-
-	LOGSTART("con::WorkLoop");
-
-	signal(SIGPIPE, SIG_IGN);
-
-#ifdef DEBUG
-	tDtorEx defuseGuards([this, &__logobj]()
+	static void cbRead(bufferevent* pBE, void* ctx)
 	{
-		for(auto& j: m_jobs2send)
+		auto me = (connImpl*)ctx;
+		me->onRead(pBE);
+	}
+	static void cbCanWrite(bufferevent*, void* ctx)
+	{
+		auto me = (connImpl*)ctx;
+		me->continueJobs();
+	}
+
+	void addOneJob(const string_view error)
+	{
+		if (m_h.type == header::GET)
 		{
-			LOG("FIXME: disconnecting while job not processed");
-			j.Dispose();
-		}
-	});
-#endif
-
-	acbuf inBuf;
-	inBuf.setsize(32*1024);
-
-	// define a much shorter timeout than network timeout in order to be able to disconnect bad clients quickly
-	auto client_timeout(GetTime() + cfg::nettimeout);
-
-	int maxfd=m_confd;
-	while(!evabase::in_shutdown && !m_badState) {
-		fd_set rfds, wfds;
-		FD_ZERO(&wfds);
-		FD_ZERO(&rfds);
-
-		FD_SET(m_confd, &rfds);
-		if(inBuf.freecapa()==0)
-			return; // shouldn't even get here
-
-		bool hasMoreJobs = m_jobs2send.size()>1;
-
-		if ( !m_jobs2send.empty()) FD_SET(m_confd, &wfds);
-
-		ldbg("select con");
-		int ready = select(maxfd+1, &rfds, &wfds, nullptr, CTimeVal().For(SHORT_TIMEOUT));
-
-		if(evabase::in_shutdown)
-			break;
-
-		if(ready == 0)
-		{
-			if(GetTime() > client_timeout)
-			{
-				USRDBG("Timeout occurred, apt client disappeared silently?");
-				return; // yeah, time to leave
-			}
-			continue;
-		}
-		else if (ready<0)
-		{
-			if (EINTR == errno)
-				continue;
-
-			ldbg("select error in con, errno: " << errno);
-			return; // FIXME: good error message?
+#warning excpt. safe?
+			m_jobs.emplace_back(*this, g_ivJobId++);
+			if (error.size())
+				m_jobs.back().PrepFatalError(m_h, error);
+			else
+				m_jobs.back().Prepare(m_h, *m_be, m_hSize, m_sClientHost);
+			evbuffer_drain(bufferevent_get_output(*m_be), m_hSize);
+			if (m_jobs.size() == 1)
+				m_jobs.back().EnableSending(*m_be);
 		}
 		else
 		{
-			// ok, something is still flowing, increase deadline
-			client_timeout = GetTime() + cfg::nettimeout;
+			m_opMode = ETeardownMode::PREP_TYPECHANGE;
 		}
-
-		ldbg("select con back");
-
-		if(FD_ISSET(m_confd, &rfds))
+		continueJobs();
+	}
+	void onRead(bufferevent* pBE)
+	{
+		auto obuf = bufferevent_get_output(pBE);
+		switch (m_opMode)
 		{
-			int n=inBuf.sysread(m_confd);
-			ldbg("got data: " << n <<", inbuf size: "<< inBuf.size());
-			if(n<=0) // error, incoming junk overflow or closed connection
-			{
-				if(n==-EAGAIN)
-					continue;
-				else
-				{
-					ldbg("client closed connection");
-					return;
-				}
-			}
-        }
-        header h;
-		// split new data into requests
-		while (inBuf.size() > 0)
+		case PREP_SHUTDOWN:
+			evbuffer_drain(obuf, evbuffer_get_length(obuf));
+			return;
+		case ETeardownMode::PREP_TYPECHANGE:
+			return;
+		default:
+			m_hSize = m_h.Load(obuf);
+			if (m_hSize < 0)
+				addOneJob("400 Bad Request"sv);
+			else if (m_hSize == 0)
+				return; // more data to ome
+			else
+				addOneJob(svEmpty);
+		}
+	}
+	void continueJobs()
+	{
+		while (!m_jobs.empty())
 		{
-			try
+			auto jr = m_jobs.front().Poke(*m_be);
+			switch (jr)
 			{
-                h.clear();
-                int nHeadBytes = h.Load(inBuf.view());
-				ldbg("header parsed how? " << nHeadBytes);
-				if(nHeadBytes == 0)
-				{ // Either not enough data received, or buffer full; make space and retry
-					inBuf.move();
-					break;
-				}
-				if(nHeadBytes < 0)
-				{
-					ldbg("Bad request: " << inBuf.rptr() );
-					return;
-				}
-
-				// also must be identified before
-				if (h.type == header::POST)
-				{
-					if (cfg::forwardsoap && !m_sClientHost.empty())
-					{
-						if (RawPassThrough::CheckListbugs(h))
-						{
-							RawPassThrough::RedirectBto2https(m_confd, h.getRequestUrl());
-						}
-						else
-						{
-							ldbg("not bugs.d.o: " << inBuf.rptr());
-						}
-						// disconnect anyhow
-						return;
-					}
-					ldbg("not allowed POST request: " << inBuf.rptr());
-					return;
-				}
-
-				if(h.type == header::CONNECT)
-				{
-					const auto& tgt = h.getRequestUrl();
-					inBuf.drop(nHeadBytes);
-					if(rex::Match(tgt, rex::PASSTHROUGH))
-						RawPassThrough::PassThrough(inBuf, m_confd, tgt);
-					else
-					{
-						tSS response;
-						response << "HTTP/1.0 403 CONNECT denied (ask the admin to allow HTTPS tunnels)\r\n\r\n";
-						response.dumpall(m_confd);
-					}
-
-					return;
-				}
-
-				if (m_sClientHost.empty()) // may come from wrapper... MUST identify itself
-				{
-
-					inBuf.drop(nHeadBytes);
-
-					if(h.h[header::XORIG] && * h.h[header::XORIG])
-					{
-						m_sClientHost=h.h[header::XORIG];
-						continue; // OK
-					}
-					else
-						return;
-				}
-
-				ldbg("Parsed REQUEST: " << h.type << " " << h.getRequestUrl());
-				ldbg("Rest: " << (inBuf.size()-nHeadBytes));
-                m_jobs2send.emplace_back(*_q);
-				m_jobs2send.back().Prepare(h, inBuf.view(), m_sClientHost);
-				if (m_badState)
-					return;
-				inBuf.drop(nHeadBytes);
-#ifdef DEBUG
-				m_nProcessedJobs++;
-#endif
-			}
-			catch(const bad_alloc&)
-			{
+			case job::eJobResult::R_DISCON:
+				m_jobs.clear();
+				m_opMode = PREP_SHUTDOWN; // terminated below
+				break;
+			case job::eJobResult::R_DONE:
+				m_jobs.pop_front();
+				if (!m_jobs.empty())
+					m_jobs.front().EnableSending(*m_be);
+				continue;
+			case job::eJobResult::R_TOBEAWAKEN:
 				return;
 			}
 		}
-
-		if(inBuf.freecapa()==0)
-			return; // cannot happen unless being attacked
-
-		if(FD_ISSET(m_confd, &wfds) && !m_jobs2send.empty())
+		ASSERT(m_jobs.empty());
+		switch (m_opMode)
 		{
-			try
-			{
-				switch(m_jobs2send.front().SendData(m_confd, hasMoreJobs))
-				{
-				case(job::R_DISCON):
-				{
-					ldbg("Disconnect advise received, stopping connection");
-					return;
-				}
-				case(job::R_DONE):
-				{
-#ifdef DEBUG
-					m_jobs2send.front().Dispose();
-#endif
-					m_jobs2send.pop_front();
-
-					ldbg("Remaining jobs to send: " << m_jobs2send.size());
-					break;
-				}
-				case(job::R_AGAIN):
-				default:
-					break;
-				}
-			}
-			catch(...)
-			{
-				return;
-			}
+		case ACTIVE: // wait for new requests or timeout
+			return;
+		case PREP_TYPECHANGE:
+		{
+			// can switch right away!
+			auto destroyer(as_lptr(this));
+			bufferevent_disable(*m_be, EV_READ|EV_WRITE);
+			bufferevent_setcb(*m_be, nullptr, nullptr, nullptr, nullptr);
+			return StartServing(unique_bufferevent_fdclosing(m_be.release()), m_sClientHost);
+		}
+		case PREP_SHUTDOWN:
+			auto destroyer = as_lptr(this);
+			return be_flush_free_fd_close(m_be.release());
 		}
 	}
-}
 
-bool conn::Impl::SetupDownloader()
-{
-	if(m_badState)
-		return false;
-
-	if (m_pDlClient)
-		return true;
-
-	try
+	// IConnBase interface
+public:
+	cmstring &getClientName() override
 	{
-		m_pDlClient = dlcon::CreateRegular(g_tcp_con_factory);
-		if(!m_pDlClient)
-			return false;
-		auto pin = m_pDlClient;
-		m_dlerthr = thread([pin]()
+		return m_sClientHost;
+	}
+};
+
+/**
+ * @brief Vending point for CONNECT processing
+ * Flushes and releases bufferevent in the end.
+ */
+struct TDirectConnector : public tLintRefcounted
+{
+	tHttpUrl url;
+	unique_bufferevent_flushclosing be;
+	lint_ptr<atransport> outStream;
+
+	static void PassThrough(bufferevent* be, cmstring& uri)
+	{
+		auto pin = as_lptr(new TDirectConnector);
+		pin->be.m_p = be;
+
+		if(!rex::Match(uri, rex::PASSTHROUGH) || !pin->url.SetHttpUrl(uri))
 		{
-			pin->WorkLoop();
-		});
-		m_badState = false;
-		return true;
+			bufferevent_write(be, "HTTP/1.0 403 CONNECT denied (ask the admin to allow HTTPS tunnels)\r\n\r\n"sv);
+			return;
+		}
+		atransport::TConnectParms parms;
+		parms.directConnection = true;
+		parms.noTlsOnTarget = true;
+
+		atransport::Create(pin->url,
+						   [pin] (atransport::tResult res) mutable
+		{
+			if (!res.err.empty())
+				return beview(*pin->be) << "HTTP/1.0 502 CONNECT error: "sv << res.err << "\r\n\r\n"sv, void();
+
+			beview(*pin->be) << "HTTP/1.0 200 Connection established\r\n\r\n"sv;
+			bufferevent_setcb(pin->be.get(), cbRxClient, cbTxClient, cbEvent, pin.get());
+			bufferevent_setcb(res.strm->GetBufferEvent(), cbTxClient, cbRxClient, cbEvent, pin.get());
+			pin->outStream = move(res.strm);
+			setup_be_bidirectional(pin->be.get());
+			setup_be_bidirectional(res.strm->GetBufferEvent());
+			(void) pin.release(); // cbEvent will care
+		},
+		parms
+		);
 	}
-	catch(...)
+	static void cbRxClient(struct bufferevent *bev, void *)
 	{
-		m_badState = true;
-		m_pDlClient.reset();
-		return false;
-	}
-}
-
-void conn::Impl::LogDataCounts(cmstring & sFile, mstring xff, off_t nNewIn,
-		off_t nNewOut, bool bAsError)
-{
-	string sClient;
-    if (!cfg::logxff || xff.empty()) // not to be logged or not available
-		sClient=m_sClientHost;
-    else if (!xff.empty())
+		evbuffer_add_buffer(bufferevent_get_output(bev), bufferevent_get_input(bev));
+	};
+	static void cbTxClient(struct bufferevent *bev, void *)
 	{
-        sClient=move(xff);
-		trimBoth(sClient);
-		auto pos = sClient.find_last_of(SPACECHARS);
-		if (pos!=stmiss)
-			sClient.erase(0, pos+1);
+		evbuffer_add_buffer(bufferevent_get_input(bev), bufferevent_get_output(bev));
 	}
-	if(sFile != logFile || sClient != logClient)
-		writeAnotherLogRecord(sFile, sClient);
-	fileTransferIn += nNewIn;
-	fileTransferOut += nNewOut;
-	if(bAsError) m_bLogAsError = true;
-}
+	static void cbEvent(struct bufferevent *, short what, void *ctx)
+	{
+		auto pin = as_lptr((TDirectConnector*)ctx);
+		if (what & (BEV_EVENT_EOF | BEV_EVENT_ERROR | BEV_EVENT_TIMEOUT))
+			return; // destroying the handler
+		(void) pin.release();
+	}
+};
 
-// sends the stats to logging and replaces file/client identities with the new context
-void conn::Impl::writeAnotherLogRecord(const mstring &pNewFile, const mstring &pNewClient)
+struct Dispatcher
 {
-		log::transfer(fileTransferIn, fileTransferOut, logClient, logFile, m_bLogAsError);
-		fileTransferIn = fileTransferOut = 0;
-		m_bLogAsError = false;
-		logFile = pNewFile;
-		logClient = pNewClient;
+	// simplify the reliable releasing whenver this object is deleted
+	unique_bufferevent_fdclosing m_be;
+	string clientName;
+
+	Dispatcher(string name) : clientName(name)
+	{
+	}
+	bool Go() noexcept
+	{
+		bufferevent_setcb(*m_be, Dispatcher::cbRead, nullptr, Dispatcher::cbStatus, this);
+		bufferevent_setwatermark(*m_be, EV_READ, 0, MAX_IN_BUF);
+		return 0 == bufferevent_enable(*m_be, EV_READ);
+	}
+
+	static void cbStatus(bufferevent*, short what, void* ctx)
+	{
+		if (what & (BEV_EVENT_EOF | BEV_EVENT_ERROR | BEV_EVENT_TIMEOUT))
+			return delete (Dispatcher*) (ctx);
+	}
+	static void cbRead(bufferevent* pBE, void* ctx)
+	{
+		auto* me = (Dispatcher*)ctx;
+		auto rbuf = bufferevent_get_output(pBE);
+		header h;
+		auto hlen = h.Load(rbuf);
+		if (!hlen)
+			return; // will come back with more data
+
+		beview sout(pBE);
+		const auto& tgt = h.getRequestUrl();
+		auto flushClose = [&]()
+		{
+			AppendMetaHeaders(sout);
+			be_flush_and_close(me->m_be.release());
+		};
+
+		if (hlen < 0) // client sends BS?
+		{
+			sout << "HTTP/1.0 400 Bad Request\r\n"sv;
+			flushClose();
+		}
+		else if(h.type == header::GET)
+		{
+			evbuffer_drain(rbuf, hlen);
+			connImpl::go(me->m_be.release(), move(h), hlen, move(me->clientName));
+		}
+		else if (h.type == header::CONNECT)
+		{
+			evbuffer_drain(rbuf, hlen);
+			TDirectConnector::PassThrough(me->m_be.release(), tgt);
+		}
+		// is this something we support?
+		else if (h.type == header::POST)
+		{
+			constexpr auto BDOURL = "http://bugs.debian.org:80/"sv;
+			if(startsWith(tgt, BDOURL))
+			{
+#warning TESTME
+				string_view path(tgt);
+				path.remove_prefix(BDOURL.length());
+				// XXX: consider using 426 instead, https://datatracker.ietf.org/doc/html/rfc2817#section-4.2
+				// OTOH we want to make it reconnect anyway
+				sout << "HTTP/1.1 302 Redirect\r\nLocation: https://bugs.debian.org:443/"sv << path << svRN;
+			}
+			else
+				sout << "HTTP/1.0 403 Forbidden\r\n"sv;
+
+			flushClose();
+		}
+		else
+		{
+			sout << "HTTP/1.0 403 Forbidden\r\n"sv;
+			flushClose();
+		}
+
+		return delete me;
+	}
+
+	static void AppendMetaHeaders(beview& sout)
+	{
+		sout << "Connection: close\r\n"sv;
+#ifdef DEBUG
+		static atomic_int genHeadId(0);
+		sout << "X-Debug: "sv << int(genHeadId++) << svRN;
+#endif
+		sout << "Date: "sv << tHttpDate(GetTime()).view()
+			 << "\r\nServer: Debian Apt-Cacher NG/" ACVERSION "\r\n"
+		"\r\n"sv;
+	}
+};
+
+void StartServing(unique_bufferevent_fdclosing be, string clientName)
+{
+	if (!be.valid())
+		return; // force-close everything
+	auto* dispatcha = new Dispatcher {move(clientName)};
+	// excpt.safe
+	dispatcha->m_be.reset(be.release());
+	if (!dispatcha->Go())
+		delete dispatcha; // bad, need to close the socket!
 }
 
+
+void StartServing(unique_fd fd, string clientName)
+{
+	evutil_make_socket_nonblocking(fd.get());
+	evutil_make_socket_closeonexec(fd.get());
+	unique_bufferevent_fdclosing be(bufferevent_socket_new(evabase::base, fd.get(), BEV_OPT_DEFER_CALLBACKS));
+#warning tune watermarks! set timeout!
+	return StartServing(move(be), move(clientName));
+}
 }

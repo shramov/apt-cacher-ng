@@ -15,7 +15,6 @@
 #include "ac3rdparty.h"
 #include "filereader.h"
 #include "csmapping.h"
-#include "cleaner.h"
 #include "ebrunner.h"
 
 #include <functional>
@@ -202,7 +201,7 @@ protected:
 	}
 };
 
-bool DownloadItem(tHttpUrl url, dlcon &dlConnector, const SHARED_PTR<fileitem> &fi)
+bool DownloadItem(tHttpUrl url, dlcontroller &dlConnector, const SHARED_PTR<fileitem> &fi)
 {
 	dlConnector.AddJob(fi, move(url));
 
@@ -999,7 +998,7 @@ int main(int argc, const char **argv)
 {
 	using namespace acng;
 	ac3rdparty libInit;
-	g_victor.reset(new cleaner(false, SHARED_PTR<IFileItemRegistry>()));
+	//g_victor.reset(new cleaner(false, SHARED_PTR<IFileItemRegistry>()));
 
 	string exe(argv[0]);
 	unsigned aOffset=1;
@@ -1012,29 +1011,29 @@ int main(int argc, const char **argv)
 	cfg::g_bNoComplex = true; // no DB for just single variables
 	cfg::minilog = true;	// no fancy timestamps and only STDERR output
 
-  parm* parm = nullptr;
-  LPCSTR mode = nullptr;
-  unsigned xargCount = 0;
+	parm* parm = nullptr;
+	LPCSTR mode = nullptr;
+	unsigned xargCount = 0;
 
 	parse_options(argc-aOffset, argv+aOffset, [&](LPCSTR p)
-			{
+	{
 		bool bFirst = false;
 		if(!mode)
 			bFirst = (0 != (mode = p));
 		else
 			xargCount++;
 		if(!parm)
-			{
+		{
 			auto it = parms.find(mode);
 			if(it == parms.end())
 				usage(1);
 			parm = & it->second;
-			}
+		}
 		if(xargCount > parm->maxArg)
 			usage(2);
 		if(!bFirst)
 			parm->f(p);
-			});
+	});
 	if(!mode || !parm)
 		usage(3);
 

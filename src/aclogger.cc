@@ -10,7 +10,7 @@
 #include "debug.h"
 #include "aclogger.h"
 #include "acfg.h"
-#include "lockable.h"
+#include "evabase.h"
 #include "filereader.h"
 #include "fileio.h"
 
@@ -28,7 +28,6 @@ namespace log
 {
 
 ofstream fErr, fStat, fDbg;
-static acmutex mx;
 
 #ifndef DEBUG
 ACNG_API bool logIsEnabled = false;
@@ -38,12 +37,17 @@ ACNG_API bool logIsEnabled = true;
 
 #define MAX_DBG_LIMIT 500*1000000
 
-std::atomic<off_t> totalIn(0), totalOut(0);
+off_t totalIn(0), totalOut(0);
+
+inline bool runsOnMainThread()
+{
+	return std::this_thread::get_id() == evabase::GetMainThreadId();
+}
 
 std::pair<off_t,off_t> GetCurrentCountersInOut()
-		{
-	return std::make_pair(totalIn.load(), totalOut.load());
-		}
+{
+	return std::make_pair(totalIn, totalOut);
+}
 
 std::pair<off_t,off_t> oldCounters(0,0);
 
@@ -171,13 +175,12 @@ void transfer(uint64_t bytesIn,
 		cmstring& sPath,
 		bool bAsError)
 {
-	totalIn.fetch_add(bytesIn);
-	totalOut.fetch_add(bytesOut);
+	ASSERT_HAVE_MAIN_THREAD;
+	totalIn += bytesIn;
+	totalOut += bytesOut;
 
 	if(!logIsEnabled)
 		return;
-
-	lockguard g(&mx);
 
 	if(!fStat.is_open())
 		return;
@@ -200,12 +203,10 @@ void transfer(uint64_t bytesIn,
 	if(cfg::debug & LOG_FLUSH) fStat.flush();
 }
 
-void misc(const string & sLine, const char cLogType)
+void misc_io(const string & sLine, const char cLogType)
 {
 	if(!logIsEnabled)
 		return;
-
-	lockguard g(&mx);
 	if(!fStat.is_open())
 		return;
 
@@ -215,12 +216,19 @@ void misc(const string & sLine, const char cLogType)
 		fStat.flush();
 }
 
-void err(const char *msg, size_t len)
+void misc(const string & sLine, const char cLogType)
+{
+	if (runsOnMainThread())
+		return misc_io(sLine, cLogType);
+	evabase::Post([sLine, cLogType](){ misc_io(sLine, cLogType); });
+}
+
+
+void err_io(const char *msg, size_t len)
 {
 	if (!logIsEnabled)
 		return;
 
-	lockguard g(&mx);
 	if (!fErr) return;
 
 	if (!cfg::minilog)
@@ -237,15 +245,20 @@ void err(const char *msg, size_t len)
 		fErr.flush();
 }
 
+void err(const char *msg, size_t len)
+{
+	if (runsOnMainThread())
+		return err_io(msg, len);
+	evabase::Post([sLine = string(msg, len)]() { err_io(sLine.data(), sLine.size()); });
+}
 
-void dbg(const char *msg, size_t len)
+void dbg_io(const char *msg, size_t len)
 {
 	if (!logIsEnabled)
 		return;
 
 	static char buf[32];
 
-	lockguard g(&mx);
 	if (fDbg.is_open() && (cfg::debug & LOG_DEBUG))
 	{
 		auto tm=time(nullptr);
@@ -266,33 +279,37 @@ void dbg(const char *msg, size_t len)
 			cerr.write(msg, len) << szNEWLINE;
 	}
 }
-
+void dbg(const char *msg, size_t len)
+{
+	if (runsOnMainThread())
+		return dbg_io(msg, len);
+	evabase::Post([sLine = string(msg, len)]() { dbg_io(sLine.data(), sLine.size()); });
+}
+#warning TODO: add dbg/misc variants which consume a tSS or string per universal ref and move that? Does it make sense? std::function cannot capture by move
 
 void ACNG_API flush()
 {
 	if(!logIsEnabled)
 		return;
 	off_t curSize(-1);
+	for (auto* h: {&fErr, &fStat, &fDbg})
 	{
-		lockguard g(mx);
-		for (auto* h: {&fErr, &fStat, &fDbg})
-		{
-			if(h->is_open())
-				h->flush();
-		}
-		if (fDbg.is_open())
-			curSize = fDbg.tellp();
+		if(h->is_open())
+			h->flush();
 	}
+	if (fDbg.is_open())
+		curSize = fDbg.tellp();
 	if (curSize > MAX_DBG_LIMIT)
 		close(true, true);
-
 }
 
 void close(bool bReopen, bool truncateDebugLog)
 {
+	ASSERT_HAVE_MAIN_THREAD;
 	// let's try to store a snapshot of the current stats
-	auto snapIn = offttos(totalIn.exchange(0));
-	auto snapOut = offttos(totalOut.exchange(0));
+	auto snapIn = offttos(totalIn);
+	auto snapOut = offttos(totalOut);
+	totalIn = totalOut = 0;
 	timeval tp;
 	gettimeofday(&tp, 0);
 	auto inLinkPath = CACHE_BASE + cfg::privStoreRelQstatsSfx + "/i/"
@@ -302,11 +319,9 @@ void close(bool bReopen, bool truncateDebugLog)
 	ignore_value(symlink(snapIn.c_str(), inLinkPath.c_str()));
 	ignore_value(symlink(snapOut.c_str(), outLinkPath.c_str()));
 
-
 	if (!logIsEnabled)
 		return;
 
-	lockguard g(mx);
 	if(cfg::debug >= LOG_MORE) cerr << (bReopen ? "Reopening logs...\n" : "Closing logs...\n");
 	for (auto* h: {&fErr, &fStat, &fDbg})
 	{
@@ -463,6 +478,7 @@ string GetStatReport()
 
 #ifdef DEBUG
 
+#warning thread still needed?
 thread_local unsigned gtls_indent_level = 0;
 
 t_logger::t_logger(const char *szFuncName,  const void * ptr, const char *szIndentString)

@@ -18,10 +18,14 @@
 #include <strings.h>
 #include <unistd.h>
 
+#include <event.h>
+
 using namespace std;
 
 namespace acng
 {
+
+constexpr size_t TYPICAL_HEADER_SIZE = 700;
 
 // Order matches the enum order!
 constexpr string_view mapId2Headname[] =
@@ -216,6 +220,29 @@ int header::Load(string_view input, std::vector<std::pair<string_view,string_vie
     }
 	// regular finish but termination was not found?
 	return 0;
+}
+
+/**
+ * @brief header::Load linearizes input buffer but only as much as needed
+ * @param buf Evbuffer with comming data
+ * @param unkHeaderMap See header::Load
+ * @return See header::Load
+ */
+int header::Load(evbuffer *buf, std::vector<std::pair<string_view, string_view> > *unkHeaderMap)
+{
+#warning lock the evbuffer needed? probably not, since no peek involved
+	// cut somewhere at 32..64kB
+	auto limit = std::min(evbuffer_get_length(buf), MAX_IN_BUF);
+	unsigned clen = std::min(limit, TYPICAL_HEADER_SIZE);
+	for(; clen < limit; clen *= 2)
+	{
+		auto mem = (char*) evbuffer_pullup(buf, clen);
+		auto rc = Load(string_view(mem, clen), unkHeaderMap);
+		if (rc == 0)
+			continue;
+		return rc;
+	}
+	return 0; // cannot find full header in that much data?
 }
 
 header::eHeadPos header::resolvePos(string_view key)

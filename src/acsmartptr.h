@@ -144,23 +144,26 @@ public:
 };
 
 /**
- * Two-step destruction with two kinds of reference counts: external users and total users.
+ * Intendeded for classes with additional teardown phase where external references to this object needs to be removed first but only after all priviledged users are gone.
  * When owners are gone, object is considered abandoned and a specific function is run.
+ * The main purpose is keeping a valid instance which remains accessible through some index unless all real users are gone,
+ * then this item can be removed from index, therefore the Abandon() callback is fired.
  */
-struct tLintRefcountedIndexable : tLintRefcounted
+struct tExtRefExpirer
 {
 private:
     size_t m_nObjectUsersCount = 0;
+
 public:
-    inline void __inc_user_ref() noexcept { m_nObjectUsersCount++; }
+	inline size_t __user_ref_cnt() { return m_nObjectUsersCount; }
+	inline void __inc_user_ref() noexcept { m_nObjectUsersCount++; }
     inline void __dec_user_ref()
     {
         if(--m_nObjectUsersCount == 0)
-            unshare();
+			Abandon();
     }
-    virtual void unshare() =0;
-    inline size_t __user_ref_cnt() { return m_nObjectUsersCount; }
-    virtual ~tLintRefcountedIndexable() =default;
+	virtual void Abandon() =0;
+	virtual ~tExtRefExpirer() =default;
 };
 
 /**
@@ -180,7 +183,14 @@ public:
 	{
 		if(!m_ptr) return;
 		m_ptr->__inc_ref();
-		m_ptr->__inc_strong_ref();
+		m_ptr->__inc_user_ref();
+	}
+	explicit lint_user_ptr(lint_ptr<T> lp)
+	{
+		if(!m_ptr)
+			return;
+		m_ptr = lp.release(); // pre-incremented by parameter
+		m_ptr->__inc_user_ref();
 	}
 	lint_user_ptr(const ::acng::lint_user_ptr<T> & orig) :
 			m_ptr(orig.m_ptr)
@@ -188,12 +198,12 @@ public:
 		if(!m_ptr)
 			return;
 		m_ptr->__inc_ref();
-		m_ptr->__inc_strong_ref();
+		m_ptr->__inc_user_ref();
 	}
 	inline ~lint_user_ptr<T>()
 	{
 		if(!m_ptr) return;
-		m_ptr->__dec_strong_ref();
+		m_ptr->__dec_user_ref();
 		m_ptr->__dec_ref();
 	}
 	T* get()
@@ -209,13 +219,13 @@ public:
 			return;
 		m_ptr = rawPtr;
 		m_ptr->__inc_ref();
-		m_ptr->__inc_strong_ref();
+		m_ptr->__inc_user_ref();
 	}
 	inline void reset() noexcept
 	{
 		if(m_ptr)
 		{
-			m_ptr->__dec_strong_ref();
+			m_ptr->__dec_user_ref();
 			m_ptr->__dec_ref();
 		}
 		m_ptr = nullptr;
@@ -248,7 +258,7 @@ public:
 	{
 		return m_ptr;
 	}
-	// pointer-like access options
+	// pointer-like relationships
 	inline bool operator<(const lint_user_ptr<T> &vs) const noexcept
 	{
 		return m_ptr < vs.m_ptr;
@@ -256,9 +266,9 @@ public:
 };
 
 template<typename C>
-inline lint_ptr<C> as_lptr(C* a)
+inline lint_ptr<C> as_lptr(C* a, bool initialyTakeRef = true)
 {
-	return lint_ptr<C>(a);
+	return lint_ptr<C>(a, initialyTakeRef);
 };
 
 template<typename C, typename Torig>

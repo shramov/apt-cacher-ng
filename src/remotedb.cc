@@ -6,8 +6,6 @@
 
 #include "filereader.h"
 #include "aclogger.h"
-#include "lockable.h"
-#include "cleaner.h"
 #include "debug.h"
 #include "portutils.h"
 
@@ -119,7 +117,7 @@ void AddRemapInfo(bool bAsBackend, const string & token,
 	}
 }
 
-struct tHookHandler: public tRepoUsageHooks, public base_with_mutex
+struct tHookHandler: public tRepoUsageHooks
 {
 	string cmdRel, cmdCon;
 	time_t downDuration, downTimeNext;
@@ -134,17 +132,16 @@ struct tHookHandler: public tRepoUsageHooks, public base_with_mutex
 	}
 	virtual void OnRelease() override
 	{
-		setLockGuard;
 		if (0 >= --m_nRefCnt)
 		{
 			//system(cmdRel.c_str());
 			downTimeNext = ::time(0) + downDuration;
-			cleaner::GetInstance().ScheduleFor(downTimeNext, cleaner::TYPE_ACFGHOOKS);
+#warning implement the timer
+//			cleaner::GetInstance().ScheduleFor(downTimeNext, cleaner::TYPE_ACFGHOOKS);
 		}
 	}
 	virtual void OnAccess() override
 	{
-		setLockGuard;
 		if (0 == m_nRefCnt++)
 		{
 			if(downTimeNext) // huh, already ticking? reset
@@ -154,7 +151,6 @@ struct tHookHandler: public tRepoUsageHooks, public base_with_mutex
 				if (system(cmdCon.c_str()))
 					USRERR("Warning: " << cmdCon << " returned with error code.");
 			}
-
 		}
 	}
 };
@@ -302,7 +298,6 @@ time_t remotedb::BackgroundCleanup()
 		if (!parm.second.m_pHooks)
 			continue;
 		tHookHandler & hooks = *(static_cast<tHookHandler*> (parm.second.m_pHooks));
-		lockguard g(hooks);
 		if (hooks.downTimeNext)
 		{
 			if (hooks.downTimeNext <= now) // is valid & time to execute?

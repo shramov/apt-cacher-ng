@@ -14,8 +14,6 @@
 #include "sockio.h"
 #include "acbuf.h"
 #include "acfg.h"
-#include "lockable.h"
-#include "cleaner.h"
 #include "tcpconnect.h"
 #include "ebrunner.h"
 #include "fileitem.h"
@@ -23,6 +21,12 @@
 #include "dlcon.h"
 #include "acregistry.h"
 #include "ac3rdparty.h"
+
+
+#include <list>
+#include <mutex>
+#include <unordered_map>
+
 
 #ifdef HAVE_SYS_MOUNT_H
 #include <sys/param.h>
@@ -37,9 +41,6 @@
 #ifdef HAVE_DLOPEN
 #include <dlfcn.h>
 #endif
-
-#include <list>
-#include <unordered_map>
 
 #include <event2/buffer.h>
 
@@ -97,7 +98,7 @@ bool g_bGoodServer=true;
 struct tDlAgent
 {
 	thread runner;
-	SHARED_PTR<dlcon> dler;
+	SHARED_PTR<dlcontroller> dler;
 	time_t createdAt = GetTime();
 	enum eKind
 	{
@@ -106,7 +107,7 @@ struct tDlAgent
 
 	tDlAgent()
 	{
-		dler = dlcon::CreateRegular(g_tcp_con_factory);
+		dler = dlcontroller::CreateRegular(g_tcp_con_factory);
 		runner = std::thread([&]() { dler->WorkLoop();} );
 	}
 	~tDlAgent()

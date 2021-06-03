@@ -117,7 +117,8 @@ endforeach(linkarg)
 #set(CMAKE_REQUIRED_FLAGS "")
 
 option(USE_SSL "Use OpenSSL library for TLS and other crypto functionality" on)
-option(ENABLE_TOOLS "Build additional command line tools (acngfs, inetd client)" on)
+option(ENABLE_TOOL "Build the management tool (acngtool)" on)
+option(ENABLE_EXTRA_TOOLS "Build additional command line tools (acngfs, inetd client)" on)
 option(ENABLE_TESTS "Build tests (for development only)" off)
 
 IF(CMAKE_SYSTEM MATCHES "Darwin")
@@ -377,7 +378,7 @@ SET(CMAKE_SHARED_LIBRARY_LINK_C_FLAGS "")
 
 CONFIGURE_FILE("${CMAKE_SOURCE_DIR}/src/acsyscap.h.in" "${CMAKE_BINARY_DIR}/acsyscap.h")
 
-if(ENABLE_TOOLS)
+if(ENABLE_EXTRA_TOOLS)
 	add_subdirectory(client)
 	add_subdirectory(fs)
 endif()

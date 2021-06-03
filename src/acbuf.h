@@ -8,6 +8,9 @@
 #include <cstdlib>
 #include <cstring>
 
+#include <event2/buffer.h>
+#include <event2/bufferevent.h>
+
 namespace acng
 {
 
@@ -104,6 +107,7 @@ public:
 	inline tSS & operator<<(unsigned long long val) __tss_nbrfmt("%llu", "%llx", val);
 #ifdef DEBUG
 	inline tSS & operator<<(void* val) __tss_nbrfmt("ptr:%llu", "ptr:0x%llx", (long long unsigned) val);
+	tSS &operator<<(evbuffer* eb);
 #endif
 
     enum fmtflags : bool { hex, dec };
@@ -177,6 +181,33 @@ protected:
 		if(!setsize(capaNew)) throw std::bad_alloc();
 	}
 	inline tSS & appDosNL() { return add("\r\n", 2);}
+};
+
+
+// some comfort functionality
+inline int bufferevent_write(bufferevent* bev, string_view chunk)
+{
+	return bufferevent_write(bev, chunk.data(), chunk.size());
+}
+struct beview
+{
+	evbuffer* be;
+	enum fmtflags : bool { hex, dec };
+	fmtflags m_fmtmode;
+	beview(bufferevent* pbe) : be(bufferevent_get_input(pbe)) {}
+	beview(evbuffer* pbe) : be(pbe) {}
+
+	beview& operator<<(string_view sv) { if (0 == evbuffer_add(be, sv.data(), sv.size())) return *this; throw std::bad_alloc(); }
+	beview & operator<<(fmtflags mode) { m_fmtmode = mode; return *this;}
+	beview & operator<<(tSS::fmtflags mode) { m_fmtmode = (fmtflags) mode; return *this;} // XXX: cleanup code and drop this
+	beview & operator<<(long val) { evbuffer_add_printf(be, m_fmtmode == dec ? "%ld" : "%lx", val); return *this; }
+	beview & clear() { evbuffer_drain(be, evbuffer_get_length(be)); return *this; }
+};
+
+struct bSS : public beview
+{
+	bSS() : beview(evbuffer_new()) { if(!be) throw std::bad_alloc(); }
+	~bSS() { evbuffer_free(be); }
 };
 
 }

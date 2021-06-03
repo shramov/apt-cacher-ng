@@ -1,6 +1,5 @@
 #include "ebrunner.h"
 #include "evabase.h"
-#include "cleaner.h"
 #include "dlcon.h"
 #include <thread>
 
@@ -13,37 +12,31 @@ void SetupCleaner();
 class evabaseFreeFrunner::Impl
 {
 public:
-	SHARED_PTR<dlcon> dl;
-	thread dlthr, evthr;
+	SHARED_PTR<dlcontroller> dl;
+	thread evthr;
 	unique_ptr<evabase> m_eb;
 
-	Impl(const IDlConFactory &pDlconFac, bool withDownloader)
+	Impl(bool withDownloader)
 		:m_eb(new evabase)
 	{
 		SetupCleaner();
 		if (withDownloader)
-			dl = dlcon::CreateRegular(pDlconFac);
+			dl = dlcontroller::CreateRegular();
 		evthr = std::thread([&]() { m_eb->MainLoop(); });
-		if (withDownloader)
-			dlthr = std::thread([&]() {dl->WorkLoop();});
 	}
 
 	~Impl()
 	{
-		::acng::cleaner::GetInstance().Stop();
 		if (dl)
-			dl->SignalStop();
+			dl->Dispose();
 		m_eb->SignalStop();
-
-		if (dl)
-			dlthr.join();
 		evthr.join();
 	}
 
 };
-evabaseFreeFrunner::evabaseFreeFrunner(const IDlConFactory &pDlconFac, bool withDownloader)
+evabaseFreeFrunner::evabaseFreeFrunner(bool withDownloader)
 {
-	m_pImpl = new Impl(pDlconFac, withDownloader);
+	m_pImpl = new Impl(withDownloader);
 }
 
 evabaseFreeFrunner::~evabaseFreeFrunner()
@@ -51,7 +44,7 @@ evabaseFreeFrunner::~evabaseFreeFrunner()
 	delete m_pImpl;
 }
 
-dlcon& evabaseFreeFrunner::getDownloader()
+dlcontroller& evabaseFreeFrunner::getDownloader()
 {
 	return * m_pImpl->dl;
 }

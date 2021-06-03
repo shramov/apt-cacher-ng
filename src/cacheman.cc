@@ -2,7 +2,6 @@
 #include "debug.h"
 #include "cacheman.h"
 #include "expiration.h"
-#include "lockable.h"
 #include "acfg.h"
 #include "meta.h"
 #include "filereader.h"
@@ -121,10 +120,6 @@ cacheman::cacheman(const tSpecialRequest::tRunParms& parms) :
 	m_bTruncateDamaged=(parms.cmd.find("truncNow")!=stmiss);
 	m_bSkipIxUpdate=(m_parms.cmd.find("skipIxUp=si")!=stmiss);
 
-}
-
-cacheman::~cacheman()
-{
 }
 
 bool cacheman::ProcessOthers(const string &, const struct stat &)
@@ -251,6 +246,9 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 		const tHttpUrl * pForcedURL, unsigned hints,
 		cmstring* sGuessedFrom, bool bForceReDownload)
 {
+	return false;
+#warning implement me as detached client actor
+#if 0
 
 	LOGSTART("tCacheMan::Download");
 
@@ -433,7 +431,7 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 			repoSrc = repinfo;
 		}
 	}
-
+#error nope, no direct acess here!
 	if (pResolvedDirectUrl)
 		dler->AddJob(pFi, *pResolvedDirectUrl);
 	else
@@ -616,6 +614,7 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 		SendChunk("\n<br>\n");
 
 	return bSuccess;
+#endif
 }
 
 #define ERRMSGABORT  dbgline; if(m_nErrorCount && m_bErrAbort) { SendChunk(sErr); return false; }
@@ -791,6 +790,8 @@ tFingerprint * BuildPatchList(string sFilePathAbs, deque<tPatchEntry> &retList)
 bool cacheman::Inject(cmstring &fromRel, cmstring &toRel,
 		bool bSetIfileFlags, off_t contLen, tHttpDate lastModified, LPCSTR forceOrig)
 {
+#warning implement as detached client
+#if 0
 	LOGSTARTFUNCx(fromRel, toRel, bSetIfileFlags, contLen, lastModified.value(0), forceOrig);
 	// XXX should it really filter it here?
 	if(GetFlags(toRel).uptodate)
@@ -839,6 +840,7 @@ bool cacheman::Inject(cmstring &fromRel, cmstring &toRel,
         tIfileAttribs &atts = SetFlags(toRel);
         atts.uptodate = atts.vfile_ondisk = true;
     }
+#endif
     return true;
 }
 

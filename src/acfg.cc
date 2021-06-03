@@ -7,12 +7,8 @@
 #include "filereader.h"
 #include "fileio.h"
 #include "sockio.h"
-#include "lockable.h"
-#include "cleaner.h"
 #include "remotedb.h"
 #include "acfgshared.h"
-
-#include <regex.h>
 
 #include <iostream>
 #include <fstream>
@@ -21,6 +17,9 @@
 #include <list>
 #include <unordered_map>
 #include <atomic>
+#include <mutex>
+
+#include <regex.h>
 
 using namespace std;
 
@@ -53,7 +52,7 @@ int optProxyCheckInt = 99;
 
 tStrMap localdirs;
 // cached mime type strings, locked in RAM
-static class : public base_with_mutex, public NoCaseStringMap {} mimemap;
+static NoCaseStringMap mimemap;
 
 std::bitset<TCP_PORT_MAX> *pUserPorts = nullptr;
 
@@ -541,38 +540,34 @@ inline void _ParseLocalDirs(cmstring &value)
 	}
 }
 
+std::once_flag mimeLoadFlag;
 
 cmstring & GetMimeType(cmstring &path)
 {
+	std::call_once(mimeLoadFlag, []()
 	{
-		lockguard g(mimemap);
-		static bool inited = false;
-		if (!inited)
+		for (tCfgIter itor("/etc/mime.types"); itor.Next();)
 		{
-			inited = true;
-			for (tCfgIter itor("/etc/mime.types"); itor.Next();)
+			// # regular types:
+			// text/plain             asc txt text pot brf  # plain ascii files
+
+			tSplitWalk split(itor.sLine);
+			if (!split.Next())
+				continue;
+
+			mstring mimetype = split;
+			if (startsWithSz(mimetype, "#"))
+				continue;
+
+			while (split.Next())
 			{
-				// # regular types:
-				// text/plain             asc txt text pot brf  # plain ascii files
-
-				tSplitWalk split(itor.sLine);
-				if (!split.Next())
-					continue;
-
-				mstring mimetype = split;
-				if (startsWithSz(mimetype, "#"))
-					continue;
-
-				while (split.Next())
-				{
-					mstring suf = split;
-					if (startsWithSz(suf, "#"))
-						break;
-					mimemap[suf] = mimetype;
-				}
+				mstring suf = split;
+				if (startsWithSz(suf, "#"))
+					break;
+				mimemap[suf] = mimetype;
 			}
 		}
-	}
+	});
 
 	tStrPos dpos = path.find_last_of('.');
 	if (dpos != stmiss)
@@ -584,12 +579,12 @@ cmstring & GetMimeType(cmstring &path)
 	// try some educated guess... assume binary if we are sure, text if we are almost sure
 	static cmstring os("application/octet-stream"), tp("text/plain");
 	filereader f;
-	if(f.OpenFile(path, true))
+	if (f.OpenFile(path, true))
 	{
         auto sv = f.getView().substr(0, 255);
         for(char c: sv)
 		{
-            if(!isascii(unsigned(c)))
+			if (!isascii(unsigned(c)))
 				return os;
 		}
 		return tp;
@@ -609,7 +604,7 @@ bool SetOption(const string &sLine, NoCaseStringMap *pDupeCheck)
 	tProperty * ppTarget;
 	int nNumBase(10);
 
-	if ( nullptr != (psTarget = GetStringPtr(key.c_str())))
+	if (nullptr != (psTarget = GetStringPtr(key.c_str())))
 	{
 
 		if(pDupeCheck && !g_bQuiet)
@@ -942,8 +937,6 @@ void dump_config(bool includeDelicate)
 #endif
 }
 
-acmutex authLock;
-
 int CheckAdminAuth(LPCSTR auth)
 {
 	if(cfg::adminauthB64.empty())
@@ -999,15 +992,12 @@ int CheckAdminAuth(LPCSTR auth)
 }
 
 static bool proxy_failstate = false;
-acmutex proxy_fail_lock;
 ACNG_API const tHttpUrl* GetProxyInfo()
 {
 	if(proxy_info.sHost.empty())
 		return nullptr;
 
 	static time_t last_check=0;
-
-	lockguard g(proxy_fail_lock);
 	time_t now = time(nullptr);
 	time_t sinceCheck = now - last_check;
 	if(sinceCheck > optProxyCheckInt)
@@ -1024,7 +1014,6 @@ ACNG_API const tHttpUrl* GetProxyInfo()
 
 void MarkProxyFailure()
 {
-	lockguard g(proxy_fail_lock);
 	if(optProxyCheckInt <= 0) // urgs, would never recover
 		return;
 	proxy_failstate = true;

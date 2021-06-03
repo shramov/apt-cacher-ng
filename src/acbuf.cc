@@ -11,7 +11,8 @@
 
 namespace acng
 {
-bool acbuf::setsize(unsigned int c) {
+bool acbuf::setsize(unsigned int c)
+{
 	if(m_nCapacity==c)
 		return true;
 
@@ -162,6 +163,14 @@ bool tSS::send(int nConFd, mstring* sErrorStatus)
 		}
 	}
 	return true;
+}
+
+tSS& tSS::operator<<(evbuffer* eb)
+{
+	auto len = evbuffer_get_length(eb);
+	reserve_atleast(len);
+	evbuffer_copyout(eb, wptr(), len);
+	return *this;
 }
 
 bool tSS::recv(int nConFd, mstring* sErrorStatus)

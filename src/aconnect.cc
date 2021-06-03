@@ -5,6 +5,7 @@
 #include "evabase.h"
 #include "debug.h"
 #include "portutils.h"
+#include "aevutil.h"
 
 #include <future>
 
@@ -200,24 +201,25 @@ void aconnector::disable(int fd, int ec)
 	ASSERT(fd != -1);
 	for(auto& el: m_eventFds)
 	{
-		if (el.fd == fd)
+		if (el.fd != fd)
+			continue;
+
+		// error from primary always wins, grab before closing it
+		if (&el == &m_eventFds.front())
 		{
-			// error from primary always wins, grab before closing it
-			if (&el == &m_eventFds.front())
-			{
-				setIfNotEmpty(m_error2report, tErrnoFmter(ec));
-			}
-
-			// stop observing and release resources
-			if (el.ev)
-			{
-				m_pending --;
-				event_free(el.ev);
-				el.ev = nullptr;
-			}
-
-			checkforceclose(el.fd);
+			setIfNotEmpty(m_error2report, tErrnoFmter(ec));
 		}
+
+		// stop observing and release resources
+		if (el.ev)
+		{
+			m_pending --;
+			event_free(el.ev);
+			el.ev = nullptr;
+		}
+
+		checkforceclose(el.fd);
+
 	}
 }
 

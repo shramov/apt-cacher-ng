@@ -39,6 +39,11 @@
 #include <limits>
 #include <memory>
 
+extern "C"
+{
+struct bufferevent;
+}
+
 namespace acng {
 
 #if __cplusplus >= 201703L
@@ -64,6 +69,20 @@ using mstring = std::string;
 using cmstring = const std::string;
 typedef mstring::size_type tStrPos;
 constexpr static tStrPos stmiss(cmstring::npos);
+
+/**
+ * @brief The SomeData class is a dummy for all kinds of internal data storage classes
+ */
+class SomeData
+{
+public:
+	virtual ~SomeData() =default;
+};
+
+enum class YesNoErr : int8_t
+{
+	YES = 1, NO = 0, ERROR = -1
+};
 
 }
 #endif // ACTYPES_H

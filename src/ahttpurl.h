@@ -8,7 +8,7 @@ namespace acng
 {
 
 extern std::string sDefPortHTTP, sDefPortHTTPS;
-extern cmstring PROT_PFX_HTTPS, PROT_PFX_HTTP;
+extern cmstring PROT_PFX_HTTPS, PROT_PFX_HTTP, PROT_PFX_UNIX;
 
 #define DEFAULT_PORT_HTTP 80
 #define DEFAULT_PORT_HTTPS 443
@@ -21,21 +21,33 @@ private:
 
 public:
         bool SetHttpUrl(cmstring &uri, bool unescape = true);
+		bool SetUnixUrl(cmstring &uri);
 		mstring ToURI(bool bEscaped, bool hostOnly = false) const;
         mstring sHost, sPath, sUserPass;
+		enum class EProtoType : char
+		{
+			HTTP,
+			HTTPS,
+			UDS
+		} m_schema = EProtoType::HTTP;
 
-        bool bSSL=false;
-        inline cmstring & GetProtoPrefix() const
-        {
-                return bSSL ? PROT_PFX_HTTPS : PROT_PFX_HTTP;
-        }
+		inline cmstring & GetProtoPrefix() const
+		{
+			switch(m_schema)
+			{
+			case EProtoType::HTTP: return PROT_PFX_HTTP;
+			case EProtoType::HTTPS: return PROT_PFX_HTTPS;
+			case EProtoType::UDS: return PROT_PFX_UNIX;
+			}
+			return PROT_PFX_HTTP;
+		}
         tHttpUrl(const acng::tHttpUrl& a)
         {
                 sHost = a.sHost;
 				nPort = a.nPort;
                 sPath = a.sPath;
                 sUserPass = a.sUserPass;
-                bSSL = a.bSSL;
+				m_schema = a.m_schema;
         }
         tHttpUrl & operator=(const tHttpUrl &a)
         {
@@ -44,13 +56,13 @@ public:
 				nPort = a.nPort;
                 sPath = a.sPath;
                 sUserPass = a.sUserPass;
-                bSSL = a.bSSL;
+				m_schema = a.m_schema;
                 return *this;
         }
         bool operator==(const tHttpUrl &a) const
         {
 				return a.sHost == sHost && a.nPort == nPort && a.sPath == sPath
-                                && a.sUserPass == sUserPass && a.bSSL == bSSL;
+								&& a.sUserPass == sUserPass && m_schema == a.m_schema;;
         }
 
 		bool operator!=(const tHttpUrl &a) const
@@ -63,23 +75,46 @@ public:
 				nPort = 0;
                 sPath.clear();
                 sUserPass.clear();
-                bSSL = false;
+				m_schema = EProtoType::HTTP;
         }
-		uint16_t GetDefaultPortForProto() const {
-				return bSSL ? DEFAULT_PORT_HTTPS : DEFAULT_PORT_HTTP;
+		uint16_t GetDefaultPortForProto() const
+		{
+			switch(m_schema)
+			{
+			case EProtoType::HTTP: return DEFAULT_PORT_HTTP;
+			case EProtoType::HTTPS: return DEFAULT_PORT_HTTPS;
+			default: return 0;
+			}
         }
 		uint16_t GetPort(uint16_t defVal) const { return nPort ? nPort : defVal; };
 		uint16_t GetPort() const { return GetPort(GetDefaultPortForProto()); }
 
+		inline tHttpUrl(cmstring &host, uint16_t port, EProtoType schema) :
+						nPort(port), sHost(host), m_schema(schema)
+		{
+		}
 		inline tHttpUrl(cmstring &host, uint16_t port, bool ssl) :
-						nPort(port), sHost(host), bSSL(ssl)
+			tHttpUrl(host, port, ssl ? EProtoType::HTTPS : EProtoType::HTTP)
         {
         }
+
         inline tHttpUrl() =default;
 		// special short version with only hostname and port number
 		std::string GetHostPortKey() const;
-};
+		// like above but also incorporates the schema
+		std::string GetHostPortProtoKey() const;
 
+		tHttpUrl& SetHost(string_view host) { sHost = host; return *this; }
+		tHttpUrl& SetHost(mstring&& host) { sHost = move(host); return *this; }
+};
+/*
+struct tHttpUrlAssignable : public tHttpUrl
+{
+	bool valid = false;
+	using tHttpUrl :: tHttpUrl;
+	tHttpUrlAssignable(cmstring& raw) : tHttpUrl(), valid(SetHttpUrl(raw)) {}
+};
+*/
 
 }
 

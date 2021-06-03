@@ -40,6 +40,8 @@
 namespace acng
 {
 
+std::string concat(string_view a, string_view b = string_view(), string_view c = string_view(), string_view d = string_view(), string_view e = string_view());
+
 inline void trimFront(std::string &s, const string_view junk=SPACECHARS)
 {
 	auto pos = s.find_first_not_of(junk);

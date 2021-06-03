@@ -10,7 +10,6 @@
 #include "sockio.h"
 #include "acfg.h"
 #include "debug.h"
-#include "lockable.h"
 #include "evabase.h"
 #include "acsmartptr.h"
 #include "ahttpurl.h"
@@ -64,6 +63,7 @@ acng::acng_addrinfo::operator mstring() const {
 
 string makeHostPortKey(const string & sHostname, uint16_t nPort)
 {
+#warning test this
 	string ret;
 	ret.reserve(sHostname.length()+2);
 	ret += char(nPort);

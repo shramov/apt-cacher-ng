@@ -13,7 +13,6 @@
 #include "caddrinfo.h"
 #include "fileio.h"
 #include "fileitem.h"
-#include "cleaner.h"
 #include "evabase.h"
 #include "aconnect.h"
 #include "portutils.h"

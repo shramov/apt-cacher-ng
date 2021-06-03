@@ -1,7 +1,6 @@
 
 
 #include "meta.h"
-#include "lockable.h"
 
 #include "maintenance.h"
 #include "expiration.h"
@@ -200,7 +199,7 @@ LPCSTR tSpecialRequest::GetTaskName()
 	return "SpecialOperation";
 }
 
-tSpecialRequest::eMaintWorkType ACNG_API tSpecialRequest::DispatchMaintWork(cmstring& cmd, const char* auth)
+ESpecialWorkType ACNG_API tSpecialRequest::DispatchMaintWork(cmstring& cmd, const char* auth)
 {
 	LOGSTARTs("DispatchMaintWork");
 	LOG("cmd: " << cmd);
@@ -248,7 +247,7 @@ tSpecialRequest::eMaintWorkType ACNG_API tSpecialRequest::DispatchMaintWork(cmst
      default: return workAUTHREJECT;
 	}
 
-	struct { LPCSTR trigger; tSpecialRequest::eMaintWorkType type; } matches [] =
+	struct { LPCSTR trigger; ESpecialWorkType type; } matches [] =
 	{
 			{"doExpire=", workExExpire},
 			{"justShow=", workExList},
@@ -267,6 +266,8 @@ tSpecialRequest::eMaintWorkType ACNG_API tSpecialRequest::DispatchMaintWork(cmst
 			{"doTraceEnd=", workTraceEnd},
 //			{"doJStats", workJStats}
 	};
+
+#warning check perfromance, might be inefficient, maybe use precompiled regex for do* and just* or at least separate into two groups
 	for(auto& needle: matches)
 		if(StrHasFrom(cmd, needle.trigger, epos))
 			return needle.type;
@@ -322,7 +323,7 @@ tSpecialRequest* tSpecialRequest::MakeMaintWorker(tRunParms&& parms)
 	return nullptr;
 }
 
-void tSpecialRequest::RunMaintWork(eMaintWorkType jobType, cmstring& cmd, int fd, ISharedConnectionResources *dlResProvider)
+void tSpecialRequest::RunMaintWork(ESpecialWorkType jobType, cmstring& cmd, int fd, IConnBase *dlResProvider)
 {
 	LOGSTARTFUNCsx(jobType, cmd, fd);
 

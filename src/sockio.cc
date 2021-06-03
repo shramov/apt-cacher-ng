@@ -115,4 +115,11 @@ void set_connect_sock_flags(evutil_socket_t fd)
 #endif
 }
 
+void setup_be_bidirectional(bufferevent *be)
+{
+	auto* tmout = cfg::GetNetworkTimeout();
+	bufferevent_set_timeouts(be, tmout, tmout);
+	bufferevent_enable(be, EV_READ|EV_WRITE);
+}
+
 }

@@ -15,8 +15,10 @@ namespace acng
 
 #ifdef DEBUG
 #define ASSERT(x) assert(x)
+#define IFDEBUG(x) x
 #else
 #define ASSERT(x)
+#define IFDEBUG(x)
 #endif
 
 #ifndef DEBUG
@@ -56,6 +58,10 @@ inline void dump_proc_status(){}; // strip away
 */
 #define __ACFUNC__ __PRETTY_FUNCTION__
 
+namespace cfg
+{
+extern int debug;
+}
 
 #define LOGVA(n, pfx, ...) if(acng::cfg::debug & n) \
 		{ auto&f=__logobj.GetFmter(pfx); tSS::Chain(f, ", ", __VA_ARGS__); \

@@ -5,6 +5,9 @@
 
 namespace acng {
 
+using tAction = std::function<void()>;
+using tCancelableAction = std::function<void(bool)>;
+
 // dirty little RAII helper
 struct tDtorEx {
         std::function<void(void)> _action;
@@ -42,6 +45,16 @@ struct auto_raii
 		other.m_p = inval_default;
 		return *this;
 	}
+	auto_raii& reset(T rawNew)
+	{
+		if (m_p == rawNew) // heh?
+			return *this;
+		if(valid())
+			TFreeFunc(m_p);
+		m_p = rawNew;
+		return *this;
+	}
+	void swap(auto_raii &other) { this->reset(other); }
 	void reset()
 	{
 		if (valid())
@@ -51,6 +64,24 @@ struct auto_raii
 	bool valid() const { return inval_default != m_p;}
 };
 
+#if 0
+template<typename T>
+struct slist
+{
+	struct spair { T el; spair* next; };
+	spair* m_first = nullptr, m_last = nullptr;
+	spair* append(T&& el)
+	{
+			if (m_last)
+				return (m_last->next = new spair {move(el), nullptr});
+			return (m_first = m_last = new spair {move(el), nullptr});
+	}
+	spair& front() { return *m_first; }
+	spair& back() { return *m_last; }
+	bool empty() { return !m_first; }
+	void pop_front() { if (!m_first) return; auto xf = m_first->next; delete m_first; m_first = xf; if (!xf) m_last = nullptr; }
+};
+#endif
 
 }
 

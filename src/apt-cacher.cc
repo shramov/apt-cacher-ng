@@ -6,7 +6,6 @@
 #include "acfg.h"
 #include "fileio.h"
 #include "conserver.h"
-#include "cleaner.h"
 #include "acregistry.h"
 #include "ac3rdparty.h"
 #include "filereader.h"
@@ -130,7 +129,8 @@ void setup_sighandler()
 #define REGSIG(x,y) event_add(::event_new(evabase::base, x, what, & y, 0), nullptr);
 	for(int snum : {SIGBUS, SIGTERM, SIGINT, SIGQUIT}) REGSIG(snum, term_handler);
 	REGSIG(SIGUSR1, log_handler);
-	REGSIG(SIGUSR2, dump_handler);
+#warning restore dumper?
+//	REGSIG(SIGUSR2, dump_handler);
 	REGSIG(SIGPIPE, noop_handler);
 #ifdef SIGIO
 	REGSIG(SIGIO, noop_handler);
@@ -208,7 +208,7 @@ void noop_handler(evutil_socket_t, short, void*)
 }
 
 
-void term_handler(evutil_socket_t signum, short what, void *arg)
+void term_handler(evutil_socket_t signum, short, void*)
 {
 	DBGQLOG("caught signal " << signum);
 	switch (signum) {
@@ -240,7 +240,6 @@ void CloseAllCachedConnections();
 struct tAppStartStop
 {
 	evabase m_base;
-	std::shared_ptr<cleaner> m_victor;
 
 	tAppStartStop(int argc, const char**argv)
 	{
@@ -264,7 +263,6 @@ struct tAppStartStop
 
 		//DelTree(cfg::cacheDirSlash + sReplDir);
 		SetupServerItemRegistry();
-		SetupCleaner();
 
 		if (conserver::Setup() <= 0)
 		{
@@ -295,13 +293,12 @@ struct tAppStartStop
 	~tAppStartStop()
 	{
 		evabase::in_shutdown = true;
-		cleaner::GetInstance().Stop();
 		if (!cfg::pidfile.empty())
 			unlink(cfg::pidfile.c_str());
 		conserver::Shutdown();
-		CloseAllCachedConnections();
+//		CloseAllCachedConnections();
+#warning bring all users of itemregistry down!
 		TeardownServerItemRegistry();
-		TeardownCleaner();
 		log::close(false);
 	}
 };

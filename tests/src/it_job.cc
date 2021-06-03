@@ -10,23 +10,33 @@
 using namespace acng;
 using namespace std;
 
-class t_conn_dummy : public ISharedConnectionResources
+class t_conn_dummy : public IConnBase
 {
     // ISharedConnectionResources interface
 public:
-    dlcon *SetupDownloader() override
+    dlcontroller *SetupDownloader() override
     {
         return nullptr;
     }
-    void LogDataCounts(cmstring &, mstring , off_t , off_t , bool ) override
-    {
-    }
-	std::shared_ptr<IFileItemRegistry> GetItemRegistry() override
+	lint_ptr<IFileItemRegistry> GetItemRegistry() override
 	{
-		return std::shared_ptr<IFileItemRegistry>();
+		return lint_ptr<IFileItemRegistry>();
 	}
+
+	// IConnBase interface
+public:
+	bool poke(uint_fast32_t jobId) override
+	{
+		return true;
+	};
+	cmstring &getClientName() override
+	{
+		return sEmptyString;
+	};
 } conn_dummy;
 
+#warning restore me
+#if 0
 TEST(job, create)
 {
     job j(conn_dummy);
@@ -43,3 +53,4 @@ TEST(job, create)
 	j.Dispose();
 #endif
 }
+#endif

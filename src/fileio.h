@@ -36,13 +36,11 @@
 #define O_BINARY 0 // ignore on Unix
 #endif
 
-extern "C"
-{
-struct evbuffer;
-}
-
 namespace acng
 {
+
+#define RX_ERROR -1
+constexpr size_t MAX_IN_BUF = MAX_VAL(uint16_t);
 
 int falloc_helper(int fd, off_t start, off_t len);
 int fdatasync_helper(int fd);
@@ -60,6 +58,7 @@ public:
     bool update(const char *sz) { return (bResult = !::stat(sz, static_cast<struct stat*>(this))); }
 };
 
+inline off_t GetFileSize(cmstring &path, off_t defret) { Cstat s(path); return s ? s.st_size : defret; }
 std::error_code FileCopy(cmstring &from, cmstring &to);
 
 bool LinkOrCopy(const mstring &from, const mstring &to);
@@ -124,12 +123,6 @@ public:
 */
 
 using unique_fd = auto_raii<int, justforceclose, -1>;
-
-/**
- * @brief evbuffer_dumpall - store all or limited range from the front to a file descriptor
- * This is actually evbuffer_write_atmost replacement without its random aborting bug.
- */
-ssize_t evbuffer_dumpall(evbuffer* inbuf, int out_fd, off_t &nSendPos, size_t nMax2SendNow);
 
 }
 

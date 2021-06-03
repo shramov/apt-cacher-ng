@@ -1,4 +1,5 @@
-#include "atcpstream.h"
+
+#include "atransport.h"
 #include "ahttpurl.h"
 #include "portutils.h"
 #include "acfg.h"
@@ -20,7 +21,7 @@ multimap<string, lint_ptr<atcpstreamImpl>> g_con_cache;
 #define CACHE_SIZE_MAX 42
 void cbCachedKill(struct bufferevent *bev, short what, void *ctx);
 
-class atcpstreamImpl : public atcpstream
+class atcpstreamImpl : public atransport
 {
 	bufferevent* m_buf = nullptr;
 	mstring sHost;
@@ -62,7 +63,7 @@ public:
 	void SetEvent(bufferevent *be) { m_buf = be; }
 
 	// atcpstream interface
-	bufferevent *GetEvent() override { return m_buf; }
+        bufferevent *GetBufferEvent() override { return m_buf; }
 	const string &GetHost() override { return sHost; }
 	uint16_t GetPort() override { return nPort; }
 	bool PeerIsProxy() override { return m_bProxyConnected; }
@@ -70,7 +71,7 @@ public:
 
 struct tPostConnOps : public tLintRefcounted
 {
-	atcpstream::tCallBack m_cback;
+	atransport::tCallBack m_cback;
 	mstring m_sHost;
 	uint16_t m_nPort;
 	bool m_bThroughProxy;
@@ -79,7 +80,7 @@ struct tPostConnOps : public tLintRefcounted
 	{
 		checkforceclose(m_fd);
 	}
-	tPostConnOps(atcpstream::tCallBack cback, mstring sHost, uint16_t nPort, bool bThroughProxy, int fd)
+	tPostConnOps(atransport::tCallBack cback, mstring sHost, uint16_t nPort, bool bThroughProxy, int fd)
 		: m_cback(cback), m_sHost(sHost), m_nPort(nPort), m_bThroughProxy(bThroughProxy), m_fd(fd)
 	{
 	}
@@ -102,7 +103,19 @@ void cbCachedKill(struct bufferevent *, short , void *ctx)
 	}
 }
 
-void atcpstream::Return(lint_ptr<atcpstream> &stream)
+class tConnContext : public tLintRefcounted
+{
+
+};
+
+
+
+void atransport::Create(const tHttpUrl &, const tCallBack &cback, const TConnectParms &extHints)
+{
+#error oh kein bock
+}
+
+void atransport::Return(lint_ptr<atransport> &stream)
 {
 	if (g_con_cache.size() < CACHE_SIZE_MAX)
 	{
@@ -113,8 +126,11 @@ void atcpstream::Return(lint_ptr<atcpstream> &stream)
 	stream.reset();
 }
 
+#warning fixme
+#if 0
 
-void atcpstream::Create(const tHttpUrl &url, bool forceFresh, int forceTimeout, const tCallBack& cback)
+void atransport::Create(const tHttpUrl& url, int forceTimeout, bool forceFresh, bool connectThrough,
+					 bool sslUpgrade, bool noProxy, const tCallBack& cback)
 {
 	auto key = url.GetHostPortKey();
 	if (!forceFresh)
@@ -125,7 +141,7 @@ void atcpstream::Create(const tHttpUrl &url, bool forceFresh, int forceTimeout, 
 			auto ret = anyIt->second;
 			g_con_cache.erase(anyIt);
 			ret->Reuse();
-			return cback(static_lptr_cast<atcpstream>(ret), string_view(), false);
+			return cback({static_lptr_cast<atransport>(ret), string_view(), false});
 		}
 	}
 	evabase::Post([host = url.sHost, port = url.GetPort(), doSsl = url.bSSL,
@@ -133,11 +149,30 @@ void atcpstream::Create(const tHttpUrl &url, bool forceFresh, int forceTimeout, 
 				  (bool cancled)
 	{
 		if (cancled)
-			return cback(lint_ptr<atcpstream>(), "Operation canceled", true);
+			return cback({lint_ptr<atransport>(), "Operation canceled", true});
+
 		auto proxy = cfg::GetProxyInfo();
-		auto timeout = forceTimeout > 0 ?
-					forceTimeout :
-					( cfg::GetProxyInfo() ? cfg::optproxytimeout : cfg::nettimeout);
+                auto timeout = forceTimeout > 0 ? forceTimeout : ( (cfg::GetProxyInfo() && cfg::optproxytimeout > 0)
+                                          ? cfg::optproxytimeout : cfg::nettimeout);
+
+#warning implement fallback to no-proxy
+
+                /*
+                 * 		aconnector::Connect(pin->url.sHost, pin->url.GetPort(),
+                                                        cfg::optproxytimeout > 0
+                                                        ? cfg::optproxytimeout
+                                                        : cfg::nettimeout,
+                                                        [pin] (aconnector::tConnResult res)
+
+
+                                                        ...
+
+                else if(cfg::optproxytimeout > 0) // ok... try without
+                {
+                        cfg::MarkProxyFailure();
+                        goto direct_connect;
+                }
+                 * */
 
 		aconnector::Connect(proxy ? proxy->sHost : host,
 							proxy ? proxy->GetPort() : port,
@@ -146,7 +181,7 @@ void atcpstream::Create(const tHttpUrl &url, bool forceFresh, int forceTimeout, 
 							(aconnector::tConnResult res) mutable
 		{
 			if (!res.sError.empty())
-				return cback(lint_ptr<atcpstream>(), res.sError, true);
+				return cback(lint_ptr<atransport>(), res.sError, true);
 			int nFd = res.fd.release();
 			atcpstreamImpl *p(nullptr);
 			try
@@ -165,7 +200,7 @@ void atcpstream::Create(const tHttpUrl &url, bool forceFresh, int forceTimeout, 
 				else
 				{
 					p->SetEvent(bufferevent_new(nFd, nullptr, nullptr, nullptr, nullptr));
-					return cback(static_lptr_cast<atcpstream>(p), string_view(), true);
+					return cback(static_lptr_cast<atransport>(p), string_view(), true);
 				}
 			}
 			catch (...)
@@ -181,5 +216,6 @@ void atcpstream::Create(const tHttpUrl &url, bool forceFresh, int forceTimeout, 
 	});
 }
 
+#endif
 
 }

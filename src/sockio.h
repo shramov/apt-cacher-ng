@@ -15,8 +15,7 @@
 #include <unistd.h>
 #include <cstddef>
 
-#include <event2/event.h>
-#include <event2/util.h>
+#include <event.h>
 
 #ifndef AI_NUMERICSERV
 #define AI_NUMERICSERV 0
@@ -35,15 +34,6 @@
 
 #ifndef SO_MAXCONN
 #define SO_MAXCONN 250
-#endif
-
-#define COMMA ,
-#ifdef HAVE_SSL
-#define IFSSLORFALSE(x) x
-#define SSL_OPT_ARG(x) COMMA x
-#else
-#define IFSSLORFALSE(x) false
-#define SSL_OPT_ARG(x)
 #endif
 
 //! Time after which the pooled sockets are considered EOLed
@@ -87,7 +77,6 @@ struct select_set_t
 
 // common flags for a CONNECTING socket
 void set_connect_sock_flags(evutil_socket_t fd);
-
 
 }
 

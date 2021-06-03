@@ -174,10 +174,12 @@ void expiration::HandlePkgEntry(const tRemoteFileInfo &entry)
 			if(!m_bByChecksum) return report_good(lenFromStat);
 
 			//knowing the expected and real size, try a shortcut without scanning
-			if(entry.fpr.size >= 0)
+			if (entry.fpr.size >= 0)
 			{
-				if(lenFromStat<0) lenFromStat=GetFileSize(sPathAbs, -123);
-				if(lenFromStat >=0 && lenFromStat < entry.fpr.size)
+				if (lenFromStat < 0)
+					lenFromStat = GetFileSize(sPathAbs, -123);
+
+				if (lenFromStat >=0 && lenFromStat < entry.fpr.size)
 				{
 					//		descHave.fpr.size=lenFromStat;
 					goto handle_incomplete;
@@ -679,14 +681,13 @@ void expiration::TrimFiles()
 		if ( ! user.get())
 			continue;
 		auto pFi = user.get();
-		lockguard g(*pFi);
-		off_t nix;
-		if (pFi->GetStatusUnlocked(nix) >= fileitem::FIST_DLGOTHEAD)
+		if (pFi->GetStatus() >= fileitem::FIST_DLGOTHEAD)
 			continue;
 		if (0 != truncate(fil.c_str(), stinfo.st_size)) // CHECKED!
+		{
 			SendFmt << "Error at " << fil << " (" << tErrnoFmter() << ")"
 					<< sBRLF;
-
+		}
 	}
 }
 

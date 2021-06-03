@@ -9,9 +9,8 @@
 #define BGTASK_H_
 
 #include "maintenance.h"
-#include "lockable.h"
-#include <iostream>
-#include <fstream>
+//#include <iostream>
+//#include <fstream>
 
 namespace acng
 {
@@ -22,9 +21,9 @@ public:
 	// forward all constructors, no specials here
 	// XXX: oh please, g++ 4.7 is not there yet... using tSpecialRequest::tSpecialRequest;
 	inline tSpecOpDetachable(const tSpecialRequest::tRunParms& parms)
-	: tSpecialRequest(parms)	{ };
+	: tSpecialRequest(parms) {};
 
-	virtual ~tSpecOpDetachable();
+	virtual ~tSpecOpDetachable() =default;
 
 	 /*!
 	  * This execution implementation makes sure that only one task runs
@@ -61,7 +60,7 @@ private:
 	// generates a lookup blob as hidden form parameter
 	mstring BuildCompressedDelFileCatalog();
 
-	static base_with_condition g_StateCv;
+	//static base_with_condition g_StateCv;
 	static bool g_sigTaskAbort;
 	// to watch the log file
 	int m_logFd = -1;

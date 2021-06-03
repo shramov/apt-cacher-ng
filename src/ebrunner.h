@@ -17,17 +17,16 @@ struct event_base;
 
 namespace acng
 {
-class dlcon;
-class IDlConFactory;
+class dlcontroller;
 
 // tool helper class for acngtool and httpfs, runs event and download threads
 class ACNG_API evabaseFreeFrunner
 {
 	class Impl;
 public:
-	evabaseFreeFrunner(const IDlConFactory &pDlconFac, bool withDownloader);
+	evabaseFreeFrunner(bool withDownloader);
 	~evabaseFreeFrunner();
-	dlcon& getDownloader();
+	dlcontroller& getDownloader();
 	event_base* getBase();
 private:
 	Impl *m_pImpl;

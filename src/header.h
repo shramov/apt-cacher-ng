@@ -6,6 +6,11 @@
 #include "acbuf.h"
 #include "httpdate.h"
 
+extern "C"
+{
+struct evbuffer;
+}
+
 namespace acng
 {
 
@@ -96,6 +101,7 @@ public:
 	   * @return Length of processed data, 0: incomplete, needs more data, <0: error, >0: length of the processed data
 	   */
 	int Load(string_view sv, std::vector<std::pair<string_view,string_view> > *unkHeaderMap = nullptr);
+	int Load(evbuffer*, std::vector<std::pair<string_view,string_view> > *unkHeaderMap = nullptr);
 
 private:
 	eHeadPos resolvePos(string_view key);

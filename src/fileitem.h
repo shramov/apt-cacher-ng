@@ -1,12 +1,11 @@
-
 #ifndef _FILEITEM_H
 #define _FILEITEM_H
 
 #include <string>
 #include <atomic>
 
-#include "config.h"
-#include "lockable.h"
+#include "actypes.h"
+#include "aobservable.h"
 #include "header.h"
 #include "fileio.h"
 #include "httpdate.h"
@@ -16,121 +15,125 @@ namespace acng
 {
 extern const std::string sEmptyString;
 class fileitem;
-struct tDlJob;
 class cacheman;
-typedef std::shared_ptr<fileitem> tFileItemPtr;
+class IFileItemRegistry;
+class TFileItemRegistry;
+struct tDlJob;
+
+typedef lint_ptr<fileitem> tFileItemPtr;
 typedef std::map<mstring, tFileItemPtr> tFiGlobMap;
 struct tAppStartStop;
 
-class IFileItemRegistry;
-class TFileItemRegistry;
-
 //! Base class containing all required data and methods for communication with the download sources
-class ACNG_API fileitem : public base_with_condition
+class ACNG_API fileitem : public aobservable, public tExtRefExpirer
 {
 	friend struct tDlJob;
-    friend class cacheman;
+	friend class cacheman;
 	friend class TFileItemRegistry;
+
 public:
 
-    // items carrying those attributes might be shared under controlled circumstances only
-    struct tSpecialPurposeAttr
-    {
-        bool bVolatile = false;
+	// items carrying those attributes might be shared under controlled circumstances only
+	struct tSpecialPurposeAttr
+	{
+		bool bVolatile = false;
 		bool bHeadOnly = false;
-				/**
-				 * @brief bNoStore Don't store metadata or attempt to touch cached data in the aftermath
-				 * Most useful in combination with bHeadOnly
-				 */
+		/**
+		 * @brief bNoStore Don't store metadata or attempt to touch cached data in the aftermath
+		 * Most useful in combination with bHeadOnly
+		 */
 		bool bNoStore = false;
-        off_t nRangeLimit = -1;
-        mstring credentials;
-    };
+		off_t nRangeLimit = -1;
+		mstring credentials;
+	};
 
 	// Life cycle (process states) of a file description item
 	enum FiStatus : uint8_t
 	{
-
-	FIST_FRESH, FIST_INITED, FIST_DLPENDING, FIST_DLGOTHEAD, FIST_DLRECEIVING,
-	FIST_COMPLETE,
-	// error cases: downloader reports its error or last user told downloader to stop
-	FIST_DLERROR,
-	FIST_DLSTOP // assumed to not have any users left
+		FIST_FRESH, FIST_INITED, FIST_DLPENDING, FIST_DLGOTHEAD, FIST_DLRECEIVING,
+		FIST_COMPLETE,
+		// error cases: downloader reports its error or last user told downloader to stop
+		FIST_DLERROR,
+		FIST_DLSTOP // assumed to not have any users left
 	};
 
-    /**
-     * @brief The EDestroyMode enum
-     * Defines which data is needed to be deleted when this item terminates.
-     * Ordered by "severity", including how much data will be lost afterwards.
-     * @see DlSetError
-     */
+	/**
+	 * @brief The EDestroyMode enum
+	 * Defines which data is needed to be deleted when this item terminates.
+	 * Ordered by "severity", including how much data will be lost afterwards.
+	 * @see DlSetError
+	 */
 	enum EDestroyMode : uint8_t
 	{
 		KEEP
-        , DELETE_KEEP_HEAD /* if damaged but maint. code shall find the traces laster */
-        , TRUNCATE
-        , ABANDONED /* similar to DELETE but head might be gone already might gone already */
-        , DELETE
-    };
+		, DELETE_KEEP_HEAD /* if damaged but maint. code shall find the traces laster */
+		, TRUNCATE
+		, ABANDONED /* similar to DELETE but head might be gone already might gone already */
+		, DELETE
+	};
+
+	/**
+	 * @brief Implementation specific sender of (hot) cached data
+	 *
+	 * This remembers the position of the sent data stream, and resumes sending when pushed with SendData method.
+	 */
+	class ICacheDataSender
+	{
+	public:
+		/**
+		 * @brief Available reports length available to send
+		 * @return Negative on error, otherwyse available bytes
+		 */
+		virtual off_t Available() =0;
+		/**
+		 * @brief SendData moves data from internal cached item descriptor to the target stream.
+		 * @param target The bufferevent covering the receiver connection.
+		 * @param maxTake Limits the data to be transfered
+		 * @return How much data was added to target, -1 on error
+		 */
+		virtual ssize_t SendData(bufferevent* target, size_t maxTake) =0;
+		virtual ~ICacheDataSender() = default;
+	};
+	/**
+	 * @brief GetCacheSender prepares a cache helper object which tracks the progress of data creation
+	 * @param startPos
+	 * @return Invalid pointer if the helper is not usable yet
+	 */
+	virtual std::unique_ptr<ICacheDataSender> GetCacheSender(off_t startPos = 0);
 
 	fileitem(string_view sPathRel);
 	virtual ~fileitem() =default;
 	
 	// initialize file item, return the status
-    virtual FiStatus Setup() { return FIST_DLERROR; };
-	
-	virtual unique_fd GetFileFd();
+	virtual FiStatus Setup() { return FIST_DLERROR; };
 	uint64_t TakeTransferCount();
-	uint64_t GetTransferCountUnlocked() { return m_nIncommingCount; }
-	// send helper like wrapper for sendfile. Just declare virtual here to make it better customizable later.
-	virtual ssize_t SendData(int confd, int filefd, off_t &nSendPos, size_t nMax2SendNow)
-	{
-		(void) confd; (void) filefd; (void) nSendPos; (void) nMax2SendNow;
-		return -1;
-	};
 
-	FiStatus GetStatus() { setLockGuard; return m_status; }
-	FiStatus GetStatusUnlocked(off_t &nGoodDataSize) { nGoodDataSize = m_nSizeChecked; return m_status; }
-    FiStatus GetStatusUnlocked() { return m_status; }
-
-//	//! returns true if complete or DL not started yet but partial file is present and contains requested range and file contents is static
-//	bool CheckUsableRange_unlocked(off_t nRangeLastByte);
-
-	// returns when the state changes to complete or error
-    std::pair<FiStatus, tRemoteStatus> WaitForFinish();
-
-	/**
-	 * @brief WaitForFinish with timeout reporting and feedback.
-	 * Timeout is only a recommendation, the check function might be called sooner and multiple times.
-	 * @param timeout Interval to wait until timeout
-	 * @param cbOnTimeout User function, reporting true to keep waiting or false to abort
-	 * @return Last seen file item state and reported remote status
-	 */
-	std::pair<FiStatus, tRemoteStatus> WaitForFinish(unsigned timeout, const std::function<bool()> &onWaitInterrupted);
-	
 	/// mark the item as complete as-is, assuming that seen size is correct
 	void SetupComplete();
 
-    void UpdateHeadTimestamp();
+	void UpdateHeadTimestamp();
 
-    bool IsVolatile() { return m_spattr.bVolatile; }
-    bool IsHeadOnly() { return m_spattr.bHeadOnly; }
-    off_t GetRangeLimit() { return m_spattr.nRangeLimit; }
+	uint64_t GetTransferCountUnlocked() { return m_nIncommingCount; }
+	FiStatus GetStatus() { setLockGuard; return m_status; }
+	off_t GetCheckedSize() { return m_nSizeChecked; }
+	bool IsVolatile() { return m_spattr.bVolatile; }
+	bool IsHeadOnly() { return m_spattr.bHeadOnly; }
+	off_t GetRangeLimit() { return m_spattr.nRangeLimit; }
 
-	uint64_t m_nIncommingCount = 0;
+	off_t m_nIncommingCount = 0;
 
 	// whatever we found in the cached data initially
-    off_t m_nSizeCachedInitial = -1;
-    // initially from the file data, then replaced when download has started
-    off_t m_nContentLength = -1;
+	off_t m_nSizeCachedInitial = -1;
+	// initially from the file data, then replaced when download has started
+	off_t m_nContentLength = -1;
 
-    tRemoteStatus m_responseStatus;
-    /** This member has multiple uses; for 302/304 codes, it contains the Location value */
-    mstring m_responseOrigin;
-    // trade-off between unneccessary parsing and on-the-heap storage
-    tHttpDate m_responseModDate;
+	tRemoteStatus m_responseStatus;
+	/** This member has multiple uses; for 302/304 codes, it contains the Location value */
+	mstring m_responseOrigin;
+	// trade-off between unneccessary parsing and on-the-heap storage
+	tHttpDate m_responseModDate;
 
-    string_view m_contentType = "octet/stream";
+	string_view m_contentType = "octet/stream";
 
 protected:
 
@@ -147,10 +150,9 @@ protected:
 
 	unsigned m_nDlRefsCount = 0;
 
-    tSpecialPurposeAttr m_spattr;
+	tSpecialPurposeAttr m_spattr;
 
 	off_t m_nSizeChecked = -1;
-	std::atomic<int> usercount = ATOMIC_VAR_INIT(0);
 	FiStatus m_status = FIST_FRESH;
 	EDestroyMode m_eDestroy = EDestroyMode::KEEP;
 	mstring m_sPathRel;
@@ -169,18 +171,19 @@ protected:
 	 * Fileitem must be locked before.
 	 *
 	 * @param h Already preprocessed header
-     * @param rawHeader Original header contents as memory chunk
-     * @param semiRawHeader The incoming processing header which was already partly processed for the remaining parameters
+	 * @param rawHeader Original header contents as memory chunk
+	 * @param semiRawHeader The incoming processing header which was already partly processed for the remaining parameters
 	 * @return true when accepted
 	 */
-    virtual bool DlStarted(string_view rawHeader, const tHttpDate& modDate, cmstring& origin, tRemoteStatus status, off_t bytes2seek, off_t bytesAnnounced);
+	virtual bool DlStarted(evbuffer* rawData, size_t headerLen, const tHttpDate& modDate, cmstring& origin, tRemoteStatus status, off_t bytes2seek, off_t bytesAnnounced);
 	/**
 	* @return false to abort processing (report error)
 	*
 	* Fileitem must be locked before by unique lock pointed by uli object.
 	*
+	* @return Number of bytes consumed, -1 on error
 	*/
-	virtual bool DlAddData(string_view, lockuniq&)  { return false;};
+	virtual ssize_t DlAddData(evbuffer*, size_t maxTake) { (void) maxTake; return false; }
 	/**
 	 * @brief Mark the download as finished, and verify that sizeChecked as sane at that moment or move to error state.
 	 */
@@ -195,10 +198,8 @@ protected:
 	virtual void DlSetError(const tRemoteStatus& errState, EDestroyMode destroyMode);
 
 	// flag for shared objects and a self-reference for fast and exact deletion, together with m_globRef
-	std::weak_ptr<IFileItemRegistry> m_owner;
+	IFileItemRegistry* m_owner = nullptr;
 	tFiGlobMap::iterator m_globRef;
-
-	friend class TFileItemHolder;
 
 	// callback to store the header data on disk, if implemented
 	virtual bool SaveHeader(bool) { return false; }
@@ -212,6 +213,9 @@ public:
 	virtual void DlRefCountAdd();
 	virtual void DlRefCountDec(const tRemoteStatus& reason);
 
+	// tLintRefcountedIndexable interface
+	void Abandon() override;
+
 };
 
 enum class ESharingHow
@@ -222,16 +226,13 @@ enum class ESharingHow
 };
 
 // dl item implementation with storage on disk
-class fileitem_with_storage : public fileitem
+class TFileitemWithStorage : public fileitem
 {
 public:
-	inline fileitem_with_storage(cmstring &s) : fileitem(s) {}
-    virtual ~fileitem_with_storage();
+	inline TFileitemWithStorage(cmstring &s) : fileitem(s) {}
+	virtual ~TFileitemWithStorage();
 
-    FiStatus Setup() override;
-
-	// send helper like wrapper for sendfile. Just declare virtual here to make it better customizable later.
-	virtual ssize_t SendData(int confd, int filefd, off_t &nSendPos, size_t nMax2SendNow) override;
+	FiStatus Setup() override;
 
 	static mstring NormalizePath(cmstring &sPathRaw);
 
@@ -239,16 +240,21 @@ protected:
 	void MoveRelease2Sidestore();
 	int m_filefd = -1;
 
-	bool DlAddData(string_view chunk, lockuniq&) override;
-
-	bool withError(string_view message, fileitem::EDestroyMode destruction
-			= fileitem::EDestroyMode::KEEP);
+	void LogSetError(string_view message, fileitem::EDestroyMode destruction
+				   = fileitem::EDestroyMode::KEEP);
 
 	bool SaveHeader(bool truncatedKeepOnlyOrigInfo) override;
 private:
 	bool SafeOpenOutFile();
-};
 
+	// fileitem interface
+protected:
+	ssize_t DlAddData(evbuffer*, size_t maxTake) override;
+
+	// fileitem interface
+public:
+	std::unique_ptr<ICacheDataSender> GetCacheSender(off_t startPos) override;
+};
 
 }
 #endif

@@ -21,23 +21,26 @@ bool tHttpUrl::SetHttpUrl(cmstring &sUrlRaw, bool unescape)
 		bool bCheckBrac=false;
 
 		if(0==strncasecmp(url.c_str(), "http://", 7))
-				hStart=7;
+		{
+			hStart = 7;
+			m_schema = EProtoType::HTTP;
+		}
 		else if(0==strncasecmp(url.c_str(), "https://", 8))
 		{
 #ifndef HAVE_SSL
 		log::err("E_NOTIMPLEMENTED: SSL");
 		return false;
 #else
-				hStart=8;
-				bSSL=true;
+				hStart = 8;
+				m_schema = EProtoType::HTTPS;
 #endif
 		}
 		else if(isalnum((uint)url[0]))
-				hStart=0;
+				hStart = 0;
 		else if(url[0]=='[')
 		{
-				hStart=0;
-				bCheckBrac=true; // must be closed
+				hStart = 0;
+				bCheckBrac = true; // must be closed
 		}
 		else if(stmiss!=url.find("://"))
 				return false; // other protocol or weird stuff
@@ -128,6 +131,12 @@ bool tHttpUrl::SetHttpUrl(cmstring &sUrlRaw, bool unescape)
 
 }
 
+bool tHttpUrl::SetUnixUrl(cmstring &uri)
+{
+#warning implementme
+	return false;
+}
+
 string tHttpUrl::ToURI(bool bUrlEscaped, bool hostOnly) const
 {
 	auto s(GetProtoPrefix());
@@ -162,4 +171,10 @@ string tHttpUrl::GetHostPortKey() const
 {
 	return makeHostPortKey(sHost, GetPort());
 }
+
+string tHttpUrl::GetHostPortProtoKey() const
+{
+	return GetHostPortKey() + "__";
+}
+
 }

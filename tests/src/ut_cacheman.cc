@@ -53,14 +53,14 @@ std::string curDir()
 
 TEST(cacheman, pdiff)
 {
-	struct tConnStuff : public ISharedConnectionResources
+	struct tConnStuff : public IConnBase
 	{
 	public:
-		virtual dlcon* SetupDownloader() override {return nullptr;}
-		virtual void LogDataCounts(cmstring & , mstring , off_t ,
-								   off_t , bool ) override
-		{}
-		virtual std::shared_ptr<IFileItemRegistry> GetItemRegistry() override
+		dlcontroller* SetupDownloader() override
+		{
+			return nullptr;
+		}
+		lint_ptr<IFileItemRegistry> GetItemRegistry() override
 		{
 			cfg::cachedir = curDir();
 			cfg::cacheDirSlash = cfg::cachedir + "/";
@@ -68,12 +68,22 @@ TEST(cacheman, pdiff)
 				SetupServerItemRegistry();
 			return g_registry;
 		};
+		bool poke(uint_fast32_t) override
+		{
+			return true;
+		}
+		cmstring& getClientName() override
+		{
+			static cmstring none("NONE");
+			return none;
+		}
+
 	} connStuff;
 
 	tSpecialRequest::tRunParms opts
 	{
 		-1,
-		tSpecialRequest::eMaintWorkType::workSTYLESHEET,
+		ESpecialWorkType::workSTYLESHEET,
 		"?noop",
 		&connStuff
 	};

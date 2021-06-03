@@ -5,6 +5,7 @@
 #include "meta.h"
 #include "sockio.h"
 #include "acbuf.h"
+#include "job.h"
 
 static const std::string sBRLF("<br>\n");
 
@@ -22,45 +23,17 @@ static const std::string sBRLF("<br>\n");
 
 namespace acng
 {
-class ISharedConnectionResources;
+class IConnBase;
 
 class ACNG_API tSpecialRequest
 {
 public:
-	enum eMaintWorkType : uint8_t
-	{
-		workNotSpecial =0,
-
-		// expiration types
-		workExExpire,
-		workExList,
-		workExPurge,
-		workExListDamaged,
-		workExPurgeDamaged,
-		workExTruncDamaged,
-		//workBGTEST,
-		workUSERINFO,
-		workMAINTREPORT,
-		workAUTHREQUEST,
-		workAUTHREJECT,
-		workIMPORT,
-		workMIRROR,
-		workDELETE,
-		workDELETECONFIRM,
-		workCOUNTSTATS,
-		workSTYLESHEET,
-		workTraceStart,
-		workTraceEnd,
-//		workJStats, // disabled, probably useless
-		workTRUNCATE,
-		workTRUNCATECONFIRM
-	};
 	struct tRunParms
 	{
 		int fd;
-		tSpecialRequest::eMaintWorkType type;
+		ESpecialWorkType type;
 		cmstring cmd;
-		ISharedConnectionResources* pDlResProvider;
+		IConnBase* pDlResProvider;
 	};
 	/*!
 	 *  @brief Main execution method for maintenance tasks.
@@ -127,8 +100,8 @@ public:
 
 	tSS m_fmtHelper;
 
-	static ACNG_API eMaintWorkType DispatchMaintWork(cmstring &cmd, const char *auth);
-	static ACNG_API void RunMaintWork(eMaintWorkType jobType, cmstring& cmd, int fd, ISharedConnectionResources* dlResProvider);
+	static ACNG_API ESpecialWorkType DispatchMaintWork(cmstring &cmd, const char *auth);
+	static ACNG_API void RunMaintWork(ESpecialWorkType jobType, cmstring& cmd, int fd, IConnBase* dlResProvider);
 
 protected:
 	static ACNG_API tSpecialRequest* MakeMaintWorker(tRunParms&& parms);

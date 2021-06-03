@@ -2,7 +2,6 @@
 #include "debug.h"
 #include "meta.h"
 #include "acfg.h"
-#include "cleaner.h"
 #include "evabase.h"
 
 #include <list>
@@ -14,40 +13,40 @@ using namespace std;
 namespace acng
 {
 
-class TFileItemRegistry : public IFileItemRegistry, public enable_shared_from_this<TFileItemRegistry>
+class TFileItemRegistry : public IFileItemRegistry
 {
-		// IFileItemRegistry interface
-
-		tFiGlobMap mapItems;
-
-		struct TExpiredEntry
-		{
-				TFileItemHolder hodler;
-				time_t timeExpired;
-		};
-
-		std::list<TExpiredEntry> prolongedLifetimeQ;
-		acmutex prolongMx;
 public:
-		TFileItemHolder Create(cmstring &sPathUnescaped, ESharingHow how, const fileitem::tSpecialPurposeAttr &spattr) override;
-		TFileItemHolder Create(tFileItemPtr spCustomFileItem, bool isShareable) override;
-		time_t BackgroundCleanup() override;
-		void dump_status() override;
-		void AddToProlongedQueue(TFileItemHolder &&, time_t expTime) override;
+	tFiGlobMap mapItems;
 
-		// IFileItemRegistry interface
+	struct TExpiredEntry
+	{
+		TFileItemHolder hodler;
+		time_t timeExpired;
+	};
+
+	std::list<TExpiredEntry> prolongedLifetimeQ;
+	TFileItemHolder Create(cmstring &sPathUnescaped, ESharingHow how, const fileitem::tSpecialPurposeAttr &spattr) override;
+	TFileItemHolder Register(tFileItemPtr spCustomFileItem) override;
+	time_t BackgroundCleanup() override;
+	void dump_status() override;
+	void AddToProlongedQueue(TFileItemHolder &&, time_t expTime) override;
+
+	// IFileItemRegistry interface
 public:
-		void Unreg(fileitem& item) override
-		{
-				mapItems.erase(item.m_globRef);
-				item.m_globRef = mapItems.end();
-				item.m_owner.reset();
-		}
+	void Unreg(fileitem& item) override
+	{
+		auto pin(as_lptr(&item));
+		mapItems.erase(item.m_globRef);
+		item.m_globRef = mapItems.end();
+		item.m_owner = nullptr;
+	}
 };
 
-void SetupServerItemRegistry()
+lint_ptr<IFileItemRegistry> SetupServerItemRegistry()
 {
-	g_registry = std::make_shared<TFileItemRegistry>();
+	if (!g_registry)
+		g_registry = as_lptr((IFileItemRegistry*) new TFileItemRegistry);
+	return g_registry;
 }
 
 void TeardownServerItemRegistry()
@@ -55,31 +54,16 @@ void TeardownServerItemRegistry()
 	g_registry.reset();
 }
 
-TFileItemHolder::~TFileItemHolder()
+void fileitem::Abandon()
 {
 	LOGSTARTFUNC;
-	if (!m_ptr) // unregistered before? or not shared?
-		return;
-
-	auto local_ptr(m_ptr); // might disappear
-
-	lockuniq mangerLock;
-	auto manger = local_ptr->m_owner.lock();
-	if (manger)
-		mangerLock.assign(*manger, true);
-
-	lockguard fitemLock(*local_ptr);
-
-	if ( -- m_ptr->usercount > 0)
-		return; // still in active use
-
-	local_ptr->notifyAll();
+	auto manger = as_lptr(m_owner);
+	auto local_ptr = as_lptr(this); // might disappear, clean on stack unwinding
 
 #ifdef DEBUG
-	if (m_ptr->m_status > fileitem::FIST_INITED &&
-			m_ptr->m_status < fileitem::FIST_COMPLETE)
+	if (m_status > fileitem::FIST_INITED &&	m_status < fileitem::FIST_COMPLETE)
 	{
-		LOG(mstring("users gone while downloading?: ") + ltos(m_ptr->m_status));
+		LOG(mstring("users gone while downloading?: ") + ltos(m_status));
 	}
 #endif
 
@@ -87,18 +71,18 @@ TFileItemHolder::~TFileItemHolder()
 	if (manger
 			&& !evabase::in_shutdown
 			&& acng::cfg::maxtempdelay
-			&& m_ptr->IsVolatile()
-			&& m_ptr->m_status == fileitem::FIST_COMPLETE)
+			&& IsVolatile()
+			&& m_status == fileitem::FIST_COMPLETE)
 	{
 		auto now = GetTime();
 		auto expDate = time_t(acng::cfg::maxtempdelay)
-				+ m_ptr->m_nTimeDlStarted ? m_ptr->m_nTimeDlStarted : now;
+				+ m_nTimeDlStarted ? m_nTimeDlStarted : now;
 
 		if (expDate > now)
 		{
 			if (manger)
 			{
-				local_ptr->usercount++;
+				// increase the usecount again and keep it for another life
 				manger->AddToProlongedQueue(TFileItemHolder(local_ptr), expDate);
 			}
 			return;
@@ -106,27 +90,42 @@ TFileItemHolder::~TFileItemHolder()
 	}
 
 	// nothing, let's put the item into shutdown state
-	if (m_ptr->m_status < fileitem::FIST_COMPLETE)
-		m_ptr->m_status = fileitem::FIST_DLSTOP;
-	m_ptr->m_responseStatus.msg = "Cache file item expired";
-	m_ptr->m_responseStatus.code = 500;
+	if (m_status < fileitem::FIST_COMPLETE)
+		m_status = fileitem::FIST_DLSTOP;
+	m_responseStatus.msg = "Cache file item expired";
+	m_responseStatus.code = 500;
+	notifyAll();
+#warning eh, when notify is done, it should release everything... OR FIX THE CONCEPT
 	if (manger)
 	{
 		LOG("*this is last entry, deleting dl/fi mapping");
 		manger->Unreg(*local_ptr);
 	}
+}
 
-	// make sure it's not double-unregistered accidentally!
-	m_ptr.reset();
+event* regCleanEvent = nullptr;
+void cbRunRegClean(evutil_socket_t, short, void *p)
+{
+	auto pRe = (TFileItemRegistry*) p;
+	auto tNext = pRe->BackgroundCleanup();
+	if (tNext < END_OF_TIME)
+	{
+		timeval span { tNext - GetTime(), 1 };
+		event_add(regCleanEvent, &span);
+	}
 }
 
 void TFileItemRegistry::AddToProlongedQueue(TFileItemHolder&& p, time_t expTime)
 {
-		lockguard g(prolongMx);
-		// act like the item is still in use
-		prolongedLifetimeQ.emplace_back(TExpiredEntry {move(p), expTime});
-		cleaner::GetInstance().ScheduleFor(prolongedLifetimeQ.front().timeExpired,
-																		   cleaner::TYPE_EXFILEITEM);
+	if (!regCleanEvent)
+		regCleanEvent = evtimer_new(evabase::base, cbRunRegClean, this);
+	// act like the item is still in use
+	prolongedLifetimeQ.emplace_back(TExpiredEntry {move(p), expTime});
+	if (prolongedLifetimeQ.size() == 1)
+	{
+		timeval span { expTime - GetTime(), 1 };
+		event_add(regCleanEvent, &span);
+	}
 }
 
 TFileItemHolder TFileItemRegistry::Create(cmstring &sPathUnescaped, ESharingHow how, const fileitem::tSpecialPurposeAttr& spattr)
@@ -135,21 +134,17 @@ TFileItemHolder TFileItemRegistry::Create(cmstring &sPathUnescaped, ESharingHow 
 
 	try
 	{
-		mstring sPathRel(fileitem_with_storage::NormalizePath(sPathUnescaped));
-		lockguard lockGlobalMap(this);
+		mstring sPathRel(TFileitemWithStorage::NormalizePath(sPathUnescaped));
 		LOG("Normalized: " << sPathRel );
 		auto regnew = [&]()
 		{
 			LOG("Registering as NEW file item...");
-			auto sp(make_shared<fileitem_with_storage>(sPathRel));
-			sp->usercount++;
+			auto sp = as_lptr((fileitem*) new TFileitemWithStorage(sPathRel));
 			sp->m_spattr = spattr;
+			sp->m_owner = this;
 			auto res = mapItems.emplace(sPathRel, sp);
 			ASSERT(res.second);
-
-			sp->m_owner = shared_from_this();
 			sp->m_globRef = res.first;
-
 			return TFileItemHolder(sp);
 		};
 
@@ -162,11 +157,8 @@ TFileItemHolder TFileItemRegistry::Create(cmstring &sPathUnescaped, ESharingHow 
 		auto share = [&]()
 		{
 			LOG("Sharing existing file item");
-			it->second->usercount++;
 			return TFileItemHolder(it->second);
 		};
-
-		lockguard g(*fi);
 
 		if (how == ESharingHow::ALWAYS_TRY_SHARING || fi->m_bCreateItemMustDisplace)
 			return share();
@@ -195,12 +187,9 @@ TFileItemHolder TFileItemRegistry::Create(cmstring &sPathUnescaped, ESharingHow 
 				else
 				{
 					// new item is head-only but this is almost worthless, so the existing one wins and new one goes to the side track
-					auto altAttr = spattr;
-					altAttr.bNoStore = true;
-					LOG("Creating as NOSTORE HEADONLY file item...");
-					auto sp(make_shared<fileitem>(sPathRel));
-					sp->usercount++;
-					sp->m_spattr = altAttr;
+					auto sp = make_lptr<fileitem>(sPathRel);
+					sp->m_spattr = spattr;
+					sp->m_spattr.bNoStore = true;
 					return TFileItemHolder(sp);
 				}
 			}
@@ -227,15 +216,13 @@ TFileItemHolder TFileItemRegistry::Create(cmstring &sPathUnescaped, ESharingHow 
 		auto abandon_replace = [&]() {
 			fi->m_sPathRel = replPathAbs;
 			fi->m_eDestroy = fileitem::EDestroyMode::ABANDONED;
-
 			fi->m_globRef = mapItems.end();
-			fi->m_owner.reset();
-
+			fi->m_owner = nullptr;
 			mapItems.erase(it);
 			return regnew();
 		};
 
-		if(0 == link(pathAbs.c_str(), replPathAbs.c_str()))
+		if (0 == link(pathAbs.c_str(), replPathAbs.c_str()))
 		{
 			// only if it was actually there!
 			if (0 == unlink(pathAbs.c_str()) || errno != ENOENT)
@@ -258,35 +245,22 @@ TFileItemHolder TFileItemRegistry::Create(cmstring &sPathUnescaped, ESharingHow 
 }
 
 // make the fileitem globally accessible
-TFileItemHolder TFileItemRegistry::Create(tFileItemPtr spCustomFileItem, bool isShareable)
+TFileItemHolder TFileItemRegistry::Register(tFileItemPtr spCustomFileItem)
 {
 	LOGSTARTFUNCxs(spCustomFileItem->m_sPathRel);
 
-	TFileItemHolder ret;
-
 	if (!spCustomFileItem || spCustomFileItem->m_sPathRel.empty())
-		return ret;
-
-	dbgline;
-	if(!isShareable)
-	{
-		ret.m_ptr = spCustomFileItem;
-	}
-
-	lockguard lockGlobalMap(this);
-
-	dbgline;
+		return TFileItemHolder();
+	// cook a new entry than
 	auto installed = mapItems.emplace(spCustomFileItem->m_sPathRel,
 									  spCustomFileItem);
-
+	dbgline;
 	if(!installed.second)
-		return ret; // conflict, another agent is already active
+		return TFileItemHolder(); // conflict, another agent is already active
 	dbgline;
 	spCustomFileItem->m_globRef = installed.first;
-	spCustomFileItem->m_owner = shared_from_this();
-	spCustomFileItem->usercount++;
-	ret.m_ptr = spCustomFileItem;
-	return ret;
+	spCustomFileItem->m_owner = this;
+	return TFileItemHolder(spCustomFileItem.get());
 }
 
 // this method is supposed to be awaken periodically and detects items with ref count manipulated by
@@ -298,7 +272,6 @@ time_t TFileItemRegistry::BackgroundCleanup()
 	LOGSTARTFUNCsx(now);
 	// where the destructors eventually do their job on stack unrolling
 	decltype(prolongedLifetimeQ) releasedQ;
-	lockguard g(prolongMx);
 	if (prolongedLifetimeQ.empty())
 		return END_OF_TIME;
 	auto notExpired = std::find_if(prolongedLifetimeQ.begin(), prolongedLifetimeQ.end(),
@@ -308,32 +281,30 @@ time_t TFileItemRegistry::BackgroundCleanup()
 	return prolongedLifetimeQ.empty() ? END_OF_TIME : prolongedLifetimeQ.front().timeExpired;
 }
 
-
 void TFileItemRegistry::dump_status()
 {
 	tSS fmt;
 	log::err("File descriptor table:\n");
-	for(const auto& item : mapItems)
+	for (const auto& item : mapItems)
 	{
 		fmt.clear();
-		fmt << "FREF: " << item.first << " [" << item.second->usercount << "]:\n";
-		if(! item.second)
+		fmt << "FREF: " << item.first << " [" << item.second->__user_ref_cnt() << "]:\n";
+		if (! item.second)
 		{
 			fmt << "\tBAD REF!\n";
 			continue;
 		}
-		else
-		{
-			fmt << "\t" << item.second->m_sPathRel
-				<< "\n\tDlRefCount: " << item.second->m_nDlRefsCount
-				<< "\n\tState: " << (int)  item.second->m_status
-				<< "\n\tFilePos: " << item.second->m_nIncommingCount << " , "
+
+		fmt << "\t" << item.second->m_sPathRel
+			<< "\n\tDlRefCount: " << item.second->m_nDlRefsCount
+			<< "\n\tState: " << (int)  item.second->m_status
+			<< "\n\tFilePos: " << item.second->m_nIncommingCount << " , "
 					//<< item.second->m_nRangeLimit << " , "
-				<< item.second->m_nSizeChecked << " , "
+			<< item.second->m_nSizeChecked << " , "
 					<< item.second->m_nSizeCachedInitial
 					<< "\n\tGotAt: " << item.second->m_nTimeDlStarted << "\n\n";
-		}
-		log::err(fmt);
+
+		log::err(fmt.view());
 	}
 	log::flush();
 }

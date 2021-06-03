@@ -6,6 +6,7 @@
 #include "acfg.h"
 #include "acbuf.h"
 #include "fileio.h"
+#include "aevutil.h"
 
 #include <algorithm>
 
@@ -15,8 +16,6 @@
 #include <sys/time.h>
 
 using namespace std;
-
-#define ASSERT_HAVE_LOCK ASSERT(m_obj_mutex.try_lock() == false);
 
 namespace acng
 {
@@ -62,40 +61,7 @@ uint64_t fileitem::TakeTransferCount()
 	return ret;
 }
 
-unique_fd fileitem::GetFileFd()
-{
-	LOGSTART("fileitem::GetFileFd");
-	setLockGuard;
-	USRDBG("Opening " << m_sPathRel);
-	int fd = open(SZABSPATH(m_sPathRel), O_RDONLY);
-
-#ifdef HAVE_FADVISE
-	// optional, experimental
-	if (fd != -1)
-		posix_fadvise(fd, 0, m_nSizeChecked, POSIX_FADV_SEQUENTIAL);
-#endif
-
-	return unique_fd(fd);
-}
-
-off_t GetFileSize(cmstring &path, off_t defret)
-{
-	struct stat stbuf;
-	return (0 == ::stat(path.c_str(), &stbuf)) ? stbuf.st_size : defret;
-}
-/*
-void fileitem::ResetCacheState()
-{
-	setLockGuard;
-	m_nSizeSeen = 0;
-	m_nSizeChecked = 0;
-	m_status = FIST_FRESH;
-	m_bAllowStoreData = true;
-	m_head.clear();
-}
-*/
-
-fileitem::FiStatus fileitem_with_storage::Setup()
+fileitem::FiStatus TFileitemWithStorage::Setup()
 {
 	LOGSTARTFUNC;
 
@@ -169,6 +135,7 @@ void fileitem::UpdateHeadTimestamp()
 	utimes(SZABSPATH(m_sPathRel + ".head"), nullptr);
 }
 
+#if 0
 std::pair<fileitem::FiStatus, tRemoteStatus> fileitem::WaitForFinish()
 {
 	lockuniq g(this);
@@ -195,21 +162,15 @@ fileitem::WaitForFinish(unsigned timeout, const std::function<bool()> &waitInter
 	}
 	return std::pair<fileitem::FiStatus, tRemoteStatus>(m_status, m_responseStatus);
 }
+#endif
 
-inline void _LogWithErrno(const char *msg, const string & sFile)
-{
-	tErrnoFmter f;
-	USRERR(sFile << " storage error [" << msg << "], last errno: " << f);
-}
-
-bool fileitem_with_storage::withError(string_view message, fileitem::EDestroyMode destruction)
+void TFileitemWithStorage::LogSetError(string_view message, fileitem::EDestroyMode destruction)
 {
 	USRERR(m_sPathRel << " storage error [" << message << "], check file AND directory permissions, last errno: " << tErrnoFmter());
 	DlSetError({500, "Cache Error, check apt-cacher.err"}, destruction);
-	return false;
 }
 
-bool fileitem_with_storage::SaveHeader(bool truncatedKeepOnlyOrigInfo)
+bool TFileitemWithStorage::SaveHeader(bool truncatedKeepOnlyOrigInfo)
 {
 	auto headPath = SABSPATHEX(m_sPathRel, ".head");
 	if (truncatedKeepOnlyOrigInfo)
@@ -217,11 +178,10 @@ bool fileitem_with_storage::SaveHeader(bool truncatedKeepOnlyOrigInfo)
 	return StoreHeadToStorage(headPath, m_nContentLength, &m_responseModDate, &m_responseOrigin);
 };
 
-bool fileitem::DlStarted(string_view rawHeader, const tHttpDate& modDate, cmstring& origin, tRemoteStatus status, off_t bytes2seek, off_t bytesAnnounced)
+bool fileitem::DlStarted(evbuffer* rawData, size_t headerLen, const tHttpDate& modDate, cmstring& origin, tRemoteStatus status, off_t bytes2seek, off_t bytesAnnounced)
 {
 	LOGSTARTFUNCxs( modDate.view(), status.code, status.msg, bytes2seek, bytesAnnounced);
-	ASSERT_HAVE_LOCK
-	m_nIncommingCount += rawHeader.size();
+	ASSERT_HAVE_MAIN_THREAD;
 	notifyAll();
 
 	USRDBG( "Download started, storeHeader for " << m_sPathRel << ", current status: " << (int) m_status);
@@ -261,41 +221,122 @@ bool fileitem::DlStarted(string_view rawHeader, const tHttpDate& modDate, cmstri
 	return true;
 }
 
-bool fileitem_with_storage::DlAddData(string_view chunk, lockuniq&)
+ssize_t TFileitemWithStorage::DlAddData(evbuffer* src, size_t maxTake)
 {
 	LOGSTARTFUNC;
-	ASSERT_HAVE_LOCK;
+	ASSERT_HAVE_MAIN_THREAD;
+
 	// something might care, most likely... also about BOUNCE action
 	notifyAll();
 
-	m_nIncommingCount += chunk.size();
-	LOG("adding chunk of " << chunk.size() << " bytes at " << m_nSizeChecked);
+	LOG("adding chunk of " << maxTake << " bytes at " << m_nSizeChecked);
 
 	// is this the beginning of the stream?
 	if(m_filefd == -1 && !SafeOpenOutFile())
-		return false;
+		return RX_ERROR;
 
 	if (AC_UNLIKELY(m_filefd == -1 || m_status < FIST_DLGOTHEAD))
-		return withError("Suspicious fileitem status");
+		return LogSetError("Suspicious fileitem status"), RX_ERROR;
 
 	if (m_status > FIST_COMPLETE) // DLSTOP, DLERROR
-		return false;
+		return RX_ERROR;
 
-	while (!chunk.empty())
-	{
-		int r = write(m_filefd, chunk.data(), chunk.size());
-		if (r == -1)
-		{
-			if (EINTR != errno && EAGAIN != errno)
-				return withError("Write error");
-		}
-		m_nSizeChecked += r;
-		chunk.remove_prefix(r);
-	}
-	return true;
+	auto ret = eb_dump_atmost(src, m_filefd, maxTake);
+	if (ret > 0)
+		m_nIncommingCount += ret;
+	return ret;
 }
 
-bool fileitem_with_storage::SafeOpenOutFile()
+class TSimpleSender : public fileitem::ICacheDataSender
+{
+	// ICacheDataSender interface
+	unique_eb m_buf = unique_eb(evbuffer_new());
+	off_t m_pos = 0;
+	off_t& m_nCurSize;
+public:
+	TSimpleSender(int fd, off_t offset, off_t fileSize, off_t& curSizeVar)
+		: m_nCurSize(curSizeVar)
+	{
+		CHECK_ALLOCATED(*m_buf);
+		evbuffer_add_file(*m_buf, fd, offset, fileSize - offset);
+		m_pos = offset;
+	}
+	ssize_t SendData(bufferevent *target, size_t maxTake) override
+	{
+		auto n = eb_move_atmost(bufferevent_get_input(target), *m_buf, maxTake);
+		if (n > 0)
+			m_pos += n;
+		return n;
+	}
+
+	// ICacheDataSender interface
+public:
+	off_t Available() override
+	{
+		return m_nCurSize - m_pos;
+	}
+};
+
+class TSegmentSender : public fileitem::ICacheDataSender
+{
+public:
+	TSegmentSender(int fd, off_t offset);
+
+	// ICacheDataSender interface
+public:
+	off_t Available() override;
+
+	// ICacheDataSender interface
+public:
+	ssize_t SendData(bufferevent *target, size_t maxTake) override;
+};
+
+std::unique_ptr<fileitem::ICacheDataSender> TFileitemWithStorage::GetCacheSender(off_t startPos)
+{
+	LOGSTART("fileitem::GetFileFd");
+	setLockGuard;
+
+	if (m_status < FIST_DLRECEIVING || m_nSizeChecked < startPos)
+		return std::unique_ptr<fileitem::ICacheDataSender>();
+
+	USRDBG("Opening " << m_sPathRel);
+	int fd = open(SZABSPATH(m_sPathRel), O_RDONLY);
+	if (startPos < m_nSizeChecked)
+		return std::unique_ptr<fileitem::ICacheDataSender>();
+#warning implement segment sender
+	ASSERT(m_nContentLength < 0 || startPos < m_nContentLength);
+	ASSERT(!"implement segment sender if needed");
+#if 0
+
+#ifdef HAVE_FADVISE
+	// optional, experimental
+	if (fd != -1)
+		posix_fadvise(fd, 0, m_nSizeChecked, POSIX_FADV_SEQUENTIAL);
+#endif
+
+	return unique_fd(fd);
+#endif
+
+	if (m_nContentLength > 0 || m_status == FIST_COMPLETE)
+		return make_unique<TSimpleSender>(fd, startPos, m_nContentLength, m_nSizeChecked);
+
+	return make_unique<TSegmentSender>(fd, startPos);
+}
+
+/*
+void fileitem::ResetCacheState()
+{
+	setLockGuard;
+	m_nSizeSeen = 0;
+	m_nSizeChecked = 0;
+	m_status = FIST_FRESH;
+	m_bAllowStoreData = true;
+	m_head.clear();
+}
+*/
+
+
+bool TFileitemWithStorage::SafeOpenOutFile()
 {
 	LOGSTARTFUNC;
 	checkforceclose(m_filefd);
@@ -322,7 +363,7 @@ bool fileitem_with_storage::SafeOpenOutFile()
 		// keep the file descriptor later if needed
 		unique_fd tmp(open(tname.c_str(), flags, cfg::fileperms));
 		if (tmp.m_p == -1)
-			return withError("Cannot create cache files");
+			return LogSetError("Cannot create cache files"), false;
 		fdatasync(tmp.m_p);
 		bool didNotExist = false;
 		if (0 != rename(sPathAbs.c_str(), tname2.c_str()))
@@ -330,10 +371,10 @@ bool fileitem_with_storage::SafeOpenOutFile()
 			if (errno == ENOENT)
 				didNotExist = true;
 			else
-				return withError("Cannot move cache files");
+				return LogSetError("Cannot move cache files"), false;
 		}
 		if (0 != rename(tname.c_str(), sPathAbs.c_str()))
-			return withError("Cannot rename cache files");
+			return LogSetError("Cannot rename cache files"), false;
 		if (!didNotExist)
 			unlink(tname2.c_str());
 		std::swap(m_filefd, tmp.m_p);
@@ -356,7 +397,7 @@ bool fileitem_with_storage::SafeOpenOutFile()
 
 	auto sizeOnDisk = lseek(m_filefd, 0, SEEK_END);
 	if (sizeOnDisk == -1)
-		return withError("Cannot seek in cache files");
+		return LogSetError("Cannot seek in cache files"), false;
 
 	// remote files may shrink! We could write in-place and truncate later,
 	// however replacing whole thing from the start seems to be safer option
@@ -379,13 +420,13 @@ bool fileitem_with_storage::SafeOpenOutFile()
 	if(m_nSizeChecked > sizeOnDisk)
 	{
 		// hope that it has been validated before!
-		return withError("Checked size beyond EOF");
+		return LogSetError("Checked size beyond EOF"), false;
 	}
 
 	auto sHeadPath(sPathAbs + ".head");
 	ldbg("Storing header as " + sHeadPath);
 	if (!SaveHeader(false))
-		return withError("Cannot store header");
+		return LogSetError("Cannot store header"), false;
 
 	// okay, have the stream open
 	m_status = FIST_DLRECEIVING;
@@ -415,34 +456,12 @@ void fileitem::MarkFaulty(bool killFile)
 	DlSetError({500, "Bad Cache Item"}, killFile ? EDestroyMode::DELETE : EDestroyMode::TRUNCATE);
 }
 
-
-ssize_t fileitem_with_storage::SendData(int out_fd, int in_fd, off_t &nSendPos, size_t count)
-{
-	if(out_fd == -1 || in_fd == -1)
-		return -1;
-
-#ifndef HAVE_LINUX_SENDFILE
-	return sendfile_generic(out_fd, in_fd, &nSendPos, count);
-#else
-	//if (m_status <= FIST_DLRECEIVING)
-	//	return sendfile_generic(out_fd, in_fd, &nSendPos, count);
-
-	auto r = sendfile(out_fd, in_fd, &nSendPos, count);
-
-	if(r<0 && (errno == ENOSYS || errno == EINVAL))
-		return sendfile_generic(out_fd, in_fd, &nSendPos, count);
-
-	return r;
-#endif
-}
-
-mstring fileitem_with_storage::NormalizePath(cmstring &sPathRaw)
+mstring TFileitemWithStorage::NormalizePath(cmstring &sPathRaw)
 {
 	return cfg::stupidfs ? DosEscape(sPathRaw) : sPathRaw;
 }
 
-
-fileitem_with_storage::~fileitem_with_storage()
+TFileitemWithStorage::~TFileitemWithStorage()
 {
 	if (AC_UNLIKELY(m_spattr.bNoStore))
 		return;
@@ -476,7 +495,7 @@ fileitem_with_storage::~fileitem_with_storage()
 		calcPath();
 		if (0 != ::truncate(sPathAbs.c_str(), 0))
 			unlink(sPathAbs.c_str());
-		fileitem_with_storage::SaveHeader(true);
+		TFileitemWithStorage::SaveHeader(true);
 		break;
 	}
 	case EDestroyMode::ABANDONED:
@@ -496,14 +515,14 @@ fileitem_with_storage::~fileitem_with_storage()
 	{
 		calcPath();
 		unlink(sPathAbs.c_str());
-		fileitem_with_storage::SaveHeader(true);
+		TFileitemWithStorage::SaveHeader(true);
 		break;
 	}
 	}
 }
 
 // special file? When it's rewritten from start, save the old version aside
-void fileitem_with_storage::MoveRelease2Sidestore()
+void TFileitemWithStorage::MoveRelease2Sidestore()
 {
 	if(m_nSizeChecked)
 		return;
@@ -525,7 +544,7 @@ void fileitem_with_storage::MoveRelease2Sidestore()
 void fileitem::DlFinish(bool forceUpdateHeader)
 {
 	LOGSTARTFUNC;
-	ASSERT_HAVE_LOCK;
+	ASSERT_HAVE_MAIN_THREAD;
 
 	if (AC_UNLIKELY(m_spattr.bNoStore))
 		return;
@@ -560,7 +579,7 @@ void fileitem::DlFinish(bool forceUpdateHeader)
 
 void fileitem::DlSetError(const tRemoteStatus& errState, fileitem::EDestroyMode kmode)
 {
-	ASSERT_HAVE_LOCK
+	ASSERT_HAVE_MAIN_THREAD;
 	notifyAll();
 	/*
 	 * Maybe needs to fuse them, OTOH hard to tell which is the more severe or more meaningful
@@ -577,5 +596,8 @@ void fileitem::DlSetError(const tRemoteStatus& errState, fileitem::EDestroyMode 
 	if (kmode < m_eDestroy)
 		m_eDestroy = kmode;
 }
+
+
+
 
 }

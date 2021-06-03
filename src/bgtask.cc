@@ -47,26 +47,6 @@ tSpecOpDetachable::~tSpecOpDetachable()
 	checkforceclose(m_logFd);
 }
 
-cmstring GetFooter()
-{
-        return mstring("<hr><address>Server: ") + cfg::agentname
-                + "&nbsp;&nbsp;"
-				"|&nbsp;&nbsp;<a\nhref=\"/\">Usage Information</a>&nbsp;&nbsp;"
-				"|&nbsp;&nbsp;<a\nhref=\"https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=QDCK9C2ZGUKZY&source=url\">Donate!"
-                "</a>&nbsp;&nbsp;"
-				"|&nbsp;&nbsp;<a\nhref=\"http://www.unix-ag.uni-kl.de/~bloch/acng/\">Apt-Cacher NG homepage</a></address>";
-}
-
-std::string to_base36(unsigned int val)
-{
-	static std::string base36 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-	std::string result;
-	do {
-		result.insert(0, 1, base36[val % 36]);
-	} while (val /= 36);
-	return result;
-}
-
 /*
  *  TODO: this is kept in expiration class for historical reasons. Should be moved to some shared upper
  * class, like "detachedtask" or something like that
@@ -76,7 +56,6 @@ void tSpecOpDetachable::Run()
 
 	if (m_parms.cmd.find("&sigabort")!=stmiss)
 	{
-		lockguard g(g_StateCv);
 		g_sigTaskAbort=true;
 		g_StateCv.notifyAll();
 		tStrPos nQuest=m_parms.cmd.find("?");
@@ -303,7 +282,8 @@ void tSpecOpDetachable::Run()
 
 bool tSpecOpDetachable::CheckStopSignal()
 {
-	lockguard g(&g_StateCv);
+#warning restore protection
+	//lockguard g(&g_StateCv);
 	return g_sigTaskAbort || evabase::in_shutdown;
 }
 
@@ -393,5 +373,168 @@ void tBgTester::Action()
 }
 
 #endif // DEBUG
+
+
+inline void job::PrepareLocalDownload(const string &visPath,
+									  const string &fsBase, const string &fsSubpath)
+{
+	mstring absPath = fsBase+SZPATHSEP+fsSubpath;
+	Cstat stbuf(absPath);
+	if (!stbuf)
+	{
+		switch(errno)
+		{
+		case EACCES:
+			SetEarlySimpleResponse("403 Permission denied");
+			break;
+		case EBADF:
+		case EFAULT:
+		case ENOMEM:
+		case EOVERFLOW:
+		default:
+			SetEarlySimpleResponse("500 Internal server error");
+			break;
+		case ELOOP:
+			SetEarlySimpleResponse("500 Infinite link recursion");
+			break;
+		case ENAMETOOLONG:
+			SetEarlySimpleResponse("500 File name too long");
+			break;
+		case ENOENT:
+		case ENOTDIR:
+			SetEarlySimpleResponse("404, File or directory not found");
+			break;
+		}
+		return;
+	}
+
+	if(S_ISDIR(stbuf.st_mode))
+	{
+		// unconfuse the browser
+		if (!endsWithSzAr(visPath, SZPATHSEPUNIX))
+		{
+			class dirredirect : public tGeneratedFitemBase
+			{
+			public:	dirredirect(const string &visPath)
+					: tGeneratedFitemBase(visPath, {301, "Moved Permanently"}, visPath + "/")
+				{
+					m_data << "<!DOCTYPE html>\n<html lang=\"en\"><head><title>301 Moved Permanently</title></head><body><h1>Moved Permanently</h1>"
+					"<p>The document has moved <a href=\""+visPath+"/\">here</a>.</p></body></html>";
+					seal();
+				}
+			};
+			m_pItem = m_parent.GetItemRegistry()->Create(make_shared<dirredirect>(visPath), false);
+			return;
+		}
+
+		class listing: public tGeneratedFitemBase
+		{
+		public:
+			listing(const string &visPath) :
+				tGeneratedFitemBase(visPath, {200, "OK"})
+			{
+				seal(); // for now...
+			}
+		};
+		auto p = make_shared<listing>(visPath);
+		m_pItem = m_parent.GetItemRegistry()->Create(p, false);
+		tSS & page = p->m_data;
+
+		page << "<!DOCTYPE html>\n<html lang=\"en\"><head><title>Index of "
+				<< visPath << "</title></head>"
+		"<body><h1>Index of " << visPath << "</h1>"
+		"<table><tr><th>&nbsp;</th><th>Name</th><th>Last modified</th><th>Size</th></tr>"
+		"<tr><th colspan=\"4\"><hr></th></tr>";
+
+		DIR *dir = opendir(absPath.c_str());
+		if (!dir) // weird, whatever... ignore...
+			page<<"ERROR READING DIRECTORY";
+		else
+		{
+			// quick hack with sorting by custom keys, good enough here
+			priority_queue<tStrPair, std::vector<tStrPair>, std::greater<tStrPair>> sortHeap;
+			for(struct dirent *pdp(0);0!=(pdp=readdir(dir));)
+			{
+				if (0!=::stat(mstring(absPath+SZPATHSEP+pdp->d_name).c_str(), &stbuf))
+					continue;
+
+				bool bDir=S_ISDIR(stbuf.st_mode);
+
+				char datestr[32]={0};
+				struct tm tmtimebuf;
+				strftime(datestr, sizeof(datestr)-1,
+						 "%d-%b-%Y %H:%M", localtime_r(&stbuf.st_mtime, &tmtimebuf));
+
+				string line;
+				if(bDir)
+					line += "[DIR]";
+				else if(startsWithSz(cfg::GetMimeType(pdp->d_name), "image/"))
+					line += "[IMG]";
+				else
+					line += "[&nbsp;&nbsp;&nbsp;]";
+				line += string("</td><td><a href=\"") + pdp->d_name
+						+ (bDir? "/\">" : "\">" )
+						+ pdp->d_name
+						+"</a></td><td>"
+						+ datestr
+						+ "</td><td align=\"right\">"
+						+ (bDir ? string("-") : offttosH(stbuf.st_size));
+				sortHeap.push(make_pair(string(bDir?"a":"b")+pdp->d_name, line));
+				//dbgprint((mstring)line);
+			}
+			closedir(dir);
+			while(!sortHeap.empty())
+			{
+				page.add(WITHLEN("<tr><td valign=\"top\">"));
+				page << sortHeap.top().second;
+				page.add(WITHLEN("</td></tr>\r\n"));
+				sortHeap.pop();
+			}
+
+		}
+		page << "<tr><td colspan=\"4\">" <<GetFooter();
+		page << "</td></tr></table></body></html>";
+		p->seal();
+		return;
+	}
+	if(!S_ISREG(stbuf.st_mode))
+	{
+		SetEarlySimpleResponse("403 Unsupported data type");
+		return;
+	}
+	/*
+	 * This variant of file item handler sends a local file. The
+	 * header data is generated as needed, the relative cache path variable
+	 * is reused for the real path.
+	 */
+	class tLocalGetFitem : public TFileitemWithStorage
+	{
+	public:
+		tLocalGetFitem(string sLocalPath, struct stat &stdata) : TFileitemWithStorage(sLocalPath)
+		{
+			m_status=FIST_COMPLETE;
+			m_nSizeChecked=m_nSizeCachedInitial=stdata.st_size;
+			m_spattr.bVolatile=false;
+			m_responseStatus = { 200, "OK"};
+			m_nContentLength = m_nSizeChecked = stdata.st_size;
+			m_responseModDate = tHttpDate(stdata.st_mtim.tv_sec);
+			cmstring &sMimeType=cfg::GetMimeType(sLocalPath);
+			if(!sMimeType.empty())
+				m_contentType = sMimeType;
+		};
+		unique_fd GetFileFd() override
+		{
+			int fd=open(m_sPathRel.c_str(), O_RDONLY);
+#ifdef HAVE_FADVISE
+			// optional, experimental
+			if(fd>=0)
+				posix_fadvise(fd, 0, m_nSizeChecked, POSIX_FADV_SEQUENTIAL);
+#endif
+			return unique_fd(fd);
+		}
+	};
+	m_pItem = m_parent.GetItemRegistry()->Create(make_shared<tLocalGetFitem>(absPath, stbuf), false);
+}
+
 
 }

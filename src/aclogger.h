@@ -71,24 +71,23 @@ mstring ACNG_API open();
 void ACNG_API close(bool bReopen = false, bool truncateDebugLog = false);
 void transfer(uint64_t bytesIn, uint64_t bytesOut, cmstring& sClient, cmstring& sPath,
 		bool bAsError);
+
 void ACNG_API err(const char *msg, size_t len);
+void ACNG_API err(tSS&& msg);
+void ACNG_API err(const tSS& msg);
+//void ACNG_API err(std::string&& msg);
+inline void err(string_view msg) { if (logIsEnabled) return err(msg.data(), msg.length()); }
+inline void err(LPCSTR msg) { return err(string_view(msg));}
+inline void err(cmstring& msg) { return err(string_view(msg));}
+
 void ACNG_API dbg(const char *msg, size_t len);
-void misc(const mstring & sLine, const char cLogType = 'M');
-inline void err(string_view msg)
-{
-	if(!logIsEnabled) return;
-	err(msg.data(), msg.length());
-}
-inline void err(const tSS& msg)
-{
-	if(!logIsEnabled) return;
-	err(msg.rptr(), msg.length());
-}
 inline void dbg(string_view msg)
 {
-	if(!logIsEnabled) return;
-	dbg(msg.data(), msg.length());
+	if(logIsEnabled) dbg(msg.data(), msg.length());
 }
+
+void misc(const mstring & sLine, const char cLogType = 'M');
+
 void flush();
 
 void GenerateReport(mstring &);

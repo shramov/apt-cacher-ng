@@ -1,9 +1,7 @@
 #include <memory>
-
+#include "conn.h"
 #include "conserver.h"
 #include "meta.h"
-#include "lockable.h"
-#include "conn.h"
 #include "acfg.h"
 #include "caddrinfo.h"
 #include "ahttpurl.h"
@@ -11,8 +9,8 @@
 #include "fileio.h"
 #include "evabase.h"
 #include "acregistry.h"
-#include "tpool.h"
 #include "portutils.h"
+#include "tpool.h"
 
 #include <signal.h>
 #include <arpa/inet.h>
@@ -41,6 +39,7 @@ using namespace std;
 
 namespace acng
 {
+
 namespace conserver
 {
 
@@ -48,28 +47,12 @@ int yes(1);
 
 const struct timeval g_resumeTimeout { 2, 11 };
 
-SHARED_PTR<tpool> g_tpool;
-
-void SetupConAndGo(unique_fd&& man_fd, const char *szClientName, const char *portName)
+inline void SetupConAndGo(unique_fd man_fd, string clientName, LPCSTR clientPort)
 {
-	LOGSTARTFUNCs;
-	string sClient(szClientName ? szClientName : "");
-	USRDBG("Client name: " << sClient << ":" << portName);
+	USRDBG("Client name: " << clientName << ":" << clientPort);
 	try
 	{
-		// cannot move things into a lambda, capture it later again
-		std::function<void()> act = [fd = man_fd.release(), sClient = move(sClient)]() mutable
-		{
-			try
-			{
-				auto c = make_unique<conn>(unique_fd(fd), sClient, g_registry);
-
-				c->WorkLoop();
-			}  catch (...) {
-				// ignored, unique_fd will clean up
-			}
-		};
-		g_tpool->schedule(move(act));
+		StartServing(move(man_fd), move(clientName));
 	}
 	catch (const std::bad_alloc&)
 	{
@@ -132,7 +115,7 @@ void do_accept(evutil_socket_t server_fd, short, void* arg)
 	if (addr.ss_family == AF_UNIX)
 	{
 		USRDBG("Detected incoming connection from the UNIX socket");
-		SetupConAndGo(move(man_fd), nullptr, "unix");
+		SetupConAndGo(move(man_fd), "<UNIX>", "unix");
 	}
 	else
 	{
