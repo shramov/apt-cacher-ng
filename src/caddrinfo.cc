@@ -79,6 +79,7 @@ string makeHostPortKey(const string & sHostname, uint16_t nPort)
 // that key data becomes worthless.
 map<string,CAddrInfoPtr> dns_cache;
 deque<decltype(dns_cache)::iterator> dns_exp_q;
+using unique_aresinfo = auto_raii<struct ares_addrinfo*, ares_freeaddrinfo, nullptr>;
 
 // descriptor of a running DNS lookup, passed around with libevent callbacks
 struct tDnsResContext : public tLintRefcounted
@@ -93,10 +94,10 @@ struct tDnsResContext : public tLintRefcounted
 	{
 		lint_ptr<tDnsResContext> ownerRef;
 		int status = ARES_EBADFLAGS;
-		ares_addrinfo* results = nullptr;
-		~tResult() { if(results) ares_freeaddrinfo(results); }
+		unique_aresinfo results;
+		tResult(const lint_ptr<tDnsResContext>& owner) : ownerRef(owner) {}
 	};
-	vector<tResult> tasks;
+	list<tResult> tasks;
 
 	decltype(g_active_resolver_index)::iterator refMe;
 
@@ -119,12 +120,7 @@ struct tDnsResContext : public tLintRefcounted
 				   ns_c_in, ns_t_srv, tDnsResContext::cb_srv_query, this);
 		evabase::GetDnsBase()->sync();
 	}
-	void setResTaskCount(unsigned n)
-	{
-		tasks.resize(n);
-		for(auto& el: tasks)
-			el.ownerRef.reset(this);
-	}
+
 	void runCallbacks(SHARED_PTR<CAddrInfo> &res)
 	{
 		for(auto& el: cbs)
@@ -194,7 +190,7 @@ void tDnsResContext::cb_addrinfo(void *arg,
 	auto taskCtx((tDnsResContext::tResult*)arg);
 	// reseting refcount on the owning object too early can have side effects
 	auto pin(move(taskCtx->ownerRef));
-	taskCtx->results = results;
+	taskCtx->results.m_p = results;
 	taskCtx->status = status;
 }
 
@@ -220,10 +216,11 @@ void tDnsResContext::cb_srv_query(void *arg, int status, int, unsigned char *abu
 	if (ARES_ENOMEM == status)
 		return me->reportNewError("Out of memory");
 
-	auto invoke_getaddrinfo = [&] (cmstring& sHost, tResult* pTaskCtx)
+	tPortAsString sp(me->nPort);
+
+	auto invoke_getaddrinfo = [&] (cmstring& sHost)
 	{
 		static bool filter_specific = (cfg::conprotos[0] != PF_UNSPEC && cfg::conprotos[1] == PF_UNSPEC);
-
 		static const ares_addrinfo_hints default_connect_hints =
 		{
 			// we provide plain port numbers, no resolution needed
@@ -232,26 +229,25 @@ void tDnsResContext::cb_srv_query(void *arg, int status, int, unsigned char *abu
 			filter_specific ? cfg::conprotos[0] : PF_UNSPEC,
 			SOCK_STREAM, IPPROTO_TCP
 		};
-		tPortAsString sp(me->nPort);
 		ares_getaddrinfo(me->resolver->get(),
 						 sHost.c_str(),
 						 sp.s,
-						 &default_connect_hints, tDnsResContext::cb_addrinfo, pTaskCtx);
-		me->resolver->sync();
+						 &default_connect_hints, tDnsResContext::cb_addrinfo,
+						 & me->tasks.emplace_back(me));
 	};
 	deque<ares_srv_reply*> all;
+	bool directResolvingIncluded = false;
 	if (status == ARES_SUCCESS)
 	{
 		ares_srv_reply* pReply = nullptr;
 		if (ARES_SUCCESS == ares_parse_srv_reply(abuf, alen, &pReply))
 		{
 			unsigned maxWeight = 1;
-			bool resNameAmongSrvSet = false;
 			// that's considering all weights from different priorities in the same way, assuming that too heavy differences won't hurt the precission afterwards
 			for(auto p = pReply; p; p = p->next)
 			{
 				maxWeight = std::max((unsigned) p->weight, maxWeight);
-				resNameAmongSrvSet |= (me->sHost == p->host);
+				directResolvingIncluded |= (me->sHost == p->host);
 			}
 			// factor to bring the dimension of random() into our dimension so that in never overflows when scaling back
 			auto scaleFac = (INT_MAX / maxWeight + 1);
@@ -265,17 +261,9 @@ void tDnsResContext::cb_srv_query(void *arg, int status, int, unsigned char *abu
 			std::sort(all.begin(), all.end(), comp);
 			auto consideredHosts = std::min(all.size(), size_t(DNS_MAX_PER_REQUEST));
 
-			// extra slot for the fallback request, if not covered by one of those hosts
-			me->setResTaskCount(resNameAmongSrvSet ? consideredHosts : consideredHosts + 1);
-
 			for (unsigned i = 0; i < consideredHosts; ++i)
 			{
-				invoke_getaddrinfo(all[i]->host, & me->tasks.at(i));
-			}
-
-			if (!resNameAmongSrvSet)
-			{
-				invoke_getaddrinfo(me->sHost, & me->tasks.back());
+				invoke_getaddrinfo(all[i]->host);
 			}
 		}
 		if (pReply)
@@ -283,13 +271,12 @@ void tDnsResContext::cb_srv_query(void *arg, int status, int, unsigned char *abu
 			ares_free_data(pReply);
 		}
 	}
-	// no or bad SRV, do just regular getaddrinfo
-	if (me->tasks.empty())
+	// no or bad SRV, or target not included among SRV targets -> add as last resort
+	if (!directResolvingIncluded)
 	{
-		me->setResTaskCount(1);
-		invoke_getaddrinfo(me->sHost, & me->tasks.front());
+		invoke_getaddrinfo(me->sHost);
 	}
-
+	me->resolver->sync();
 }
 
 map<string, tDnsResContext*> tDnsResContext::g_active_resolver_index;
@@ -314,7 +301,7 @@ tDnsResContext::~tDnsResContext()
 
 		for(const auto& taskCtx : tasks)
 		{
-			auto tres = taskCtx.results;
+			auto tres = taskCtx.results.get();
 			if (errStatus == ARES_SUCCESS)
 				errStatus = taskCtx.status;
 

@@ -1,3 +1,35 @@
+apt-cacher-ng (3.7.2-1) experimental; urgency=high
+
+  * New upstream bugfix release
+  * Applying -DCMAKE_SKIP_RPATH=ON for reproducible builds (closes: #989203)
+
+ -- Eduard Bloch <blade@debian.org>  Sun, 30 May 2021 22:35:02 +0200
+
+apt-cacher-ng (3.7.1-1) experimental; urgency=medium
+
+  * New upstream release
+    + adds DNS SRV record support (actually closes: #954904)
+    + improves skipping over faulty mirrors (mostly since 3.7 which
+      closes: #949656), this should also solve old issues (please reopen if
+      needed, for now it closes: #787289, #883482, #792541)
+    + stops using incorrect date stamps in manually imported files (actually
+      fixed in 3.7, closes: #988517)
+    + adding cdn-fastly.deb.debian.org as regular mirror (closes: #987394)
+    + cleanup references to old tools in the docs (closes: #916296)
+  * Added libc-ares-dev as Build-Bependency (FTBFS fix)
+
+ -- Eduard Bloch <blade@debian.org>  Tue, 25 May 2021 20:54:14 +0200
+
+apt-cacher-ng (3.7-1) experimental; urgency=medium
+
+  * New EXPERIMENTAL upstream release
+    + various fixes, now this probably really closes: #954904, #986356
+    + minor DB generation reproducibility improvement, closes: #988976
+    + Limited support of Cache-Control header from clients (no-cache,
+      no-store) for LP: #1915713
+
+ -- Eduard Bloch <blade@debian.org>  Sat, 22 May 2021 15:34:07 +0200
+
 apt-cacher-ng (3.6.4-1) unstable; urgency=medium
 
   * New upstream bugfix version
