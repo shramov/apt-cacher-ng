@@ -13,7 +13,7 @@
 
 \H{manpage-synopsis} SYNOPSIS
 
-\c acngfs BaseURL ProxyHost [CachePath] MountPoint [-o FUSE Mount Options]
+\c acngfs BaseURL MountPoint [ proxy=ProxyHost:ProxyPort ] [ cachedir=CachePath ] [ more_acng=settings] [FUSE Mount Options]
 
 \H{manpage-description} DESCRIPTION
 
@@ -51,11 +51,11 @@ In sources.list, the source appears as a file:/ type URL, like:
 
 and the filesystem backend is prepared with a command like:
 
-\c{/usr/lib/apt-cacher-ng/acngfs http://ftp.uni-kl.de/debian cacheBox:3142 /var/local/acngfs_debian -o allow_root}
+\c{/usr/lib/apt-cacher-ng/acngfs http://ftp.uni-kl.de/debian proxy=cacheBox:3142 /var/local/acngfs_debian -o allow_root}
 
 or for a locally installed apt-cacher-ng with common Debian cache repository stored in /var/cache/apt-cacher-ng/debrep:
 
-\c{/usr/lib/apt-cacher-ng/acngfs http://ftp.uni-kl.de/debian localhost:3142 /var/cache/apt-cacher-ng/debrep /var/local/acngfs_debian -o allow_root}
+\c{/usr/lib/apt-cacher-ng/acngfs http://ftp.uni-kl.de/debian /var/cache/apt-cacher-ng/debrep proxy=localhost:3142 cachedir=/var/local/acngfs_debian -o allow_root}
 
 \H{manpage-options} OPTIONS
 
@@ -123,4 +123,4 @@ For more information on Apt-Cacher NG, read the User Manual which can be found
 either in the doc/pdf directory of the software source package or installed in
 the documentation directory of apt-cacher-ng by your distribution.
 
-\versionid Eduard Bloch, Sun, 07 Aug 2011 00:38:54 +0200
+\versionid Eduard Bloch, Mon, 10 May 2021 22:16:56 +0200

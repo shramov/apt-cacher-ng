@@ -15,7 +15,7 @@ CHECK_CXX_SOURCE_COMPILES("${TESTSRC}" HAVE_FUSE_25)
 if(fuse_FOUND AND HAVE_FUSE_25)
         # not linking acngstuff lib, too many dependencies, so building a custom variant with MINIBUILD flag
         list(APPEND fsSRCS httpfs.cc)
-
+        include_directories("${CMAKE_SOURCE_DIR}/src")
         ADD_EXECUTABLE(acngfs ${fsSRCS})
         SET_TARGET_PROPERTIES(acngfs PROPERTIES COMPILE_FLAGS "${ACNG_COMPFLAGS} ${ACNG_CXXFLAGS} ${acngfs_cflags}")
         INSTALL(TARGETS acngfs DESTINATION ${LIBDIR})

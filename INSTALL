@@ -4,7 +4,12 @@ Requirements:
  - CMake 3.1 or newer, probably also GNU make
  - gcc 4.7 or newer or clang 3.0 or newer and latest libstdc++ or Boost headers
  - on Linux systems, kernel 2.6.22 or newer and glibc 2.8 or newer
- - pkg-config and zlib (and development components)
+ - System components (including development parts):
+   - pkg-config
+   - zlib
+   - libevent (2.0 or newer)
+   - libc-ares
+ - pkg-config
 
 Extra requirements for optional features:
  - libbz2, liblzma (from XZ), OpenSSL (>= 1.0.2) and their development parts
@@ -12,6 +17,7 @@ Extra requirements for optional features:
    OpenSSL is not available. See LibTomCrypt notes below!
  - recent FUSE library and its development files for the "virtual mirror"
    filesystem
+ - libsystemd (for integration with systemd lifecycle, opt. socket activation)
 
 Build and installation instructions:
 
