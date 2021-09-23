@@ -1,3 +1,135 @@
+apt-cacher-ng (3.7.2) SHIFT_HAPPENZ; urgency=high
+
+  [ BUGFIXES]
+
+  * DNS: fix potential memory corruption if the count of reported SRV hosts
+    exceeds the regular limit
+  * DNS: considers the requested name as the last target candidate if the name
+    is not among the candidates suggested by SRV record
+  * Minor portability issues (32bit and older GCC) resolved
+
+  [ IMPROVEMENTS ]
+
+  * Memory saving by using trivial data type for port specification
+
+ -- Eduard Bloch <blade@debian.org>  Sun, 30 May 2021 20:28:21 +0200
+
+apt-cacher-ng (3.7.1) 2-WINDY-OUTSIDE; urgency=low
+
+  [ NEW FEATURES AND IMPROVEMENTS ]
+
+  * Support SRV DNS records - if they deliver alternative hostnames for the
+    initial _http._tcp.* request, consider up to five hosts specified there
+    instead of regular A/AAAA/CNAME on the hostname itself. The priorities and
+    weights are respected but the precision might vary, depending on the
+    scale of the weights. Balancing happens with random factors, and the
+    calculation results are cached for the configured DNS caching time. Also,
+    while there is fallback to normal resolution in case where SRV records
+    don't resolve in anything, there is no fallback handling when connection
+    problems are found later.
+  * Adding cdn-fastly.deb.debian.org as regular or backup mirror
+
+  [ INTERNAL REDESIGN ]
+
+  * Extracting thread pool into reusable class
+  * All source/header relocation to src folder
+
+  [ FIXING POTENTIAL 3.7 REGRESSIONS ]
+
+  * Fix linking with -DDEBUG and common code built as shared lib
+  * Fix build with -Werror (forgotten but irrelevant virtual destructor)
+  * Fix potentially incorrect behavior on shutdown while DNS resolution is
+    ongoing
+
+  [ BUGFIXES]
+
+  * Fix bad requests in case RequestAppendix contain invisible characters or
+    other garbage
+  * Drop documentation references to distkill.pl and expire-caller.pl script
+
+ -- Eduard Bloch <blade@debian.org>  Tue, 25 May 2021 19:37:17 +0200
+
+apt-cacher-ng (3.7) AND-SOMETIMES-THE-BEAR-EATS-YOU; urgency=medium
+
+  * This is an EXPERIMENTAL version. Certain features and code changes should
+    not be consider mature. This version might make some things better than
+    3.6.x series, and some things worse, including damaging existing caches.
+
+    USE AT YOUR OWN RISK!
+    YOU HAVE BEEN WARNED!
+
+  [ BREAKING CHANGES ]
+
+  * "just cleanup" parameter -e was removed. This has been troublesome to
+    implement long time ago and is most likely not used in the wild. This
+    can be replaced easily and with better privilege separation using a
+    shell script which starts apt-cacher-ng in foreground and calls acngtool.
+  * cache processor is now more stric with regards to file metadata. Manually
+    imported files (without use of the official Import function) will no
+    longer be considered valid without at least a timestamp check on the
+    server.
+  * acngfs does not support setting of proxy server and (optional) local extra
+    folder as plain argument, instead those need to be specified as proxy=...
+    and cachedir=... .
+
+  [ BUGFIXES ]
+
+  * Fixes for potential bugfixes with error checking for corner cases all over
+    the place
+  * Cleans up with potential bug sources for incorrect transmission to the
+    client while the item content was sent to cache and to caller
+    simultaneously
+  * Fix potentially incorrect over-insisting file descriptor closing which
+    might have impacted libevent descriptors (Debian bugs #954904, #986356)
+  * Fix potentially incorrect error reporting for IPv6/IPv4 switching
+    connection attempts which eventually ended in failure (timeout, rejected)
+  * Fix missing newline when RequestAppendix header, which caused it's merging
+    with some prepending header line
+  * Better reproducible runs of DB generations (Debian bug #988976)
+
+  [ INTERNAL REFACTORING ]
+
+  * Overhauling many core components, especially download, delivery and cache
+    management code; probably the heaviest change since 2014:
+
+    a) supposedly using less CPU cycles and fewer critical sections
+    b) supposedly using less memory for regular data serving
+    c) never truncating package files, only appending
+    d) more consistent error codes
+    e) separate debug logging into apt-cacher.dbg file
+    f) precise separation into type classes of the active cache items,
+       therefore better efficiency in case of volatile/non-volatile mixup,
+       also preparing to support cached requests with protected access and
+       individual credentials (Salsa feature requests)
+    g) simplified head file storage for delivery task
+    h) adding dedicated log/err/dbg files for acngfs
+
+  * New switches to disable optional components: ENABLE_TOOLS, ENABLE_TESTS
+  * Direct linking to libfuse for acngfs is mandatory now, the dlopen path was
+    removed since libfuse2 is in wide use nowadays anyway
+
+  [ NEW FEATURES AND IMPROVEMENTS ]
+
+  * Limited support of Cache-Control header from clients (no-cache, no-store)
+    for LP: #1915713
+  * Support for open-end range requests
+  * Support regular variable assignments (like in acngtool) in acngfs command
+    line syntax, although the meanings might be slightly different (CacheDir
+    means local fallback folder)
+  * Better error messages stored in apt-cacher.err, helping to track down
+    filesystem issues
+  * Considering more than two IPs simultaneously when initiating connection,
+    and running this task on IO thread, reducing number of select() calls
+  * When recreating by-hash siblings in the archive, try to restore the
+    modification date where possible, therefore probably avoid redownloading
+    them for (rare) clients which don't follow the by-hash scheme
+
+  [ MISCELLANEOUS]
+
+  * Database update
+
+ -- Eduard Bloch <blade@debian.org>  Sat, 22 May 2021 14:34:51 +0200
+
 apt-cacher-ng (3.6.4) 11TH-HOUR-RELEASE; urgency=low
 
   * Fix the premature and unsafe closing of file descriptors:

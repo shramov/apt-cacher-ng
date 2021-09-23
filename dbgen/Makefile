@@ -98,7 +98,7 @@ $(CONFDIR)/archlx_mirrors:
       | sed -e 's/.* = //' -e 's/\$$repo.*//' >> $(DBTMP)/archlx_mirrors
 	sort -u < $(DBTMP)/archlx_mirrors > $(CONFDIR)/archlx_mirrors
 
-$(CONFDIR)/deb_mirrors.gz: sig-debian deburlgen.pl
+$(CONFDIR)/deb_mirrors.gz: sig-debian deburlgen.pl extra/deb_mirrors
 	perl deburlgen.pl Archive-http < $(DBTMP)/dsnap > $(DBTMP)/dsnap.urls
 	cat extra/deb_mirrors >> $(DBTMP)/dsnap.urls
 	-zcat $@ >> $(DBTMP)/dsnap.urls
@@ -118,10 +118,10 @@ TARARGS += --mtime=@1
 else
 TARARGS += --mtime=@$(SOURCE_DATE_EPOCH)
 endif
-ifneq ($(shell LANG=C tar --help | grep clamp-mtime),)
+ifneq ($(shell LC_ALL=C tar --help | grep clamp-mtime),)
 TARARGS += --clamp-mtime
 endif
-ifneq ($(shell LANG=C tar --help | grep "sort.*name"),)
+ifneq ($(shell LC_ALL=C tar --help | grep "sort.*name"),)
 TARARGS += --sort=name
 endif
 

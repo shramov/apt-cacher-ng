@@ -1,4 +1,4 @@
-.\" Eduard Bloch, Sun, 07 Aug 2011 00:38:54 +0200
+.\" Eduard Bloch, Mon, 10 May 2021 22:16:56 +0200
 .ie \n(.g .ds Aq \(aq
 .el       .ds Aq '
 .TH "acngfs" "8" "Juni\ 2008" "acngfs" "Eduard\ Bloch"
@@ -8,7 +8,7 @@
 .SH "SYNOPSIS"
 .PP
 .nf
-acngfs\ BaseURL\ ProxyHost\ [CachePath]\ MountPoint\ [\-o\ FUSE\ Mount\ Options]
+acngfs\ BaseURL\ MountPoint\ [\ proxy=ProxyHost:ProxyPort\ ]\ [\ cachedir=CachePath\ ]\ [\ more_acng=settings]\ [FUSE\ Mount\ Options]
 .fi
 .SH "DESCRIPTION"
 .PP
@@ -37,11 +37,11 @@ Typical use may be to let apt/dpkg use package file like they are present on the
 .PP
 and the filesystem backend is prepared with a command like:
 .PP
-\fB/usr/lib/apt-cacher-ng/acngfs http://ftp.uni-kl.de/debian cacheBox:3142 /var/local/acngfs_debian -o allow_root\fP
+\fB/usr/lib/apt-cacher-ng/acngfs http://ftp.uni-kl.de/debian proxy=cacheBox:3142 /var/local/acngfs_debian -o allow_root\fP
 .PP
 or for a locally installed apt-cacher-ng with common Debian cache repository stored in /var/cache/apt-cacher-ng/debrep:
 .PP
-\fB/usr/lib/apt-cacher-ng/acngfs http://ftp.uni-kl.de/debian localhost:3142 /var/cache/apt-cacher-ng/debrep /var/local/acngfs_debian -o allow_root\fP
+\fB/usr/lib/apt-cacher-ng/acngfs http://ftp.uni-kl.de/debian /var/cache/apt-cacher-ng/debrep proxy=localhost:3142 cachedir=/var/local/acngfs_debian -o allow_root\fP
 .SH "OPTIONS"
 .PP
 The command-line options supported by \fBacngfs\fP are:

@@ -1,12 +1,21 @@
 #include "gtest/gtest.h"
-#include "dbman.h"
+//#include "dbman.h"
 #include "csmapping.h"
 #include "acfg.h"
+
+#include "ahttpurl.h"
+#include "astrop.h"
 
 #include "gmock/gmock.h"
 
 #include <unordered_map>
 
+namespace acng
+{
+        void check_algos();
+}
+
+#if 0
 TEST(algorithms, checksumming)
 {
 	ASSERT_NO_THROW(acng::check_algos());
@@ -21,6 +30,7 @@ TEST(algorithms, checksumming)
 
 	ASSERT_NE(csmd, cs2);
 }
+#endif
 
 TEST(algorithms,bin_str_long_match)
 {
@@ -100,7 +110,6 @@ TEST(algorithms,bin_str_long_match)
 TEST(strop,views)
 {
 	using namespace acng;
-	using namespace nonstd::string_view_literals;
 	string_view a = "foo  ", b = "  foo";
 	auto x=a;
 	trimFront(x);
@@ -141,7 +150,7 @@ TEST(strop,splitter)
 	using namespace acng;
 	std::deque<string_view> exp {"foo", "bar", "blalba"};
 
-	tSplitWalk tknzr("  foo bar blalba", SPACECHARS, false);
+    tSplitWalk tknzr("  foo bar blalba", SPACECHARS);
 	std::deque<string_view> result;
 	for(auto it:tknzr) result.emplace_back(it);
 	ASSERT_EQ(result, exp);
@@ -155,7 +164,7 @@ TEST(strop,splitter)
 
 	ASSERT_EQ(result, q);
 
-	tSplitWalk strct("a;bb;;c", ";", true);
+    tSplitWalkStrict strct("a;bb;;c", ";");
 	std::deque<string_view> soll {"a", "bb", "", "c"};
 	ASSERT_EQ(soll, strct.to_deque());
 	strct.reset(";a;bb;;c");
@@ -169,4 +178,87 @@ TEST(strop,splitter)
 	ASSERT_EQ(q.size(), 6);
 	ASSERT_EQ(q.front(), "");
 	ASSERT_EQ(q.back(), "");
+
+    tSplitWalk white("a b");
+    ASSERT_TRUE(white.Next());
+    ASSERT_EQ(white.right(), "b");
+
+    tSplitWalk blue("a b    ");
+    ASSERT_TRUE(blue.Next());
+    ASSERT_EQ(blue.right(), "b");
+
+    tSplitByStr xspliter("!!as!!!df!!gh", "!!");
+    auto sq = xspliter.to_deque();
+    ASSERT_EQ(3, sq.size());
+    ASSERT_EQ(sq[1], "!df");
+    ASSERT_EQ(sq[2], "gh");
+
+    tSplitByStrStrict yspliter("!!as!!!df!!gh", "!!");
+    ASSERT_TRUE(yspliter.Next());
+    ASSERT_TRUE(yspliter.view().empty());
+    ASSERT_TRUE(yspliter.Next());
+    ASSERT_EQ(yspliter.view(), "as");
+    ASSERT_TRUE(yspliter.Next());
+    ASSERT_EQ(yspliter.view(), "!df");
+    ASSERT_TRUE(yspliter.Next());
+    ASSERT_EQ(yspliter.view(), "gh");
+    ASSERT_FALSE(yspliter.Next());
+}
+
+TEST(algorithms, rex)
+{
+	using namespace acng;
+	using namespace acng::rex;
+	CompileExpressions();
+	auto type = GetFiletype("http://debug.mirrors.debian.org/debian-debug/dists/sid-debug/main/i18n/Translation-de.xz");
+	ASSERT_EQ(type, FILE_VOLATILE);
+	type = GetFiletype("debrep/dists/unstable/contrib/dep11/by-hash/SHA256/60fe36491abedad8471a0fb3c4fe0b5d73df8b260545ee4aba1a26efa79cdceb");
+	ASSERT_EQ(type, FILE_SOLID);
+	auto misc = R"END(
+http://ftp.ch.debian.org/debian/dists/unstable/InRelease
+http://ftp.ch.debian.org/debian/dists/unstable/main/binary-amd64/Packages.xz
+http://ftp.ch.debian.org/debian/dists/unstable/main/binary-i386/Packages.xz
+http://ftp.ch.debian.org/debian/dists/unstable/main/binary-all/Packages.xz
+http://ftp.ch.debian.org/debian/dists/unstable/main/i18n/Translation-de_DE.xz
+http://ftp.ch.debian.org/debian/dists/unstable/main/i18n/Translation-de.xz
+http://ftp.ch.debian.org/debian/dists/unstable/main/i18n/Translation-en.xz
+http://ftp.ch.debian.org/debian/dists/unstable/main/dep11/Components-amd64.yml.xz
+http://ftp.ch.debian.org/debian/dists/unstable/main/dep11/Components-all.yml.xz
+http://ftp.ch.debian.org/debian/dists/unstable/main/dep11/icons-48x48.tar.xz
+http://ftp.ch.debian.org/debian/dists/unstable/main/dep11/icons-64x64.tar.xz
+http://ftp.ch.debian.org/debian/dists/unstable/main/Contents-amd64.xz
+http://ftp.ch.debian.org/debian/dists/unstable/main/Contents-i386.xz
+http://ftp.ch.debian.org/debian/dists/unstable/main/Contents-all.xz
+http://ftp.ch.debian.org/debian/dists/unstable/non-free/binary-amd64/Packages.xz
+http://ftp.ch.debian.org/debian/dists/unstable/non-free/binary-i386/Packages.gz
+http://ftp.ch.debian.org/debian/dists/unstable/non-free/binary-all/Packages.bz2
+http://ftp.ch.debian.org/debian/dists/unstable/non-free/i18n/Translation-de_DE.xz
+http://ftp.ch.debian.org/debian/dists/unstable/non-free/i18n/Translation-de.xz
+http://ftp.ch.debian.org/debian/dists/unstable/non-free/i18n/Translation-en.xz
+http://ftp.ch.debian.org/debian/dists/unstable/non-free/dep11/Components-amd64.yml.xz
+http://ftp.ch.debian.org/debian/dists/unstable/non-free/dep11/Components-all.yml.xz
+http://ftp.ch.debian.org/debian/dists/unstable/non-free/dep11/icons-48x48.tar.xz
+http://ftp.ch.debian.org/debian/dists/unstable/non-free/dep11/icons-64x64.tar.xz
+http://ftp.ch.debian.org/debian/dists/unstable/non-free/Contents-amd64.xz
+http://ftp.ch.debian.org/debian/dists/unstable/non-free/Contents-i386.xz
+http://ftp.ch.debian.org/debian/dists/unstable/non-free/Contents-all.xz
+http://ftp.ch.debian.org/debian/dists/unstable/contrib/binary-amd64/Packages.xz
+http://ftp.ch.debian.org/debian/dists/unstable/contrib/binary-i386/Packages.xz
+http://ftp.ch.debian.org/debian/dists/unstable/contrib/binary-all/Packages.xz
+http://ftp.ch.debian.org/debian/dists/unstable/contrib/i18n/Translation-de_DE.xz
+http://ftp.ch.debian.org/debian/dists/unstable/contrib/i18n/Translation-de.xz
+http://ftp.ch.debian.org/debian/dists/unstable/contrib/i18n/Translation-en.xz
+http://ftp.ch.debian.org/debian/dists/unstable/contrib/dep11/Components-amd64.yml.xz
+http://ftp.ch.debian.org/debian/dists/unstable/contrib/dep11/Components-all.yml.xz
+http://ftp.ch.debian.org/debian/dists/unstable/contrib/dep11/icons-48x48.tar.xz
+http://ftp.ch.debian.org/debian/dists/unstable/contrib/dep11/icons-64x64.tar.xz
+http://ftp.ch.debian.org/debian/dists/unstable/contrib/Contents-amd64.xz
+http://ftp.ch.debian.org/debian/dists/unstable/contrib/Contents-i386.xz
+http://ftp.ch.debian.org/debian/dists/unstable/contrib/Contents-all.xz
+)END";
+	for(tSplitWalk split(misc); split.Next();)
+	{
+		type = GetFiletype(split);
+		EXPECT_EQ(type, FILE_VOLATILE);
+	}
 }

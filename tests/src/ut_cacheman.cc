@@ -1,7 +1,7 @@
 #include "gtest/gtest.h"
 #include "cacheman.h"
 #include "acfg.h"
-
+#include "acregistry.h"
 #include "gmock/gmock.h"
 
 #include <unordered_map>
@@ -13,15 +13,15 @@ using namespace acng;
 
 struct testman : cacheman
 {
-testman() : cacheman(tSpecialRequest::tRunParms()) {}
-bool ProcessRegular(const std::string &sPath, const struct stat &) {return true;}
-bool ProcessOthers(const std::string &sPath, const struct stat &) {return true;}
-bool ProcessDirAfter(const std::string &sPath, const struct stat &) {return true;}
+testman(tSpecialRequest::tRunParms p) : cacheman(p) {}
+bool ProcessRegular(const std::string &, const struct stat &) override {return true;}
+bool ProcessOthers(const std::string &, const struct stat &) override {return true;}
+bool ProcessDirAfter(const std::string &, const struct stat &) override {return true;}
 protected:
-	virtual void Action() {}
+	virtual void Action() override {}
 	virtual bool Download(cmstring& sFilePathRel, bool bIsVolatileFile,
-			eDlMsgPrio msgLevel, tFileItemPtr pForcedItem=tFileItemPtr(),
-			const tHttpUrl *pForcedURL=nullptr, unsigned hints=0, cmstring* sGuessedFrom = nullptr)
+			eDlMsgPrio msgLevel,
+			const tHttpUrl *pForcedURL=nullptr, unsigned hints=0, cmstring* sGuessedFrom = nullptr, bool replace = false)
 	override {
 		auto exBeg = mstring(TEST_DIR "T-20");
 		auto beg = sFilePathRel.substr(0,  exBeg.size());
@@ -35,19 +35,51 @@ protected:
 		EXPECT_EQ(0, dled);
 		return !dled;
 	}
+#if 0
 	virtual bool Inject(cmstring &fromRel, cmstring &toRel, bool bSetIfileFlags,
 			const header *pForcedHeader, bool bTryLink)	override
 	{
 		return true;
 	}
+#endif
 };
+
+std::string curDir()
+{
+	char pbuf[PATH_MAX];
+	return getcwd(pbuf, _countof(pbuf));
+}
 
 
 TEST(cacheman, pdiff)
 {
-	testman tm;
-	tStrDeq input { "_tmp/base.doesntexist.Packages.xz" };
+	struct tConnStuff : public ISharedConnectionResources
+	{
+	public:
+		virtual dlcon* SetupDownloader() override {return nullptr;}
+		virtual void LogDataCounts(cmstring & , mstring , off_t ,
+								   off_t , bool ) override
+		{}
+		virtual std::shared_ptr<IFileItemRegistry> GetItemRegistry() override
+		{
+			cfg::cachedir = curDir();
+			cfg::cacheDirSlash = cfg::cachedir + "/";
+			if (!g_registry)
+				SetupServerItemRegistry();
+			return g_registry;
+		};
+	} connStuff;
 
+	tSpecialRequest::tRunParms opts
+	{
+		-1,
+		tSpecialRequest::eMaintWorkType::workSTYLESHEET,
+		"?noop",
+		&connStuff
+	};
+	testman tm(opts);
+	tStrDeq input { "_tmp/base.doesntexist.Packages.xz" };
+	cfg::suppdir = curDir();
 	// those files are not registered, should bounce
 	ASSERT_EQ(-1, tm.PatchOne(IPATH, input));
 	cacheman::tIfileAttribs& setter1 = tm.SetFlags(input.front());
@@ -62,10 +94,10 @@ TEST(cacheman, pdiff)
 	twoDaysAgo -= twoDaysAgo % 86400;
 	auto s2dago = ltos(twoDaysAgo);
 	auto pbase = cmstring("_tmp/") + s2dago;
-	auto cmd = cmstring("test -e ") + pbase + " || wget $(date -d @" + s2dago
+	auto cmd = cmstring("set -xe ; test -e ") + pbase + ".orig || wget $(date -d @" + s2dago
 			+ " +http://snapshot.debian.org/archive/debian/"
-			+ "%Y%m%dT%H%M%SZ/dists/sid/main/binary-amd64/Packages.xz) -O- | "
-			+ "xzcat > " + pbase;
+			+ "%Y%m%dT%H%M%SZ/dists/sid/main/binary-amd64/Packages.xz) -O "+ pbase +  ".orig; "
+			+ "xzcat " + pbase + ".orig > " + pbase;
 	ASSERT_EQ(0, system(cmd.c_str()));
 	{
 		Cstat info(pbase);
@@ -77,7 +109,6 @@ TEST(cacheman, pdiff)
 	input.emplace_back(pbase);
 	ASSERT_EQ(0, tm.PatchOne(IPATH, input));
 
-
 	{
 		filereader rd;
 		ASSERT_TRUE(rd.OpenFile(IPATH, true, 1));
@@ -87,12 +118,10 @@ TEST(cacheman, pdiff)
 			{
 				pbase_len = atoi(s.c_str() + 80);
 				pbase_sum = s.substr(16, 64);
-				trimString(pbase_sum);
+				trimBoth(pbase_sum);
 			}
 		}
 		ASSERT_EQ(pbase_sum.size(), 64);
 		ASSERT_TRUE(pbase_len > 0);
 	}
-
 }
-#warning FIXME, check the auto-linking of by-hash files Release -> by-hash/SHA256/07cb692d133dce21dabb9e42201b8e632a7c6a069b53f9ae8173a4ea24606da9 	2017-07-21 03:22:26
