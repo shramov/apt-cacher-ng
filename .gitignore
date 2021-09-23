@@ -5,7 +5,6 @@
 *~
 TODO.next
 dbgen/tmp/*
-doc/dev/*
 perfstats/*
 dev/*
 */.gitignore
@@ -19,5 +18,4 @@ build
 builddir
 test/misc
 conf/*test.conf
-doc/Makefile
 **/.gitignore

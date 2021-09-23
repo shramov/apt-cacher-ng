@@ -21,6 +21,7 @@ INCLUDE(CheckCXXSourceCompiles)
 INCLUDE(CheckCXXCompilerFlag)
 INCLUDE(CheckTypeSize)
 INCLUDE(TestBigEndian)
+INCLUDE(CheckFunctionExists)
 INCLUDE(CheckLibraryExists)
 INCLUDE(CheckSymbolExists)
 INCLUDE(FindPkgConfig)
@@ -74,6 +75,8 @@ CHECK_TYPE_SIZE(int SIZE_INT)
 CHECK_TYPE_SIZE(long SIZE_LONG)
 TEST_BIG_ENDIAN(WORDS_BIGENDIAN)
 
+CHECK_FUNCTION_EXISTS(strlcpy HAVE_STRLCPY)
+
 # those are appended later via COMPILER_FLAGS. $CXXFLAGS and CMAKE_CXX_FLAGS
 # also influence it, need to be adjusted carefully by user.
 SET(ACNG_COMPFLAGS "-D_FILE_OFFSET_BITS=64")
@@ -114,6 +117,8 @@ endforeach(linkarg)
 #set(CMAKE_REQUIRED_FLAGS "")
 
 option(USE_SSL "Use OpenSSL library for TLS and other crypto functionality" on)
+option(ENABLE_TOOLS "Build additional command line tools (acngfs, inetd client)" on)
+option(ENABLE_TESTS "Build tests (for development only)" off)
 
 IF(CMAKE_SYSTEM MATCHES "Darwin")
         _append(ACNG_COMPFLAGS -D_DARWIN_C_SOURCE)
@@ -185,7 +190,13 @@ CHECK_CXX_COMPILER_FLAG("" LD_ATOMIC)
 if(LD_ATOMIC)
 _append(BaseNetworkLibs atomic)
 endif()
+set(CMAKE_REQUIRED_FLAGS "-lstdc++fs")
+CHECK_CXX_COMPILER_FLAG("" HAVE_FSLIB)
+if(HAVE_FSLIB)
+	LIST(APPEND BaseNetworkLibs stdc++fs)
+endif()
 set(CMAKE_REQUIRED_FLAGS "")
+
 
 if(CYGWIN)
 message("!! Not using wordexp on Cygwin, not reliable")
@@ -237,9 +248,9 @@ _append(CFLAGS_DAEMON ${lsd_CFLAGS})
 _append(LDFLAGS_DAEMON ${lsd_LDFLAGS})
 set(HAVE_SD_NOTIFY ${lsd_FOUND})
 
-SET(CMAKE_REQUIRED_LIBRARIES dl)
-FILE(READ ${TESTKITDIR}/HAVE_DLOPEN.cc TESTSRC)
-CHECK_CXX_SOURCE_COMPILES("${TESTSRC}" HAVE_DLOPEN)
+#SET(CMAKE_REQUIRED_LIBRARIES dl)
+#FILE(READ ${TESTKITDIR}/HAVE_DLOPEN.cc TESTSRC)
+#CHECK_CXX_SOURCE_COMPILES("${TESTSRC}" HAVE_DLOPEN)
 
 # XXX: convert the compressor stuff to pkgconfig usage and print an overview of enabled/found values in one final message and collect and process cflags too
 
@@ -294,6 +305,11 @@ if(NOT libevent_pthreads_FOUND)
 else()
         string(REPLACE ";" " " ACNG_COMPFLAGS "${ACNG_COMPFLAGS} ${libevent_pthreads_CFLAGS}")
         LIST(APPEND BaseNetworkLibs ${libevent_pthreads_LDFLAGS})
+endif()
+
+pkg_check_modules(cares REQUIRED "libcares")
+if(cares_FOUND)
+    LIST(APPEND BaseNetworkLibs ${cares_LDFLAGS})
 endif()
 
 if(USE_SSL)
@@ -359,11 +375,13 @@ SET(CMAKE_SHARED_LIBRARY_LINK_C_FLAGS "")
 # all checks done, save configuration #
 #######################################
 
-CONFIGURE_FILE("${CMAKE_SOURCE_DIR}/include/acsyscap.h.in" "${CMAKE_BINARY_DIR}/acsyscap.h")
+CONFIGURE_FILE("${CMAKE_SOURCE_DIR}/src/acsyscap.h.in" "${CMAKE_BINARY_DIR}/acsyscap.h")
 
-add_subdirectory(client)
-add_subdirectory(fs)
-add_subdirectory(source)
+if(ENABLE_TOOLS)
+	add_subdirectory(client)
+	add_subdirectory(fs)
+endif()
+add_subdirectory(src)
 add_subdirectory(conf)
 add_subdirectory(systemd)
 
