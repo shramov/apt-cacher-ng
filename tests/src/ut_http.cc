@@ -1,6 +1,7 @@
 #include "gtest/gtest.h"
 #include "httpdate.h"
 #include "header.h"
+#include "ahttpurl.h"
 
 #include "gmock/gmock.h"
 
@@ -209,4 +210,39 @@ TEST(http, misc)
 {
 	auto n = sizeof(acng::acng_addrinfo);
 	ASSERT_GE(n, sizeof(::sockaddr_in6) + 3*sizeof(int));
+}
+
+TEST(http, url_host_port)
+{
+        tHttpUrl url;
+		std::string ti="127.0.0.1";
+        ASSERT_TRUE(url.SetHttpUrl(ti));
+		ASSERT_EQ(url.sHost, ti);
+		ASSERT_EQ(url.GetPort(), 80);
+		ti="127.0.0.2:8080";
+		ASSERT_TRUE(url.SetHttpUrl(ti));
+		ASSERT_EQ(url.sHost, "127.0.0.2");
+		ASSERT_EQ(url.GetPort(), 8080);
+		ti="::1999";
+		ASSERT_TRUE(url.SetHttpUrl(ti));
+		ASSERT_EQ(url.sHost, "::1999");
+		ASSERT_EQ(url.GetPort(), 80);
+
+		ASSERT_TRUE(url.SetHttpUrl("[::fefe]"));
+		ASSERT_EQ(url.sHost, "::fefe");
+		ASSERT_EQ(url.GetPort(), 80);
+
+		ASSERT_TRUE(url.SetHttpUrl("[::abcd]:8080"));
+		ASSERT_EQ(url.sHost, "::abcd");
+		ASSERT_EQ(url.GetPort(), 8080);
+
+		ASSERT_FALSE(url.SetHttpUrl(":foo]"));
+		ASSERT_FALSE(url.SetHttpUrl(":1111]"));
+		ASSERT_FALSE(url.SetHttpUrl("[1111"));
+		ASSERT_FALSE(url.SetHttpUrl("[1111:f0"));
+		ASSERT_FALSE(url.SetHttpUrl("[:::1]"));
+		ASSERT_FALSE(url.SetHttpUrl(":::affe"));
+		ASSERT_FALSE(url.SetHttpUrl("[:::1] :1234"));
+		ASSERT_FALSE(url.SetHttpUrl("[:::1]lol:1234"));
+		ASSERT_FALSE(url.SetHttpUrl("[:::1]lol?=asdf"));
 }
