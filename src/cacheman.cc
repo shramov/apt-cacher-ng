@@ -325,7 +325,7 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
     {
         lockguard g(*pFi);
         if (initState > fileitem::FIST_COMPLETE)
-            GOTOREPMSG(pFi->m_responseStatus.msg);
+			GOTOREPMSG(message_detox(pFi->m_responseStatus.msg, pFi->m_responseStatus.code));
 
         if (fileitem::FIST_COMPLETE == initState)
         {
@@ -481,7 +481,7 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 				SendChunkSZ("<i>(ignored)</i>\n");
 		}
 		else
-            GOTOREPMSG(dlres.second.msg);
+			GOTOREPMSG(message_detox(dlres.second.msg, dlres.second.code));
 	}
 
 	rep_dlresult:
@@ -605,7 +605,7 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 			if(!flags.hideDlErrors)
 			{
 				SendFmt << "<span class=\"ERROR\">" << sErr << "</span>\n";
-				if(0 == (hints&DL_HINT_NOTAG))
+				if(0 == (hints & DL_HINT_NOTAG))
 					AddDelCbox(sFilePathRel, sErr);
 			}
 		}
