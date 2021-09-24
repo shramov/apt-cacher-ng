@@ -60,7 +60,6 @@ public:
 	bool StartTunnel(const tHttpUrl & realTarget, mstring& sError, cmstring *psAuthorization, bool bDoSSLinit);
 
 private:
-	std::string _Connect(int timeout);
 	tRepoUsageHooks *m_pStateObserver=nullptr;
 
 protected:
@@ -68,7 +67,7 @@ protected:
 	BIO *m_bio = nullptr;
 	SSL_CTX * m_ctx = nullptr;
 	SSL * m_ssl = nullptr;
-	bool SSLinit(mstring &sErr, cmstring &host, uint16_t nPort);
+	bool SSLinit(mstring &sErr);
 #endif
 
 	friend class dl_con_factory;

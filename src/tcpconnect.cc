@@ -72,16 +72,6 @@ tcpconnect::~tcpconnect()
 	}
 }
 
-std::string tcpconnect::_Connect(int timeout)
-{
-	LOGSTARTFUNCx(m_sHostName, timeout);
-	auto res = aconnector::Connect(m_sHostName, m_nPort, timeout);
-	if (!res.second.empty())
-		return res.second;
-	m_conFd = res.first.release();
-	return sEmptyString;
-}
-
 void tcpconnect::Disconnect()
 {
 	LOGSTARTFUNCx(m_sHostName);
@@ -127,14 +117,6 @@ tDlStreamHandle dl_con_factory::CreateConnected(cmstring &sHostname, uint16_t nP
 	bool bReused=false;
 	auto key = make_tuple(sHostname, nPort SSL_OPT_ARG(bSsl) );
 
-#ifdef NOCONCACHE
-	p.reset(new tcpconnect(pStateTracker));
-	if(p)
-	{
-		if(!p->_Connect(sHostname, sPort, sErrOut) || p->GetFD()<0) // failed or worthless
-			p.reset();
-	}
-#else
 	if(!nocache)
 	{
 		// mutex context
@@ -158,7 +140,6 @@ tDlStreamHandle dl_con_factory::CreateConnected(cmstring &sHostname, uint16_t nP
 #endif
 		}
 	}
-#endif
 
 	if(!p)
 	{
@@ -167,21 +148,26 @@ tDlStreamHandle dl_con_factory::CreateConnected(cmstring &sHostname, uint16_t nP
 		{
 			p->m_sHostName = sHostname;
 			p->m_nPort = nPort;
-			auto conErr = p->_Connect(timeout);
-			if (!conErr.empty())
+			auto res = aconnector::Connect(sHostname, nPort, timeout);
+
+			if (!res.sError.empty())
 			{
-				sErrOut = conErr;
+				sErrOut = move(res.sError);
 				p.reset();
 			}
-			else if(p->GetFD() == -1)
+			else if(res.fd.get() == -1)
 			{
 				sErrOut = "General Connection Error"sv;
 				p.reset();
 			}
+			else
+			{
+				p->m_conFd = res.fd.release();
+			}
 		}
 
 #ifdef HAVE_SSL
-		if(p && bSsl && !p->SSLinit(sErrOut, sHostname, nPort))
+		if(p && bSsl && !p->SSLinit(sErrOut))
 		{
 			p.reset();
 			LOG("ssl init error");
@@ -228,7 +214,6 @@ void dl_con_factory::RecycleIdleConnection(tDlStreamHandle & handle) const
 	auto& host = handle->GetHostname();
 	if (!host.empty())
 	{
-#ifndef NOCONCACHE
 		time_t now = GetTime();
 		lockguard __g(spareConPoolMx);
 		ldbg("caching connection " << handle.get());
@@ -242,7 +227,6 @@ void dl_con_factory::RecycleIdleConnection(tDlStreamHandle & handle) const
 			cleaner::GetInstance().ScheduleFor(now + TIME_SOCKET_EXPIRE_CLOSE, cleaner::TYPE_EXCONNS);
 #endif
 		}
-#endif
 	}
 
 	handle.reset();
@@ -321,7 +305,7 @@ void dl_con_factory::dump_status()
 	log::err(msg);
 }
 #ifdef HAVE_SSL
-bool tcpconnect::SSLinit(mstring &sErr, cmstring &sHostname, uint16_t nPort)
+bool tcpconnect::SSLinit(mstring &sErr)
 {
 	SSL * ssl(nullptr);
 	mstring ebuf;
@@ -359,14 +343,18 @@ bool tcpconnect::SSLinit(mstring &sErr, cmstring &sHostname, uint16_t nPort)
 	ssl = SSL_new(m_ctx);
 	if (!m_ctx) return withLastSslError();
 
-	// for SNI
-	SSL_set_tlsext_host_name(ssl, sHostname.c_str());
+	bool disableNameValidation = cfg::nsafriendly == 1;// || (bGuessedTls * cfg::nsafriendly == 2);
+	bool disableAllValidation = cfg::nsafriendly == 1; // || (bGuessedTls * (cfg::nsafriendly == 2 || cfg::nsafriendly == 3));
 
+	// for SNI
+	SSL_set_tlsext_host_name(ssl, m_sHostName.c_str());
+
+	if (!disableNameValidation)
 	{
 		auto param = SSL_get0_param(ssl);
 		/* Enable automatic hostname checks */
 		X509_VERIFY_PARAM_set_hostflags(param, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
-		X509_VERIFY_PARAM_set1_host(param, sHostname.c_str(), 0);
+		X509_VERIFY_PARAM_set1_host(param, m_sHostName.c_str(), 0);
 		/* Configure a non-zero callback if desired */
 		SSL_set_verify(ssl, SSL_VERIFY_PEER, 0);
 	}
@@ -425,15 +413,15 @@ bool tcpconnect::SSLinit(mstring &sErr, cmstring &sHostname, uint16_t nPort)
  	m_bio = BIO_new(BIO_f_ssl());
  	if(!m_bio) return withSslHeadPfx("IO initialization error");
  	// not sure we need it but maybe the handshake can access this data
- 	BIO_set_conn_hostname(m_bio, sHostname.c_str());
-	tPortAsString sp(nPort);
+	BIO_set_conn_hostname(m_bio, m_sHostName.c_str());
+	tPortAsString sp(m_nPort);
 	BIO_set_conn_port(m_bio, sp.s);
  	BIO_set_ssl(m_bio, ssl, BIO_NOCLOSE);
 
  	BIO_set_nbio(m_bio, 1);
 	set_nb(m_conFd);
 
-	if(!cfg::nsafriendly)
+	if(!disableAllValidation)
 	{
 		X509* server_cert = nullptr;
 		hret=SSL_get_verify_result(ssl);
@@ -513,7 +501,7 @@ bool tcpconnect::StartTunnel(const tHttpUrl& realTarget, mstring& sError,
 		m_sHostName = realTarget.sHost;
 		m_nPort = realTarget.GetPort();
 #ifdef HAVE_SSL
-		if (bDoSSL && !SSLinit(sError, m_sHostName, m_nPort))
+		if (bDoSSL && !SSLinit(sError))
 		{
 			m_sHostName.clear();
 			return false;

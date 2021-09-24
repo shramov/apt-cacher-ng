@@ -745,8 +745,8 @@ void job::Prepare(const header &h, string_view headBuf, cmstring& callerHostname
 				extraHeaders += callerHostname;
 				extraHeaders += svRN;
 			}
-			if (bPtMode)
-				extraHeaders += header::ExtractCustomHeaders(headBuf.data(), bPtMode);
+			if (bPtMode && headBuf.length() > 0)
+				extraHeaders += header::ExtractCustomHeaders(headBuf, bPtMode);
 
 			if (bHaveBackends
 					? m_pParentCon.SetupDownloader()->AddJob(m_pItem.get(), move(repoSrc), bPtMode, move(extraHeaders))
