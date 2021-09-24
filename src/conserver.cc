@@ -171,7 +171,6 @@ bool bind_and_listen(evutil_socket_t mSock, const addrinfo *pAddrInfo, uint16_t 
 {
 	LOGSTARTFUNCs;
 	USRDBG("Binding " << acng_addrinfo::formatIpPort(pAddrInfo->ai_addr, pAddrInfo->ai_addrlen, pAddrInfo->ai_family));
-		g_freshConQueue.emplace_back(make_unique<conn>(move(man_fd), szClientName));
 	if ( ::bind(mSock, pAddrInfo->ai_addr, pAddrInfo->ai_addrlen))
 	{
 		log::flush();
