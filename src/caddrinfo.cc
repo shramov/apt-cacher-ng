@@ -304,6 +304,10 @@ tDnsResContext::~tDnsResContext()
 			auto tres = taskCtx.results.get();
 			if (errStatus == ARES_SUCCESS)
 				errStatus = taskCtx.status;
+			if (!tres)
+			{
+				continue;
+			}
 
 #ifdef DEBUG
 			for (auto p = tres->nodes; p; p = p->ai_next)
