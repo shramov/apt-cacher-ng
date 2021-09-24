@@ -855,8 +855,10 @@ job::eJobResult job::SendData(int confd, bool haveMoreJobs)
 				break;
 			if (m_bIsHeadOnly && fistate >= fileitem::FIST_DLGOTHEAD)
 				break;
-			fi->wait_for(g, cfg::nettimeout, 1);
 			// XXX: in 2023 or later, add a 5s timeout and send a 102 or so for waiting. Because older version of apt-cacher-ng might not understand it and fail.
+			bool timedOut = fi->wait_for(g, cfg::nettimeout, 1);
+			if (timedOut)
+				return false;
 		}
 		LOG(int(fistate));
 		return fistate <= fileitem::FIST_COMPLETE;

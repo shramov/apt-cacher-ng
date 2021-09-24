@@ -1,3 +1,15 @@
+apt-cacher-ng (3.7.3) THERE-IS-NO-KNIVE; urgency=low
+
+  * Still experimental release
+
+  [ BUGFIXES]
+
+  * Fix premature exit of connection invocation if the first attempt happened
+    to quick, therefore leaving client thread eventually in blocked state
+    (thread leak, regression since 3.7)
+
+ -- 
+
 apt-cacher-ng (3.7.2) SHIFT_HAPPENZ; urgency=high
 
   [ BUGFIXES]

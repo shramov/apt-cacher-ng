@@ -82,8 +82,6 @@ evabase();
 ~evabase();
 };
 
-using unique_event = auto_raii<event*, event_free, nullptr>;
-
 }
 
 #endif
