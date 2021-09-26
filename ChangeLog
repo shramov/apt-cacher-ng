@@ -12,6 +12,7 @@ apt-cacher-ng (3.7.3) THERE-IS-NO-KNIVE; urgency=low
     to quick, therefore leaving client thread eventually in blocked state
     (thread leak, regression since 3.7)
   * Fix crash in case of missing DNS data
+  * GCC 11 compilation fix (error: template-id not allowed for destructor)
   * More smart (and partly more strict) parsing of various IPv6 IP formats in
     URL parsing (Debian bug #994778)
 
