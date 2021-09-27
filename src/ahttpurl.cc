@@ -145,26 +145,19 @@ string tHttpUrl::ToURI(bool bUrlEscaped, bool hostOnly) const
 {
 	auto s(GetProtoPrefix());
 
-	tPortAsString sp(nPort);
 	// if needs transfer escaping and is not internally escaped
 	if (bUrlEscaped)
 	{
 		UrlEscapeAppend(sHost, s);
 		if (nPort)
-		{
-			s += ':';
-			s += sp.s;
-		}
+			s += sEmptyString + ':' + tPortFmter().fmt(nPort) ;
 		UrlEscapeAppend(sPath, s);
 	}
 	else
 	{
 		s += sHost;
 		if (nPort)
-		{
-			s += ':';
-			s += sp.s;
-		}
+			s += sEmptyString + ':' + tPortFmter().fmt(nPort);
 		if (!hostOnly)
 			s += sPath;
 	}

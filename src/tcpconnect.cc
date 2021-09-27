@@ -414,8 +414,7 @@ bool tcpconnect::SSLinit(mstring &sErr)
  	if(!m_bio) return withSslHeadPfx("IO initialization error");
  	// not sure we need it but maybe the handshake can access this data
 	BIO_set_conn_hostname(m_bio, m_sHostName.c_str());
-	tPortAsString sp(m_nPort);
-	BIO_set_conn_port(m_bio, sp.s);
+	BIO_set_conn_port(m_bio, tPortFmter().fmt(m_nPort));
  	BIO_set_ssl(m_bio, ssl, BIO_NOCLOSE);
 
  	BIO_set_nbio(m_bio, 1);

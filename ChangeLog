@@ -15,6 +15,9 @@ apt-cacher-ng (3.7.3) THERE-IS-NO-KNIVE; urgency=low
   * GCC 11 compilation fix (error: template-id not allowed for destructor)
   * More smart (and partly more strict) parsing of various IPv6 IP formats in
     URL parsing (Debian bug #994778)
+  * Fixed access URL rendering on information page (potential format errors,
+    regression since 3.7.2 due to network port type change). Also simplified
+    the format helper for better optimization by older C++ compilers.
 
  -- 
 
