@@ -1,12 +1,23 @@
 apt-cacher-ng (3.7.3) THERE-IS-NO-KNIVE; urgency=low
 
-  * Still experimental release
+  [ IMPROVEMENTS ]
+
+  * Maintenance tasks report HTTP errors with status code
+  * Earlier aborting of maintenance tasks when continuation would be not
+    permitted in the end anyway
 
   [ BUGFIXES]
 
   * Fix premature exit of connection invocation if the first attempt happened
     to quick, therefore leaving client thread eventually in blocked state
     (thread leak, regression since 3.7)
+  * Fix crash in case of missing DNS data
+  * GCC 11 compilation fix (error: template-id not allowed for destructor)
+  * More smart (and partly more strict) parsing of various IPv6 IP formats in
+    URL parsing (Debian bug #994778)
+  * Fixed access URL rendering on information page (potential format errors,
+    regression since 3.7.2 due to network port type change). Also simplified
+    the format helper for better optimization by older C++ compilers.
 
  -- 
 

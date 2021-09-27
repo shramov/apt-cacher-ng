@@ -10,22 +10,22 @@ extern std::string sDefPortHTTP, sDefPortHTTPS;
 
 namespace acng {
 
-struct tPortAsString
+/*
+ * Simple and most (?) efficiently optimized helper (even with older GCC)
+ */
+struct tPortFmter
 {
-		LPCSTR s;
-		char buf[6];
-		tPortAsString(uint16_t nPort)
-		{
-				if (nPort == 80)
-						s = "80";
-				else if (nPort == 443)
-						s = "443";
-				else
-				{
-						snprintf(buf, sizeof(buf), "%hi", nPort);
-						s = buf;
-				}
-		}
+	LPCSTR fmt(uint16_t nPort)
+	{
+		if (nPort == 80)
+			return "80";
+		if (nPort == 443)
+			return "443";
+		snprintf(buf, sizeof(buf), "%hi", nPort);
+		return buf;
+	}
+private:
+	char buf[6];
 };
 
 std::string makeHostPortKey(const std::string & sHostname, uint16_t nPort);

@@ -60,7 +60,7 @@ public:
 		m_ptr = orig.m_ptr;
 		orig.m_ptr = nullptr;
 	}
-	inline ~lint_ptr<T>()
+	inline ~lint_ptr()
 	{
 		if(!m_ptr) return;
 		m_ptr->__dec_ref();
@@ -190,7 +190,7 @@ public:
 		m_ptr->__inc_ref();
 		m_ptr->__inc_strong_ref();
 	}
-	inline ~lint_user_ptr<T>()
+	inline ~lint_user_ptr()
 	{
 		if(!m_ptr) return;
 		m_ptr->__dec_strong_ref();

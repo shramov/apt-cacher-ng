@@ -439,7 +439,7 @@ bool ReadOneConfFile(const string & szFilename, bool bReadErrorIsFatal=true)
 	while(itor.Next())
 	{
 #ifdef DEBUG
-		cerr << itor.sLine <<endl;
+		cerr << szFilename << " => " << itor.sLine <<endl;
 #endif
 		// XXX: To something about escaped/quoted version
 		tStrPos pos=itor.sLine.find('#');
