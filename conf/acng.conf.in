@@ -135,6 +135,18 @@ ReportPage: acng-report.html
 #
 ExThreshold: 4
 
+# If set to true, the removal (i.e. response status 404) of remote
+# volatile/index files is considered a hint to consider the local cached
+# versions irrelevant and also expire them just like package files. This adds
+# some risk of removing too much cache contents in cases where a middlebox
+# reports bogus 404 codes.
+#
+# If false (0), a less sloppy algorithm is used to invalidate certain keyfiles
+# first, which might subsequently expire the cache contents but much later or
+# maybe never unless the administrator intervenes.
+#
+FollowIndexFileRemoval: 1
+
 # If the expiration is run daily, it sometimes does not make much sense to do
 # it because the expected changes (i.e. removal of expired files) don't justify
 # the extra processing time or additional downloads for expiration operation

@@ -138,7 +138,7 @@ void pkgmirror::Action()
 		if(endsWithSzAr(path2x.first, "Release"))
 		{
 			if(!m_bSkipIxUpdate && !GetFlags((cmstring)path2x.first).uptodate)
-				Download((cmstring)path2x.first, true, eMsgShow);
+				Download((cmstring)path2x.first, true, eDlMsgPrio::SHOW_ALL);
 			ParseAndProcessMetaFile([&TryAdd](const tRemoteFileInfo &entry) {
 				TryAdd(entry.sDirectory+entry.sFileName); },
 				(cmstring) path2x.first, EIDX_RELEASE);
@@ -202,7 +202,7 @@ void pkgmirror::Action()
 			continue;
 
 		if(!GetFlags(src).uptodate)
-			Download(src, true, eMsgShow);
+			Download(src, true, eDlMsgPrio::SHOW_ALL);
 
 		if(CheckStopSignal())
 			return;
@@ -399,7 +399,7 @@ void pkgmirror::HandlePkgEntry(const tRemoteFileInfo &entry)
 				::unlink(sDeltaPathAbs.c_str());
 				::unlink((sDeltaPathAbs+".head").c_str());
 
-				if(Download(TEMPDELTA, false, eMsgHideAll, &uri))
+				if(eDlResult::OK == Download(TEMPDELTA, false, eDlMsgPrio::HIDE_ALL, &uri))
 				{
 					::setenv("delta", SZABSPATH(TEMPDELTA), true);
 					::setenv("from", srcAbs.c_str(), true);
@@ -456,7 +456,7 @@ void pkgmirror::HandlePkgEntry(const tRemoteFileInfo &entry)
 		cannot_debpatch:
 
 		if(!bhaveit)
-			Download(entry.sDirectory + entry.sFileName, false, eMsgShow);
+			Download(entry.sDirectory + entry.sFileName, false, eDlMsgPrio::SHOW_ALL);
 
 		if (m_bVerbose && m_totalSize)
 		{

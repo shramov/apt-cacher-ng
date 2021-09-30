@@ -5,6 +5,8 @@ apt-cacher-ng (3.7.3) THERE-IS-NO-KNIVE; urgency=low
   * Maintenance tasks report HTTP errors with status code
   * Earlier aborting of maintenance tasks when continuation would be not
     permitted in the end anyway
+  * More aggresive default strategy for expiration of index files where the
+    remote resource disappeared (FollowIndexFileRemoval option)
 
   [ BUGFIXES]
 

@@ -19,7 +19,7 @@ bool ProcessOthers(const std::string &, const struct stat &) override {return tr
 bool ProcessDirAfter(const std::string &, const struct stat &) override {return true;}
 protected:
 	virtual void Action() override {}
-	virtual bool Download(cmstring& sFilePathRel, bool bIsVolatileFile,
+	virtual eDlResult Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 			eDlMsgPrio msgLevel,
 			const tHttpUrl *pForcedURL=nullptr, unsigned hints=0, cmstring* sGuessedFrom = nullptr, bool replace = false)
 	override {
@@ -33,7 +33,7 @@ protected:
 					+ " -O " + sFilePathRel;
 		auto dled = system(cmd.c_str());
 		EXPECT_EQ(0, dled);
-		return !dled;
+		return dled == 0 ? eDlResult::OK : eDlResult::FAIL_REMOTE;
 	}
 #if 0
 	virtual bool Inject(cmstring &fromRel, cmstring &toRel, bool bSetIfileFlags,

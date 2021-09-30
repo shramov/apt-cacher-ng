@@ -126,13 +126,21 @@ SUTPROTECTED:
 
 	void ProcessSeenIndexFiles(std::function<void(tRemoteFileInfo)> pkgHandler);
 
-	enum eDlMsgPrio
+	enum class eDlMsgPrio
 	{
-		eMsgHideAll,
-		eMsgHideErrors,
-		eMsgShow
+		HIDE_ALL,
+		HIDE_ERR,
+		SHOW_ALL
 	};
-	virtual bool Download(cmstring& sFilePathRel, bool bIsVolatileFile,
+	enum class eDlResult
+	{
+		OK,
+		GONE,
+		FAIL_LOCAL,
+		FAIL_REMOTE
+	};
+
+	virtual eDlResult Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 			eDlMsgPrio msgLevel,
 			const tHttpUrl *pForcedURL=nullptr, unsigned hints=0, cmstring* sGuessedFrom = nullptr, bool bForceReDownload = false);
 #define DL_HINT_GUESS_REPLACEMENT 0x1
