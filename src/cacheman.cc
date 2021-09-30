@@ -246,7 +246,7 @@ mstring FindCommonPath(cmstring& a, cmstring& b)
 }
 */
 
-bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
+cacheman::eDlResult cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 		cacheman::eDlMsgPrio msgVerbosityLevel,
 		const tHttpUrl * pForcedURL, unsigned hints,
 		cmstring* sGuessedFrom, bool bForceReDownload)
@@ -255,19 +255,19 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 	LOGSTART("tCacheMan::Download");
 
 	mstring sErr;
-	bool bSuccess=false;
+	eDlResult ret = eDlResult::FAIL_REMOTE;
 	const tHttpUrl* fallbackUrl = nullptr;
 	fileitem::FiStatus initState = fileitem::FIST_FRESH;
 
 	tRepoResolvResult repinfo;
 	auto dler = GetDlRes().SetupDownloader();
 	if (!dler)
-		return false;
+		return eDlResult::FAIL_LOCAL;
 
 //	bool holdon = sFilePathRel == "debrep/dists/experimental/contrib/binary-amd64/Packages";
 
-#define NEEDED_VERBOSITY_ALL_BUT_ERRORS (msgVerbosityLevel >= eMsgHideErrors)
-#define NEEDED_VERBOSITY_EVERYTHING (msgVerbosityLevel >= eMsgShow)
+#define NEEDED_VERBOSITY_ALL_BUT_ERRORS (msgVerbosityLevel >= eDlMsgPrio::HIDE_ERR)
+#define NEEDED_VERBOSITY_EVERYTHING (msgVerbosityLevel >= eDlMsgPrio::SHOW_ALL)
 
 	const tIfileAttribs &flags=GetFlags(sFilePathRel);
 	if(flags.uptodate)
@@ -275,10 +275,10 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 		if(NEEDED_VERBOSITY_ALL_BUT_ERRORS)
 			SendFmt<<"Checking "<<sFilePathRel<< (bIsVolatileFile
 					? "... (fresh)<br>\n" : "... (complete)<br>\n");
-		return true;
+		return eDlResult::OK;
 	}
 
-#define GOTOREPMSG(x) {sErr = x; bSuccess=false; goto rep_dlresult; }
+#define GOTOREPMSG(x, y) {sErr = x; ret = y; goto rep_dlresult; }
 
 	mstring sFilePathAbs(SABSPATH(sFilePathRel));
 
@@ -311,21 +311,22 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 	{
 		if (NEEDED_VERBOSITY_ALL_BUT_ERRORS)
 			SendFmt << "Checking " << sFilePathRel << "...\n"; // just display the name ASAP
-		GOTOREPMSG(" could not create file item handler.");
+		GOTOREPMSG(" could not create file item handler.", eDlResult::FAIL_LOCAL);
 	}
 
 	dbgline;
 	if(bIsVolatileFile && m_bSkipIxUpdate)
 	{
 		SendFmt << "Checking " << sFilePathRel << "... (skipped, as requested)<br>\n";
-		LOGRET(true);
+		dbgline;
+		return eDlResult::OK;
 	}
 
     initState = pFi->Setup();
     {
         lockguard g(*pFi);
         if (initState > fileitem::FIST_COMPLETE)
-			GOTOREPMSG(message_detox(pFi->m_responseStatus.msg, pFi->m_responseStatus.code));
+			GOTOREPMSG(message_detox(pFi->m_responseStatus.msg, pFi->m_responseStatus.code), eDlResult::FAIL_REMOTE);
 
         if (fileitem::FIST_COMPLETE == initState)
         {
@@ -336,7 +337,7 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
                 //GOTOREPMSG(pFi->GetHeader().frontLine);
             }
             SendFmt << "Checking " << sFilePathRel << "... (complete)<br>\n";
-            LOGRET(true);
+			return eDlResult::OK;
         }
         if (NEEDED_VERBOSITY_ALL_BUT_ERRORS)
             SendFmt << (bIsVolatileFile ? "Checking/Updating " : "Downloading ")
@@ -344,7 +345,7 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
     }
 
 	if(!GetDlRes().GetItemRegistry())
-		return false;
+		return eDlResult::FAIL_LOCAL;
 	if (pForcedURL)
 		pResolvedDirectUrl=pForcedURL;
 	else
@@ -416,7 +417,7 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 			if(!pResolvedDirectUrl)
 			{
 				SendChunkSZ("<b>Failed to calculate the original URL</b><br>");
-				return false;
+				return eDlResult::FAIL_REMOTE; // XXX: actually a local error?
 			}
 		}
 	}
@@ -442,7 +443,7 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
     if (dlres.first == fileitem::FIST_COMPLETE && dlres.second.code == 200)
 	{
 		dbgline;
-		bSuccess = true;
+		ret = eDlResult::OK;
 		if (NEEDED_VERBOSITY_ALL_BUT_ERRORS)
 			SendFmt << "<i>(" << pFi->TakeTransferCount() / 1024 << "KiB)</i>\n";
 	}
@@ -464,24 +465,24 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 		}
 
 		format_error:
-		if (IsDeprecatedArchFile(sFilePathRel))
+		if ( (cfg::follow404 && dlres.second.code == 404) || IsDeprecatedArchFile(sFilePathRel))
 		{
 			if (NEEDED_VERBOSITY_EVERYTHING)
 				SendChunkSZ("<i>(no longer available)</i>\n");
 			m_forceKeepInTrash[sFilePathRel] = true;
-			bSuccess = true;
+			ret = eDlResult::GONE;
 		}
 		else if (flags.forgiveDlErrors
 				||
                 (dlres.second.code == 404 && endsWith(sFilePathRel, oldStylei18nIdx))
 		)
 		{
-			bSuccess = true;
+			ret = eDlResult::OK;
 			if (NEEDED_VERBOSITY_EVERYTHING)
 				SendChunkSZ("<i>(ignored)</i>\n");
 		}
 		else
-			GOTOREPMSG(message_detox(dlres.second.msg, dlres.second.code));
+			GOTOREPMSG(message_detox(dlres.second.msg, dlres.second.code), eDlResult::FAIL_REMOTE);
 	}
 
 	rep_dlresult:
@@ -495,10 +496,10 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 		log::transfer(dlCount, 0, sInternal + GetTaskName() + "]", sFilePathRel, false);
 	}
 
-	if (bSuccess && bIsVolatileFile)
+	if (ret == eDlResult::OK && bIsVolatileFile)
 		SetFlags(sFilePathRel).uptodate = true;
 
-	if(!bSuccess)
+	if(ret != eDlResult::OK)
 	{
 		if(repoSrc.repodata && repoSrc.repodata->m_backends.empty() && !hor.h[header::XORIG] && !pForcedURL)
 		{
@@ -546,7 +547,7 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 				pos--;
 			}
 		}
-        else if((hints&DL_HINT_GUESS_REPLACEMENT) && dlres.second.code == 404)
+		else if((hints & DL_HINT_GUESS_REPLACEMENT) && dlres.second.code == 404)
 		{
 			// another special case, slightly ugly :-(
 			// this is explicit hardcoded repair code
@@ -581,18 +582,18 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 					continue;
 				newurl.sPath.replace(newurl.sPath.size()-fix.fromEnd.size(), fix.fromEnd.size(),
 						fix.toEnd);
-				if(Download(sFilePathRel.substr(0, sFilePathRel.size() - fix.fromEnd.size())
+				if(eDlResult::OK == Download(sFilePathRel.substr(0, sFilePathRel.size() - fix.fromEnd.size())
 						+ fix.toEnd, bIsVolatileFile, msgVerbosityLevel, &newurl,
 				hints &~ DL_HINT_GUESS_REPLACEMENT ))
 				{
 					MarkObsolete(sFilePathRel);
-					return true;
+					return eDlResult::OK;
 				}
 				// XXX: this sucks a little bit since we don't want to show the checkbox
 				// when the fallback download succeeded... but on failures, the previous one
 				// already added a newline before
 				AddDelCbox(sFilePathRel, sErr, true);
-				return false;
+				return eDlResult::FAIL_REMOTE;
 			}
 		}
 		//else
@@ -615,7 +616,7 @@ bool cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 	if (NEEDED_VERBOSITY_ALL_BUT_ERRORS)
 		SendChunk("\n<br>\n");
 
-	return bSuccess;
+	return eDlResult::OK;
 }
 
 #define ERRMSGABORT  dbgline; if(m_nErrorCount && m_bErrAbort) { SendChunk(sErr); return false; }
@@ -918,7 +919,7 @@ void cacheman::ExtractAllRawReleaseDataFixStrandedPatchIndex(tFileGroups& idxGro
 						else
 						{
 							SendFmt << "No base file to use patching on " << cid.first << ", trying to fetch " << cand << hendl;
-							if(Download(cand, true, eMsgHideErrors, 0, 0, &cid.first))
+							if(eDlResult::OK == Download(cand, true, eDlMsgPrio::HIDE_ERR, 0, 0, &cid.first))
 							{
 								SetFlags(cand).vfile_ondisk=true;
 								goto found_base;
@@ -1186,7 +1187,7 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 
 		string patchPathRel(pindexPathRel.substr(0, pindexPathRel.size()-5) +
 				pname + ".gz");
-		if(!Download(patchPathRel, false, eDlMsgPrio::eMsgHideErrors,
+		if(eDlResult::OK != Download(patchPathRel, false, eDlMsgPrio::HIDE_ERR,
 				nullptr, DL_HINT_NOTAG, &pindexPathRel))
 		{
 			return PATCH_FAIL;
@@ -1343,9 +1344,20 @@ bool cacheman::UpdateVolatileFiles()
 		SendChunk("<b>Bringing index files up to date...</b><br>\n");
 		for (auto& f: m_metaFilesRel)
 		{
+			auto notIgnorable = !m_metaFilesRel[f.first].forgiveDlErrors;
+
 			// tolerate or not, it depends
-			if (!Download(f.first, true, eMsgShow))
-				m_nErrorCount += !m_metaFilesRel[f.first].forgiveDlErrors;
+			switch(Download(f.first, true, eDlMsgPrio::SHOW_ALL))
+			{
+			case eDlResult::OK: continue;
+			case eDlResult::GONE:
+				m_nErrorCount += (notIgnorable && !cfg::follow404);
+				break;
+			case eDlResult::FAIL_LOCAL:
+			case eDlResult::FAIL_REMOTE:
+				m_nErrorCount += notIgnorable;
+				break;
+			}
 		}
 		ERRMSGABORT;
 		LOGRET(false);
@@ -1415,14 +1427,15 @@ bool cacheman::UpdateVolatileFiles()
 			continue;
 		}
 
-		if(!Download(sPathRel, true,
-				m_metaFilesRel[sPathRel].hideDlErrors ? eMsgHideErrors : eMsgShow,
+		if(eDlResult::OK != Download(sPathRel, true,
+				m_metaFilesRel[sPathRel].hideDlErrors ? eDlMsgPrio::HIDE_ERR : eDlMsgPrio::SHOW_ALL,
 						0, DL_HINT_GUESS_REPLACEMENT))
 		{
 			if(!m_metaFilesRel[sPathRel].hideDlErrors)
 			{
 				m_nErrorCount++;
-				if(sErr.empty()) sErr = "DL error at " + sPathRel;
+				if(sErr.empty())
+					sErr = "DL error at " + sPathRel;
 			}
 
 			if(CheckStopSignal())
@@ -1441,7 +1454,7 @@ bool cacheman::UpdateVolatileFiles()
 		auto baseFolder = cfg::cacheDirSlash + cfg::privStoreRelSnapSufix;
 
 		IFileHandler::FindFiles(baseFolder,
-				[&baseFolder, &oldReleaseFilesInRsnap](cmstring &sPath, const struct stat &st)
+				[&baseFolder, &oldReleaseFilesInRsnap](cmstring &sPath, const struct stat &)
 				-> bool
 				{
 			oldReleaseFilesInRsnap.emplace(sPath.substr(baseFolder.size() + 1));
@@ -1521,7 +1534,7 @@ bool cacheman::UpdateVolatileFiles()
 					continue;
 				if(!fl.uptodate)
 				{
-					if(!Download(pathRel, true, eMsgShow))
+					if(eDlResult::OK != Download(pathRel, true, eDlMsgPrio::SHOW_ALL))
 					{
 						fl.parseignore = true;
 						m_nErrorCount += !fl.forgiveDlErrors;
@@ -1545,8 +1558,8 @@ bool cacheman::UpdateVolatileFiles()
 		if(!idx2att.second.vfile_ondisk || idx2att.second.eIdxType == EIDX_NOTREFINDEX)
 			continue;
 		string sErr;
-		if(Download(idx2att.first, true,
-				idx2att.second.hideDlErrors ? eMsgHideErrors : eMsgShow,
+		if(eDlResult::OK == Download(idx2att.first, true,
+				idx2att.second.hideDlErrors ? eDlMsgPrio::HIDE_ERR : eDlMsgPrio::SHOW_ALL,
 						0, DL_HINT_GUESS_REPLACEMENT))
 		{
 			continue;
@@ -1690,7 +1703,7 @@ bool cacheman::ParseAndProcessMetaFile(std::function<void(const tRemoteFileInfo&
 
 		UrlUnescape(sPkgBaseDir);
 
-		while(reader.GetOneLine(sLine))
+		while (reader.GetOneLine(sLine))
 		{
 			trimBack(sLine);
 			//cout << "file: " << *it << " line: "  << sLine<<endl;
