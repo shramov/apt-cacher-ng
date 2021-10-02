@@ -11,7 +11,7 @@ DBTMP=tmp
 export DBTMP
 CONFDIR=conf
 export CONFDIR
-DEBMASTERLIST=https://salsa.debian.org/mirror-team/masterlist/raw/master/Mirrors.masterlist
+DEBMASTERLIST=https://salsa.debian.org/mirror-team/masterlist/-/raw/master/Mirrors.masterlist.in
 ARCHJSON=https://www.archlinux.de/mirrors/datatables
 
 

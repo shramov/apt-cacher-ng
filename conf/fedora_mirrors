@@ -1,6 +1,7 @@
 http://archive.linux.duke.edu/pub/fedora/linux/
 http://download-cc-rdu01.fedoraproject.org/pub/fedora/linux/
 http://download.fedoraproject.org/pub/fedora/linux/
+http://download.nus.edu.sg/mirror/fedora/linux/
 http://espejito.fder.edu.uy/fedora/fedora/linux/
 http://fedora-mirror02.rbc.ru/pub/fedora/linux/
 http://fedora.cu.be/linux/
@@ -42,15 +43,14 @@ http://ftp.upjs.sk/pub/fedora/linux/
 http://ftp.wrz.de/pub/fedora/linux/
 http://ftp.yz.yamagata-u.ac.jp/pub/linux/fedora-projects/fedora/linux/
 http://linux.mirrors.es.net/fedora/
+http://mirror.23m.com/fedora/linux/
 http://mirror.23media.com/fedora/linux/
 http://mirror.aarnet.edu.au/pub/fedora/linux/
 http://mirror.arizona.edu/fedora/linux/
-http://mirror.as24220.net/fedora/linux/
 http://mirror.atl.genesisadaptive.com/fedora/linux/
 http://mirror.bytemark.co.uk/fedora/linux/
 http://mirror.cedia.org.ec/fedora/linux/
 http://mirror.chpc.utah.edu/pub/fedora/linux/
-http://mirror.clarkson.edu/fedora/linux/
 http://mirror.cs.pitt.edu/fedora/linux/
 http://mirror.csclub.uwaterloo.ca/fedora/linux/
 http://mirror.datacenter.by/pub/fedoraproject.org/linux/
@@ -58,6 +58,9 @@ http://mirror.de.leaseweb.net/fedora/linux/
 http://mirror.dogado.de/fedora/linux/
 http://mirror.easyspeedy.com/fedora/
 http://mirror.epn.edu.ec/fedora/linux/
+http://mirror.erickochen.nl/fedora/linux/
+http://mirror.facebook.net/fedora/linux/
+http://mirror.genesisadaptive.com/fedora/linux/
 http://mirror.globo.com/fedora/linux/
 http://mirror.hoster.kz/fedora/fedora/linux/
 http://mirror.i3d.net/pub/fedora/linux/
@@ -69,7 +72,6 @@ http://mirror.karneval.cz/pub/linux/fedora/linux/
 http://mirror.lax.genesisadaptive.com/fedora/linux/
 http://mirror.linux-ia64.org/fedora/linux/
 http://mirror.metrocast.net/fedora/linux/
-http://mirror.mrjester.net/fedora/linux/
 http://mirror.netsite.dk/fedora/linux/
 http://mirror.nl.leaseweb.net/fedora/linux/
 http://mirror.nonstop.co.il/fedora/linux/
@@ -95,6 +97,7 @@ http://mirror.yandex.ru/fedora/linux/
 http://mirror2.totbb.net/fedora/linux/
 http://mirrors.chroot.ro/fedora/linux/
 http://mirrors.dotsrc.org/fedora-buffet/fedora/linux/
+http://mirrors.eze.sysarmy.com/fedora/linux/
 http://mirrors.ircam.fr/pub/fedora/linux/
 http://mirrors.kernel.org/fedora/
 http://mirrors.lug.mtu.edu/fedora/linux/
@@ -103,7 +106,6 @@ http://mirrors.n-ix.net/fedora/linux/
 http://mirrors.nav.ro/fedora/linux/
 http://mirrors.piconets.webwerks.in/fedora-mirror/fedora/linux/
 http://mirrors.syringanetworks.net/fedora/linux/
-http://mirrors.uni-ruse.bg/fedora/linux/
 http://mirrors.xmission.com/fedora/linux/
 http://muug.ca/mirror/fedora/linux/
 http://opensource.nchc.org.tw/fedora/linux/
