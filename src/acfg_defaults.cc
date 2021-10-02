@@ -22,11 +22,11 @@ capath("/etc/ssl/certs"), cafile, badredmime("text/html");
 
 #define INFOLDER "(^|.*/)"
 #define COMPRLIST "(\\.gz|\\.bz2|\\.lzma|\\.xz|\\.zst)"
-#define ALXPATTERN ".*\\.(db|files|abs)(\\.tar" COMPRLIST ")?"
+#define ALXPATTERN ".*\\.(db|files|abs)(\\.tar" COMPRLIST "(\\.sig)?)?"
 #define COMPOPT COMPRLIST"?"
 #define HEX(len) "[a-f0-9]{" STRINGIFY(len) "}"
 #define HEXSEQ "[a-f0-9]+"
-#define PKGS "(\\.[ud]?deb|\\.rpm|\\.drpm|\\.dsc|\\.tar" COMPRLIST ")"
+#define PKGS "(\\.[ud]?deb|\\.rpm|\\.drpm|\\.dsc|\\.tar" COMPRLIST "(\\.sig)?)"
 #define CSUM "(SHA|MD)[0-9]+"
 #define CSUMS "(SHA|MD)[0-9]+SUM"
 
