@@ -2,6 +2,8 @@ apt-cacher-ng (3.7.3-1) UNRELEASED; urgency=low
 
   * New upstream version
     + fixes processing of truncated v6 IPs (closes: #994778)
+    + adds support for .sig suffix (closes: #989347)
+    + fixes compilation with g++-11 (Salsa issue #10)
 
  -- Eduard Bloch <blade@debian.org>  Mon, 27 Sep 2021 23:21:38 +0200
 
