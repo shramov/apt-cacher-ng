@@ -14,6 +14,13 @@ then
         test -z "$NO_CRON_RUN" || exit 0
 fi
 
+if [ -d /var/log/apt-cacher-ng ]; then
+		# rm older than 10 days
+		find /var/log/apt-cacher-ng -maxdepth 1 -name 'maint_*.log.html.xz' -or -name 'maint_*.log.html' -type f -user apt-cacher-ng -mtime +10 -delete
+		# compress older than 5 days
+		find /var/log/apt-cacher-ng -maxdepth 1 -name 'maint_*.log.html' -type f -user apt-cacher-ng -mtime +5 -print0 | xargs -r0 xz
+fi
+
 rpage=$(/usr/lib/apt-cacher-ng/acngtool -c /etc/apt-cacher-ng 2>/dev/null printvar ReportPage)
 if test 0 = $(echo "$rpage" | wc -w)
 then
