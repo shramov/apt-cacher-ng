@@ -1598,7 +1598,10 @@ void CDlConn::WorkLoop()
 			auto &tgt = frontJob.GetPeerHost();
 			// good case, direct or tunneled connection
 			bool match = (tgt.sHost == con->GetHostname()
-					&& tgt.GetPort() == con->GetPort());
+						  && (tgt.GetPort() == con->GetPort()
+							  // or don't care port
+							  || !con->GetPort())
+						  );
 			const tHttpUrl *proxy = nullptr; // to be set ONLY if PROXY mode is used
 
 			// if not exact and can be proxied, and is this the right proxy?

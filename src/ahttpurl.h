@@ -70,6 +70,7 @@ public:
         }
 		uint16_t GetPort(uint16_t defVal) const { return nPort ? nPort : defVal; };
 		uint16_t GetPort() const { return GetPort(GetDefaultPortForProto()); }
+		void SetPort(uint16_t nPort) { this->nPort = nPort; }
 
 		inline tHttpUrl(cmstring &host, uint16_t port, bool ssl) :
 						nPort(port), sHost(host), bSSL(ssl)

@@ -21,6 +21,8 @@ apt-cacher-ng (3.7.3) THERE-IS-NO-KNIVE; urgency=low
   * Fixed access URL rendering on information page (potential format errors,
     regression since 3.7.2 due to network port type change). Also simplified
     the format helper for better optimization by older C++ compilers.
+  * Fixed acngtool "maint" function over UNIX domain socket (more fallout from
+    port type change)
 
   [ MISCELLANEOUS]
 

@@ -558,7 +558,7 @@ int maint_job()
 	}
 
 	// base target URL, can be adapted for TCP requests
-	tHttpUrl url("localhost", cfg::port, false);
+	tHttpUrl url;
 	url.sUserPass = cfg::adminauth;
 	LPCSTR req = getenv("ACNGREQ");
 	url.sPath = "/" + cfg::reportpage + (req ? req : "?doExpire=Start+Expiration&abortOnErrors=aOe");
@@ -598,7 +598,10 @@ int maint_job()
 	{
 		DBGQLOG("Trying UDS path")
 				auto fi = make_shared<tRepItem>();
+
 		url.sHost = FAKE_UDS_HOSTNAME;
+		url.SetPort(0);
+
 		TUdsFactory udsFac;
 		evabaseFreeFrunner eb(udsFac, true);
 		response_ok = DownloadItem(url, eb.getDownloader(), fi);
@@ -617,6 +620,8 @@ int maint_job()
 		for (const auto &tgt : hostips)
 		{
 			url.sHost = tgt;
+			url.SetPort(cfg::port);
+
 			evabaseFreeFrunner eb(g_tcp_con_factory, true);
 			auto fi = make_shared<tRepItem>();
 			response_ok = DownloadItem(url, eb.getDownloader(), fi);

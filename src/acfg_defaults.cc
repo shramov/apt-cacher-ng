@@ -113,7 +113,13 @@ string pfilepatEx, spfilepatEx, vfilepatEx, svfilepatEx, wfilepatEx; // for cust
 
 int offlinemode(false), verboselog(true), stupidfs(false), forcemanaged(false),
 extreshhold(20), tpstandbymax(8), tpthreadmax(-1), dirperms(00755), fileperms(00664),
-keepnver(0), maxtempdelay(27), vrangeops(true), dlretriesmax(7);
+keepnver(0), maxtempdelay(27), vrangeops(true);
+
+#ifdef DEBUG
+int dlretriesmax(7);
+#else
+int dlretriesmax(2);
+#endif
 
 int dlbufsize(30000), exfailabort(true), exporigin(false), numcores(1),
 logxff(false), oldupdate(false), recompbz2(false), nettimeout(17), updinterval(0),
