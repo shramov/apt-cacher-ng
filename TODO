@@ -1,5 +1,6 @@
-
-statvfs inconsistency in httpfs.cc
+Drop "curl" functionality from acngtool. As transitional solution, call
+curl/wget/http(from-apt) as client instead. Then drop DL code usage from UDS
+communication.
 
 Rewrite dlcon to run on the IO thread in async fashion. Convert it to a
 DownloadManager which steers a bunch of streams. So, a stream for each target.

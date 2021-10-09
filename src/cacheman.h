@@ -97,6 +97,22 @@ public:
 	const tIfileAttribs &GetFlags(cmstring &sPathRel) const;
 
 SUTPROTECTED:
+	// common helper variables
+	bool m_bErrAbort, m_bVerbose, m_bForceDownload, m_bSkipIxUpdate = false;
+	bool m_bScanInternals, m_bByPath, m_bByChecksum, m_bSkipHeaderChecks;
+	bool m_bTruncateDamaged;
+	int m_nErrorCount;
+	unsigned int m_nProgIdx, m_nProgTell;
+
+	std::unordered_map<mstring,bool> m_forceKeepInTrash;
+	mstring m_processedIfile;
+
+	enumMetaType GuessMetaTypeFromURL(const mstring &sPath);
+
+	// stuff in those directories must be managed by some top-level index files
+	// whitelist patterns do not apply there!
+	tStrSet m_managedDirs;
+
 	// this is not unordered because sometimes we make use of iterator references while
 	// doing modification of the map
 	std::map<mstring,tIfileAttribs> m_metaFilesRel;
@@ -109,9 +125,10 @@ SUTPROTECTED:
 	void _Usermsg(mstring m);
 	bool AddIFileCandidate(const mstring &sFileRel);
 
-	// NOOP, implemented here for convenience
-	bool ProcessOthers(const mstring &sPath, const struct stat &);
-	bool ProcessDirAfter(const mstring &sPath, const struct stat &);
+	// IFileHandler interface
+	bool ProcessDirBefore(const std::string &sPath, const struct stat &) override;
+	bool ProcessOthers(const mstring &sPath, const struct stat &st) override;
+	bool ProcessDirAfter(const mstring &sPath, const struct stat &) override;
 
 	/*!
 	 * As the name saids, processes all index files and calls a callback
@@ -146,16 +163,6 @@ SUTPROTECTED:
 #define DL_HINT_GUESS_REPLACEMENT 0x1
 #define DL_HINT_NOTAG 0x2
 
-	// common helper variables
-	bool m_bErrAbort, m_bVerbose, m_bForceDownload, m_bSkipIxUpdate = false;
-	bool m_bScanInternals, m_bByPath, m_bByChecksum, m_bSkipHeaderChecks;
-	bool m_bTruncateDamaged;
-	int m_nErrorCount;
-
-	enumMetaType GuessMetaTypeFromURL(const mstring &sPath);
-
-	unsigned int m_nProgIdx, m_nProgTell;
-
 	void TellCount(unsigned nCount, off_t nSize);
 
 	/**
@@ -164,13 +171,10 @@ SUTPROTECTED:
 	bool ParseAndProcessMetaFile(std::function<void(const tRemoteFileInfo&)> output_receiver,
 			const mstring &sPath, enumMetaType idxType, bool byHashMode = false);
 
-	std::unordered_map<mstring,bool> m_forceKeepInTrash;
-
 	bool GetAndCheckHead(cmstring & sHeadfile, cmstring &sFilePathRel, off_t nWantedSize);
 	virtual bool Inject(cmstring &fromRel, cmstring &toRel, bool bSetIfileFlags, off_t contLen, tHttpDate lastModified, LPCSTR forceOrig = nullptr);
 
 	void PrintStats(cmstring &title);
-	mstring m_processedIfile;
 
 	void ProgTell();
 	void AddDelCbox(cmstring &sFileRel, cmstring& reason, bool bExtraFile = false);
@@ -181,9 +185,6 @@ SUTPROTECTED:
 	// for compressed map of special stuff
 	mstring AddLookupGetKey(cmstring &sFilePathRel, cmstring& errorReason);
 
-	// stuff in those directories must be managed by some top-level index files
-	// whitelist patterns do not apply there!
-	tStrSet m_managedDirs;
 
 SUTPRIVATE:
 
@@ -263,6 +264,8 @@ SUTPROTECTED:
 
 	// simple helper for use by others as well, and let compiler do RVO
 	tStrDeq GetGoodReleaseFiles();
+
+	bool IsInternalItem(cmstring& sPathAbs, bool inDoubt);
 };
 
 }

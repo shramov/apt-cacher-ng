@@ -48,6 +48,8 @@ using namespace acng;
 
 bool g_bVerbose = false;
 
+#define SUICIDE_TIMEOUT 600
+
 namespace acng {
 extern std::shared_ptr<cleaner> g_victor;
 namespace log
@@ -558,7 +560,7 @@ int maint_job()
 	}
 
 	// base target URL, can be adapted for TCP requests
-	tHttpUrl url("localhost", cfg::port, false);
+	tHttpUrl url;
 	url.sUserPass = cfg::adminauth;
 	LPCSTR req = getenv("ACNGREQ");
 	url.sPath = "/" + cfg::reportpage + (req ? req : "?doExpire=Start+Expiration&abortOnErrors=aOe");
@@ -598,9 +600,12 @@ int maint_job()
 	{
 		DBGQLOG("Trying UDS path")
 				auto fi = make_shared<tRepItem>();
+
 		url.sHost = FAKE_UDS_HOSTNAME;
+		url.SetPort(0);
+
 		TUdsFactory udsFac;
-		evabaseFreeFrunner eb(udsFac, true);
+		evabaseFreeRunner eb(udsFac, true, SUICIDE_TIMEOUT);
 		response_ok = DownloadItem(url, eb.getDownloader(), fi);
 		DBGQLOG("UDS result: " << response_ok)
 	}
@@ -617,7 +622,9 @@ int maint_job()
 		for (const auto &tgt : hostips)
 		{
 			url.sHost = tgt;
-			evabaseFreeFrunner eb(g_tcp_con_factory, true);
+			url.SetPort(cfg::port);
+
+			evabaseFreeRunner eb(g_tcp_con_factory, true, SUICIDE_TIMEOUT);
 			auto fi = make_shared<tRepItem>();
 			response_ok = DownloadItem(url, eb.getDownloader(), fi);
 			if (response_ok)
@@ -1066,7 +1073,7 @@ int wcat(LPCSTR surl, LPCSTR proxy, IFitemFactory* fac, const IDlConFactory &pDl
 	if(!url.SetHttpUrl(xurl, false))
 		return -2;
 
-	evabaseFreeFrunner eb(pDlconFac, true);
+	evabaseFreeRunner eb(pDlconFac, true);
 
 	auto fi=fac->Create();
 	eb.getDownloader().AddJob(fi, move(url));

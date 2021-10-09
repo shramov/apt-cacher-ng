@@ -8,6 +8,7 @@ apt-cacher-ng (3.7.3) THERE-IS-NO-KNIVE; urgency=low
   * More aggresive default strategy for expiration of index files where the
     remote resource disappeared (FollowIndexFileRemoval option)
   * Add .sig suffix support for Arch Linux (Debian bug #989347)
+  * Cleanup of old empty directories
 
   [ BUGFIXES]
 
@@ -21,12 +22,15 @@ apt-cacher-ng (3.7.3) THERE-IS-NO-KNIVE; urgency=low
   * Fixed access URL rendering on information page (potential format errors,
     regression since 3.7.2 due to network port type change). Also simplified
     the format helper for better optimization by older C++ compilers.
+  * Fixed acngtool "maint" function over UNIX domain socket (more fallout from
+    port type change), also added a global timeout of 10 minutes to mitigate
+    side effects from such hangups in cron jobs.
 
   [ MISCELLANEOUS]
 
   * Database update
 
- -- 
+ -- Eduard Bloch <blade@debian.org>  Sat, 09 Oct 2021 12:39:30 +0200
 
 apt-cacher-ng (3.7.2) SHIFT_HAPPENZ; urgency=high
 
