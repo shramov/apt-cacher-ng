@@ -21,12 +21,12 @@ class dlcon;
 class IDlConFactory;
 
 // tool helper class for acngtool and httpfs, runs event and download threads
-class ACNG_API evabaseFreeFrunner
+class ACNG_API evabaseFreeRunner
 {
 	class Impl;
 public:
-	evabaseFreeFrunner(const IDlConFactory &pDlconFac, bool withDownloader);
-	~evabaseFreeFrunner();
+	evabaseFreeRunner(const IDlConFactory &pDlconFac, bool withDownloader, unsigned killTimeout = 0);
+	~evabaseFreeRunner();
 	dlcon& getDownloader();
 	event_base* getBase();
 private:

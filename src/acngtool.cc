@@ -48,6 +48,8 @@ using namespace acng;
 
 bool g_bVerbose = false;
 
+#define SUICIDE_TIMEOUT 600
+
 namespace acng {
 extern std::shared_ptr<cleaner> g_victor;
 namespace log
@@ -603,7 +605,7 @@ int maint_job()
 		url.SetPort(0);
 
 		TUdsFactory udsFac;
-		evabaseFreeFrunner eb(udsFac, true);
+		evabaseFreeRunner eb(udsFac, true, SUICIDE_TIMEOUT);
 		response_ok = DownloadItem(url, eb.getDownloader(), fi);
 		DBGQLOG("UDS result: " << response_ok)
 	}
@@ -622,7 +624,7 @@ int maint_job()
 			url.sHost = tgt;
 			url.SetPort(cfg::port);
 
-			evabaseFreeFrunner eb(g_tcp_con_factory, true);
+			evabaseFreeRunner eb(g_tcp_con_factory, true, SUICIDE_TIMEOUT);
 			auto fi = make_shared<tRepItem>();
 			response_ok = DownloadItem(url, eb.getDownloader(), fi);
 			if (response_ok)
@@ -1071,7 +1073,7 @@ int wcat(LPCSTR surl, LPCSTR proxy, IFitemFactory* fac, const IDlConFactory &pDl
 	if(!url.SetHttpUrl(xurl, false))
 		return -2;
 
-	evabaseFreeFrunner eb(pDlconFac, true);
+	evabaseFreeRunner eb(pDlconFac, true);
 
 	auto fi=fac->Create();
 	eb.getDownloader().AddJob(fi, move(url));

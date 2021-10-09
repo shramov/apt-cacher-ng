@@ -749,7 +749,7 @@ int main(int argc, char *argv[])
 
 	// restore application arguments
 
-	evabaseFreeFrunner eb(g_tcp_con_factory, false);
+	evabaseFreeRunner eb(g_tcp_con_factory, false);
 
 	auto expTimer = event_new(eb.getBase(), -1, EV_PERSIST, expireAgents, nullptr);
 	struct timeval expTv { 30, 30 };
