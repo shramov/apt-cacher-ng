@@ -8,6 +8,7 @@ apt-cacher-ng (3.7.3) THERE-IS-NO-KNIVE; urgency=low
   * More aggresive default strategy for expiration of index files where the
     remote resource disappeared (FollowIndexFileRemoval option)
   * Add .sig suffix support for Arch Linux (Debian bug #989347)
+  * Cleanup of old empty directories
 
   [ BUGFIXES]
 

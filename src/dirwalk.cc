@@ -74,6 +74,9 @@ bool dnode::Walk(IFileHandler *h, dnode::tDupeFilter *pFilter, bool bFollowSymli
 	
 	// ok, we are a directory, scan it and descend where needed
 
+	if (!h->ProcessDirBefore(sPath, m_stinfo))
+		return false;
+
 	// seen this in the path before? symlink cycle?
 	for(dnode *cur=m_parent; cur!=nullptr; cur=cur->m_parent)
 	{
@@ -141,8 +144,9 @@ bool IFileHandler::FindFiles(const mstring & sRootDir, IFileHandler::output_rece
 	{
 		IFileHandler::output_receiver &m_cb;
 		bool ProcessRegular(cmstring &sPath, const struct stat &st) override { return m_cb(sPath, st);}
-		bool ProcessOthers(cmstring &sPath, const struct stat &) override {return true;};
-		bool ProcessDirAfter(cmstring &sPath, const struct stat &) override {return true;};
+		bool ProcessOthers(cmstring &, const struct stat &) override {return true;};
+		bool ProcessDirAfter(cmstring &, const struct stat &) override {return true;};
+		bool ProcessDirBefore(cmstring &, const struct stat &) override {return true;};
 		tFileGrabber(IFileHandler::output_receiver &ret) : m_cb(ret) {}
 	} cb(callBack);
 	return DirectoryWalk(sRootDir, &cb, bFilterDoubleDirVisit, bFollowSymlinks);

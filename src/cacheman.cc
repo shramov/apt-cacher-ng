@@ -656,6 +656,7 @@ void ACNG_API DelTree(const string &what)
 			::rmdir(sPath.c_str()); // XXX log some warning?
 			return true;
 		}
+		bool ProcessDirBefore(const mstring &, const struct stat &) { return true;}
 	} hh;
 	IFileHandler::DirectoryWalk(what, &hh, false, false);
 }
@@ -2432,6 +2433,18 @@ tStrDeq cacheman::GetGoodReleaseFiles()
 	tStrDeq ret;
 	for(const auto& kv: t) ret.emplace_back(kv.first+kv.second);
 	return ret;
+}
+
+bool cacheman::IsInternalItem(cmstring &sPathAbs, bool inDoubt)
+{
+	if (sPathAbs.length() <= CACHE_BASE_LEN)
+		return inDoubt;
+	return sPathAbs[CACHE_BASE_LEN] == '_';
+}
+
+bool cacheman::ProcessDirBefore(const std::string &, const struct stat &)
+{
+	return true;
 }
 
 }

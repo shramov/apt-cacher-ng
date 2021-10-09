@@ -17,7 +17,10 @@ class ACNG_API IFileHandler
 public:
 	virtual bool ProcessRegular(const std::string &sPath, const struct stat &) =0;
 	virtual bool ProcessOthers(const std::string &sPath, const struct stat &)=0;
+
+	virtual bool ProcessDirBefore(const std::string &sPath, const struct stat &)=0;
 	virtual bool ProcessDirAfter(const std::string &sPath, const struct stat &)=0;
+
 	virtual ~IFileHandler() {};
 
 	typedef std::function<bool(cmstring &, const struct stat&)> output_receiver;
