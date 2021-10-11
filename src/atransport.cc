@@ -6,6 +6,7 @@
 #include "evabase.h"
 #include "aconnect.h"
 #include "fileio.h"
+#include "meta.h"
 
 #include <map>
 
@@ -21,12 +22,14 @@ multimap<string, lint_ptr<atcpstreamImpl>> g_con_cache;
 #define CACHE_SIZE_MAX 42
 void cbCachedKill(struct bufferevent *bev, short what, void *ctx);
 
+time_t g_proxyBackOffUntil = 0;
+
 class atcpstreamImpl : public atransport
 {
 	bufferevent* m_buf = nullptr;
 	mstring sHost;
 	uint16_t nPort;
-	bool m_bProxyConnected;
+	bool m_bPeerIsProxy;
 
 	decltype (g_con_cache)::iterator m_cleanIt;
 
@@ -34,7 +37,7 @@ public:
 	atcpstreamImpl(string host, uint16_t port, bool isProxy) :
 		sHost(move(host)),
 		nPort(port),
-		m_bProxyConnected(isProxy)
+		m_bPeerIsProxy(isProxy)
 	{
 	}
 	~atcpstreamImpl()
@@ -66,25 +69,35 @@ public:
         bufferevent *GetBufferEvent() override { return m_buf; }
 	const string &GetHost() override { return sHost; }
 	uint16_t GetPort() override { return nPort; }
-	bool PeerIsProxy() override { return m_bProxyConnected; }
+	bool PeerIsProxy() override { return m_bPeerIsProxy; }
 };
 
-struct tPostConnOps : public tLintRefcounted
+
+struct tConnContext : public tLintRefcounted
 {
-	atransport::tCallBack m_cback;
-	mstring m_sHost;
-	uint16_t m_nPort;
-	bool m_bThroughProxy;
-	int m_fd;
-	~tPostConnOps()
+	atransport::TConnectParms m_hints;
+	atransport::tCallBack m_reporter;
+	tHttpUrl m_target;
+	enum class eState
+	{
+		NEW,
+		NEW_CON_PROXY
+	} m_state = eState::NEW;
+	int m_fd = -1;
+
+	void Step(short what)
+	{
+
+	}
+
+	tConnContext(const tHttpUrl &url, const atransport::tCallBack &cback, const atransport::TConnectParms &extHints)
+		: m_hints(extHints), m_reporter(cback), m_target(url)
+	{
+	}
+	~tConnContext()
 	{
 		checkforceclose(m_fd);
 	}
-	tPostConnOps(atransport::tCallBack cback, mstring sHost, uint16_t nPort, bool bThroughProxy, int fd)
-		: m_cback(cback), m_sHost(sHost), m_nPort(nPort), m_bThroughProxy(bThroughProxy), m_fd(fd)
-	{
-	}
-	void Go();
 };
 
 void cbCachedKill(struct bufferevent *, short , void *ctx)
@@ -103,16 +116,33 @@ void cbCachedKill(struct bufferevent *, short , void *ctx)
 	}
 }
 
-class tConnContext : public tLintRefcounted
+mstring atransport::TConnectParms::AddFingerprint(mstring &&prefix) const
 {
+	prefix += '/';
+	prefix += char(directConnection);
+	prefix += char(noTlsOnTarget);
+	prefix += char(proxyStrategy);
+	return move(prefix);
+}
 
-};
 
 
-
-void atransport::Create(const tHttpUrl &, const tCallBack &cback, const TConnectParms &extHints)
+void atransport::Create(const tHttpUrl &url, const tCallBack &cback, const TConnectParms &extHints)
 {
-#error oh kein bock
+	auto cacheKey = extHints.AddFingerprint(url.GetHostPortKey());
+
+	if (!extHints.noCache)
+	{
+		auto anyIt = g_con_cache.find(cacheKey);
+		if (anyIt != g_con_cache.end())
+		{
+			auto ret = anyIt->second;
+			g_con_cache.erase(anyIt);
+			ret->Reuse();
+			return cback({static_lptr_cast<atransport>(ret), sEmptyString, false});
+		}
+	}
+	(new tConnContext)->Step(0);
 }
 
 void atransport::Return(lint_ptr<atransport> &stream)
@@ -132,18 +162,9 @@ void atransport::Return(lint_ptr<atransport> &stream)
 void atransport::Create(const tHttpUrl& url, int forceTimeout, bool forceFresh, bool connectThrough,
 					 bool sslUpgrade, bool noProxy, const tCallBack& cback)
 {
-	auto key = url.GetHostPortKey();
-	if (!forceFresh)
-	{
-		auto anyIt = g_con_cache.find(key);
-		if (anyIt != g_con_cache.end())
-		{
-			auto ret = anyIt->second;
-			g_con_cache.erase(anyIt);
-			ret->Reuse();
-			return cback({static_lptr_cast<atransport>(ret), string_view(), false});
-		}
-	}
+get from cache here
+
+
 	evabase::Post([host = url.sHost, port = url.GetPort(), doSsl = url.bSSL,
 				  forceTimeout, cback]
 				  (bool cancled)

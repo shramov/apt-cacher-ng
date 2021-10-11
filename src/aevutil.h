@@ -53,7 +53,7 @@ using unique_eb = auto_raii<evbuffer*, evbuffer_free, nullptr>;
  */
 void be_free_fd_close(bufferevent*);
 void be_flush_and_close(bufferevent*);
-void be_flush_free_fd_close(bufferevent*);
+void be_flush_and_release_and_fd_close(bufferevent*);
 /**
  * This will simply finish the bufferent by freeing, closing of the FD must be handled by bufferevent (... CLOSE_ON_FREE)
  */
@@ -66,7 +66,7 @@ using unique_bufferevent_fdclosing = auto_raii<bufferevent*, be_free_fd_close, n
  * Flush the outgoing data by getting the confirmation from peer,
  * then free the event when finishing and close its FD explicitly.
  */
-using unique_bufferevent_flushclosing = auto_raii<bufferevent*, be_flush_free_fd_close, nullptr>;
+using unique_bufferevent_flushclosing = auto_raii<bufferevent*, be_flush_and_release_and_fd_close, nullptr>;
 
 // configure timeouts and enable a bufferent for bidirectional communication
 void setup_be_bidirectional(bufferevent *be);
@@ -74,8 +74,8 @@ void setup_be_bidirectional(bufferevent *be);
 struct beconsum
 {
     evbuffer *m_eb;
-	beconsum(evbuffer* eb) : m_eb(eb){}
-	beconsum(bufferevent* eb) : m_eb(bufferevent_get_input(eb)){}
+	beconsum(evbuffer* eb) : m_eb(eb) {}
+	beconsum(bufferevent* eb) : m_eb(bufferevent_get_input(eb)) {}
     size_t size() { return evbuffer_get_length(m_eb); }
 	beconsum& drop(size_t howMuch) { evbuffer_drain(m_eb, howMuch); return *this; }
 	/**
@@ -83,7 +83,7 @@ struct beconsum
 	 * @param limit if negative, grab the maximum size of the first chunk. If positive, then the size of the first chunk but not more than limit value
 	 * @return string view structure with at most <limit> bytes
 	 */
-    string_view front_view(ssize_t limit = -1)
+	string_view front(ssize_t limit = -1)
     {
             auto len = evbuffer_get_contiguous_space(m_eb);
 			if (limit >= 0 && size_t(limit) < len)

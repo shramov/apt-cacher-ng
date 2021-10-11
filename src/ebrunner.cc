@@ -10,10 +10,10 @@ namespace acng
 void SetupCleaner();
 
 #warning FIXME, implement the abort timeout or maybe not, depending on the redesign
-class evabaseFreeFrunner::Impl
+class evabaseFreeRunner::Impl
 {
 public:
-	SHARED_PTR<dlcontroller> dl;
+	lint_ptr<dlcontroller> dl;
 	thread evthr;
 	unique_ptr<evabase> m_eb;
 
@@ -35,22 +35,22 @@ public:
 	}
 
 };
-evabaseFreeFrunner::evabaseFreeFrunner(bool withDownloader)
+evabaseFreeRunner::evabaseFreeRunner(bool withDownloader)
 {
 	m_pImpl = new Impl(withDownloader);
 }
 
-evabaseFreeFrunner::~evabaseFreeFrunner()
+evabaseFreeRunner::~evabaseFreeRunner()
 {
 	delete m_pImpl;
 }
 
-dlcontroller& evabaseFreeFrunner::getDownloader()
+dlcontroller& evabaseFreeRunner::getDownloader()
 {
 	return * m_pImpl->dl;
 }
 
-event_base *evabaseFreeFrunner::getBase()
+event_base *evabaseFreeRunner::getBase()
 {
 	return m_pImpl->m_eb.get()->base;
 }

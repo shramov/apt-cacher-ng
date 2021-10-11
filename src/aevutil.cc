@@ -22,7 +22,7 @@ void be_flush_and_close(bufferevent *be)
 	bufferevent_free(be);
 }
 
-void be_flush_free_fd_close(bufferevent *be)
+void be_flush_and_release_and_fd_close(bufferevent *be)
 {
 #warning this requires a special statemachine, shortcut for now
 	return be_free_fd_close(be);

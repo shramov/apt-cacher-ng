@@ -486,9 +486,9 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 				extraHeaders += svRN;
 			}
 
-			if (bPtMode && headBuf.length() > 0)
+			if (bPtMode && beconsum(be).front().length() > 0)
 			{
-				extraHeaders += header::ExtractCustomHeaders(beconsum(be).front_view().data(), bPtMode);
+				extraHeaders += header::ExtractCustomHeaders(beconsum(be).front().data(), bPtMode);
 			}
 
 			if (bHaveBackends
@@ -517,7 +517,7 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 
 void job::PrepFatalError(const header &h, string_view error_headline)
 {
-
+#warning implementme
 }
 
 job::eJobResult job::Poke(bufferevent *be)
@@ -546,22 +546,21 @@ TFileItemHolder job::PrepSpecialItem(ESpecialWorkType)
 
 job::eJobResult job::subscribe2item()
 {
+	if (!m_subKey)
+		return R_TOBEAWAKEN;
 	try
 	{
-		if (!m_subKey)
+		ASSERT(m_pItem); // very unlikely to fail
+		m_subKey = m_pItem->subscribe([parent = as_lptr(&m_parent), id = m_id]() mutable
 		{
-			ASSERT(m_pItem); // very unlikely
-			m_subKey = m_pItem->subscribe([parent = as_lptr(&m_parent), id = m_id]() mutable
-			{
-				return parent->poke(id);
-			});
-		}
+			return parent->poke(id);
+		});
+		return R_TOBEAWAKEN;
 	}
 	catch (...)
 	{
 		return R_DISCON;
 	}
-	return R_TOBEAWAKEN;
 }
 
 off_t job::CheckSendableState()

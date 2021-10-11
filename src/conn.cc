@@ -241,7 +241,7 @@ public:
 		}
 		case PREP_SHUTDOWN:
 			auto destroyer = as_lptr(this);
-			return be_flush_free_fd_close(m_be.release());
+			return be_flush_and_release_and_fd_close(m_be.release());
 		}
 	}
 

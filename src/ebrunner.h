@@ -24,8 +24,8 @@ class ACNG_API evabaseFreeRunner
 {
 	class Impl;
 public:
-	evabaseFreeFrunner(bool withDownloader);
-	~evabaseFreeFrunner();
+	evabaseFreeRunner(bool withDownloader);
+	~evabaseFreeRunner();
 	dlcontroller& getDownloader();
 	event_base* getBase();
 private:

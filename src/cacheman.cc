@@ -246,7 +246,7 @@ cacheman::eDlResult cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileF
 		const tHttpUrl * pForcedURL, unsigned hints,
 		cmstring* sGuessedFrom, bool bForceReDownload)
 {
-	return false;
+	return eDlResult::FAIL_LOCAL;
 #warning implement me as detached client actor
 #if 0
 

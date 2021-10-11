@@ -19,14 +19,14 @@ class tHttpUrl;
   * This implement second level connection establishment, which serves
   * various purposes and automates the setup flow.
   */
-class atransport : public acng::tLintRefcounted
+class ACNG_API atransport : public acng::tLintRefcounted
 {
 public:
 	atransport() =default;
 	struct tResult
 	{
 		lint_ptr<atransport> strm;
-		string_view err;
+		mstring err;
 		bool isFresh;
 	};
 	using tCallBack = std::function<void(tResult)>;
@@ -47,6 +47,7 @@ public:
 		int timeoutSeconds = -1; // timeout value, -1 for config default, 0 to disable timeout
 		EProxyType proxyStrategy = EProxyType::AUTO;
 		TConnectParms& setTimeout(int n) { timeoutSeconds = n; return *this;}
+		mstring AddFingerprint(mstring&& prefix) const;
 		TConnectParms() {}
 	};
 
@@ -70,6 +71,7 @@ public:
 	 * @return
 	 */
 	virtual std::string GetConnKey() =0;
+
 };
 }
 
