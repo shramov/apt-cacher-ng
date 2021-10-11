@@ -216,8 +216,6 @@ void tDnsResContext::cb_srv_query(void *arg, int status, int, unsigned char *abu
 	if (ARES_ENOMEM == status)
 		return me->reportNewError("Out of memory");
 
-	tPortAsString sp(me->nPort);
-
 	auto invoke_getaddrinfo = [&] (cmstring& sHost)
 	{
 		static bool filter_specific = (cfg::conprotos[0] != PF_UNSPEC && cfg::conprotos[1] == PF_UNSPEC);
@@ -231,7 +229,7 @@ void tDnsResContext::cb_srv_query(void *arg, int status, int, unsigned char *abu
 		};
 		ares_getaddrinfo(me->resolver->get(),
 						 sHost.c_str(),
-						 sp.s,
+						 tPortFmter().fmt(me->nPort),
 						 &default_connect_hints, tDnsResContext::cb_addrinfo,
 						 & me->tasks.emplace_back(me));
 	};
@@ -304,6 +302,10 @@ tDnsResContext::~tDnsResContext()
 			auto tres = taskCtx.results.get();
 			if (errStatus == ARES_SUCCESS)
 				errStatus = taskCtx.status;
+			if (!tres)
+			{
+				continue;
+			}
 
 #ifdef DEBUG
 			for (auto p = tres->nodes; p; p = p->ai_next)

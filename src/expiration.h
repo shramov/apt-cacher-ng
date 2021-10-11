@@ -21,21 +21,21 @@ struct tDiskFileInfo
 class expiration : public cacheman
 {
 public:
-	// XXX: g++ 4.7 is not there yet... using tCacheOperation::tCacheOperation;
-	inline expiration(const tRunParms& parms) : cacheman(parms) {};
+	expiration(const tRunParms& parms);
 
 protected:
 
 	std::unordered_map<mstring,std::map<mstring,tDiskFileInfo>> m_trashFile2dir2Info;
 	tStrVec m_oversizedFiles;
+	tStrDeq m_emptyFolders;
+	unsigned m_fileCur;
+	time_t m_oldDate;
 
 	void RemoveAndStoreStatus(bool bPurgeNow);
 	void LoadPreviousData(bool bForceInsert);
 
 	// callback implementations
 	virtual void Action() override;
-	// for FileHandler
-	virtual bool ProcessRegular(const mstring &sPath, const struct stat &) override;
 	void HandlePkgEntry(const tRemoteFileInfo &entry);
 
 	void LoadHints();
@@ -60,6 +60,13 @@ private:
 	void HandleDamagedFiles();
 	void ListExpiredFiles();
 	void TrimFiles();
+
+	// IFileHandler interface
+public:
+	bool ProcessRegular(const mstring &sPath, const struct stat &) override;
+	bool ProcessOthers(const std::string &sPath, const struct stat &) override;
+	bool ProcessDirBefore(const std::string &sPath, const struct stat &) override;
+	bool ProcessDirAfter(const std::string &sPath, const struct stat &) override;
 };
 
 }

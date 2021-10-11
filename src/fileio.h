@@ -36,6 +36,12 @@
 #define O_BINARY 0 // ignore on Unix
 #endif
 
+extern "C"
+{
+struct evbuffer;
+struct event;
+void event_free(struct event*);
+}
 namespace acng
 {
 
@@ -123,6 +129,8 @@ public:
 */
 
 using unique_fd = auto_raii<int, justforceclose, -1>;
+
+using unique_event = auto_raii<event*, event_free, nullptr>;
 
 }
 

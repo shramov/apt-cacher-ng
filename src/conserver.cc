@@ -197,8 +197,7 @@ unsigned setup_tcp_listeners(LPCSTR addi, uint16_t port)
 	hints.ai_family = PF_UNSPEC;
 
 	addrinfo* dnsret;
-	tPortAsString sp(port);
-	int r = getaddrinfo(addi, sp.s, &hints, &dnsret);
+	int r = getaddrinfo(addi, tPortFmter().fmt(port), &hints, &dnsret);
 	if(r)
 	{
 		log::flush();

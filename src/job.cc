@@ -486,7 +486,7 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 				extraHeaders += svRN;
 			}
 
-			if (bPtMode)
+			if (bPtMode && headBuf.length() > 0)
 			{
 				extraHeaders += header::ExtractCustomHeaders(beconsum(be).front_view().data(), bPtMode);
 			}

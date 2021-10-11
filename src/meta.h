@@ -158,6 +158,7 @@ mstring UrlUnescape(cmstring &from);
 mstring DosEscape(cmstring &s);
 // just the bare minimum to make sure the string does not break HTML formating
 mstring html_sanitize(cmstring& in);
+mstring message_detox(string_view in, int pfx = -1);
 
 ACNG_API mstring UserinfoEscape(cmstring &s);
 

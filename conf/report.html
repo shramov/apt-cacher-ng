@@ -75,20 +75,26 @@ AAAADElEQVQI12MQVSgBAAD3AKpQhOaUAAAAAElFTkSuQmCC" width=${dataHistOut} height=11
 
          <form action="#bottom">
 
-         <h2>Shared processing options</h2>
+         <h2>Common processing options</h2>
          Temporary options for the general behavour and index update
          configuration can set in this user interface. They are only relevant
          to expiration and import features triggered below.
-         <br />
-         <label><input type="checkbox" name="abortOnErrors" value="aOe" ${aOeDefaultChecked}> Stop the work on errors during index update step</label>
-               <br>
-         <label>      <input type="checkbox" name="beVerbose" value="bV"> More verbosity</label>
-               <br>
-               <label><input type="checkbox" name="forceRedownload" value="fRd"> Force the download of index files (even having fresh ones)</label>
-               <br>
-               <!--input type="checkbox" name="jsMode" value="js" checked> Auto-scrolling (requires JavaScript)
-               <br-->
-            <label><input type="checkbox" name="skipIxUp" value="si"> Don't update index files (DANGEROUS for expiration tasks!)</label>
+         <br>
+         <label>
+                 <input type="checkbox" name="abortOnErrors" value="aOe" ${aOeDefaultChecked}> Stop the work on errors during index update step
+         </label>
+         <br>
+         <label>
+                 <input type="checkbox" name="beVerbose" value="bV"> More verbosity
+         </label>
+         <br>
+         <label>
+                 <input type="checkbox" name="forceRedownload" value="fRd"> Force the download of index files (even having fresh ones)
+         </label>
+         <br>
+         <label>
+                 <input type="checkbox" name="skipIxUp" value="si"> Don't update index files (DANGEROUS for expiration task!)
+         </label>
 
          <h2>Expiration</h2>
          <p>

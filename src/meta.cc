@@ -684,6 +684,28 @@ mstring html_sanitize(cmstring& in)
 	return ret;
 }
 
+/**
+ * @brief message_detox Check the string and keep only characters usable in a simple error message, stop at first non-alphanumeric-non-space character
+ * @param in String data
+ * @param pfx Optional number to prepend, ignore if not positive
+ * @return Detoxed string
+ */
+mstring message_detox(string_view in, int pfx)
+{
+	mstring ret;
+	if (pfx > 0)
+	{
+		ret = ltos(pfx);
+		ret += ' ';
+	}
+	for(auto c: in)
+	{
+		if (isalnum((unsigned) c) || isspace((unsigned) c))
+			ret += c;
+	}
+	return ret;
+}
+
 mstring offttos(off_t n)
 {
 	char buf[21];

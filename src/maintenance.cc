@@ -13,7 +13,7 @@
 #include "acbuf.h"
 #include "sockio.h"
 #include "caddrinfo.h"
-
+#include "portutils.h"
 #include "debug.h"
 
 #include <stdio.h>
@@ -157,13 +157,15 @@ const string & tSpecialRequest::GetMyHostPort()
 			bAddBrs = true; // full v6 address for sure, add brackets
 
 		if (bAddBrs)
-			m_sHostPort = string("[") + p + "]";
+			m_sHostPort = sEmptyString + '[' + p + ']';
 		else
 			m_sHostPort = p;
-		m_sHostPort += (":" + cfg::port);
 	}
 	else
-		m_sHostPort = "IP-of-this-cache-server:" + cfg::port;
+		m_sHostPort = "IP-of-this-cache-server"sv;
+
+	m_sHostPort += ':';
+	m_sHostPort += tPortFmter().fmt(cfg::port);
 	return m_sHostPort;
 }
 

@@ -1,14 +1,36 @@
 apt-cacher-ng (3.7.3) THERE-IS-NO-KNIVE; urgency=low
 
-  * Still experimental release
+  [ IMPROVEMENTS ]
+
+  * Maintenance tasks report HTTP errors with status code
+  * Earlier aborting of maintenance tasks when continuation would be not
+    permitted in the end anyway
+  * More aggresive default strategy for expiration of index files where the
+    remote resource disappeared (FollowIndexFileRemoval option)
+  * Add .sig suffix support for Arch Linux (Debian bug #989347)
+  * Cleanup of old empty directories
 
   [ BUGFIXES]
 
   * Fix premature exit of connection invocation if the first attempt happened
     to quick, therefore leaving client thread eventually in blocked state
     (thread leak, regression since 3.7)
+  * Fix crash in case of missing DNS data
+  * GCC 11 compilation fix (error: template-id not allowed for destructor)
+  * More smart (and partly more strict) parsing of various IPv6 IP formats in
+    URL parsing (Debian bug #994778)
+  * Fixed access URL rendering on information page (potential format errors,
+    regression since 3.7.2 due to network port type change). Also simplified
+    the format helper for better optimization by older C++ compilers.
+  * Fixed acngtool "maint" function over UNIX domain socket (more fallout from
+    port type change), also added a global timeout of 10 minutes to mitigate
+    side effects from such hangups in cron jobs.
 
- -- 
+  [ MISCELLANEOUS]
+
+  * Database update
+
+ -- Eduard Bloch <blade@debian.org>  Sat, 09 Oct 2021 12:39:30 +0200
 
 apt-cacher-ng (3.7.2) SHIFT_HAPPENZ; urgency=high
 
@@ -141,6 +163,27 @@ apt-cacher-ng (3.7) AND-SOMETIMES-THE-BEAR-EATS-YOU; urgency=medium
   * Database update
 
  -- Eduard Bloch <blade@debian.org>  Sat, 22 May 2021 14:34:51 +0200
+
+apt-cacher-ng (3.6.4) 11TH-HOUR-RELEASE; urgency=low
+
+  * Fix the premature and unsafe closing of file descriptors:
+     - registration in the graceful termination handling was not thread-safe
+     - conn objects did close the handles immediately due to incorrect use
+       of RAII helper, leading to the exact opposite of what the graceful
+       shutdown code was made for (therefore, sometimes suddenly closing
+       sockets without returning all data)
+     - even worse, the graceful shutdown code was able to randomly steal
+       data from unrelated sockets (causing data corruption even in incoming
+       data) or shutdown their stream
+     - the timeout description map was not cleaned properly, therefore
+       causing a (minor) memory leak. This is now dropped completely because
+       the timeout/event data is carried around in own metadata objects.
+  * Minor stability tweaks:
+     - drop obsolete forceclose() function which would make a pointless
+       (although harmless) close(-1) call upon EINTR result
+     - explicit checks for -1 results of open() result instead of < 0
+
+ -- Eduard Bloch <blade@debian.org>  Sun, 30 May 2021 10:32:44 +0200
 
 apt-cacher-ng (3.6.3) SOHMIETNG-T0-REBMEMER; urgency=medium
 

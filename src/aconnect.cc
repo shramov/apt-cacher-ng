@@ -12,6 +12,8 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 
+#include <event.h>
+
 using namespace std;
 
 namespace acng
@@ -19,15 +21,6 @@ namespace acng
 
 string dnsError("Unknown DNS error");
 
-aconnector::~aconnector()
-{
-	for(auto& el: m_eventFds)
-	{
-		if (el.ev)
-			event_free(el.ev);
-		checkforceclose(el.fd);
-	}
-}
 
 void aconnector::Connect(cmstring& target, uint16_t port, unsigned timeout, tCallback cbReport)
 {
@@ -150,7 +143,7 @@ void aconnector::step(int fd, short what)
 		pe.m_p = event_new(evabase::base, nextFd.get(), EV_WRITE | EV_PERSIST, cbStep, this);
 		if (AC_LIKELY(pe.valid() && 0 == event_add(pe.get(), tmout)))
 		{
-			m_eventFds.push_back({nextFd.release(), pe.release()});
+			m_eventFds.push_back({move(nextFd), move(pe)});
 			m_pending++;
 			// advance to the next after timeout
 			m_cursor++;
@@ -180,18 +173,14 @@ void aconnector::retError(mstring msg)
 void aconnector::retSuccess(int fd)
 {
 	// doing destructors work already since we need to visit nodes anyway to find and extract the winner
-	for(auto& el: m_eventFds)
+	auto it = find_if(m_eventFds.begin(), m_eventFds.end(), [fd](auto& el){return el.fd.get() == fd;});
+	if (it == m_eventFds.end())
+		m_cback({unique_fd(), "Internal error"});
+	else
 	{
-		if (el.ev)
-			event_free(el.ev);
-		if (el.fd == fd)
-		{
-			continue;
-		}
-		checkforceclose(el.fd);
+		it->ev.reset();
+		m_cback({move(it->fd), sEmptyString});
 	}
-	m_eventFds.clear();
-	m_cback({unique_fd(fd), sEmptyString});
 	delete this;
 }
 
@@ -199,28 +188,16 @@ void aconnector::disable(int fd, int ec)
 {
 	LOGSTARTFUNCx(fd);
 	ASSERT(fd != -1);
-	for(auto& el: m_eventFds)
-	{
-		if (el.fd != fd)
-			continue;
-
-		// error from primary always wins, grab before closing it
-		if (&el == &m_eventFds.front())
-		{
-			setIfNotEmpty(m_error2report, tErrnoFmter(ec));
-		}
-
-		// stop observing and release resources
-		if (el.ev)
-		{
-			m_pending --;
-			event_free(el.ev);
-			el.ev = nullptr;
-		}
-
-		checkforceclose(el.fd);
-
-	}
+	auto it = find_if(m_eventFds.begin(), m_eventFds.end(), [fd](auto& el){return el.fd.get() == fd;});
+	if (it == m_eventFds.end())
+		return;
+	// error from primary always wins, grab before closing it
+	if (it == m_eventFds.begin())
+		setIfNotEmpty(m_error2report, tErrnoFmter(ec));
+	// stop observing and release resources
+	if (it->ev.get())
+		m_pending--;
+	m_eventFds.erase(it);
 }
 
 }

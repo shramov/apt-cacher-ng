@@ -171,6 +171,7 @@ MapNameToInt n2iTbl[] = {
 		,{  "MaxInresponsiveDlSize",             &maxredlsize,      nullptr,    10, false}
 		,{  "OptProxyCheckInterval",             &optProxyCheckInt, nullptr,    10, false}
 		,{  "TrackFileUse",		             	 &trackfileuse,		nullptr,    10, false}
+		,{  "FollowIndexFileRemoval",            &follow404,		nullptr,    10, false}
         ,{  "ReserveSpace",                      &allocspace, 		nullptr ,   10, false}
         ,{  "EvDnsOpts",                	     &dnsopts,	 		nullptr ,   10, false}
 
@@ -438,7 +439,7 @@ bool ReadOneConfFile(const string & szFilename, bool bReadErrorIsFatal=true)
 	while(itor.Next())
 	{
 #ifdef DEBUG
-		cerr << itor.sLine <<endl;
+		cerr << szFilename << " => " << itor.sLine <<endl;
 #endif
 		// XXX: To something about escaped/quoted version
 		tStrPos pos=itor.sLine.find('#');

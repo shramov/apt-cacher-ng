@@ -20,7 +20,7 @@ namespace acng
 class dlcontroller;
 
 // tool helper class for acngtool and httpfs, runs event and download threads
-class ACNG_API evabaseFreeFrunner
+class ACNG_API evabaseFreeRunner
 {
 	class Impl;
 public:

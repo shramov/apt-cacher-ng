@@ -30,6 +30,8 @@ using namespace std;
 #define sFAIL_INI SABSPATH("_exfail_cnt")
 #define FAIL_INI sFAIL_INI.c_str()
 
+#define OLD_DAYS 10
+
 namespace acng
 {
 
@@ -373,6 +375,10 @@ inline void expiration::DropExceptionalVersions()
     	procGroup();
 }
 
+expiration::expiration(const tRunParms &parms) : cacheman(parms), m_oldDate(GetTime() - OLD_DAYS * 86400)
+{
+}
+
 inline void expiration::RemoveAndStoreStatus(bool bPurgeNow)
 {
 	LOGSTART("expiration::_RemoveAndStoreStatus");
@@ -565,6 +571,9 @@ void expiration::Action()
 		};
 		ParseAndProcessMetaFile(func, sPathRel, EIDX_RELEASE, true);
 	}
+
+	if(CheckAndReportError() || CheckStopSignal())
+		goto save_fail_count;
 
 	ProcessSeenIndexFiles([this](const tRemoteFileInfo &e) {
 		HandlePkgEntry(e); });
@@ -762,8 +771,32 @@ void expiration::PurgeMaintLogs()
 
 }
 
+bool expiration::ProcessDirBefore(const std::string &sPath, const struct stat &st)
+{
+	m_fileCur = 0;
+	return cacheman::ProcessDirBefore(sPath, st);
+}
+
+bool expiration::ProcessDirAfter(const std::string &sPath, const struct stat &st)
+{
+	if (!m_fileCur && st.st_mtim.tv_sec < m_oldDate && !IsInternalItem(sPath, true))
+	{
+		if (m_bVerbose)
+			SendFmt << "Deleting old empty folder " << html_sanitize(sPath) << "...<br>\n";
+		rmdir(sPath.c_str());
+	}
+	return cacheman::ProcessDirAfter(sPath, st);
+}
+
+bool expiration::ProcessOthers(const std::string &sPath, const struct stat &st)
+{
+	m_fileCur++;
+	return cacheman::ProcessOthers(sPath, st);
+}
+
 bool expiration::ProcessRegular(const string & sPathAbs, const struct stat &stinfo)
 {
+	m_fileCur++;
 
 	if(CheckStopSignal())
 		return false;

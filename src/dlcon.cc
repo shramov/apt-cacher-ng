@@ -1034,6 +1034,13 @@ TDlStream::EAddResult TDlStream::takeNewJobs(TDlJobQueue &input, mstring &change
 			m_backlog.splice(posHint, input, input.begin());
 			posHint--;
 		}
+#warning Add this, needed in the new design?
+/*
+					&& tgt.GetPort() == con->GetPort());
+							  // or don't care port
+							  || !con->GetPort())
+						  );
+						  */
 	}
 	if (blsize != m_backlog.size())
 	{
