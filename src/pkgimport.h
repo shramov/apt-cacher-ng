@@ -15,8 +15,8 @@ class pkgimport : public cacheman
 
 public:
 	// XXX: c++11 using tCacheOperation::tCacheOperation;
-	inline pkgimport(const tSpecialRequest::tRunParms& parms)
-	: cacheman(parms) {};
+	inline pkgimport(tSpecialRequest::tRunParms&& parms)
+		: cacheman(std::move(parms)) {};
 
 	void Action() override;
 	

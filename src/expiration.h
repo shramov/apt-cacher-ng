@@ -21,7 +21,7 @@ struct tDiskFileInfo
 class expiration : public cacheman
 {
 public:
-	expiration(const tRunParms& parms);
+	expiration(tRunParms&& parms);
 
 protected:
 

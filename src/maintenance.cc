@@ -1,5 +1,3 @@
-
-
 #include "meta.h"
 
 #include "maintenance.h"
@@ -15,6 +13,7 @@
 #include "caddrinfo.h"
 #include "portutils.h"
 #include "debug.h"
+#include "ptitem.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -25,73 +24,18 @@
 
 using namespace std;
 
-#define MAINT_HTML_DECO "maint.html" 
+#define MAINT_HTML_DECO "maint.html"
+static string cssString("style.css");
 
 namespace acng {
 
-tSpecialRequest::tSpecialRequest(const tRunParms& parms) :
-		m_parms(parms)
+tSpecialRequest::tSpecialRequest(tRunParms&& parms) :
+		m_parms(move(parms))
 {
 }
 
 tSpecialRequest::~tSpecialRequest()
 {
-	if(m_bChunkHeaderSent)
-		SendRawData(WITHLEN("0\r\n\r\n"), MSG_NOSIGNAL);
-}
-
-bool tSpecialRequest::SendRawData(const char *data, size_t len, int flags)
-{
-	while(len>0)
-	{
-		int r=send(m_parms.fd, data, len, flags);
-		if(r<0)
-		{
-			if(errno==EINTR || errno==EAGAIN)
-				r=0;
-			else
-				return false;
-		}
-		
-		data += r;
-		len -= r;
-	}
-	return true;
-}
-
-void tSpecialRequest::SendChunkRemoteOnly(const char *data, size_t len)
-{
-	if(!data || !len || m_parms.fd<0)
-		return;
-
-	if(m_parms.fd<3)
-	{
-		ignore_value(::write(m_parms.fd, data, len));
-		return;
-	}
-	// send HTTP chunk header
-	char buf[23];
-	int l = sprintf(buf, "%x\r\n", (uint) len);
-	SendRawData(buf, l, MSG_MORE | MSG_NOSIGNAL);
-	SendRawData(data, len, MSG_MORE | MSG_NOSIGNAL);
-	SendRawData("\r\n", 2, MSG_NOSIGNAL);
-}
-
-void tSpecialRequest::SendChunk(const char *data, size_t len)
-{
-	SendChunkRemoteOnly(data, len);
-	SendChunkLocalOnly(data, len);
-}
-
-void tSpecialRequest::SendChunkedPageHeader(const char *httpstatus, const char *mimetype)
-{
-	tSS s(100);
-	s <<  "HTTP/1.1 " << httpstatus << "\r\n"
-			"Connection: close\r\n"
-			"Transfer-Encoding: chunked\r\n"
-			"Content-Type: " << mimetype << "\r\n\r\n";
-	SendRawData(s.data(), s.length(), MSG_MORE);
-	m_bChunkHeaderSent = true;
 }
 
 class tAuthRequest : public tSpecialRequest
@@ -99,19 +43,19 @@ class tAuthRequest : public tSpecialRequest
 public:
 
 	// XXX: c++11 using tSpecialRequest::tSpecialRequest;
-	inline tAuthRequest(const tSpecialRequest::tRunParms& parms)
-	: tSpecialRequest(parms) {};
+	inline tAuthRequest(tSpecialRequest::tRunParms&& parms)
+	: tSpecialRequest(move(parms)) {};
 
 	void Run() override
 	{
 		const char authmsg[] = "HTTP/1.1 401 Not Authorized\r\nWWW-Authenticate: "
-        "Basic realm=\"For login data, see AdminAuth in Apt-Cacher NG config files\"\r\n"
-        "Connection: Close\r\n"
-        "Content-Type: text/plain\r\nContent-Length:81\r\n\r\n"
-        "Not Authorized. Please contact Apt-Cacher NG administrator for further questions.<br>"
-        "<br>"
-        "For Admin: Check the AdminAuth option in one of the *.conf files in Apt-Cacher NG "
-        "configuration directory, probably " CFGDIR  ;
+		"Basic realm=\"For login data, see AdminAuth in Apt-Cacher NG config files\"\r\n"
+		"Connection: Close\r\n"
+		"Content-Type: text/plain\r\nContent-Length:81\r\n\r\n"
+		"Not Authorized. Please contact Apt-Cacher NG administrator for further questions.<br>"
+		"<br>"
+		"For Admin: Check the AdminAuth option in one of the *.conf files in Apt-Cacher NG "
+		"configuration directory, probably " CFGDIR;
 		SendRawData(authmsg, sizeof(authmsg)-1, 0);
 	}
 };
@@ -121,20 +65,155 @@ class authbounce : public tSpecialRequest
 public:
 
 	// XXX: c++11 using tSpecialRequest::tSpecialRequest;
-	inline authbounce(const tSpecialRequest::tRunParms& parms)
-	: tSpecialRequest(parms) {};
+	inline authbounce(tSpecialRequest::tRunParms&& parms)
+	: tSpecialRequest(move(parms)) {};
 
 
 	void Run() override
 	{
 		const char authmsg[] = "HTTP/1.1 200 Not Authorized\r\n"
-        "Connection: Close\r\n"
-        "Content-Type: text/plain\r\nContent-Length: 102\r\n\r\n"
-        "Not Authorized. To start this action, an administrator password must be set and "
-        "you must be logged in.";
+		"Connection: Close\r\n"
+		"Content-Type: text/plain\r\nContent-Length: 102\r\n\r\n"
+		"Not Authorized. To start this action, an administrator password must be set and "
+		"you must be logged in.";
 		SendRawData(authmsg, sizeof(authmsg)-1, 0);
 	}
 };
+
+class BackgroundThreadedItem : public fileitem
+{
+public:
+
+	tSpecialRequest* MakeMaintWorker(tSpecialRequest::tRunParms&& parms)
+	{
+		if (cfg::DegradedMode() && parms.type != ESpecialWorkType::workSTYLESHEET)
+			parms.type = ESpecialWorkType::workUSERINFO;
+
+		switch (parms.type)
+		{
+		case ESpecialWorkType::workTypeDetect:
+			return nullptr;
+		case ESpecialWorkType::workExExpire:
+		case ESpecialWorkType::workExList:
+		case ESpecialWorkType::workExPurge:
+		case ESpecialWorkType::workExListDamaged:
+		case ESpecialWorkType::workExPurgeDamaged:
+		case ESpecialWorkType::workExTruncDamaged:
+			return new expiration(parms);
+		case ESpecialWorkType::workUSERINFO:
+			return new tShowInfo(parms);
+		case ESpecialWorkType::workMAINTREPORT:
+		case ESpecialWorkType::workCOUNTSTATS:
+		case ESpecialWorkType::workTraceStart:
+		case ESpecialWorkType::workTraceEnd:
+			return new tMaintPage(move(parms));
+		case ESpecialWorkType::workAUTHREQUEST:
+			return new tAuthRequest(move(parms));
+		case ESpecialWorkType::workAUTHREJECT:
+			return new authbounce(move(parms));
+		case ESpecialWorkType::workIMPORT:
+			return new pkgimport(move(parms));
+		case ESpecialWorkType::workMIRROR:
+			return new pkgmirror(move(parms));
+		case ESpecialWorkType::workDELETE:
+		case ESpecialWorkType::workDELETECONFIRM:
+			return new tDeleter(move(parms), "Delet");
+		case ESpecialWorkType::workTRUNCATE:
+		case ESpecialWorkType::workTRUNCATECONFIRM:
+			return new tDeleter(move(parms), "Truncat");
+		case ESpecialWorkType::workSTYLESHEET:
+			return new tStyleCss(move(parms));
+	#if 0
+		case workJStats:
+			return new jsonstats(parms);
+	#endif
+		}
+		return nullptr;
+	}
+	unique_ptr<tSpecialRequest> handler;
+
+	condition_variable m_notifier;
+	mutex m_mxNotifier;
+
+	bufferevent* m_in_out[2];
+
+	// also protected by mutex
+	string m_header;
+
+	BackgroundThreadedItem(ESpecialWorkType jobType, mstring cmd, bufferevent *bev)
+		: fileitem("_internal_task")
+		// XXX: resolve the name to task type for the logs? Or replace the name with something useful later? Although, not needed, and also w/ format not fitting the purpose.
+	{
+		m_status = FiStatus::FIST_DLPENDING;
+
+		//zz_internalSubscribe([this]() { m_notifier.notify_all(); });
+
+		try
+		{
+			handler.reset(MakeMaintWorker({jobType, move(cmd), bev, this}));
+			if (handler)
+			{
+				m_status = FiStatus::FIST_DLASSIGNED;
+				m_responseStatus = { 200, "OK" };
+			}
+			else
+			{
+				m_status = FiStatus::FIST_DLERROR;
+				m_responseStatus = { 500, "Internal processing error" };
+			}
+		}
+		catch(const std::exception& e)
+		{
+			m_status = FiStatus::FIST_DLERROR;
+			m_responseStatus = { 500, e.what() };
+		}
+		catch(...)
+		{
+			m_status = FiStatus::FIST_DLERROR;
+			m_responseStatus = { 500, "Unable to start background items" };
+		}
+	}
+	FiStatus Setup() override
+	{
+		return m_status;
+	}
+
+	const string &GetRawResponseHeader() override
+	{
+		unique_lock<mutex> lg(m_mxNotifier);
+		// unlikely to loop here, but better be sure about data consistency
+		while (m_status < FiStatus::FIST_DLGOTHEAD)
+			m_notifier.wait(lg);
+
+		return m_header;
+	}
+
+
+	std::unique_ptr<ICacheDataSender> GetCacheSender(off_t startPos) override;
+};
+
+void tSpecialRequest::SendChunkRemoteOnly(const char *data, size_t len)
+{
+	if(!data || !len)
+		return;
+
+#warning SEND TO STREAM
+}
+
+void tSpecialRequest::SendChunk(const char *data, size_t len)
+{
+	SendChunkRemoteOnly(data, len);
+	SendChunkLocalOnly(data, len);
+}
+
+void tSpecialRequest::SetMimeResponseHeader(int statusCode, string_view statusMessage, string_view mimetype)
+{
+	lguard g(m_parms.owner->m_mxNotifier);
+	m_parms.owner->m_contentType = mimetype;
+	m_parms.owner->m_responseStatus.code = statusCode;
+	m_parms.owner->m_responseStatus.msg = statusMessage;
+	m_parms.owner->m_notifier.notify_all();
+}
 
 const string & tSpecialRequest::GetMyHostPort()
 {
@@ -169,39 +248,39 @@ const string & tSpecialRequest::GetMyHostPort()
 	return m_sHostPort;
 }
 
-LPCSTR tSpecialRequest::GetTaskName()
+LPCSTR tSpecialRequest::GetTaskName(ESpecialWorkType type)
 {
-	switch(m_parms.type)
+	switch(type)
 	{
-	case workNotSpecial: return "ALARM";
-	case workExExpire: return "Expiration";
-	case workExList: return "Expired Files Listing";
-	case workExPurge: return "Expired Files Purging";
-	case workExListDamaged: return "Listing Damaged Files";
-	case workExPurgeDamaged: return "Truncating Damaged Files";
-	case workExTruncDamaged: return "Truncating damaged files to zero size";
-	//case workRAWDUMP: /*fall-through*/
-	//case workBGTEST: return "42";
-	case workUSERINFO: return "General Configuration Information";
-	case workTraceStart:
-	case workTraceEnd:
-	case workMAINTREPORT: return "Status Report and Maintenance Tasks Overview";
-	case workAUTHREQUEST: return "Authentication Required";
-	case workAUTHREJECT: return "Authentication Denied";
-	case workIMPORT: return "Data Import";
-	case workMIRROR: return "Archive Mirroring";
-	case workDELETE: return "Manual File Deletion";
-	case workDELETECONFIRM: return "Manual File Deletion (Confirmed)";
-	case workTRUNCATE: return "Manual File Truncation";
-	case workTRUNCATECONFIRM: return "Manual File Truncation (Confirmed)";
-	case workCOUNTSTATS: return "Status Report With Statistics";
-	case workSTYLESHEET: return "CSS";
-	// case workJStats: return "Stats";
+	case ESpecialWorkType::workTypeDetect: return "SpecialOperation";
+	case ESpecialWorkType::workExExpire: return "Expiration";
+	case ESpecialWorkType::workExList: return "Expired Files Listing";
+	case ESpecialWorkType::workExPurge: return "Expired Files Purging";
+	case ESpecialWorkType::workExListDamaged: return "Listing Damaged Files";
+	case ESpecialWorkType::workExPurgeDamaged: return "Truncating Damaged Files";
+	case ESpecialWorkType::workExTruncDamaged: return "Truncating damaged files to zero size";
+	//case ESpecialWorkType::workRAWDUMP: /*fall-through*/
+	//case ESpecialWorkType::workBGTEST: return "42";
+	case ESpecialWorkType::workUSERINFO: return "General Configuration Information";
+	case ESpecialWorkType::workTraceStart:
+	case ESpecialWorkType::workTraceEnd:
+	case ESpecialWorkType::workMAINTREPORT: return "Status Report and Maintenance Tasks Overview";
+	case ESpecialWorkType::workAUTHREQUEST: return "Authentication Required";
+	case ESpecialWorkType::workAUTHREJECT: return "Authentication Denied";
+	case ESpecialWorkType::workIMPORT: return "Data Import";
+	case ESpecialWorkType::workMIRROR: return "Archive Mirroring";
+	case ESpecialWorkType::workDELETE: return "Manual File Deletion";
+	case ESpecialWorkType::workDELETECONFIRM: return "Manual File Deletion (Confirmed)";
+	case ESpecialWorkType::workTRUNCATE: return "Manual File Truncation";
+	case ESpecialWorkType::workTRUNCATECONFIRM: return "Manual File Truncation (Confirmed)";
+	case ESpecialWorkType::workCOUNTSTATS: return "Status Report With Statistics";
+	case ESpecialWorkType::workSTYLESHEET: return "CSS";
+	// case ESpecialWorkType::workJStats: return "Stats";
 	}
-	return "SpecialOperation";
+	return "UnknownTask";
 }
 
-ESpecialWorkType ACNG_API tSpecialRequest::DispatchMaintWork(cmstring& cmd, const char* auth)
+ESpecialWorkType GuessWorkType(cmstring& cmd, const char* auth)
 {
 	LOGSTARTs("DispatchMaintWork");
 	LOG("cmd: " << cmd);
@@ -220,17 +299,17 @@ ESpecialWorkType ACNG_API tSpecialRequest::DispatchMaintWork(cmstring& cmd, cons
 	auto spos=cmd.find_first_not_of('/');
 	auto wlen=epos-spos;
 
-	static string cssString("style.css");
+	// this can also hide in the URL!
 	if(wlen==cssString.length() && 0 == (cmd.compare(spos, wlen, cssString)))
-		return workSTYLESHEET;
+		return ESpecialWorkType::workSTYLESHEET;
 
 	// not starting like the maint page?
 	if(cmd.compare(spos, wlen, cfg::reportpage))
-		return workNotSpecial;
+		return ESpecialWorkType::workTypeDetect;
 
 	// ok, filename identical, also the end, or having a parameter string?
 	if(epos == cmd.length())
-		return workMAINTREPORT;
+		return ESpecialWorkType::workMAINTREPORT;
 
 	// not smaller, was already compared, can be only longer, means having parameters,
 	// means needs authorization
@@ -243,29 +322,29 @@ ESpecialWorkType ACNG_API tSpecialRequest::DispatchMaintWork(cmstring& cmd, cons
         break; // auth is ok or no passwort is set
 #else
         // most data modifying tasks cannot be run safely without checksumming support 
-        return workAUTHREJECT;
+		return ESpecialWorkType::workAUTHREJECT;
 #endif
-     case 1: return workAUTHREQUEST;
-     default: return workAUTHREJECT;
+	 case 1: return ESpecialWorkType::workAUTHREQUEST;
+	 default: return ESpecialWorkType::workAUTHREJECT;
 	}
 
 	struct { LPCSTR trigger; ESpecialWorkType type; } matches [] =
 	{
-			{"doExpire=", workExExpire},
-			{"justShow=", workExList},
-			{"justRemove=", workExPurge},
-			{"justShowDamaged=", workExListDamaged},
-			{"justRemoveDamaged=", workExPurgeDamaged},
-			{"justTruncDamaged=", workExTruncDamaged},
-			{"doImport=", workIMPORT},
-			{"doMirror=", workMIRROR},
-			{"doDelete=", workDELETECONFIRM},
-			{"doDeleteYes=", workDELETE},
-			{"doTruncate=", workTRUNCATECONFIRM},
-			{"doTruncateYes=", workTRUNCATE},
-			{"doCount=", workCOUNTSTATS},
-			{"doTraceStart=", workTraceStart},
-			{"doTraceEnd=", workTraceEnd},
+			{"doExpire=", ESpecialWorkType::workExExpire},
+			{"justShow=", ESpecialWorkType::workExList},
+			{"justRemove=", ESpecialWorkType::workExPurge},
+			{"justShowDamaged=", ESpecialWorkType::workExListDamaged},
+			{"justRemoveDamaged=", ESpecialWorkType::workExPurgeDamaged},
+			{"justTruncDamaged=", ESpecialWorkType::workExTruncDamaged},
+			{"doImport=", ESpecialWorkType::workIMPORT},
+			{"doMirror=", ESpecialWorkType::workMIRROR},
+			{"doDelete=", ESpecialWorkType::workDELETECONFIRM},
+			{"doDeleteYes=", ESpecialWorkType::workDELETE},
+			{"doTruncate=", ESpecialWorkType::workTRUNCATECONFIRM},
+			{"doTruncateYes=", ESpecialWorkType::workTRUNCATE},
+			{"doCount=", ESpecialWorkType::workCOUNTSTATS},
+			{"doTraceStart=", ESpecialWorkType::workTraceStart},
+			{"doTraceEnd=", ESpecialWorkType::workTraceEnd},
 //			{"doJStats", workJStats}
 	};
 
@@ -275,69 +354,26 @@ ESpecialWorkType ACNG_API tSpecialRequest::DispatchMaintWork(cmstring& cmd, cons
 			return needle.type;
 
 	// something weird, go to the maint page
-	return workMAINTREPORT;
+	return ESpecialWorkType::workMAINTREPORT;
 }
 
-tSpecialRequest* tSpecialRequest::MakeMaintWorker(tRunParms&& parms)
+fileitem* tSpecialRequest::Create(ESpecialWorkType wType, const tHttpUrl& url, cmstring& refinedPath, const header& reqHead)
 {
-	if(cfg::DegradedMode() && parms.type != workSTYLESHEET)
-		parms.type = workUSERINFO;
+	ESpecialWorkType xt;
 
-	switch (parms.type)
+	if (wType == ESpecialWorkType::workTypeDetect)
 	{
-	case workNotSpecial:
-		return nullptr;
-	case workExExpire:
-	case workExList:
-	case workExPurge:
-	case workExListDamaged:
-	case workExPurgeDamaged:
-	case workExTruncDamaged:
-		return new expiration(parms);
-	case workUSERINFO:
-		return new tShowInfo(parms);
-	case workMAINTREPORT:
-	case workCOUNTSTATS:
-	case workTraceStart:
-	case workTraceEnd:
-		return new tMaintPage(parms);
-	case workAUTHREQUEST:
-		return new tAuthRequest(parms);
-	case workAUTHREJECT:
-		return new authbounce(parms);
-	case workIMPORT:
-		return new pkgimport(parms);
-	case workMIRROR:
-		return new pkgmirror(parms);
-	case workDELETE:
-	case workDELETECONFIRM:
-		return new tDeleter(parms, "Delet");
-	case workTRUNCATE:
-	case workTRUNCATECONFIRM:
-		return new tDeleter(parms, "Truncat");
-	case workSTYLESHEET:
-		return new tStyleCss(parms);
-#if 0
-	case workJStats:
-		return new jsonstats(parms);
-#endif
+		xt = url.sHost == "style.css" ?
+					ESpecialWorkType::workSTYLESHEET :
+					GuessWorkType(refinedPath, reqHead.h[header::AUTHORIZATION]);
 	}
-	return nullptr;
+
+	if (wType == ESpecialWorkType::workTypeDetect)
+		return nullptr; // not for us?
+
+	auto handler = MakeMaintWorker();
 }
 
-void tSpecialRequest::RunMaintWork(ESpecialWorkType jobType, cmstring& cmd, int fd, IConnBase *dlResProvider)
-{
-	LOGSTARTFUNCsx(jobType, cmd, fd);
 
-	try {
-		SHARED_PTR<tSpecialRequest> p;
-		p.reset(MakeMaintWorker({fd, jobType, cmd, dlResProvider}));
-		if(p)
-			p->Run();
-	}
-	catch(...)
-	{
-	}
-}
 
 }

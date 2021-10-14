@@ -50,7 +50,12 @@ public:
 	// Life cycle (process states) of a file description item
 	enum FiStatus : uint8_t
 	{
-		FIST_FRESH, FIST_INITED, FIST_DLPENDING, FIST_DLGOTHEAD, FIST_DLRECEIVING,
+		FIST_FRESH, // vanilla state
+		FIST_INITED, // cache state was checked
+		FIST_DLPENDING, // some download task for this item exists
+		FIST_DLASSIGNED, // our downloader was assigned (optional)
+		FIST_DLGOTHEAD,
+		FIST_DLRECEIVING,
 		FIST_COMPLETE,
 		// error cases: downloader reports its error or last user told downloader to stop
 		FIST_DLERROR,
@@ -99,7 +104,7 @@ public:
 	 * @param startPos
 	 * @return Invalid pointer if the helper is not usable yet
 	 */
-	virtual std::unique_ptr<ICacheDataSender> GetCacheSender(off_t startPos = 0);
+	virtual std::unique_ptr<ICacheDataSender> GetCacheSender(off_t startPos = 0) =0;
 
 	fileitem(string_view sPathRel);
 	virtual ~fileitem() =default;
@@ -108,8 +113,8 @@ public:
 	virtual FiStatus Setup() { return FIST_DLERROR; };
 	uint64_t TakeTransferCount();
 
-	/// mark the item as complete as-is, assuming that seen size is correct
-	void SetupComplete();
+	// mark the item as complete as-is, assuming that seen size is correct
+	// void SetupComplete();
 
 	void UpdateHeadTimestamp();
 

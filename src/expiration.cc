@@ -375,7 +375,9 @@ inline void expiration::DropExceptionalVersions()
     	procGroup();
 }
 
-expiration::expiration(const tRunParms &parms) : cacheman(parms), m_oldDate(GetTime() - OLD_DAYS * 86400)
+expiration::expiration(tRunParms &&parms) :
+	cacheman(move(parms)),
+	m_oldDate(GetTime() - OLD_DAYS * 86400)
 {
 }
 
@@ -480,21 +482,20 @@ inline void expiration::RemoveAndStoreStatus(bool bPurgeNow)
 
 void expiration::Action()
 {
-	if (m_parms.type==workExPurge)
+	switch(m_parms.type)
 	{
+	case ESpecialWorkType::workExPurge:
 		LoadPreviousData(true);
 		RemoveAndStoreStatus(true);
 		return;
-	}
-	if (m_parms.type==workExList)
-	{
-		ListExpiredFiles();
-		return;
-	}
-	if(m_parms.type==workExPurgeDamaged || m_parms.type==workExListDamaged || m_parms.type==workExTruncDamaged)
-	{
-		HandleDamagedFiles();
-		return;
+	case ESpecialWorkType::workExList:
+		return ListExpiredFiles();
+	case ESpecialWorkType::workExPurgeDamaged:
+	case ESpecialWorkType::workExListDamaged:
+	case ESpecialWorkType::workExTruncDamaged:
+		return HandleDamagedFiles();
+	default:
+		break;
 	}
 
 	bool tradeOffCheck = cfg::exstarttradeoff && !StrHas(m_parms.cmd, "ignoreTradeOff") && !m_bByChecksum && !Cstat(SZABSPATH("_actmp/.ignoreTradeOff"));
@@ -714,7 +715,7 @@ void expiration::HandleDamagedFiles()
 			if(s.empty())
 				continue;
 
-			if(this->m_parms.type == workExPurgeDamaged)
+			if(this->m_parms.type == ESpecialWorkType::workExPurgeDamaged)
 			{
 				SendFmt << "Removing " << s << sBRLF;
 				auto holder = GetDlRes().GetItemRegistry()->Create(s, ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY, fileitem::tSpecialPurposeAttr());
@@ -729,7 +730,7 @@ void expiration::HandleDamagedFiles()
 					unlink(SZABSPATH(s+".head"));
 				}
 			}
-			else if(this->m_parms.type == workExTruncDamaged)
+			else if(this->m_parms.type == ESpecialWorkType::workExTruncDamaged)
 			{
 				SendFmt << "Truncating " << s << sBRLF;
 				auto holder = GetDlRes().GetItemRegistry()->Create(s, ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY, fileitem::tSpecialPurposeAttr());

@@ -15,35 +15,6 @@ namespace acng
 class IConnBase;
 class header;
 
-enum ESpecialWorkType : uint8_t
-{
-	workNotSpecial =0,
-
-	// expiration types
-	workExExpire,
-	workExList,
-	workExPurge,
-	workExListDamaged,
-	workExPurgeDamaged,
-	workExTruncDamaged,
-	//workBGTEST,
-	workUSERINFO,
-	workMAINTREPORT,
-	workAUTHREQUEST,
-	workAUTHREJECT,
-	workIMPORT,
-	workMIRROR,
-	workDELETE,
-	workDELETECONFIRM,
-	workCOUNTSTATS,
-	workSTYLESHEET,
-	workTraceStart,
-	workTraceEnd,
-//		workJStats, // disabled, probably useless
-	workTRUNCATE,
-	workTRUNCATECONFIRM
-};
-
 class job
 {
 public:
@@ -128,7 +99,6 @@ public:
 	job(const job&);
 	job& operator=(const job&);
 
-	TFileItemHolder PrepSpecialItem(ESpecialWorkType);
 	eJobResult SendData(bufferevent* be);
 	void CookResponseHeader();
     void AddPtHeader(cmstring& remoteHead);

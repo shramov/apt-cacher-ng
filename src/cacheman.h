@@ -44,7 +44,7 @@ protected:
 	IConnBase &GetDlRes() { return * m_parms.pDlResProvider; }
 
 public:
-	cacheman(const tSpecialRequest::tRunParms& parms);
+	cacheman(tSpecialRequest::tRunParms&& parms);
 	virtual ~cacheman() =default;
 
 	enum enumMetaType

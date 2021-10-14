@@ -2,10 +2,14 @@
 #define MAINTENANCE_H_
 
 #include "config.h"
+
+#include <future>
+
 #include "meta.h"
 #include "sockio.h"
 #include "acbuf.h"
 #include "job.h"
+#include "ahttpurl.h"
 
 static const std::string sBRLF("<br>\n");
 
@@ -21,30 +25,80 @@ static const std::string sBRLF("<br>\n");
 
 #define MAINT_PFX "maint_"
 
+// inprecise maximum size of the send buffer when we start checking for backpressure
+#define SENDBUF_TARGET_SIZE 30000
+
 namespace acng
 {
 class IConnBase;
 
+enum class ESpecialWorkType : int8_t
+{
+	workTypeDetect,
+
+	// expiration types
+	workExExpire,
+	workExList,
+	workExPurge,
+	workExListDamaged,
+	workExPurgeDamaged,
+	workExTruncDamaged,
+	//workBGTEST,
+	workUSERINFO,
+	workMAINTREPORT,
+	workAUTHREQUEST,
+	workAUTHREJECT,
+	workIMPORT,
+	workMIRROR,
+	workDELETE,
+	workDELETECONFIRM,
+	workCOUNTSTATS,
+	workSTYLESHEET,
+	workTraceStart,
+	workTraceEnd,
+//		workJStats, // disabled, probably useless
+	workTRUNCATE,
+	workTRUNCATECONFIRM
+};
+
+class BackgroundThreadedItem;
+
 class ACNG_API tSpecialRequest
 {
-public:
+	friend class BackgroundThreadedItem;
+
+protected:
+
+	// common data to be passed through constructors and kept in the base object
 	struct tRunParms
 	{
-		int fd;
 		ESpecialWorkType type;
-		cmstring cmd;
-		IConnBase* pDlResProvider;
+		mstring cmd;
+		bufferevent *bev;
+		// notify when the sending can be started
+		BackgroundThreadedItem* owner;
 	};
+
+	size_t m_curInBuf = 0;
+	struct bufferevent *m_inOut[2];
+
+public:
 	/*!
 	 *  @brief Main execution method for maintenance tasks.
 	 */
 	virtual void Run() =0;
 
-	tSpecialRequest(const tRunParms& parms);
 	virtual ~tSpecialRequest();
+	static fileitem* Create(ESpecialWorkType wType, const tHttpUrl& url, cmstring& refinedPath, const header& reqHead);
 
 protected:
+	tSpecialRequest(tRunParms&& parms);
+
 //	inline void SendChunk(const mstring &x) { SendChunk(x.data(), x.size()); }
+
+	// one of them needs to be set to start transmission
+	void SetRawResponseHeader(std::string rawHeader);
+	void SetMimeResponseHeader(int statusCode, string_view statusMessage, string_view mimetype);
 
 	void SendChunk(const char *data, size_t size);
 	void SendChunkRemoteOnly(const char *data, size_t size);
@@ -54,11 +108,7 @@ protected:
 	inline void SendChunk(const tSS &x){ SendChunk(x.data(), x.length()); }
 	// for customization in base classes
 	virtual void SendChunkLocalOnly(const char* /*data*/, size_t /*size*/) {};
-
-	bool SendRawData(const char *data, size_t len, int flags);
-
 	cmstring & GetMyHostPort();
-	void SendChunkedPageHeader(const char *httpstatus, const char *mimetype);
 	LPCSTR m_szDecoFile = nullptr;
 	LPCSTR GetTaskName();
 	tRunParms m_parms;
@@ -67,7 +117,6 @@ private:
 	tSpecialRequest(const tSpecialRequest&);
 	tSpecialRequest& operator=(const tSpecialRequest&);
 	mstring m_sHostPort;
-	bool m_bChunkHeaderSent=false;
 
 public:
 	// dirty little RAII helper to send data after formating it, uses a shared buffer presented
@@ -99,12 +148,6 @@ public:
 #define SendChunkSZ(x) SendChunk(WITHLEN(x))
 
 	tSS m_fmtHelper;
-
-	static ACNG_API ESpecialWorkType DispatchMaintWork(cmstring &cmd, const char *auth);
-	static ACNG_API void RunMaintWork(ESpecialWorkType jobType, cmstring& cmd, int fd, IConnBase* dlResProvider);
-
-protected:
-	static ACNG_API tSpecialRequest* MakeMaintWorker(tRunParms&& parms);
 };
 
 std::string to_base36(unsigned int val);

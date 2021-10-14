@@ -24,7 +24,6 @@ namespace acng
 ACNG_API std::shared_ptr<IFileItemRegistry> g_registry;
 
 fileitem::fileitem(string_view sPathRel) :
-	// good enough to not trigger the makeWay check but also not cause overflows
 		m_sPathRel(sPathRel)
 {
 }

@@ -83,6 +83,20 @@ struct slist
 };
 #endif
 
+template<typename T>
+struct RangeLoopAdapter
+{
+	RangeLoopAdapter(unsigned count, T * elements[])
+		: m_start(elements), m_count(count)
+	{
+	}
+	char **begin() const { return m_start; }
+	char **end() const { return m_start + m_count; }
+private:
+	T **m_start;
+	unsigned m_count;
+};
+
 }
 
 

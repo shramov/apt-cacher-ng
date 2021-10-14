@@ -189,6 +189,10 @@ inline int bufferevent_write(bufferevent* bev, string_view chunk)
 {
 	return bufferevent_write(bev, chunk.data(), chunk.size());
 }
+
+/**
+ * @brief Facade for stream-like formatting on a evbuffer backend
+ */
 struct beview
 {
 	evbuffer* be;

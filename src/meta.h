@@ -14,9 +14,9 @@
 #include <ctime>
 #include <cstring>
 #include <atomic>
+#include <thread>
 
 #include <fcntl.h>
-#include <pthread.h>
 #include <strings.h>
 #include <cstdlib>
 #include <errno.h>
@@ -326,6 +326,8 @@ static constexpr string_view svEmpty = "";
 size_t strlcpy(char *tgt, const char *src, size_t tgtSize);
 #endif
 }
+
+using lguard = std::lock_guard<std::mutex>;
 
 #endif // _META_H
 

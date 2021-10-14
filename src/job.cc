@@ -258,7 +258,7 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 
 		if(!theUrl.SetHttpUrl(sReqPath, false))
 		{
-			m_pItem = PrepSpecialItem(workUSERINFO);
+			m_pItem.reset(tSpecialRequest::Create(ESpecialWorkType::workUSERINFO, theUrl, sReqPath, h));
 			LOG("work type: USERINFO");
 			return;
 		}
@@ -284,24 +284,15 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 		LOG("input uri: "<<theUrl.ToURI(false)<<" , dontcache-flag? " << bPtMode
 			<< ", admin-page: " << cfg::reportpage);
 
-		if (theUrl.sHost == "style.css")
+		try
 		{
-			m_pItem = PrepSpecialItem(ESpecialWorkType::workSTYLESHEET);
-			return;
+			auto spItem = tSpecialRequest::Create(ESpecialWorkType::workTypeDetect, theUrl, sReqPath, h);
+			if (spItem)
+				return m_pItem.reset(spItem);
 		}
-
-		// ok, shall we do some CGI style operations here?
-		if(!cfg::reportpage.empty())
+		catch (...)
 		{
-			// XXX: simplify?
-			auto eMaintWorkType = tSpecialRequest::
-								  DispatchMaintWork(sReqPath, h.h[header::AUTHORIZATION]);
-			if(eMaintWorkType != workNotSpecial)
-			{
-				m_sFileLoc = sReqPath;
-				m_pItem = PrepSpecialItem(eMaintWorkType);
-				return;
-			}
+			return report_overload(__LINE__);
 		}
 
 		using namespace rex;
@@ -359,7 +350,7 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 			if (data_type == FILE_INVALID)
 			{
 				LOG("generic user information page for " << theUrl.sPath);
-				m_pItem = PrepSpecialItem(workUSERINFO);
+				m_pItem = PrepSpecialItem(ESpecialWorkType::workUSERINFO);
 				return;
 			}
 		}
@@ -442,7 +433,7 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 			return SetEarlySimpleResponse("503 Unable to download in offline mode"sv);
 		}
 		dbgline;
-		if( fistate < fileitem::FIST_DLGOTHEAD) // needs a downloader
+		if( fistate < fileitem::FIST_DLASSIGNED) // we should assign a downloader then
 		{
 			dbgline;
 			if(!m_parent.SetupDownloader())
@@ -467,7 +458,7 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 							theUrl.ToURI(false);
 				if (rex::MatchUncacheable(testUri, rex::NOCACHE_TGT))
 				{
-					m_pItem.reset(new tPassThroughFitem(m_sFileLoc, false));
+					m_pItem.reset(new tPassThroughFitem(m_sFileLoc));
 					fistate = fileitem::FIST_DLPENDING;
 				}
 			}
@@ -536,12 +527,6 @@ job::eJobResult job::Poke(bufferevent *be)
 			return SendData(be);
 	}
 	return subscribe2item();
-}
-
-TFileItemHolder job::PrepSpecialItem(ESpecialWorkType)
-{
-#warning implement me
-	return TFileItemHolder();
 }
 
 job::eJobResult job::subscribe2item()
@@ -743,6 +728,7 @@ inline void job::AddPtHeader(cmstring& remoteHead)
 		auto szRest = szTEHeader + badTE.length();
 		SB << string_view(szRest, szHeadBegin + remoteHead.length() - szRest);
 	}
+#warning bs, use regex to catch space variants
 	if(strcasestr(szHeadBegin, "Connection: close\r\n"))
 		m_keepAlive = CLOSE;
 }

@@ -142,7 +142,7 @@ void atransport::Create(const tHttpUrl &url, const tCallBack &cback, const TConn
 			return cback({static_lptr_cast<atransport>(ret), sEmptyString, false});
 		}
 	}
-	(new tConnContext)->Step(0);
+	(new tConnContext(url, cback, extHints))->Step(0);
 }
 
 void atransport::Return(lint_ptr<atransport> &stream)

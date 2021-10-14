@@ -66,7 +66,7 @@ void tMarkupFileSend::Run()
     auto pr = sv.data();
     auto pend = pr + sv.size();
     // XXX: redo more nicely with string_view operations?
-	SendChunkedPageHeader(m_sHttpCode, m_sMimeType);
+	SetMimeResponseHeader(m_sHttpCode, m_sMimeType);
 
 	auto lastchar=pend-1;
 	while(pr<pend)

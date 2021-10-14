@@ -69,7 +69,7 @@ void tSpecOpDetachable::Run()
 		return;
 	}
 
-	SendChunkedPageHeader("200 OK", "text/html");
+	SetMimeResponseHeader("200 OK", "text/html");
 
 	tSS deco;
 	const char *mark(nullptr);

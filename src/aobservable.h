@@ -48,13 +48,20 @@ public:
 	/**
 	 * @brief Returns a unsubkey which is not subscribed YET but contains a lint_ptr reference
 	 */
-	inline TUnsubKey getUnsubscribedKey();
+	TUnsubKey getUnsubscribedKey();
 
 protected:
 	/**
 	 * @brief notifyAll triggers deferred (!) execution of all subscriber callbacks and a cleanup of invalidates ones.
 	 */
 	void notifyAll();
+
+	/**
+	 * @brief zz_internalSubscribe is a special purpose installer of callbacks, with no lifecycle management!
+	 * @param subscriberCode
+	 */
+	TActionList::iterator zz_internalSubscribe(const TNotifier& subscriberCode);
+
 private:
 	// list might be not the most efficient but it's good for iterator stability along with the ease of element removal
 	TActionList m__subscribedObservers;

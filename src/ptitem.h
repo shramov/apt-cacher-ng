@@ -21,7 +21,7 @@ protected:
 		class TSender;
 		friend class TSender;
 public:
-        tPassThroughFitem(std::string s, bool threadSafe);;
+		tPassThroughFitem(std::string s);
         ~tPassThroughFitem();
         virtual FiStatus Setup() override;
 

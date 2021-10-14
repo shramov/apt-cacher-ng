@@ -50,7 +50,7 @@ struct TDlStream : public tLintRefcounted
 	TDlJobQueue m_backlog, m_requested;
 	void poke(uint_fast32_t contextJobId);
 
-	enum class  EAddResult
+	enum class EAddResult
 	{
 		ERROR = -1,
 		CONSUMED_OR_NO_FIT,
@@ -88,6 +88,7 @@ public:
 	void Dispose() override;
 	bool AddJob(lint_ptr<fileitem> fi, tHttpUrl src, bool isPT, mstring extraHeaders) override;
 	bool AddJob(lint_ptr<fileitem> fi, tRepoResolvResult repoSrc, bool isPT, mstring extraHeaders) override;
+	CDlConn() =default;
 };
 
 struct tDlJob

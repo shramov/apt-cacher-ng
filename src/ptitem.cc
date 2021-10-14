@@ -8,13 +8,11 @@ using namespace std;
 namespace acng
 {
 
-tPassThroughFitem::tPassThroughFitem(string s, bool threadSafe) : fileitem(s)
+tPassThroughFitem::tPassThroughFitem(string s) : fileitem(s)
 {
     LOGSTARTFUNC;
     if(!m_q)
         throw std::bad_alloc();
-    if (threadSafe)
-        evbuffer_enable_locking(m_q, nullptr);
     m_nSizeChecked = m_nSizeCachedInitial = -1;
 }
 
@@ -42,8 +40,10 @@ ssize_t tPassThroughFitem::DlAddData(evbuffer *chunk, size_t maxTake)
     try
     {
         LOGSTARTFUNCx(maxTake, m_status);
+
         // something might care, most likely... also about BOUNCE action
         notifyAll();
+
 		if (m_status > fileitem::FIST_COMPLETE)
 			return -1;
 
@@ -101,6 +101,8 @@ ssize_t SendData(bufferevent *target, evbuffer *, size_t maxTake)
 		return -1;
 	return eb_move_atmost(bufferevent_get_input(target), m_q, maxTake);
 #endif
+	return -1;
+#warning implementme
 }
 
 };

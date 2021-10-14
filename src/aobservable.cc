@@ -13,10 +13,7 @@ aobservable::TUnsubKey aobservable::subscribe(const aobservable::TNotifier &newS
 
 	if (!newSubscriber) // XXX: not accepting invalid subscribers to avoid later checks, but what then?
 		return TUnsubKey(new TUnsub { as_lptr(this), m__subscribedObservers.end() });
-	m__subscribedObservers.emplace_back(newSubscriber);
-	auto it = m__subscribedObservers.end();
-	//evabase::Post([me = as_lptr(this)] () mutable { me->doNotify(); });
-	return TUnsubKey(new TUnsub { as_lptr(this), --it });
+	return TUnsubKey(new TUnsub { as_lptr(this), zz_internalSubscribe(move(newSubscriber)) });
 }
 
 void aobservable::unsubscribe(TActionList::iterator what)
@@ -40,6 +37,12 @@ void aobservable::notifyAll()
 {
 #warning analyse performance, maybe use a dedicated event which manages the notifications, and which merges all the execution requests, maybe even from multiple observables
 	evabase::Post([me = as_lptr(this)] () mutable { me->doEventNotify(); });
+}
+
+TActionList::iterator aobservable::zz_internalSubscribe(const TNotifier &subscriberCode)
+{
+	m__subscribedObservers.emplace_back(subscriberCode);
+	return --(m__subscribedObservers.end());
 }
 
 void aobservable::doEventNotify()

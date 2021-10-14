@@ -33,8 +33,8 @@ private:
 
 struct tStyleCss : public tMarkupFileSend
 {
-	inline tStyleCss(const tRunParms& parms) :
-	tMarkupFileSend(parms, "style.css", "text/css", "200 OK") {};
+	inline tStyleCss(tRunParms&& parms) :
+	tMarkupFileSend(std::move(parms), "style.css", "text/css", "200 OK") {};
 };
 
 class tDeleter : public tMarkupFileSend
@@ -44,7 +44,7 @@ class tDeleter : public tMarkupFileSend
 	mstring sVisualMode; // Truncat or Delet
 	tStrDeq extraFiles;
 public:
-	tDeleter(const tRunParms& parms, cmstring& vmode);
+	tDeleter(tRunParms&& parms, cmstring& vmode);
 	virtual void SendProp(cmstring &key) override;
 	//virtual int CheckCondition(LPCSTR key, size_t len) override; // 0: true, 1: false, <0: unknown condition
 
@@ -58,7 +58,7 @@ struct tShowInfo : public tMarkupFileSend
 
 struct tMaintPage : public tMarkupFileSend
 {
-	tMaintPage(const tRunParms& parms);
+	tMaintPage(tRunParms&& parms);
 	virtual void SendProp(cmstring &key) override;
 };
 }

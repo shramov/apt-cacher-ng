@@ -187,10 +187,10 @@ TFileItemHolder TFileItemRegistry::Create(cmstring &sPathUnescaped, ESharingHow 
 				else
 				{
 					// new item is head-only but this is almost worthless, so the existing one wins and new one goes to the side track
-					auto sp = make_lptr<fileitem>(sPathRel);
+					auto sp = make_lptr<TFileitemWithStorage>(sPathRel);
 					sp->m_spattr = spattr;
 					sp->m_spattr.bNoStore = true;
-					return TFileItemHolder(sp);
+					return TFileItemHolder(static_lptr_cast<fileitem>(sp));
 				}
 			}
 			if (!makeWay && spattr.nRangeLimit != fi->GetRangeLimit())
