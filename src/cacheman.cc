@@ -64,7 +64,7 @@ struct tContentKey
 	tFingerprint fpr;
 	mstring toString() const
 	{
-		return valid() ? distinctName + "|" + (mstring) fpr : sEmptyString;
+		return valid() ? distinctName + "|" + (mstring) fpr : se;
 	}
 	bool operator<(const tContentKey& other) const
 	{
@@ -90,13 +90,13 @@ cmstring& cacheman::GetFirstPresentPath(const tFileGroups& groups, const tConten
 {
 	auto it = groups.find(ckey);
 	if(it == groups.end())
-		return sEmptyString;
+		return se;
 
 	for(auto& s: it->second.paths)
 		if(GetFlags(s).vfile_ondisk)
 			return s;
 
-	return sEmptyString;
+	return se;
 }
 
 cacheman::cacheman(const tSpecialRequestHandler::tRunParms& parms) :

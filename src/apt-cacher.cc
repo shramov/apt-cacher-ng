@@ -7,7 +7,7 @@
 #include "fileio.h"
 #include "conserver.h"
 #include "acregistry.h"
-#include "ac3rdparty.h"
+#include "acstartstop.h"
 #include "filereader.h"
 #include "csmapping.h"
 #ifdef DEBUG
@@ -46,6 +46,10 @@ void dump_handler(evutil_socket_t fd, short what, void *arg);
 void noop_handler(evutil_socket_t fd, short what, void *arg);
 void handle_sigbus();
 void check_algos();
+
+void ac3rdparty_init();
+void ac3rdparty_deinit();
+
 
 //extern mstring sReplDir;
 
@@ -237,78 +241,81 @@ void term_handler(evutil_socket_t signum, short, void*)
 
 void CloseAllCachedConnections();
 
-struct tAppStartStop
+void daemon_init()
 {
-	evabase m_base;
-
-	tAppStartStop(int argc, const char**argv)
+	auto lerr = log::open();
+	if (!lerr.empty())
 	{
-		parse_options(argc, argv);
-		auto lerr = log::open();
-		if (!lerr.empty())
+		cerr
+				<< "Problem creating log files in "
+				<< cfg::logdir
+				<< ". " << lerr << ".\n";
+
+		exit(EXIT_FAILURE);
+	}
+
+	check_algos();
+
+	setup_sighandler();
+
+	SetupCacheDir();
+
+	//DelTree(cfg::cacheDirSlash + sReplDir);
+	SetupServerItemRegistry();
+
+	if (conserver::Setup() <= 0)
+	{
+		cerr
+				<< "No listening socket(s) could be created/prepared. "
+				   "Check the network, check or unset the BindAddress directive.\n";
+		exit(EXIT_FAILURE);
+	}
+
+	if (!cfg::foreground && !fork_away())
+	{
+		tErrnoFmter ef("Failed to change to daemon mode");
+		cerr << ef << endl;
+		exit(43);
+	}
+
+	if (!cfg::pidfile.empty())
+	{
+		mkbasedir(cfg::pidfile);
+		FILE *PID_FILE = fopen(cfg::pidfile.c_str(), "w");
+		if (PID_FILE != nullptr)
 		{
-			cerr
-					<< "Problem creating log files in "
-					<< cfg::logdir
-					<< ". " << lerr << ".\n";
-
-			exit(EXIT_FAILURE);
-		}
-
-		check_algos();
-
-		setup_sighandler();
-
-		SetupCacheDir();
-
-		//DelTree(cfg::cacheDirSlash + sReplDir);
-		SetupServerItemRegistry();
-
-		if (conserver::Setup() <= 0)
-		{
-			cerr
-					<< "No listening socket(s) could be created/prepared. "
-							"Check the network, check or unset the BindAddress directive.\n";
-			exit(EXIT_FAILURE);
-		}
-
-		if (!cfg::foreground && !fork_away())
-		{
-			tErrnoFmter ef("Failed to change to daemon mode");
-			cerr << ef << endl;
-			exit(43);
-		}
-
-		if (!cfg::pidfile.empty())
-		{
-			mkbasedir(cfg::pidfile);
-			FILE *PID_FILE = fopen(cfg::pidfile.c_str(), "w");
-			if (PID_FILE != nullptr)
-			{
-				fprintf(PID_FILE, "%d", getpid());
-				checkForceFclose(PID_FILE);
-			}
+			fprintf(PID_FILE, "%d", getpid());
+			checkForceFclose(PID_FILE);
 		}
 	}
-	~tAppStartStop()
-	{
-		evabase::in_shutdown = true;
-		if (!cfg::pidfile.empty())
-			unlink(cfg::pidfile.c_str());
-		conserver::Shutdown();
-//		CloseAllCachedConnections();
+}
+
+void daemon_deinit()
+{
+	evabase::in_shutdown = true;
+	if (!cfg::pidfile.empty())
+		unlink(cfg::pidfile.c_str());
+	conserver::Shutdown();
+	//		CloseAllCachedConnections();
 #warning bring all users of itemregistry down!
-		TeardownServerItemRegistry();
-		log::close(false);
-	}
-};
+	TeardownServerItemRegistry();
+	log::close(false);
+}
+
+void ac3rdparty_init();
+void ac3rdparty_deinit();
 
 }
 
 int main(int argc, const char **argv)
 {
 	using namespace acng;
-	ac3rdparty libInit;
-	tAppStartStop app(argc, argv);
-	return app.m_base.MainLoop();
+	evabase dabase;
+	parse_options(argc, argv);
+	tStartStop g;
+	ac3rdparty_init();
+	g.atexit([](){ ac3rdparty_deinit(); });
+	daemon_init();
+	g.atexit([](){ daemon_deinit(); });
+	return dabase.MainLoop();
 }

@@ -58,14 +58,14 @@ void ACNG_API globalSslDeInit() {}
 #endif
 
 
-ac3rdparty::ac3rdparty()
+void ac3rdparty_init()
 {
 	ares_library_init(ARES_LIB_INIT_ALL);
 	evthread_use_pthreads();
 	globalSslInit();
 }
 
-ac3rdparty::~ac3rdparty()
+void ac3rdparty_deinit()
 {
 	globalSslDeInit();
 	libevent_global_shutdown();

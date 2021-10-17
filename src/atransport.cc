@@ -139,7 +139,7 @@ void atransport::Create(const tHttpUrl &url, const tCallBack &cback, const TConn
 			auto ret = anyIt->second;
 			g_con_cache.erase(anyIt);
 			ret->Reuse();
-			return cback({static_lptr_cast<atransport>(ret), sEmptyString, false});
+			return cback({static_lptr_cast<atransport>(ret), se, false});
 		}
 	}
 	(new tConnContext(url, cback, extHints))->Step(0);

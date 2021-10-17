@@ -41,7 +41,7 @@ ACNG_API std::atomic<bool> g_global_shutdown;
 mstring GetBaseName(const string &in)
 {
 	if(in.empty())
-		return sEmptyString;
+		return se;
 
 	tStrPos end = in.find_last_not_of(CPATHSEP); // must be the last char of basename
 	if(end == stmiss) // empty, or just a slash?
@@ -217,7 +217,7 @@ void MakeAbsolutePath(std::string &dirToFix, const std::string &reldir)
 
 extern uint_fast16_t hexmap[];
 
-cmstring sEmptyString;
+cmstring se;
 
 /*
 int GetSimilarity(cmstring& wanted, cmstring& candidate)
@@ -635,11 +635,11 @@ bool DecodeBase64(LPCSTR pAscii, size_t len, acbuf& binData)
 mstring GetDirPart(cmstring &in)
 {
 	if(in.empty())
-		return sEmptyString;
+		return se;
 
 	tStrPos end = in.find_last_of(CPATHSEP);
 	if(end == stmiss) // none? don't care then
-		return sEmptyString;
+		return se;
 
 	return in.substr(0, end+1);
 }

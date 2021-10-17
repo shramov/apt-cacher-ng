@@ -179,7 +179,7 @@ void aconnector::retSuccess(int fd)
 	else
 	{
 		it->ev.reset();
-		m_cback({move(it->fd), sEmptyString});
+		m_cback({move(it->fd), se});
 	}
 	delete this;
 }

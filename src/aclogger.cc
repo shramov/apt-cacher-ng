@@ -140,7 +140,7 @@ mstring open()
 	// lockguard g(&mx);
 
 	if(cfg::logdir.empty())
-		return sEmptyString;
+		return se;
 	
 	logIsEnabled = true;
 
@@ -166,7 +166,7 @@ mstring open()
 	fDbg.open(dpath.c_str(), ios::out | ios::app);
 	if (!fStat.is_open())
 		return tErrnoFmter("Cannot open apt-cacher.dbg - ");
-	return sEmptyString;
+	return se;
 }
 
 void transfer(uint64_t bytesIn,

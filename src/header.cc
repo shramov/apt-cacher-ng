@@ -390,7 +390,7 @@ static const auto tabooHeadersPassThrough =
 mstring header::ExtractCustomHeaders(string_view reqHead, bool isPassThrough)
 {
     if (reqHead.empty())
-        return sEmptyString;
+        return se;
     header h;
     string ret;
     // continuation of header line

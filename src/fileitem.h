@@ -13,7 +13,7 @@
 
 namespace acng
 {
-extern const std::string sEmptyString;
+extern const std::string se;
 class fileitem;
 class cacheman;
 class IFileItemRegistry;
@@ -218,8 +218,8 @@ public:
 	/// public proxy to DlSetError with truncation, locking!!
 	void MarkFaulty(bool deleteItCompletely = false);
 	/// optional method, returns raw header if needed in special implementations
-	virtual const std::string& GetRawResponseHeader() { return sEmptyString; }
-	virtual const std::string& GetExtraResponseHeaders() { return sEmptyString; }
+	virtual const std::string& GetRawResponseHeader() { return se; }
+	virtual const std::string& GetExtraResponseHeaders() { return se; }
 
 	virtual void DlRefCountAdd();
 	virtual void DlRefCountDec(const tRemoteStatus& reason);

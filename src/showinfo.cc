@@ -365,7 +365,7 @@ void tMaintPage::SendProp(cmstring &key)
 	}
 	static cmstring defStringChecked("checked");
 	if(key == "aOeDefaultChecked")
-		return SendChunk(cfg::exfailabort ? defStringChecked : sEmptyString);
+		return SendChunk(cfg::exfailabort ? defStringChecked : se);
 
 #warning restoreme
 #if 0

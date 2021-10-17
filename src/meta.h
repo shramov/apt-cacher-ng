@@ -30,6 +30,9 @@ namespace acng
 
 class acbuf;
 
+using lguard = std::lock_guard<std::mutex>;
+using ulock = std::unique_lock<std::mutex>;
+
 typedef std::pair<mstring, mstring> tStrPair;
 typedef std::vector<mstring> tStrVec;
 typedef std::set<mstring> tStrSet;
@@ -185,7 +188,7 @@ bool ParseHeadFromFile(cmstring& path, off_t* contLen, time_t* lastModified, mst
 
 void replaceChars(mstring &s, LPCSTR szBadChars, char goodChar);
 
-extern ACNG_API cmstring sEmptyString;
+extern ACNG_API cmstring se;
 
 void DelTree(cmstring &what);
 
@@ -325,9 +328,8 @@ static constexpr string_view svEmpty = "";
 #if !defined(HAVE_STRLCPY) || !HAVE_STRLCPY
 size_t strlcpy(char *tgt, const char *src, size_t tgtSize);
 #endif
-}
 
-using lguard = std::lock_guard<std::mutex>;
+}
 
 #endif // _META_H
 

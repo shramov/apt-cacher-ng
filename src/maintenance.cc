@@ -246,7 +246,7 @@ const string & tSpecialRequestHandler::GetMyHostPort()
 			bAddBrs = true; // full v6 address for sure, add brackets
 
 		if (bAddBrs)
-			m_sHostPort = sEmptyString + '[' + p + ']';
+			m_sHostPort = se + '[' + p + ']';
 		else
 			m_sHostPort = p;
 	}

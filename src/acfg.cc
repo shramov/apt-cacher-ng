@@ -202,7 +202,7 @@ tProperty n2pTbl[] =
 {
 	if(!superUser && !proxy_info.sUserPass.empty())
 		return string("#");
-	return proxy_info.sHost.empty() ? sEmptyString : proxy_info.ToURI(false);
+	return proxy_info.sHost.empty() ? se : proxy_info.ToURI(false);
 } },
 { "LocalDirs", [](cmstring&, cmstring& value) -> bool
 {
@@ -590,7 +590,7 @@ cmstring & GetMimeType(cmstring &path)
 		}
 		return tp;
 	}
-	return sEmptyString;
+	return se;
 }
 
 bool SetOption(const string &sLine, NoCaseStringMap *pDupeCheck)

@@ -159,14 +159,14 @@ string tHttpUrl::ToURI(bool bUrlEscaped, bool hostOnly) const
 	{
 		UrlEscapeAppend(sHost, s);
 		if (nPort)
-			s += sEmptyString + ':' + tPortFmter().fmt(nPort) ;
+			s += se + ':' + tPortFmter().fmt(nPort) ;
 		UrlEscapeAppend(sPath, s);
 	}
 	else
 	{
 		s += sHost;
 		if (nPort)
-			s += sEmptyString + ':' + tPortFmter().fmt(nPort);
+			s += se + ':' + tPortFmter().fmt(nPort);
 		if (!hostOnly)
 			s += sPath;
 	}
