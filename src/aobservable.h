@@ -21,54 +21,62 @@ using TActionList = std::list<tAction>;
  * where the internal rules are encapsulated in the agents, and the external rules only command
  * on the unsubscription.
  */
-class aobservable : public SomeData, public tLintRefcounted
+class aobservable : public tLintRefcounted
 {
 public:
-	struct TUnsub
+	// move-only semantics
+	class subscription
 	{
-		mutable lint_ptr<aobservable> us;
+		mutable lint_ptr<aobservable> observable;
 		mutable TActionList::iterator what;
-		~TUnsub() { us->unsubscribe(what); }
-		TUnsub(decltype(us) _us, decltype (what) _what) : us(_us), what(_what) {}
+		subscription(const subscription&) =delete;
+		friend class aobservable;
+	public:
+		subscription() =default;
+		~subscription() { clear(); }
+		subscription(decltype(observable) _us, decltype (what) _what) : observable(_us), what(_what) {}
+		subscription& operator=(subscription&& src)
+		{
+			if (this != &src)
+			{
+				observable.swap(src.observable);
+				what = src.what;
+			}
+			return *this;
+		}
+		subscription(subscription&& src) { *this = std::move(src); }
+		bool valid() const { return observable.get(); }
+		void clear() { if(valid()) observable->unsubscribe(what); observable.reset(); }
 	};
-
-	// XXX: replace with a auto_raii based (or similar) solution to avoid use of allocator
-	using TUnsubKey = std::unique_ptr<TUnsub>;
 
 	aobservable() =default;
 	virtual ~aobservable() =default;
 	using TNotifier = tAction;
-	TUnsubKey subscribe(const TNotifier& newSubscriber) WARN_UNUSED;
+	subscription subscribe(const TNotifier& newSubscriber) WARN_UNUSED;
+	void notify(bool deferred = true)
+	{
+		if (m_observers.empty())
+			return;
+		if (deferred && m_bNotifyPending)
+			return;
+		return deferred ? doSchedule() : doNotify();
+	}
 
-private:
-	friend class TUnsub;
+	bool hasObservers() { return !m_observers.empty();}
+
+	protected:
+
+	friend class subscription;
 	void unsubscribe(TActionList::iterator what);
-
-public:
-	/**
-	 * @brief Returns a unsubkey which is not subscribed YET but contains a lint_ptr reference
-	 */
-	TUnsubKey getUnsubscribedKey();
-
-protected:
-	/**
-	 * @brief notifyAll triggers deferred (!) execution of all subscriber callbacks and a cleanup of invalidates ones.
-	 */
-	void notifyAll();
-
-	/**
-	 * @brief zz_internalSubscribe is a special purpose installer of callbacks, with no lifecycle management!
-	 * @param subscriberCode
-	 */
-	TActionList::iterator zz_internalSubscribe(const TNotifier& subscriberCode);
 
 private:
 	// list might be not the most efficient but it's good for iterator stability along with the ease of element removal
-	TActionList m__subscribedObservers;
-	std::vector<TActionList::iterator> m__observers2delete;
-	bool m__bAtEventProcessing = false;
-	void doEventNotify();
-	void doEventCleanup();
+	TActionList m_observers;
+	// remember which element we are at. If reset while processing -> flag to remove the current element.
+	TActionList::iterator m_currentlyProcessing;
+	bool m_bNotifyPending = false;
+	void doNotify();
+	void doSchedule();
 };
 
 // repurposed the old locking macro to ensure the correct thread context

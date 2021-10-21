@@ -24,7 +24,7 @@ public:
 	 * @brief Push the internal processing which is waiting for some notification
 	 * @return true to keep calling, false to unregister the callback
 	 */
-	virtual bool poke(uint_fast32_t jobId) =0;
+	virtual bool poke() =0;
 	virtual cmstring& getClientName() =0;
 };
 

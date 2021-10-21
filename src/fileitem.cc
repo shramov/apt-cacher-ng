@@ -23,8 +23,26 @@ namespace acng
 // this is kept here as global anchor but it can be never set in special setups!
 ACNG_API std::shared_ptr<IFileItemRegistry> g_registry;
 
+void fileitem::NotifyObservers()
+{
+	if (!m_notifier)
+		return;
+	// XXX: keep it or release ASAP since all observers have left?
+	if (!m_notifier->hasObservers())
+		m_notifier.reset();
+	else
+		m_notifier->notify(true);
+}
+
+aobservable::subscription fileitem::Subscribe(const tAction &pokeAction)
+{
+	if (!m_notifier)
+		m_notifier = make_lptr<aobservable>();
+	return m_notifier->subscribe(pokeAction);
+}
+
 fileitem::fileitem(string_view sPathRel) :
-		m_sPathRel(sPathRel)
+	m_sPathRel(sPathRel)
 {
 }
 
@@ -38,14 +56,13 @@ void fileitem::DlRefCountDec(const tRemoteStatus& reason)
 {
 	setLockGuard;
 	LOGSTARTFUNC
-	notifyAll();
 
 	m_nDlRefsCount--;
 	if (m_nDlRefsCount > 0)
 		return; // someone will care...
 
 	// ... otherwise: the last downloader disappeared, needing to tell observers
-
+	NotifyObservers();
 	if (m_status < FIST_COMPLETE)
 	{
 		DlSetError(reason, m_eDestroy);
@@ -177,11 +194,12 @@ bool TFileitemWithStorage::SaveHeader(bool truncatedKeepOnlyOrigInfo)
 	return StoreHeadToStorage(headPath, m_nContentLength, &m_responseModDate, &m_responseOrigin);
 };
 
-bool fileitem::DlStarted(evbuffer* rawData, size_t headerLen, const tHttpDate& modDate, cmstring& origin, tRemoteStatus status, off_t bytes2seek, off_t bytesAnnounced)
+bool fileitem::DlStarted(evbuffer*, size_t, const tHttpDate& modDate, cmstring& origin, tRemoteStatus status, off_t bytes2seek, off_t bytesAnnounced)
 {
 	LOGSTARTFUNCxs( modDate.view(), status.code, status.msg, bytes2seek, bytesAnnounced);
 	ASSERT_HAVE_MAIN_THREAD;
-	notifyAll();
+
+	NotifyObservers();
 
 	USRDBG( "Download started, storeHeader for " << m_sPathRel << ", current status: " << (int) m_status);
 
@@ -226,7 +244,7 @@ ssize_t TFileitemWithStorage::DlAddData(evbuffer* src, size_t maxTake)
 	ASSERT_HAVE_MAIN_THREAD;
 
 	// something might care, most likely... also about BOUNCE action
-	notifyAll();
+	NotifyObservers();
 
 	LOG("adding chunk of " << maxTake << " bytes at " << m_nSizeChecked);
 
@@ -545,10 +563,10 @@ void fileitem::DlFinish(bool forceUpdateHeader)
 	LOGSTARTFUNC;
 	ASSERT_HAVE_MAIN_THREAD;
 
+	NotifyObservers();
+
 	if (AC_UNLIKELY(m_spattr.bNoStore))
 		return;
-
-	notifyAll();
 
 	if (m_status > FIST_COMPLETE)
 	{
@@ -564,7 +582,6 @@ void fileitem::DlFinish(bool forceUpdateHeader)
 		log::misc(tSS() << "Download of " << m_sPathRel << " finished");
 
 	dbgline;
-
 	// we are done! Fix header after chunked transfers?
 	if (m_nContentLength < 0 || forceUpdateHeader)
 	{
@@ -579,7 +596,9 @@ void fileitem::DlFinish(bool forceUpdateHeader)
 void fileitem::DlSetError(const tRemoteStatus& errState, fileitem::EDestroyMode kmode)
 {
 	ASSERT_HAVE_MAIN_THREAD;
-	notifyAll();
+
+	NotifyObservers();
+
 	/*
 	 * Maybe needs to fuse them, OTOH hard to tell which is the more severe or more meaningful
 	 *

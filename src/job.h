@@ -21,7 +21,7 @@ public:
 
 	enum eJobResult : short
 	{
-		R_DONE = 0, R_DISCON = 2, R_TOBEAWAKEN
+		R_DONE = 0, R_DISCON = 2, R_WILLNOTIFY
     };
 
 	job(IConnBase& parent, uint_fast32_t id) : m_parent(parent), m_id(id) {}
@@ -64,7 +64,7 @@ public:
 
 	IConnBase& m_parent;
 	TFileItemHolder m_pItem;
-	aobservable::TUnsubKey m_subKey;
+	aobservable::subscription m_subKey;
 	// std::shared_ptr<SomeData> m_tempData; // local state snapshot for delayed data retrieval
 	std::unique_ptr<fileitem::ICacheDataSender> m_dataSender;
 	uint_fast32_t m_id;
@@ -114,7 +114,7 @@ public:
 	bool HandleSuddenError();
     void AppendMetaHeaders();
 	void PrependHttpVariant();
-	eJobResult subscribe2item();
+	eJobResult subscribeAndExit();
 	off_t CheckSendableState();
 	/**
 	 * @brief GetBufFmter prepares the formatting buffer

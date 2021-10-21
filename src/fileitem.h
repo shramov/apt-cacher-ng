@@ -25,13 +25,18 @@ typedef std::map<mstring, tFileItemPtr> tFiGlobMap;
 struct tAppStartStop;
 
 //! Base class containing all required data and methods for communication with the download sources
-class ACNG_API fileitem : public aobservable, public tExtRefExpirer
+class ACNG_API fileitem : public tLintRefcounted, public tExtRefExpirer
 {
 	friend struct tDlJob;
 	friend class cacheman;
 	friend class TFileItemRegistry;
 
+	lint_ptr<aobservable> m_notifier;
+
 public:
+
+	void NotifyObservers();
+	aobservable::subscription Subscribe(const tAction& pokeAction);
 
 	// items carrying those attributes might be shared under controlled circumstances only
 	struct tSpecialPurposeAttr

@@ -526,21 +526,19 @@ job::eJobResult job::Poke(bufferevent *be)
 		if (m_dataSender)
 			return SendData(be);
 	}
-	return subscribe2item();
+	return subscribeAndExit();
 }
 
-job::eJobResult job::subscribe2item()
+job::eJobResult job::subscribeAndExit()
 {
-	if (!m_subKey)
-		return R_TOBEAWAKEN;
+	if (m_subKey.valid())
+		return R_WILLNOTIFY;
+
 	try
 	{
 		ASSERT(m_pItem); // very unlikely to fail
-		m_subKey = m_pItem->subscribe([parent = as_lptr(&m_parent), id = m_id]() mutable
-		{
-			return parent->poke(id);
-		});
-		return R_TOBEAWAKEN;
+		m_subKey = m_pItem->Subscribe([this]() { return m_parent.poke(); });
+		return R_WILLNOTIFY;
 	}
 	catch (...)
 	{
@@ -661,7 +659,7 @@ job::eJobResult job::SendData(bufferevent* be)
 			m_nSendPos += n;
 			m_nAllDataCount += n;
 			if (n < limit)
-				return subscribe2item();
+				return subscribeAndExit();
 			ldbg("~senddata: " << n << " new m_nSendPos: " << m_nSendPos);
 			if ((fistate == fileitem::FIST_COMPLETE && m_nSendPos == nBodySizeSoFar)
 				|| (m_nReqRangeTo >= 0 && m_nSendPos >= m_nReqRangeTo + 1))
@@ -697,7 +695,7 @@ job::eJobResult job::SendData(bufferevent* be)
 			m_nSendPos += n;
 			m_nAllDataCount += n;
 			if (n < limit)
-				return subscribe2item();
+				return subscribeAndExit();
 			if (m_nSendPos == m_nChunkEnd)
 			{
 				SB << svRN;

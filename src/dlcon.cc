@@ -48,7 +48,6 @@ using TDlJobQueue = std::list<tDlJob>;
 struct TDlStream : public tLintRefcounted
 {
 	TDlJobQueue m_backlog, m_requested;
-	void poke(uint_fast32_t contextJobId);
 
 	enum class EAddResult
 	{
@@ -66,6 +65,8 @@ struct TDlStream : public tLintRefcounted
 	EAddResult takeNewJobs(TDlJobQueue& input, mstring& changedKey, bool hostFitWasChecked);
 
 	void shallRequestMore();
+
+	aobservable::subscription m_blockingItemSubscription;
 };
 
 class CDlConn : public dlcontroller
@@ -93,9 +94,8 @@ public:
 
 struct tDlJob
 {
-	fileitem::TUnsubKey m_pStorageRef;
-
-	fileitem* storage() { return static_cast<fileitem*>(m_pStorageRef->us.get()); }
+	tFileItemPtr m_pStorageRef;
+	fileitem* storage() { return m_pStorageRef.get(); }
 	mstring sErrorMsg;
 	TDlStream* m_parent = nullptr;
 
@@ -197,7 +197,7 @@ struct tDlJob
 		ASSERT_HAVE_MAIN_THREAD;
 		if (pFi)
 		{
-			m_pStorageRef = pFi->getUnsubscribedKey();
+			m_pStorageRef = pFi;
 			pFi->DlRefCountAdd();
 		}
 	}
@@ -498,9 +498,8 @@ struct tDlJob
 			inBuf.drop(n);
 			if (n != nToStore)
 			{
-				m_pStorageRef = storage()->subscribe([strm = as_lptr(m_parent), id = m_orderId](){
-					strm->poke(id);
-				});
+#error implement me. Shall subscribe to notify on some poke method, and stop acting here until the poke method reports storabe availability
+				m_parent->Subscribe2BlockingItem(m_pStorageRef);
 				return HINT_MORE;
 			}
 		}
@@ -712,6 +711,7 @@ struct tDlJob
 			{
 				ldbg("STATE_FINISHJOB");
 				storage()->DlFinish(false);
+				m_parent->m_blockingItemSubscription.clear();
 				m_DlState = STATE_GETHEADER;
 				return HINT_DONE;
 			}

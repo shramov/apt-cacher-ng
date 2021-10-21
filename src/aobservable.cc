@@ -6,82 +6,43 @@ using namespace std;
 namespace acng
 {
 
-
-aobservable::TUnsubKey aobservable::subscribe(const aobservable::TNotifier &newSubscriber)
+aobservable::subscription aobservable::subscribe(const aobservable::TNotifier &newSubscriber)
 {
 	ASSERT_HAVE_MAIN_THREAD;
 
 	if (!newSubscriber) // XXX: not accepting invalid subscribers to avoid later checks, but what then?
-		return TUnsubKey(new TUnsub { as_lptr(this), m__subscribedObservers.end() });
-	return TUnsubKey(new TUnsub { as_lptr(this), zz_internalSubscribe(move(newSubscriber)) });
+		return subscription();
+	m_observers.emplace_back(newSubscriber);
+	return subscription(as_lptr(this), m_observers.end());
 }
 
 void aobservable::unsubscribe(TActionList::iterator what)
 {
 	ASSERT_HAVE_MAIN_THREAD;
-	if (!m__bAtEventProcessing)
-		m__subscribedObservers.erase(what);
-	else
+	if (what == m_currentlyProcessing)
+		m_currentlyProcessing = m_observers.end();
+	m_observers.erase(what);
+}
+
+void aobservable::doSchedule()
+{
+	m_bNotifyPending = true;
+	evabase::Post([me = as_lptr(this)] () mutable { me->notify(false); });
+}
+
+void aobservable::doNotify()
+{	
+	m_bNotifyPending = false;
+
+	for (auto it = m_observers.begin(); it != m_observers.end(); )
 	{
-		m__observers2delete.emplace_back(move(what));
-		evabase::Post([me = as_lptr(this)] () mutable { me->doEventCleanup(); });
+		m_currentlyProcessing = it;
+		(*it)();
+		if (m_currentlyProcessing == it)
+			++it;
+		else // removal was requested by unsubscribe?
+			it = m_observers.erase(it);
 	}
-}
-
-aobservable::TUnsubKey aobservable::getUnsubscribedKey()
-{
-	return make_unique<TUnsub>(as_lptr(this), m__subscribedObservers.end());
-}
-
-void aobservable::notifyAll()
-{
-#warning analyse performance, maybe use a dedicated event which manages the notifications, and which merges all the execution requests, maybe even from multiple observables
-	evabase::Post([me = as_lptr(this)] () mutable { me->doEventNotify(); });
-}
-
-TActionList::iterator aobservable::zz_internalSubscribe(const TNotifier &subscriberCode)
-{
-	m__subscribedObservers.emplace_back(subscriberCode);
-	return --(m__subscribedObservers.end());
-}
-
-void aobservable::doEventNotify()
-{
-	ASSERT_HAVE_MAIN_THREAD;
-
-	doEventCleanup();
-
-	m__bAtEventProcessing = true;
-	for(const auto& el: m__subscribedObservers)
-	{
-		try
-		{
-			if (el)
-				(el)();
-		}
-		catch(...)
-		{
-			ASSERT(!"uncaught exception!");
-		}
-	}
-	m__bAtEventProcessing = false;
-	// do all deferred destruction orders which might have been collected throughout the callback execution
-	doEventCleanup();
-}
-
-void aobservable::doEventCleanup()
-{
-	if (m__observers2delete.empty())
-		return;
-
-	//auto keepa(move(m_meDeleteKeeper));
-	for (auto it: m__observers2delete)
-		m__subscribedObservers.erase(it);
-
-	if (m__subscribedObservers.empty())
-		return; // exit stack ASAP and let keepa self-destruct
-
-	m__observers2delete.clear();
 }
 
 }

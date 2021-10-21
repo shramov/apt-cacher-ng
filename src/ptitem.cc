@@ -31,7 +31,7 @@ const string &tPassThroughFitem::GetRawResponseHeader() { return m_sHeader; }
 void tPassThroughFitem::DlFinish(bool)
 {
     LOGSTARTFUNC;
-    notifyAll();
+	NotifyObservers();
     m_status = FIST_COMPLETE;
 }
 
@@ -42,7 +42,7 @@ ssize_t tPassThroughFitem::DlAddData(evbuffer *chunk, size_t maxTake)
         LOGSTARTFUNCx(maxTake, m_status);
 
         // something might care, most likely... also about BOUNCE action
-        notifyAll();
+		NotifyObservers();
 
 		if (m_status > fileitem::FIST_COMPLETE)
 			return -1;
@@ -91,6 +91,7 @@ bool tPassThroughFitem::DlStarted(evbuffer *rawData, size_t headerLen, const tHt
 
 class tPassThroughFitem::TSender
 {
+#error forward a lintptr of notifier to here
 public:
 ssize_t SendData(bufferevent *target, evbuffer *, size_t maxTake)
 {
