@@ -6,19 +6,21 @@
 
 namespace acng
 {
-class tMarkupFileSend : public tSpecialRequest
+class tMarkupFileSend : public tSpecialRequestHandler
 {
 public:
 	virtual ~tMarkupFileSend() {};
 	void Run() override;
 protected:
-	tMarkupFileSend(const tRunParms& parms,
+	tMarkupFileSend(tRunParms&& parms,
 			const char * filename,
 			const char *mimetype,
-			const char *httpstatus);
+					const tRemoteStatus& st);
 	// presets some default properties for header/footer/etc.
 	void SendRaw(const char *pBuf, size_t len);
-	const char *m_sFileName, *m_sMimeType, *m_sHttpCode;
+	const char *m_sFileName, *m_sMimeType;
+	tRemoteStatus m_httpStatus;
+
 	bool m_bFatalError=false;
 
 	// uses fallback lookup map, can be feed with data in subclass constructor

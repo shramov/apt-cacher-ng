@@ -99,8 +99,8 @@ cmstring& cacheman::GetFirstPresentPath(const tFileGroups& groups, const tConten
 	return sEmptyString;
 }
 
-cacheman::cacheman(const tSpecialRequest::tRunParms& parms) :
-	tSpecOpDetachable(parms),
+cacheman::cacheman(const tSpecialRequestHandler::tRunParms& parms) :
+	tExclusiveUserAction(parms),
 	m_bErrAbort(false), m_bVerbose(false), m_bForceDownload(false),
 	m_bScanInternals(false), m_bByPath(false), m_bByChecksum(false), m_bSkipHeaderChecks(false),
 	m_bTruncateDamaged(false),

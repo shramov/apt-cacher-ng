@@ -258,7 +258,7 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 
 		if(!theUrl.SetHttpUrl(sReqPath, false))
 		{
-			m_pItem.reset(tSpecialRequest::Create(ESpecialWorkType::workUSERINFO, theUrl, sReqPath, h));
+			m_pItem.reset(tSpecialRequestHandler::Create(ESpecialWorkType::workUSERINFO, theUrl, sReqPath, h));
 			LOG("work type: USERINFO");
 			return;
 		}
@@ -286,7 +286,7 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 
 		try
 		{
-			auto spItem = tSpecialRequest::Create(ESpecialWorkType::workTypeDetect, theUrl, sReqPath, h);
+			auto spItem = tSpecialRequestHandler::Create(ESpecialWorkType::workTypeDetect, theUrl, sReqPath, h);
 			if (spItem)
 				return m_pItem.reset(spItem);
 		}
@@ -909,6 +909,10 @@ void job::PrepareLocalDownload(const mstring &visPath, const mstring &fsBase, co
 
 void job::AppendMetaHeaders()
 {
+	auto fi = m_pItem.get();
+	if (fi && ! fi->GetExtraResponseHeaders().empty())
+		SB << fi->GetExtraResponseHeaders();
+
 	if(m_keepAlive == KEEP)
 		SB << "Connection: Keep-Alive\r\n"sv;
 	else if(m_keepAlive == CLOSE)

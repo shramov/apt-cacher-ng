@@ -32,12 +32,18 @@ namespace acng
 {
 
 // for start/stop and abort hint
-base_with_condition tSpecOpDetachable::g_StateCv;
-bool tSpecOpDetachable::g_sigTaskAbort=false;
+mutex g_bgTaskMx;
+condition_variable g_bgTaskCondVar;
+bool tExclusiveUserAction::g_sigTaskAbort=false;
 // not zero if a task is active
 time_t nBgTimestamp = 0;
 
-tSpecOpDetachable::~tSpecOpDetachable()
+tExclusiveUserAction::tExclusiveUserAction(tRunParms &&parms)
+	: tSpecialRequestHandler(move(parms))
+{
+}
+
+tExclusiveUserAction::~tExclusiveUserAction()
 {
 	if(m_reportStream.is_open())
 	{
@@ -51,25 +57,23 @@ tSpecOpDetachable::~tSpecOpDetachable()
  *  TODO: this is kept in expiration class for historical reasons. Should be moved to some shared upper
  * class, like "detachedtask" or something like that
  */
-void tSpecOpDetachable::Run()
+void tExclusiveUserAction::Run()
 {
-
 	if (m_parms.cmd.find("&sigabort")!=stmiss)
 	{
-		g_sigTaskAbort=true;
-		g_StateCv.notifyAll();
-		tStrPos nQuest=m_parms.cmd.find("?");
-		if(nQuest!=stmiss)
+		g_sigTaskAbort = true;
+		g_bgTaskCondVar.notify_all();
+		tStrPos nQuest = m_parms.cmd.find("?");
+		if(nQuest != stmiss)
 		{
-			tSS buf(255);
-			buf << "HTTP/1.1 302 Redirect\r\nLocation: "
-				<< m_parms.cmd.substr(0,nQuest)<< "\r\nConnection: close\r\n\r\n";
-			SendRawData(buf.data(), buf.size(), 0);
+			evabase::Post([ item = m_parms.pin(), tgt = m_parms.cmd.substr(0,nQuest) ](){
+				item->DlStarted(302, "Redirect", "", tgt);
+			});
 		}
 		return;
 	}
 
-	SetMimeResponseHeader("200 OK", "text/html");
+	SetMimeResponseHeader(200, "OK", "text/html");
 
 	tSS deco;
 	const char *mark(nullptr);
@@ -97,16 +101,18 @@ void tSpecOpDetachable::Run()
 
 	time_t other_id=0;
 
-	{ // this is locked just to make sure that only one can register as master
-		lockguard guard(g_StateCv);
-		if(0 == nBgTimestamp) // ok, not running yet -> become the log source then
+	{
+		// this is locked just to make sure that only one can register as master
+		lguard g(g_bgTaskMx);
+
+		if (0 == nBgTimestamp) // ok, not running yet -> become the log source then
 		{
 			auto id = time(0);
 
 			logPath.clear();
-			logPath<<cfg::logdir<<CPATHSEP<< MAINT_PFX << id << ".log.html";
+			logPath << cfg::logdir<<CPATHSEP<< MAINT_PFX << id << ".log.html";
 			m_reportStream.open(logPath.c_str(), ios::out);
-			if(m_reportStream.is_open())
+			if (m_reportStream.is_open())
 			{
 				m_reportStream << LOG_DECO_START;
 				m_reportStream.flush();
@@ -119,7 +125,8 @@ void tSpecOpDetachable::Run()
 				return;
 			}
 		}
-		else other_id = nBgTimestamp;
+		else
+			other_id = nBgTimestamp;
 	}
 
 	if(other_id)
@@ -130,7 +137,7 @@ void tSpecOpDetachable::Run()
 		SendChunkSZ("<br>Attempting to attach to the log output... <br>\n");
 
 		tSS sendbuf(4096);
-		lockuniq g(g_StateCv);
+		lguard g(g_bgTaskMx);
 
 		for(;;)
 		{
@@ -280,14 +287,14 @@ void tSpecOpDetachable::Run()
 		SendChunkRemoteOnly(deco.c_str(), deco.size());
 }
 
-bool tSpecOpDetachable::CheckStopSignal()
+bool tExclusiveUserAction::CheckStopSignal()
 {
 #warning restore protection
 	//lockguard g(&g_StateCv);
 	return g_sigTaskAbort || evabase::in_shutdown;
 }
 
-void tSpecOpDetachable::DumpLog(time_t id)
+void tExclusiveUserAction::DumpLog(time_t id)
 {
 	filereader reader;
 
@@ -302,7 +309,7 @@ void tSpecOpDetachable::DumpLog(time_t id)
         SendChunkRemoteOnly(reader.getView());
 }
 
-void tSpecOpDetachable::SendChunkLocalOnly(const char *data, size_t len)
+void tExclusiveUserAction::SendChunkLocalOnly(const char *data, size_t len)
 {
 	if(m_reportStream.is_open())
 	{
@@ -312,14 +319,14 @@ void tSpecOpDetachable::SendChunkLocalOnly(const char *data, size_t len)
 	}
 }
 
-time_t tSpecOpDetachable::GetTaskId()
+time_t tExclusiveUserAction::GetTaskId()
 {
 	lockguard guard(&g_StateCv);
 	return nBgTimestamp;
 }
 
 #ifdef HAVE_ZLIB
-mstring tSpecOpDetachable::BuildCompressedDelFileCatalog()
+mstring tExclusiveUserAction::BuildCompressedDelFileCatalog()
 {
 	mstring ret;
 	tSS buf;

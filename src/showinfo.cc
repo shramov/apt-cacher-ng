@@ -8,6 +8,7 @@
 #include "job.h"
 
 #include <iostream>
+#include <meta.h>
 
 #ifdef HAVE_ZLIB
 #include <zlib.h>
@@ -24,9 +25,10 @@ using namespace std;
 
 #define SCALEFAC 250
 
-
 namespace acng
 {
+
+tRemoteStatus stOK {200, "OK"};
 
 static cmstring sReportButton("<tr><td class=\"colcont\"><form action=\"#stats\" method=\"get\">"
 					"<input type=\"submit\" name=\"doCount\" value=\"Count Data\"></form>"
@@ -34,12 +36,12 @@ static cmstring sReportButton("<tr><td class=\"colcont\"><form action=\"#stats\"
 					"<i>Not calculated, click \"Count data\"</i></font></td></tr>");
 
 // some NOOPs
-tMarkupFileSend::tMarkupFileSend(const tSpecialRequest::tRunParms& parms,
+tMarkupFileSend::tMarkupFileSend(tSpecialRequestHandler::tRunParms&& parms,
 		const char *s,
-		const char *m, const char *c)
+		const char *m, const tRemoteStatus& st)
 :
-	tSpecialRequest(parms),
-	m_sFileName(s), m_sMimeType(m), m_sHttpCode(c)
+	tSpecialRequestHandler(move(parms)),
+	m_sFileName(s), m_sMimeType(m), m_httpStatus(st)
 {
 }
 
@@ -58,15 +60,14 @@ void tMarkupFileSend::Run()
 	}
 	if(m_bFatalError)
 	{
-		m_sHttpCode="500 Template Not Found";
-		m_sMimeType="text/plain";
+		SetMimeResponseHeader(500, "Template Not Found", "text/plain");
 		return SendRaw(errstring.data(), (size_t) errstring.size());
 	}
     auto sv = fr.getView();
     auto pr = sv.data();
     auto pend = pr + sv.size();
     // XXX: redo more nicely with string_view operations?
-	SetMimeResponseHeader(m_sHttpCode, m_sMimeType);
+	SetMimeResponseHeader(m_httpStatus.code, m_httpStatus.msg, m_sMimeType);
 
 	auto lastchar=pend-1;
 	while(pr<pend)
@@ -107,11 +108,11 @@ void tMarkupFileSend::Run()
 void tDeleter::SendProp(cmstring &key)
 {
 	if(key=="count")
-		return SendChunk(m_fmtHelper.clean()<<files.size());
+		return SendChunk(m_fmtHelper.clear()<<files.size());
 	else if(key=="countNZs")
 	{
 		if(files.size()!=1)
-			return SendChunk(m_fmtHelper.clean()<<"s");
+			return SendChunk(m_fmtHelper.clear()<<"s");
 	}
 	else if(key == "stuff")
 		return SendChunk(sHidParms);
@@ -122,8 +123,8 @@ void tDeleter::SendProp(cmstring &key)
 
 // and deserialize it from GET parameter into m_delCboxFilter
 
-tDeleter::tDeleter(const tRunParms& parms, const mstring& vmode)
-: tMarkupFileSend(parms, "delconfirm.html", "text/html", "200 OK"),
+tDeleter::tDeleter(tRunParms&& parms, const mstring& vmode)
+	: tMarkupFileSend(move(parms), "delconfirm.html", "text/html", stOK),
   sVisualMode(vmode)
 {
 #define BADCHARS "<>\"'|\t"
@@ -136,7 +137,7 @@ tDeleter::tDeleter(const tRunParms& parms, const mstring& vmode)
 		return;
 	}
 
-	auto del = (m_parms.type == workDELETE);
+	auto del = (m_parms.type == ESpecialWorkType::workDELETE);
 
 	mstring params(m_parms.cmd, qpos+1);
 	mstring blob;
@@ -236,14 +237,15 @@ tDeleter::tDeleter(const tRunParms& parms, const mstring& vmode)
 	}
 
 
-	if (m_parms.type == workDELETECONFIRM || m_parms.type == workTRUNCATECONFIRM)
+	if (m_parms.type == ESpecialWorkType::workDELETECONFIRM
+			|| m_parms.type == ESpecialWorkType::workTRUNCATECONFIRM)
 	{
 		for (const auto& path : filePaths)
 			sHidParms << html_sanitize(path) << "<br>\n";
 		for (const auto& pathId : files)
 			sHidParms << "<input type=\"hidden\" name=\"kf\" value=\"" <<
 			to_base36(pathId) << "\">\n";
-		if(m_parms.type == workDELETECONFIRM && !extraFiles.empty())
+		if(m_parms.type == ESpecialWorkType::workDELETECONFIRM && !extraFiles.empty())
 		{
 			sHidParms << sBRLF << "<b>Extra files found</b>" << sBRLF
 					<< "<p>It's recommended to delete the related files (see below) as well, otherwise "
@@ -284,8 +286,8 @@ tDeleter::tDeleter(const tRunParms& parms, const mstring& vmode)
 	}
 }
 
-tMaintPage::tMaintPage(const tRunParms& parms)
-:tMarkupFileSend(parms, "report.html", "text/html", "200 OK")
+tMaintPage::tMaintPage(tRunParms&& parms)
+:tMarkupFileSend(move(parms), "report.html", "text/html", stOK)
 {
 
 	if(StrHas(parms.cmd, "doTraceStart"))
@@ -294,9 +296,11 @@ tMaintPage::tMaintPage(const tRunParms& parms)
 		cfg::patrace=false;
 	else if(StrHas(parms.cmd, "doTraceClear"))
 	{
-		auto& tr(tTraceData::getInstance());
+#warning restoreme or just drop that feature, add a log parser and displayer instead
+		/*auto& tr(tTraceData::getInstance());
 		lockguard g(tr);
 		tr.clear();
+		*/
 	}
 }
 
@@ -317,8 +321,12 @@ inline int tMarkupFileSend::CheckCondition(LPCSTR id, size_t len)
 			return cfg::DegradedMode();
     	return -1;
 	}
+
 	if(RAWEQ(id, len, "delConfirmed"))
-		return m_parms.type != workDELETE && m_parms.type != workTRUNCATE;
+	{
+		return m_parms.type != ESpecialWorkType::workDELETE
+				&& m_parms.type != ESpecialWorkType::workTRUNCATE;
+	}
 
 	return -2;
 }
@@ -358,9 +366,13 @@ void tMaintPage::SendProp(cmstring &key)
 	static cmstring defStringChecked("checked");
 	if(key == "aOeDefaultChecked")
 		return SendChunk(cfg::exfailabort ? defStringChecked : sEmptyString);
+
+#warning restoreme
+#if 0
 	if(key == "curPatTraceCol")
 	{
 		m_fmtHelper.clear();
+
 		auto& tr(tTraceData::getInstance());
 		lockguard g(tr);
 		int bcount=0;
@@ -379,6 +391,7 @@ void tMaintPage::SendProp(cmstring &key)
 			m_fmtHelper.append(WITHLEN("<br>some strings not considered due to security restrictions<br>"));
 		return SendChunk(m_fmtHelper);
 	}
+#endif
 	return tMarkupFileSend::SendProp(key);
 }
 
@@ -404,23 +417,26 @@ void tMarkupFileSend::SendProp(cmstring &key)
 			return SendChunk(*ps);
 		auto pi(cfg::GetIntPtr(ckey));
 		if(pi)
-			return SendChunk(m_fmtHelper.clean() << *pi);
+			return SendChunk(m_fmtHelper.clear() << *pi);
 		return;
 	}
+
 	if (key == "serverhostport")
 		return SendChunk(GetMyHostPort());
+
 	if (key == "footer")
 		return SendChunk(GetFooter());
 
 	if (key == "hostname")
 	{
-		m_fmtHelper.clean().setsize(500);
-		if(gethostname(m_fmtHelper.wptr(), m_fmtHelper.freecapa()))
+		char buf[500];
+		if(gethostname(buf, sizeof(buf)-2))
 			return; // failed?
-		return SendChunk(m_fmtHelper.wptr(), strlen(m_fmtHelper.wptr()));
+		buf[sizeof(buf)-1] = 0x0;
+		return SendChunk(buf);
 	}
 	if(key=="random")
-		return SendChunk(m_fmtHelper.clean() << rand());
+		return SendChunk(m_fmtHelper.clear() << rand());
 	if(key=="dataInHuman")
 	{
 		auto stats = log::GetCurrentCountersInOut();
@@ -436,14 +452,14 @@ void tMarkupFileSend::SendProp(cmstring &key)
 		auto stats = log::GetCurrentCountersInOut();
 		auto statsMax = std::max(stats.first, stats.second);
 		auto pixels = statsMax ? (stats.first * SCALEFAC / statsMax) : 0;
-		return SendChunk(m_fmtHelper.clean() << pixels);
+		return SendChunk(m_fmtHelper.clear() << pixels);
 	}
 	if(key=="dataOut")
 	{
 		auto stats = log::GetCurrentCountersInOut();
 		auto statsMax = std::max(stats.second, stats.first);
 		auto pixels = statsMax ? (SCALEFAC * stats.second / statsMax) : 0;
-		return SendChunk(m_fmtHelper.clean() << pixels);
+		return SendChunk(m_fmtHelper.clear() << pixels);
 	}
 
 	if (key == "dataHistInHuman")
@@ -461,14 +477,14 @@ void tMarkupFileSend::SendProp(cmstring &key)
 		auto stats = pairSum(log::GetCurrentCountersInOut(), log::GetOldCountersInOut());
 		auto statsMax = std::max(stats.second, stats.first);
 		auto pixels = statsMax ? (stats.first * SCALEFAC / statsMax) : 0;
-		return SendChunk(m_fmtHelper.clean() << pixels);
+		return SendChunk(m_fmtHelper.clear() << pixels);
 	}
 	if (key == "dataHistOut")
 	{
 		auto stats = pairSum(log::GetCurrentCountersInOut(), log::GetOldCountersInOut());
 		auto statsMax = std::max(stats.second, stats.first);
 		auto pixels = statsMax ? (SCALEFAC * stats.second/statsMax) : 0;
-		return SendChunk(m_fmtHelper.clean() << pixels);
+		return SendChunk(m_fmtHelper.clear() << pixels);
 	}
 
 

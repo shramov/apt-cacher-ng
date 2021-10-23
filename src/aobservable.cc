@@ -19,15 +19,17 @@ aobservable::subscription aobservable::subscribe(const aobservable::TNotifier &n
 void aobservable::unsubscribe(TActionList::iterator what)
 {
 	ASSERT_HAVE_MAIN_THREAD;
+	// set a flag to remove the current item instead?
 	if (what == m_currentlyProcessing)
 		m_currentlyProcessing = m_observers.end();
-	m_observers.erase(what);
+	else
+		m_observers.erase(what);
 }
 
 void aobservable::doSchedule()
 {
 	m_bNotifyPending = true;
-	evabase::Post([me = as_lptr(this)] () mutable { me->notify(false); });
+	evabase::Post([me = as_lptr(this)] () mutable { me->doNotify(); });
 }
 
 void aobservable::doNotify()
@@ -40,9 +42,12 @@ void aobservable::doNotify()
 		(*it)();
 		if (m_currentlyProcessing == it)
 			++it;
-		else // removal was requested by unsubscribe?
+		else // hot removal was requested by unsubscribe?
 			it = m_observers.erase(it);
 	}
+
+	if (m_bNotifyPending) // requested again?
+		doSchedule();
 }
 
 }

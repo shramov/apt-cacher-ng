@@ -53,13 +53,11 @@ public:
 	virtual ~aobservable() =default;
 	using TNotifier = tAction;
 	subscription subscribe(const TNotifier& newSubscriber) WARN_UNUSED;
-	void notify(bool deferred = true)
+	void notify()
 	{
-		if (m_observers.empty())
+		if (m_observers.empty() || m_bNotifyPending)
 			return;
-		if (deferred && m_bNotifyPending)
-			return;
-		return deferred ? doSchedule() : doNotify();
+		return doSchedule();
 	}
 
 	bool hasObservers() { return !m_observers.empty();}

@@ -38,13 +38,13 @@ void DelTree(cmstring &what);
 
 class ACNG_API cacheman :
 		public IFileHandler,
-		public tSpecOpDetachable
+		public tExclusiveUserAction
 {
 protected:
 	IConnBase &GetDlRes() { return * m_parms.pDlResProvider; }
 
 public:
-	cacheman(tSpecialRequest::tRunParms&& parms);
+	cacheman(tSpecialRequestHandler::tRunParms&& parms);
 	virtual ~cacheman() =default;
 
 	enum enumMetaType

@@ -8,22 +8,19 @@
 #ifndef BGTASK_H_
 #define BGTASK_H_
 
-#include "maintenance.h"
-//#include <iostream>
-//#include <fstream>
+#include "mainthandler.h"
 
 namespace acng
 {
 
-class ACNG_API tSpecOpDetachable : public tSpecialRequest
+class ACNG_API tExclusiveUserAction : public tSpecialRequestHandler
 {
 public:
 	// forward all constructors, no specials here
 	// XXX: oh please, g++ 4.7 is not there yet... using tSpecialRequest::tSpecialRequest;
-	inline tSpecOpDetachable(const tSpecialRequest::tRunParms& parms)
-	: tSpecialRequest(parms) {};
+	tExclusiveUserAction(tSpecialRequestHandler::tRunParms&& parms);
 
-	virtual ~tSpecOpDetachable() =default;
+	virtual ~tExclusiveUserAction();
 
 	 /*!
 	  * This execution implementation makes sure that only one task runs
@@ -32,6 +29,8 @@ public:
 	  * Work is to be done the Action() method implemented by the subclasses.
 	  */
 	virtual void Run() override;
+
+	bool IsNonBlocking() const override { return false; }
 
 protected:
 	bool CheckStopSignal();
@@ -67,11 +66,11 @@ private:
 };
 
 #ifdef DEBUG
-class tBgTester : public tSpecOpDetachable
+class tBgTester : public tExclusiveUserAction
 {
 public:
-	inline tBgTester(const tSpecialRequest::tRunParms& parms)
-	: tSpecOpDetachable(parms)
+	tBgTester(tSpecialRequestHandler::tRunParms&& parms)
+		: tExclusiveUserAction(std::move(parms))
 	{
 		m_szDecoFile="maint.html";
 	}

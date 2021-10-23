@@ -16,7 +16,7 @@ class pkgmirror: public cacheman
 {
 public:
 	// XXX: for c++11... using tCacheOperation::tCacheOperation;
-	inline pkgmirror(tSpecialRequest::tRunParms&& parms)
+	inline pkgmirror(tSpecialRequestHandler::tRunParms&& parms)
 	: cacheman(move(parms)) {};
 
 	virtual ~pkgmirror() {};

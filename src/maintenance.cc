@@ -1,6 +1,6 @@
 #include "meta.h"
 
-#include "maintenance.h"
+#include "mainthandler.h"
 #include "expiration.h"
 #include "pkgimport.h"
 #include "showinfo.h"
@@ -22,6 +22,8 @@
 #include <unistd.h>
 #include <signal.h>
 
+#include "aevutil.h"
+
 using namespace std;
 
 #define MAINT_HTML_DECO "maint.html"
@@ -29,128 +31,115 @@ static string cssString("style.css");
 
 namespace acng {
 
-tSpecialRequest::tSpecialRequest(tRunParms&& parms) :
+tSpecialRequestHandler::tSpecialRequestHandler(tRunParms&& parms) :
 		m_parms(move(parms))
 {
 }
 
-tSpecialRequest::~tSpecialRequest()
+tSpecialRequestHandler::~tSpecialRequestHandler()
 {
 }
 
-class tAuthRequest : public tSpecialRequest
+class tAuthRequest : public tSpecialRequestHandler
 {
 public:
-
-	// XXX: c++11 using tSpecialRequest::tSpecialRequest;
-	inline tAuthRequest(tSpecialRequest::tRunParms&& parms)
-	: tSpecialRequest(move(parms)) {};
+	using tSpecialRequestHandler::tSpecialRequestHandler;
 
 	void Run() override
 	{
-		const char authmsg[] = "HTTP/1.1 401 Not Authorized\r\nWWW-Authenticate: "
-		"Basic realm=\"For login data, see AdminAuth in Apt-Cacher NG config files\"\r\n"
-		"Connection: Close\r\n"
-		"Content-Type: text/plain\r\nContent-Length:81\r\n\r\n"
-		"Not Authorized. Please contact Apt-Cacher NG administrator for further questions.<br>"
-		"<br>"
-		"For Admin: Check the AdminAuth option in one of the *.conf files in Apt-Cacher NG "
-		"configuration directory, probably " CFGDIR;
-		SendRawData(authmsg, sizeof(authmsg)-1, 0);
+		string_view msg = "Not Authorized. Please contact Apt-Cacher NG administrator for further questions.\n\n"
+				   "For Admin: Check the AdminAuth option in one of the *.conf files in Apt-Cacher NG "
+				   "configuration directory, probably " CFGDIR;
+		m_parms.output.ConfigHeader(401, "Not Authorized"sv, "text/plain"sv, "", msg.size());
+		m_parms.output.AddExtraHeaders("WWW-Authenticate: Basic realm=\"For login data, see AdminAuth in Apt-Cacher NG config files\"\r\n");
+		SendChunkRemoteOnly(msg);
 	}
 };
 
-class authbounce : public tSpecialRequest
+class authbounce : public tSpecialRequestHandler
 {
 public:
-
-	// XXX: c++11 using tSpecialRequest::tSpecialRequest;
-	inline authbounce(tSpecialRequest::tRunParms&& parms)
-	: tSpecialRequest(move(parms)) {};
-
+	using tSpecialRequestHandler::tSpecialRequestHandler;
 
 	void Run() override
 	{
-		const char authmsg[] = "HTTP/1.1 200 Not Authorized\r\n"
-		"Connection: Close\r\n"
-		"Content-Type: text/plain\r\nContent-Length: 102\r\n\r\n"
-		"Not Authorized. To start this action, an administrator password must be set and "
-		"you must be logged in.";
-		SendRawData(authmsg, sizeof(authmsg)-1, 0);
+		string_view msg = "Not Authorized. To start this action, an administrator password must be set and "
+						  "you must be logged in.";
+		m_parms.output.ConfigHeader(403, "Access Forbidden", "text/plain"sv, ""sv, msg.size());
+		SendChunkRemoteOnly(msg);
 	}
 };
 
-class BackgroundThreadedItem : public fileitem
+static tSpecialRequestHandler* MakeMaintWorker(tSpecialRequestHandler::tRunParms&& parms)
 {
-public:
+	if (cfg::DegradedMode() && parms.type != ESpecialWorkType::workSTYLESHEET)
+		parms.type = ESpecialWorkType::workUSERINFO;
 
-	tSpecialRequest* MakeMaintWorker(tSpecialRequest::tRunParms&& parms)
+	switch (parms.type)
 	{
-		if (cfg::DegradedMode() && parms.type != ESpecialWorkType::workSTYLESHEET)
-			parms.type = ESpecialWorkType::workUSERINFO;
-
-		switch (parms.type)
-		{
-		case ESpecialWorkType::workTypeDetect:
-			return nullptr;
-		case ESpecialWorkType::workExExpire:
-		case ESpecialWorkType::workExList:
-		case ESpecialWorkType::workExPurge:
-		case ESpecialWorkType::workExListDamaged:
-		case ESpecialWorkType::workExPurgeDamaged:
-		case ESpecialWorkType::workExTruncDamaged:
-			return new expiration(parms);
-		case ESpecialWorkType::workUSERINFO:
-			return new tShowInfo(parms);
-		case ESpecialWorkType::workMAINTREPORT:
-		case ESpecialWorkType::workCOUNTSTATS:
-		case ESpecialWorkType::workTraceStart:
-		case ESpecialWorkType::workTraceEnd:
-			return new tMaintPage(move(parms));
-		case ESpecialWorkType::workAUTHREQUEST:
-			return new tAuthRequest(move(parms));
-		case ESpecialWorkType::workAUTHREJECT:
-			return new authbounce(move(parms));
-		case ESpecialWorkType::workIMPORT:
-			return new pkgimport(move(parms));
-		case ESpecialWorkType::workMIRROR:
-			return new pkgmirror(move(parms));
-		case ESpecialWorkType::workDELETE:
-		case ESpecialWorkType::workDELETECONFIRM:
-			return new tDeleter(move(parms), "Delet");
-		case ESpecialWorkType::workTRUNCATE:
-		case ESpecialWorkType::workTRUNCATECONFIRM:
-			return new tDeleter(move(parms), "Truncat");
-		case ESpecialWorkType::workSTYLESHEET:
-			return new tStyleCss(move(parms));
-	#if 0
-		case workJStats:
-			return new jsonstats(parms);
-	#endif
-		}
+	case ESpecialWorkType::workTypeDetect:
 		return nullptr;
+	case ESpecialWorkType::workExExpire:
+	case ESpecialWorkType::workExList:
+	case ESpecialWorkType::workExPurge:
+	case ESpecialWorkType::workExListDamaged:
+	case ESpecialWorkType::workExPurgeDamaged:
+	case ESpecialWorkType::workExTruncDamaged:
+		return new expiration(move(parms));
+	case ESpecialWorkType::workUSERINFO:
+		return new tShowInfo(move(parms));
+	case ESpecialWorkType::workMAINTREPORT:
+	case ESpecialWorkType::workCOUNTSTATS:
+	case ESpecialWorkType::workTraceStart:
+	case ESpecialWorkType::workTraceEnd:
+		return new tMaintPage(move(parms));
+	case ESpecialWorkType::workAUTHREQUEST:
+		return new tAuthRequest(move(parms));
+	case ESpecialWorkType::workAUTHREJECT:
+		return new authbounce(move(parms));
+	case ESpecialWorkType::workIMPORT:
+		return new pkgimport(move(parms));
+	case ESpecialWorkType::workMIRROR:
+		return new pkgmirror(move(parms));
+	case ESpecialWorkType::workDELETE:
+	case ESpecialWorkType::workDELETECONFIRM:
+		return new tDeleter(move(parms), "Delet");
+	case ESpecialWorkType::workTRUNCATE:
+	case ESpecialWorkType::workTRUNCATECONFIRM:
+		return new tDeleter(move(parms), "Truncat");
+	case ESpecialWorkType::workSTYLESHEET:
+		return new tStyleCss(move(parms));
+#if 0
+	case workJStats:
+		return new jsonstats(parms);
+#endif
 	}
-	unique_ptr<tSpecialRequest> handler;
+	return nullptr;
+}
 
-	condition_variable m_notifier;
-	mutex m_mxNotifier;
+class BufferedPtItem : public BufferedPtItemBase
+{
+	unique_ptr<tSpecialRequestHandler> handler;
+
+public:
+
+	tSpecialRequestHandler* GetHandler() { return handler.get(); }
+
+	mutex m_memberMutex;
 
 	bufferevent* m_in_out[2];
 
-	// also protected by mutex
-	string m_header;
-
-	BackgroundThreadedItem(ESpecialWorkType jobType, mstring cmd, bufferevent *bev)
-		: fileitem("_internal_task")
+	BufferedPtItem(ESpecialWorkType jobType, mstring cmd, bufferevent *bev)
+		: BufferedPtItemBase("_internal_task")
 		// XXX: resolve the name to task type for the logs? Or replace the name with something useful later? Although, not needed, and also w/ format not fitting the purpose.
 	{
-		m_status = FiStatus::FIST_DLPENDING;
+		ASSERT_HAVE_MAIN_THREAD;
 
-		//zz_internalSubscribe([this]() { m_notifier.notify_all(); });
+		m_status = FiStatus::FIST_DLPENDING;
 
 		try
 		{
-			handler.reset(MakeMaintWorker({jobType, move(cmd), bev, this}));
+			handler.reset(MakeMaintWorker({jobType, move(cmd), bufferevent_getfd(bev), *this}));
 			if (handler)
 			{
 				m_status = FiStatus::FIST_DLASSIGNED;
@@ -178,44 +167,62 @@ public:
 		return m_status;
 	}
 
-	const string &GetRawResponseHeader() override
+	mstring m_extraHeaders;
+
+	BufferedPtItemBase& ConfigHeader(int statusCode, string_view statusMessage, string_view mimetype, string_view originOrRedirect, off_t contLen)
+	override
 	{
-		unique_lock<mutex> lg(m_mxNotifier);
-		// unlikely to loop here, but better be sure about data consistency
-		while (m_status < FiStatus::FIST_DLGOTHEAD)
-			m_notifier.wait(lg);
+		ASSERT(!statusMessage.empty());
+		ASSERT(m_status < FIST_COMPLETE);
+		auto q = [pin = as_lptr(this), statusCode, statusMessage, mimetype, originOrRedirect, contLen]()
+		{
+			pin->m_responseStatus = {statusCode, string(statusMessage)};
+			if (!mimetype.empty())
+				pin->m_contentType = mimetype;
+			pin->m_responseOrigin = originOrRedirect;
+			if (contLen >= 0)
+				pin->m_nContentLength = contLen;
+			if (pin->m_status < FIST_DLGOTHEAD)
+				pin->m_status = FIST_DLGOTHEAD;
+		};
+		if (evabase::IsMainThread())
+			q();
+		else
+			evabase::Post(q);
 
-		return m_header;
+		return *this;
 	}
+	BufferedPtItemBase& AddExtraHeaders(mstring appendix) override
+	{
+		ASSERT_HAVE_MAIN_THREAD;
 
+		m_extraHeaders = move(appendix);
+		return *this;
+	}
+	//std::unique_ptr<ICacheDataSender> GetCacheSender(off_t startPos) override;
 
+	// fileitem interface
+public:
 	std::unique_ptr<ICacheDataSender> GetCacheSender(off_t startPos) override;
+	const string &GetExtraResponseHeaders() override
+	{
+		return m_extraHeaders;
+	}
 };
 
-void tSpecialRequest::SendChunkRemoteOnly(const char *data, size_t len)
+void tSpecialRequestHandler::SendChunkRemoteOnly(string_view sv)
 {
-	if(!data || !len)
+	if(!sv.data() || sv.empty())
 		return;
-
-#warning SEND TO STREAM
+	evbuffer_add(PipeIn(), sv);
 }
 
-void tSpecialRequest::SendChunk(const char *data, size_t len)
+void tSpecialRequestHandler::SendChunkRemoteOnly(beview &data)
 {
-	SendChunkRemoteOnly(data, len);
-	SendChunkLocalOnly(data, len);
+	evbuffer_add_buffer(PipeIn(), data.be);
 }
 
-void tSpecialRequest::SetMimeResponseHeader(int statusCode, string_view statusMessage, string_view mimetype)
-{
-	lguard g(m_parms.owner->m_mxNotifier);
-	m_parms.owner->m_contentType = mimetype;
-	m_parms.owner->m_responseStatus.code = statusCode;
-	m_parms.owner->m_responseStatus.msg = statusMessage;
-	m_parms.owner->m_notifier.notify_all();
-}
-
-const string & tSpecialRequest::GetMyHostPort()
+const string & tSpecialRequestHandler::GetMyHostPort()
 {
 	if(!m_sHostPort.empty())
 		return m_sHostPort;
@@ -224,9 +231,12 @@ const string & tSpecialRequest::GetMyHostPort()
 	socklen_t slen = sizeof(ss);
 	char hbuf[NI_MAXHOST], pbuf[10];
 
-	if (0 == getsockname(m_parms.fd, (struct sockaddr*) &ss, &slen)
-			&& 0 == getnameinfo((struct sockaddr*) &ss, sizeof(ss), hbuf, sizeof(hbuf), pbuf,
-							sizeof(pbuf), NI_NUMERICHOST | NI_NUMERICSERV))
+	if (0 == getsockname(m_parms.fd,
+						 (struct sockaddr*) &ss, &slen) &&
+			0 == getnameinfo((struct sockaddr*) &ss, sizeof(ss),
+							 hbuf, sizeof(hbuf),
+							 pbuf, sizeof(pbuf),
+							 NI_NUMERICHOST | NI_NUMERICSERV))
 	{
 		auto p = hbuf;
 		bool bAddBrs(false);
@@ -248,42 +258,45 @@ const string & tSpecialRequest::GetMyHostPort()
 	return m_sHostPort;
 }
 
-LPCSTR tSpecialRequest::GetTaskName(ESpecialWorkType type)
+string_view GetTaskName(ESpecialWorkType type)
 {
 	switch(type)
 	{
-	case ESpecialWorkType::workTypeDetect: return "SpecialOperation";
-	case ESpecialWorkType::workExExpire: return "Expiration";
-	case ESpecialWorkType::workExList: return "Expired Files Listing";
-	case ESpecialWorkType::workExPurge: return "Expired Files Purging";
-	case ESpecialWorkType::workExListDamaged: return "Listing Damaged Files";
-	case ESpecialWorkType::workExPurgeDamaged: return "Truncating Damaged Files";
-	case ESpecialWorkType::workExTruncDamaged: return "Truncating damaged files to zero size";
+	case ESpecialWorkType::workTypeDetect: return "SpecialOperation"sv;
+	case ESpecialWorkType::workExExpire: return "Expiration"sv;
+	case ESpecialWorkType::workExList: return "Expired Files Listing"sv;
+	case ESpecialWorkType::workExPurge: return "Expired Files Purging"sv;
+	case ESpecialWorkType::workExListDamaged: return "Listing Damaged Files"sv;
+	case ESpecialWorkType::workExPurgeDamaged: return "Truncating Damaged Files"sv;
+	case ESpecialWorkType::workExTruncDamaged: return "Truncating damaged files to zero size"sv;
 	//case ESpecialWorkType::workRAWDUMP: /*fall-through*/
 	//case ESpecialWorkType::workBGTEST: return "42";
-	case ESpecialWorkType::workUSERINFO: return "General Configuration Information";
+	case ESpecialWorkType::workUSERINFO: return "General Configuration Information"sv;
 	case ESpecialWorkType::workTraceStart:
 	case ESpecialWorkType::workTraceEnd:
-	case ESpecialWorkType::workMAINTREPORT: return "Status Report and Maintenance Tasks Overview";
-	case ESpecialWorkType::workAUTHREQUEST: return "Authentication Required";
-	case ESpecialWorkType::workAUTHREJECT: return "Authentication Denied";
-	case ESpecialWorkType::workIMPORT: return "Data Import";
-	case ESpecialWorkType::workMIRROR: return "Archive Mirroring";
-	case ESpecialWorkType::workDELETE: return "Manual File Deletion";
-	case ESpecialWorkType::workDELETECONFIRM: return "Manual File Deletion (Confirmed)";
-	case ESpecialWorkType::workTRUNCATE: return "Manual File Truncation";
-	case ESpecialWorkType::workTRUNCATECONFIRM: return "Manual File Truncation (Confirmed)";
-	case ESpecialWorkType::workCOUNTSTATS: return "Status Report With Statistics";
-	case ESpecialWorkType::workSTYLESHEET: return "CSS";
+	case ESpecialWorkType::workMAINTREPORT: return "Status Report and Maintenance Tasks Overview"sv;
+	case ESpecialWorkType::workAUTHREQUEST: return "Authentication Required"sv;
+	case ESpecialWorkType::workAUTHREJECT: return "Authentication Denied"sv;
+	case ESpecialWorkType::workIMPORT: return "Data Import"sv;
+	case ESpecialWorkType::workMIRROR: return "Archive Mirroring"sv;
+	case ESpecialWorkType::workDELETE: return "Manual File Deletion"sv;
+	case ESpecialWorkType::workDELETECONFIRM: return "Manual File Deletion (Confirmed)"sv;
+	case ESpecialWorkType::workTRUNCATE: return "Manual File Truncation"sv;
+	case ESpecialWorkType::workTRUNCATECONFIRM: return "Manual File Truncation (Confirmed)"sv;
+	case ESpecialWorkType::workCOUNTSTATS: return "Status Report With Statistics"sv;
+	case ESpecialWorkType::workSTYLESHEET: return "CSS"sv;
 	// case ESpecialWorkType::workJStats: return "Stats";
 	}
-	return "UnknownTask";
+	return "UnknownTask"sv;
 }
 
-ESpecialWorkType GuessWorkType(cmstring& cmd, const char* auth)
+ESpecialWorkType DetectWorkType(cmstring& cmd, cmstring& sHost, const char* auth)
 {
 	LOGSTARTs("DispatchMaintWork");
 	LOG("cmd: " << cmd);
+
+	if (sHost == "style.css")
+		return ESpecialWorkType::workSTYLESHEET;
 
 #if 0 // defined(DEBUG)
 	if(cmd.find("tickTack")!=stmiss)
@@ -357,23 +370,52 @@ ESpecialWorkType GuessWorkType(cmstring& cmd, const char* auth)
 	return ESpecialWorkType::workMAINTREPORT;
 }
 
-fileitem* tSpecialRequest::Create(ESpecialWorkType wType, const tHttpUrl& url, cmstring& refinedPath, const header& reqHead)
+tFileItemPtr Create(ESpecialWorkType jobType, bufferevent *bev, const tHttpUrl& url, cmstring& refinedPath, const header& reqHead)
 {
 	ESpecialWorkType xt;
 
-	if (wType == ESpecialWorkType::workTypeDetect)
+	try
 	{
-		xt = url.sHost == "style.css" ?
-					ESpecialWorkType::workSTYLESHEET :
-					GuessWorkType(refinedPath, reqHead.h[header::AUTHORIZATION]);
+		if (jobType == ESpecialWorkType::workTypeDetect)
+			return tFileItemPtr(); // not for us?
+
+		auto item = new BufferedPtItem(jobType, refinedPath, bev);
+		auto ret = as_lptr<fileitem>(item);
+		if (! item->GetHandler())
+			return tFileItemPtr();
+
+		auto runner = [item, ret] ()
+		{
+			try
+			{
+				item->GetHandler()->Run();
+				evabase::Post([item, ret]()
+				{
+					item->Finish();
+				});
+			}
+			catch (...)
+			{
+
+			}
+		};
+		if (han->IsNonBlocking())
+		{
+			runner();
+		}
+		else
+		{
+			if(!tpool->runBackgrounded(runner))
+			{
+				delete ret;
+				return nullptr;
+			}
+		}
+	}  catch (...) {
+		return nullptr;
+
 	}
-
-	if (wType == ESpecialWorkType::workTypeDetect)
-		return nullptr; // not for us?
-
-	auto handler = MakeMaintWorker();
 }
-
 
 
 }

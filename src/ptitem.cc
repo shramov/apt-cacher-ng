@@ -5,6 +5,8 @@
 
 using namespace std;
 
+#define PT_BUFFER_LIMIT (64*1024)
+
 namespace acng
 {
 
@@ -41,7 +43,17 @@ ssize_t tPassThroughFitem::DlAddData(evbuffer *chunk, size_t maxTake)
     {
         LOGSTARTFUNCx(maxTake, m_status);
 
-        // something might care, most likely... also about BOUNCE action
+		{
+			auto in_buffer = evbuffer_get_length(m_q);
+			off_t nAddLimit = PT_BUFFER_LIMIT - in_buffer;
+			if (off_t(maxTake) > nAddLimit)
+				maxTake = nAddLimit;
+		}
+
+		if (!maxTake)
+			return 0;
+
+		// something might care, most likely... also about BOUNCE action
 		NotifyObservers();
 
 		if (m_status > fileitem::FIST_COMPLETE)
@@ -52,11 +64,12 @@ ssize_t tPassThroughFitem::DlAddData(evbuffer *chunk, size_t maxTake)
             m_status = FIST_DLRECEIVING;
             m_nSizeChecked = 0;
         }
-		auto ret = eb_move_atmost(m_q, chunk, maxTake);
+
+		auto ret = evbuffer_remove_buffer(chunk, m_q, maxTake);
 		if (ret < 0)
 			return ret;
-		m_nIncommingCount += maxTake;
-        m_nSizeChecked += maxTake;
+		m_nIncommingCount += ret;
+		m_nSizeChecked += ret;
 		return ret;
     }
     catch (...)
@@ -89,29 +102,25 @@ bool tPassThroughFitem::DlStarted(evbuffer *rawData, size_t headerLen, const tHt
 	return true;
 }
 
-class tPassThroughFitem::TSender
+class tPassThroughFitem::TSender : public fileitem::ICacheDataSender
 {
-#error forward a lintptr of notifier to here
+	lint_ptr<tPassThroughFitem> parent;
+	TSender(tPassThroughFitem* p) : parent(p) {}
 public:
-ssize_t SendData(bufferevent *target, evbuffer *, size_t maxTake)
-{
-#if 0
-	LOGSTARTFUNC;
-	notifyAll();
-	if (m_status > FIST_COMPLETE || evabase::in_shutdown)
-		return -1;
-	return eb_move_atmost(bufferevent_get_input(target), m_q, maxTake);
-#endif
-	return -1;
-#warning implementme
-}
+	ssize_t SendData(bufferevent* target, size_t maxTake) override
+	{
+		// push the data source when needed
+		if (evbuffer_get_length(parent->m_q) >= PT_BUFFER_LIMIT)
+			parent->NotifyObservers();
 
+		auto tocopy = std::min(evbuffer_get_length(parent->m_q), maxTake);
+		return evbuffer_remove_buffer(parent->m_q, bufferevent_get_input(target), tocopy);
+	}
 };
 
 std::unique_ptr<fileitem::ICacheDataSender> tPassThroughFitem::GetCacheSender(off_t)
 {
-#warning fixme
-	return std::unique_ptr<fileitem::ICacheDataSender>();
+	return std::make_unique<TSender>(this);
 }
 
 }

@@ -31,7 +31,7 @@ void fileitem::NotifyObservers()
 	if (!m_notifier->hasObservers())
 		m_notifier.reset();
 	else
-		m_notifier->notify(true);
+		m_notifier->notify();
 }
 
 aobservable::subscription fileitem::Subscribe(const tAction &pokeAction)

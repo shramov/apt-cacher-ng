@@ -219,6 +219,7 @@ public:
 	void MarkFaulty(bool deleteItCompletely = false);
 	/// optional method, returns raw header if needed in special implementations
 	virtual const std::string& GetRawResponseHeader() { return sEmptyString; }
+	virtual const std::string& GetExtraResponseHeaders() { return sEmptyString; }
 
 	virtual void DlRefCountAdd();
 	virtual void DlRefCountDec(const tRemoteStatus& reason);

@@ -205,7 +205,8 @@ struct beview
 	beview & operator<<(fmtflags mode) { m_fmtmode = mode; return *this;}
 	beview & operator<<(tSS::fmtflags mode) { m_fmtmode = (fmtflags) mode; return *this;} // XXX: cleanup code and drop this
 	beview & operator<<(long val) { evbuffer_add_printf(be, m_fmtmode == dec ? "%ld" : "%lx", val); return *this; }
-	beview & clear() { evbuffer_drain(be, evbuffer_get_length(be)); return *this; }
+	beview & clear() { evbuffer_drain(be, size()); return *this; }
+	size_t size() { return evbuffer_get_length(be); }
 };
 
 struct bSS : public beview

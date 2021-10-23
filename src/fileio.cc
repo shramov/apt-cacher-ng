@@ -192,15 +192,19 @@ ssize_t eb_dump_atmost(evbuffer *m_q, int out_fd, size_t nMax2SendNow)
 	return r;
 }
 
+#if 0
 ssize_t eb_move_atmost(evbuffer *dest, evbuffer *src, ssize_t maxLen)
 {
 	if (maxLen == 0)
 		return 0;
 	auto lenSrc = evbuffer_get_length(src);
-	if (maxLen < 0)
+	if (maxLen < 0 || size_t(maxLen) > lenSrc)
 		return evbuffer_add_buffer(dest, src) ? -1 : lenSrc;
 
+	// okay, take only a portion
+
 	auto ret = std::min(lenSrc, size_t(maxLen));
+	// evbuffer_remove_buffer returns only int values while the buffer may have 5GB inside
 	if (sizeof(int) == sizeof(ssize_t))
 		return evbuffer_remove_buffer(src, dest, ret);
 
@@ -255,6 +259,6 @@ ssize_t eb_move_atmost(evbuffer *dest, evbuffer *src, ssize_t maxLen)
 	return ret;
 #endif
 }
-
+#endif
 
 }
