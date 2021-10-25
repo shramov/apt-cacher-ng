@@ -28,25 +28,18 @@ namespace acng
  * @param type
  * @return Human readable name, guaranteed to be zero-terminated
  */
-string_view GetTaskName(ESpecialWorkType type);
+string_view GetTaskName(EWorkType type);
 
 class BufferedPtItemBase : public fileitem
 {
 public:
 	using fileitem::fileitem;
 
-	struct bufferevent *m_pipeInOut[2];
+	struct bufferevent *m_pipeInOut[2];	
+	struct evbuffer* PipeTx() { return bufferevent_get_output(m_pipeInOut[0]); }
+	struct evbuffer* PipeRx() { return bufferevent_get_input(m_pipeInOut[1]); }
 
-	/**
-	 * @brief SetHeader works similar to DlStarted but with more predefined (for local generation) parameters
-	 * @param statusCode
-	 * @param statusMessage
-	 * @param mimetype
-	 * @param originOrRedirect
-	 * @param contLen
-	 */
-	virtual BufferedPtItemBase& ConfigHeader(int statusCode, string_view statusMessage, string_view mimetype = "", string_view originOrRedirect = "", off_t contLen = -1) =0;
-	virtual BufferedPtItemBase& AddExtraHeaders(mstring appendix) =0;
+	virtual void AddExtraHeaders(mstring appendix) =0;
 };
 
 class ACNG_API tSpecialRequestHandler
@@ -57,11 +50,12 @@ public:
 	// common data to be passed through constructors and kept in the base object
 	struct tRunParms
 	{
-		ESpecialWorkType type;
+		EWorkType type;
 		mstring cmd;
 		int fd;
 		// reference to the carrier item
 		BufferedPtItemBase& output;
+		SomeData *arg;
 		lint_ptr<fileitem> pin();
 	};
 
@@ -78,18 +72,17 @@ public:
 
 protected:
 
-	evbuffer* PipeIn() { return bufferevent_get_input(m_parms.output.m_pipeInOut[0]); }
-	evbuffer* PipeOut() { return bufferevent_get_output(m_parms.output.m_pipeInOut[1]); }
+	evbuffer* PipeTx() { return m_parms.output.PipeTx(); }
 
 	// for customization in base classes
 	virtual void SendChunkLocalOnly(const char* /*data*/, size_t /*size*/) {};
-	virtual void SendChunkLocalOnly(beview&) {};
+	virtual void SendChunkLocalOnly(ebstream&) {};
 
 	void SendChunkRemoteOnly(const char *data, size_t size)
 	{
 		return SendChunkRemoteOnly(string_view(data, size));
 	}
-	void SendChunkRemoteOnly(beview& data);
+	inline void SendChunkRemoteOnly(ebstream& data) { return SendChunkRemoteOnly(data.be);}
 	void SendChunkRemoteOnly(evbuffer *data);
 	void SendChunkRemoteOnly(string_view sv);
 
@@ -100,7 +93,7 @@ protected:
 	}
 	void SendChunk(string_view x) { SendChunk(x.data(), x.size()); }
 	// this will eventually move data from there to output
-	void SendChunk(beview& x)
+	void SendChunk(ebstream& x)
 	{
 		SendChunkLocalOnly(x);
 		SendChunkRemoteOnly(x);
@@ -126,17 +119,15 @@ public:
 		: m_parent(*p), m_bRemoteOnly(remoteOnly) { }
 		inline ~tFmtSendObj()
 		{
-			if (0 == evbuffer_get_length(m_parent.m_fmtHelper.be))
-				return;
 			if(m_bRemoteOnly)
-				m_parent.SendChunkRemoteOnly(m_parent.m_fmtHelper.be);
+				m_parent.SendChunkRemoteOnly(m_parent.m_fmtHelper);
 			else
 				m_parent.SendChunk(m_parent.m_fmtHelper);
 			m_parent.m_fmtHelper.clear();
 		}
 		tSpecialRequestHandler &m_parent;
 	private:
-		tFmtSendObj operator=(const tSpecialRequestHandler::tFmtSendObj&);
+		tFmtSendObj operator=(const tSpecialRequestHandler::tFmtSendObj&) = delete;
 		bool m_bRemoteOnly;
 	};
 

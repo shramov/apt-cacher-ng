@@ -7,38 +7,36 @@
 
 namespace acng
 {
-class IConnBase;
 
-enum class ESpecialWorkType : int8_t
+enum class EWorkType : int8_t
 {
-	workTypeDetect,
-
+	UNKNOWN = -1,
+	REGULAR = 0,
 	// expiration types
-	workExExpire,
-	workExList,
-	workExPurge,
-	workExListDamaged,
-	workExPurgeDamaged,
-	workExTruncDamaged,
-	//workBGTEST,
-	workUSERINFO,
-	workMAINTREPORT,
-	workAUTHREQUEST,
-	workAUTHREJECT,
-	workIMPORT,
-	workMIRROR,
-	workDELETE,
-	workDELETECONFIRM,
-	workCOUNTSTATS,
-	workSTYLESHEET,
-	workTraceStart,
-	workTraceEnd,
-//		workJStats, // disabled, probably useless
-	workTRUNCATE,
-	workTRUNCATECONFIRM
+	EXPIRE,
+	EXP_LIST,
+	EXP_PURGE,
+	EXP_LIST_DAMAGED,
+	EXP_PURGE_DAMAGED,
+	EXP_TRUNC_DAMAGED,
+	USER_INFO,
+	REPORT,
+	AUT_REQ,
+	AUTH_DENY,
+	IMPORT,
+	MIRROR,
+	DELETE,
+	DELETE_CONFIRM,
+	COUNT_STATS,
+	STYLESHEET,
+	TRACE_START,
+	TRACE_END,
+	TRUNCATE,
+	TRUNCATE_CONFIRM
+	//,workBGTEST,
 };
 
-ESpecialWorkType DetectWorkType(cmstring& cmd, cmstring& sHost, const char* auth);
+EWorkType DetectWorkType(const tHttpUrl& reqUrl, const char* auth);
 /**
  * @brief Create a new "hot" fileitem (might have a thread attached already).
  * @param wType
@@ -48,7 +46,7 @@ ESpecialWorkType DetectWorkType(cmstring& cmd, cmstring& sHost, const char* auth
  * @return New fileitem object pointer, nullptr if the request is not supposed to be served by us
  */
 
-tFileItemPtr Create(ESpecialWorkType jobType, bufferevent *bev, const tHttpUrl& url, cmstring& refinedPath, const header& reqHead);
+tFileItemPtr Create(EWorkType jobType, bufferevent *bev, const tHttpUrl& url, const header& reqHead, SomeData *arg=nullptr);
 
 }
 

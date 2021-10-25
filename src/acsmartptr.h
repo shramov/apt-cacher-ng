@@ -221,6 +221,17 @@ public:
 		m_ptr->__inc_ref();
 		m_ptr->__inc_user_ref();
 	}
+	inline void reset(const lint_ptr<T> &ptr) noexcept
+	{
+		if(ptr.get() == m_ptr) // heh?
+			return;
+		reset();
+		if(!ptr.get())
+			return;
+		m_ptr = ptr.get();
+		m_ptr->__inc_ref();
+		m_ptr->__inc_user_ref();
+	}
 	inline void reset() noexcept
 	{
 		if(m_ptr)

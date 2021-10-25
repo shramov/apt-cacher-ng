@@ -230,11 +230,15 @@ int header::Load(string_view input, std::vector<std::pair<string_view,string_vie
  */
 int header::Load(evbuffer *buf, std::vector<std::pair<string_view, string_view> > *unkHeaderMap)
 {
-#warning lock the evbuffer needed? probably not, since no peek involved
+#warning UTs for this with various nonsense
+	auto ilen = evbuffer_get_length(buf);
+	if (ilen < 9) // Not even HTTP/1.1
+		return 0;
+
 	// cut somewhere at 32..64kB
-	auto limit = std::min(evbuffer_get_length(buf), MAX_IN_BUF);
+	auto limit = std::min(ilen, MAX_IN_BUF);
 	unsigned clen = std::min(limit, TYPICAL_HEADER_SIZE);
-	for(; clen < limit; clen *= 2)
+	for(; clen <= limit; clen *= 2)
 	{
 		auto mem = (char*) evbuffer_pullup(buf, clen);
 		auto rc = Load(string_view(mem, clen), unkHeaderMap);

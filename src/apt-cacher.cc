@@ -10,10 +10,11 @@
 #include "acstartstop.h"
 #include "filereader.h"
 #include "csmapping.h"
+#include "tpool.h"
+
 #ifdef DEBUG
 #include <regex.h>
 #endif
-#include "evabase.h"
 
 #include <iostream>
 
@@ -260,10 +261,14 @@ void daemon_init()
 
 	SetupCacheDir();
 
+	g_tpool = tpool::Create(300, 30);
+
 	//DelTree(cfg::cacheDirSlash + sReplDir);
 	SetupServerItemRegistry();
 
-	if (conserver::Setup() <= 0)
+	auto nSockets = conserver::Setup();
+
+	if (nSockets <= 0)
 	{
 		cerr
 				<< "No listening socket(s) could be created/prepared. "
@@ -317,5 +322,6 @@ int main(int argc, const char **argv)
 	g.atexit([](){ ac3rdparty_deinit(); });
 	daemon_init();
 	g.atexit([](){ daemon_deinit(); });
+
 	return dabase.MainLoop();
 }

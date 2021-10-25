@@ -11,7 +11,10 @@ extern "C"
 struct bufferevent;
 void evbuffer_lock(evbuffer*);
 void evbuffer_unlock(evbuffer*);
+// this is to REMOVE data
 struct evbuffer *bufferevent_get_input(struct bufferevent *bufev);
+// this is to ADD data
+struct evbuffer *bufferevent_get_output(struct bufferevent *bufev);
 void bufferevent_free(struct bufferevent*);
 }
 
@@ -26,12 +29,6 @@ namespace acng
  */
 ssize_t eb_dump_atmost(evbuffer* inbuf, int out_fd, size_t nMax2SendNow);
 
-/**
- * Move some data from begin of src to end of dest, but restrict the maximum length to maxLen.
- * @return -1 Fatal error occurred, state of src and dest are undefined
- */
-ssize_t eb_move_atmost(evbuffer *dest, evbuffer *src, ssize_t maxLen);
-
 struct TEbUniqueLock : public auto_raii<evbuffer*, evbuffer_unlock, nullptr>
 {
         TEbUniqueLock(evbuffer* eb)
@@ -41,7 +38,8 @@ struct TEbUniqueLock : public auto_raii<evbuffer*, evbuffer_unlock, nullptr>
         }
 };
 
-inline evbuffer* input(bufferevent* be) { return bufferevent_get_input(be); }
+inline evbuffer* besender(bufferevent* be) { return bufferevent_get_output(be); }
+inline evbuffer* bereceiver(bufferevent* be) { return bufferevent_get_input(be); }
 inline void evbuffer_add(evbuffer *dest, string_view sv) { if (evbuffer_add(dest, sv.data(), sv.length())) throw std::bad_alloc();}
 
 using unique_event = auto_raii<event*, event_free, nullptr>;
@@ -90,6 +88,9 @@ struct beconsum
 				len = limit;
             return string_view((const char*) evbuffer_pullup(m_eb, len), len);
     }
+	// make the whole thing contiguous
+	const string_view linear() { auto n = size(); return string_view(
+					(const char*) evbuffer_pullup(m_eb, n)); }
 };
 
 }

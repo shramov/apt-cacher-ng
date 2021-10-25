@@ -12,7 +12,7 @@
 #include "acregistry.h"
 #include "sockio.h"
 #include "bgtask.h"
-#include "ac3rdparty.h"
+#include "acstartstop.h"
 #include "filereader.h"
 #include "csmapping.h"
 #include "ebrunner.h"

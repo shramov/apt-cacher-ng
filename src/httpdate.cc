@@ -67,6 +67,9 @@ tHttpDate::tHttpDate(time_t val) : tHttpDate()
 	if (val >= 0)
 		length = FormatTime(buf, sizeof(buf), val);
 }
+
+
+
 /*
 acng::tHttpDate::operator mstring() const
 {

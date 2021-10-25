@@ -14,6 +14,7 @@
 #include "portutils.h"
 #include "debug.h"
 #include "ptitem.h"
+#include "tpool.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -50,7 +51,7 @@ public:
 		string_view msg = "Not Authorized. Please contact Apt-Cacher NG administrator for further questions.\n\n"
 				   "For Admin: Check the AdminAuth option in one of the *.conf files in Apt-Cacher NG "
 				   "configuration directory, probably " CFGDIR;
-		m_parms.output.ConfigHeader(401, "Not Authorized"sv, "text/plain"sv, "", msg.size());
+		m_parms.output.ManualStart(401, "Not Authorized"sv, "text/plain"sv, "", msg.size());
 		m_parms.output.AddExtraHeaders("WWW-Authenticate: Basic realm=\"For login data, see AdminAuth in Apt-Cacher NG config files\"\r\n");
 		SendChunkRemoteOnly(msg);
 	}
@@ -65,49 +66,50 @@ public:
 	{
 		string_view msg = "Not Authorized. To start this action, an administrator password must be set and "
 						  "you must be logged in.";
-		m_parms.output.ConfigHeader(403, "Access Forbidden", "text/plain"sv, ""sv, msg.size());
+		m_parms.output.ManualStart(403, "Access Forbidden", "text/plain"sv, ""sv, msg.size());
 		SendChunkRemoteOnly(msg);
 	}
 };
 
 static tSpecialRequestHandler* MakeMaintWorker(tSpecialRequestHandler::tRunParms&& parms)
 {
-	if (cfg::DegradedMode() && parms.type != ESpecialWorkType::workSTYLESHEET)
-		parms.type = ESpecialWorkType::workUSERINFO;
+	if (cfg::DegradedMode() && parms.type != EWorkType::STYLESHEET)
+		parms.type = EWorkType::USER_INFO;
 
 	switch (parms.type)
 	{
-	case ESpecialWorkType::workTypeDetect:
+	case EWorkType::UNKNOWN:
+	case EWorkType::REGULAR:
 		return nullptr;
-	case ESpecialWorkType::workExExpire:
-	case ESpecialWorkType::workExList:
-	case ESpecialWorkType::workExPurge:
-	case ESpecialWorkType::workExListDamaged:
-	case ESpecialWorkType::workExPurgeDamaged:
-	case ESpecialWorkType::workExTruncDamaged:
+	case EWorkType::EXPIRE:
+	case EWorkType::EXP_LIST:
+	case EWorkType::EXP_PURGE:
+	case EWorkType::EXP_LIST_DAMAGED:
+	case EWorkType::EXP_PURGE_DAMAGED:
+	case EWorkType::EXP_TRUNC_DAMAGED:
 		return new expiration(move(parms));
-	case ESpecialWorkType::workUSERINFO:
+	case EWorkType::USER_INFO:
 		return new tShowInfo(move(parms));
-	case ESpecialWorkType::workMAINTREPORT:
-	case ESpecialWorkType::workCOUNTSTATS:
-	case ESpecialWorkType::workTraceStart:
-	case ESpecialWorkType::workTraceEnd:
+	case EWorkType::REPORT:
+	case EWorkType::COUNT_STATS:
+	case EWorkType::TRACE_START:
+	case EWorkType::TRACE_END:
 		return new tMaintPage(move(parms));
-	case ESpecialWorkType::workAUTHREQUEST:
+	case EWorkType::AUT_REQ:
 		return new tAuthRequest(move(parms));
-	case ESpecialWorkType::workAUTHREJECT:
+	case EWorkType::AUTH_DENY:
 		return new authbounce(move(parms));
-	case ESpecialWorkType::workIMPORT:
+	case EWorkType::IMPORT:
 		return new pkgimport(move(parms));
-	case ESpecialWorkType::workMIRROR:
+	case EWorkType::MIRROR:
 		return new pkgmirror(move(parms));
-	case ESpecialWorkType::workDELETE:
-	case ESpecialWorkType::workDELETECONFIRM:
+	case EWorkType::DELETE:
+	case EWorkType::DELETE_CONFIRM:
 		return new tDeleter(move(parms), "Delet");
-	case ESpecialWorkType::workTRUNCATE:
-	case ESpecialWorkType::workTRUNCATECONFIRM:
+	case EWorkType::TRUNCATE:
+	case EWorkType::TRUNCATE_CONFIRM:
 		return new tDeleter(move(parms), "Truncat");
-	case ESpecialWorkType::workSTYLESHEET:
+	case EWorkType::STYLESHEET:
 		return new tStyleCss(move(parms));
 #if 0
 	case workJStats:
@@ -117,6 +119,8 @@ static tSpecialRequestHandler* MakeMaintWorker(tSpecialRequestHandler::tRunParms
 	return nullptr;
 }
 
+void cb_notify_new_pipe_data(struct bufferevent *bev, void *ctx);
+
 class BufferedPtItem : public BufferedPtItemBase
 {
 	unique_ptr<tSpecialRequestHandler> handler;
@@ -125,11 +129,23 @@ public:
 
 	tSpecialRequestHandler* GetHandler() { return handler.get(); }
 
-	mutex m_memberMutex;
+	// where the cursor is, matches the begin of the current buffer
+	off_t m_nSendPos = 0;
 
-	bufferevent* m_in_out[2];
+	void GotNewData()
+	{
+		auto len = evbuffer_get_length(PipeRx());
+		m_nSizeChecked = m_nSendPos + len;
+		NotifyObservers();
+	}
+	~BufferedPtItem()
+	{
+		ASSERT_HAVE_MAIN_THREAD;
+		if (m_pipeInOut[0]) bufferevent_free(m_pipeInOut[0]);
+		if (m_pipeInOut[1]) bufferevent_free(m_pipeInOut[1]);
+	}
 
-	BufferedPtItem(ESpecialWorkType jobType, mstring cmd, bufferevent *bev)
+	BufferedPtItem(EWorkType jobType, mstring cmd, bufferevent *bev, SomeData *arg)
 		: BufferedPtItemBase("_internal_task")
 		// XXX: resolve the name to task type for the logs? Or replace the name with something useful later? Although, not needed, and also w/ format not fitting the purpose.
 	{
@@ -139,9 +155,20 @@ public:
 
 		try
 		{
-			handler.reset(MakeMaintWorker({jobType, move(cmd), bufferevent_getfd(bev), *this}));
+			handler.reset(MakeMaintWorker({jobType, move(cmd), bufferevent_getfd(bev), *this, arg}));
 			if (handler)
 			{
+				auto flags =  (!handler->IsNonBlocking() * BEV_OPT_THREADSAFE)
+							  | BEV_OPT_DEFER_CALLBACKS | BEV_OPT_UNLOCK_CALLBACKS;
+				if (AC_UNLIKELY(bufferevent_pair_new(evabase::base, flags, m_pipeInOut)))
+				{
+					throw std::bad_alloc();
+				}
+				// trigger of passed data notification
+				bufferevent_setcb(m_pipeInOut[1], cb_notify_new_pipe_data, nullptr, nullptr, this);
+				bufferevent_enable(m_pipeInOut[1], EV_READ);
+				bufferevent_enable(m_pipeInOut[0], EV_WRITE);
+
 				m_status = FiStatus::FIST_DLASSIGNED;
 				m_responseStatus = { 200, "OK" };
 			}
@@ -169,35 +196,24 @@ public:
 
 	mstring m_extraHeaders;
 
-	BufferedPtItemBase& ConfigHeader(int statusCode, string_view statusMessage, string_view mimetype, string_view originOrRedirect, off_t contLen)
-	override
+	void AddExtraHeaders(mstring appendix) override
 	{
-		ASSERT(!statusMessage.empty());
-		ASSERT(m_status < FIST_COMPLETE);
-		auto q = [pin = as_lptr(this), statusCode, statusMessage, mimetype, originOrRedirect, contLen]()
-		{
-			pin->m_responseStatus = {statusCode, string(statusMessage)};
-			if (!mimetype.empty())
-				pin->m_contentType = mimetype;
-			pin->m_responseOrigin = originOrRedirect;
-			if (contLen >= 0)
-				pin->m_nContentLength = contLen;
-			if (pin->m_status < FIST_DLGOTHEAD)
-				pin->m_status = FIST_DLGOTHEAD;
-		};
-		if (evabase::IsMainThread())
-			q();
-		else
-			evabase::Post(q);
-
-		return *this;
+		if (! evabase::IsMainThread())
+			return evabase::Post([this, appendix ]() {m_extraHeaders = move(appendix); });
+		m_extraHeaders = move(appendix);
 	}
-	BufferedPtItemBase& AddExtraHeaders(mstring appendix) override
+	void Finish()
 	{
 		ASSERT_HAVE_MAIN_THREAD;
-
-		m_extraHeaders = move(appendix);
-		return *this;
+		if (m_status < FiStatus::FIST_COMPLETE)
+			m_status = FiStatus::FIST_COMPLETE;
+		if (m_nSizeChecked < 0)
+			m_nSizeChecked = 0;
+		if (m_responseStatus.code < 200)
+			m_responseStatus.code = 200;
+		if (m_responseStatus.msg.empty())
+			m_responseStatus.msg = "ACNG internal error"sv;
+		NotifyObservers();
 	}
 	//std::unique_ptr<ICacheDataSender> GetCacheSender(off_t startPos) override;
 
@@ -206,20 +222,24 @@ public:
 	std::unique_ptr<ICacheDataSender> GetCacheSender(off_t startPos) override;
 	const string &GetExtraResponseHeaders() override
 	{
+		ASSERT_HAVE_MAIN_THREAD;
 		return m_extraHeaders;
 	}
 };
 
 void tSpecialRequestHandler::SendChunkRemoteOnly(string_view sv)
 {
+	// push everything into the pipe, the output will make notifications as needed
+
 	if(!sv.data() || sv.empty())
 		return;
-	evbuffer_add(PipeIn(), sv);
+	evbuffer_add(PipeTx(), sv);
 }
 
-void tSpecialRequestHandler::SendChunkRemoteOnly(beview &data)
+void tSpecialRequestHandler::SendChunkRemoteOnly(evbuffer* data)
 {
-	evbuffer_add_buffer(PipeIn(), data.be);
+	// push everything into the pipe, the output will make notifications as needed
+	evbuffer_add_buffer(PipeTx(), data);
 }
 
 const string & tSpecialRequestHandler::GetMyHostPort()
@@ -258,45 +278,48 @@ const string & tSpecialRequestHandler::GetMyHostPort()
 	return m_sHostPort;
 }
 
-string_view GetTaskName(ESpecialWorkType type)
+string_view GetTaskName(EWorkType type)
 {
 	switch(type)
 	{
-	case ESpecialWorkType::workTypeDetect: return "SpecialOperation"sv;
-	case ESpecialWorkType::workExExpire: return "Expiration"sv;
-	case ESpecialWorkType::workExList: return "Expired Files Listing"sv;
-	case ESpecialWorkType::workExPurge: return "Expired Files Purging"sv;
-	case ESpecialWorkType::workExListDamaged: return "Listing Damaged Files"sv;
-	case ESpecialWorkType::workExPurgeDamaged: return "Truncating Damaged Files"sv;
-	case ESpecialWorkType::workExTruncDamaged: return "Truncating damaged files to zero size"sv;
+	case EWorkType::UNKNOWN: return "SpecialOperation"sv;
+	case EWorkType::REGULAR: return se;
+	case EWorkType::EXPIRE: return "Expiration"sv;
+	case EWorkType::EXP_LIST: return "Expired Files Listing"sv;
+	case EWorkType::EXP_PURGE: return "Expired Files Purging"sv;
+	case EWorkType::EXP_LIST_DAMAGED: return "Listing Damaged Files"sv;
+	case EWorkType::EXP_PURGE_DAMAGED: return "Truncating Damaged Files"sv;
+	case EWorkType::EXP_TRUNC_DAMAGED: return "Truncating damaged files to zero size"sv;
 	//case ESpecialWorkType::workRAWDUMP: /*fall-through*/
 	//case ESpecialWorkType::workBGTEST: return "42";
-	case ESpecialWorkType::workUSERINFO: return "General Configuration Information"sv;
-	case ESpecialWorkType::workTraceStart:
-	case ESpecialWorkType::workTraceEnd:
-	case ESpecialWorkType::workMAINTREPORT: return "Status Report and Maintenance Tasks Overview"sv;
-	case ESpecialWorkType::workAUTHREQUEST: return "Authentication Required"sv;
-	case ESpecialWorkType::workAUTHREJECT: return "Authentication Denied"sv;
-	case ESpecialWorkType::workIMPORT: return "Data Import"sv;
-	case ESpecialWorkType::workMIRROR: return "Archive Mirroring"sv;
-	case ESpecialWorkType::workDELETE: return "Manual File Deletion"sv;
-	case ESpecialWorkType::workDELETECONFIRM: return "Manual File Deletion (Confirmed)"sv;
-	case ESpecialWorkType::workTRUNCATE: return "Manual File Truncation"sv;
-	case ESpecialWorkType::workTRUNCATECONFIRM: return "Manual File Truncation (Confirmed)"sv;
-	case ESpecialWorkType::workCOUNTSTATS: return "Status Report With Statistics"sv;
-	case ESpecialWorkType::workSTYLESHEET: return "CSS"sv;
+	case EWorkType::USER_INFO: return "General Configuration Information"sv;
+	case EWorkType::TRACE_START:
+	case EWorkType::TRACE_END:
+	case EWorkType::REPORT: return "Status Report and Maintenance Tasks Overview"sv;
+	case EWorkType::AUT_REQ: return "Authentication Required"sv;
+	case EWorkType::AUTH_DENY: return "Authentication Denied"sv;
+	case EWorkType::IMPORT: return "Data Import"sv;
+	case EWorkType::MIRROR: return "Archive Mirroring"sv;
+	case EWorkType::DELETE: return "Manual File Deletion"sv;
+	case EWorkType::DELETE_CONFIRM: return "Manual File Deletion (Confirmed)"sv;
+	case EWorkType::TRUNCATE: return "Manual File Truncation"sv;
+	case EWorkType::TRUNCATE_CONFIRM: return "Manual File Truncation (Confirmed)"sv;
+	case EWorkType::COUNT_STATS: return "Status Report With Statistics"sv;
+	case EWorkType::STYLESHEET: return "CSS"sv;
 	// case ESpecialWorkType::workJStats: return "Stats";
 	}
 	return "UnknownTask"sv;
 }
 
-ESpecialWorkType DetectWorkType(cmstring& cmd, cmstring& sHost, const char* auth)
+EWorkType DetectWorkType(const tHttpUrl& reqUrl, const char* auth)
 {
 	LOGSTARTs("DispatchMaintWork");
+
+	const auto& cmd = reqUrl.sPath;
 	LOG("cmd: " << cmd);
 
-	if (sHost == "style.css")
-		return ESpecialWorkType::workSTYLESHEET;
+	if (reqUrl.sHost == "style.css")
+		return EWorkType::STYLESHEET;
 
 #if 0 // defined(DEBUG)
 	if(cmd.find("tickTack")!=stmiss)
@@ -314,15 +337,15 @@ ESpecialWorkType DetectWorkType(cmstring& cmd, cmstring& sHost, const char* auth
 
 	// this can also hide in the URL!
 	if(wlen==cssString.length() && 0 == (cmd.compare(spos, wlen, cssString)))
-		return ESpecialWorkType::workSTYLESHEET;
+		return EWorkType::STYLESHEET;
 
 	// not starting like the maint page?
 	if(cmd.compare(spos, wlen, cfg::reportpage))
-		return ESpecialWorkType::workTypeDetect;
+		return EWorkType::UNKNOWN;
 
 	// ok, filename identical, also the end, or having a parameter string?
 	if(epos == cmd.length())
-		return ESpecialWorkType::workMAINTREPORT;
+		return EWorkType::REPORT;
 
 	// not smaller, was already compared, can be only longer, means having parameters,
 	// means needs authorization
@@ -337,27 +360,27 @@ ESpecialWorkType DetectWorkType(cmstring& cmd, cmstring& sHost, const char* auth
         // most data modifying tasks cannot be run safely without checksumming support 
 		return ESpecialWorkType::workAUTHREJECT;
 #endif
-	 case 1: return ESpecialWorkType::workAUTHREQUEST;
-	 default: return ESpecialWorkType::workAUTHREJECT;
+	 case 1: return EWorkType::AUT_REQ;
+	 default: return EWorkType::AUTH_DENY;
 	}
 
-	struct { LPCSTR trigger; ESpecialWorkType type; } matches [] =
+	struct { LPCSTR trigger; EWorkType type; } matches [] =
 	{
-			{"doExpire=", ESpecialWorkType::workExExpire},
-			{"justShow=", ESpecialWorkType::workExList},
-			{"justRemove=", ESpecialWorkType::workExPurge},
-			{"justShowDamaged=", ESpecialWorkType::workExListDamaged},
-			{"justRemoveDamaged=", ESpecialWorkType::workExPurgeDamaged},
-			{"justTruncDamaged=", ESpecialWorkType::workExTruncDamaged},
-			{"doImport=", ESpecialWorkType::workIMPORT},
-			{"doMirror=", ESpecialWorkType::workMIRROR},
-			{"doDelete=", ESpecialWorkType::workDELETECONFIRM},
-			{"doDeleteYes=", ESpecialWorkType::workDELETE},
-			{"doTruncate=", ESpecialWorkType::workTRUNCATECONFIRM},
-			{"doTruncateYes=", ESpecialWorkType::workTRUNCATE},
-			{"doCount=", ESpecialWorkType::workCOUNTSTATS},
-			{"doTraceStart=", ESpecialWorkType::workTraceStart},
-			{"doTraceEnd=", ESpecialWorkType::workTraceEnd},
+			{"doExpire=", EWorkType::EXPIRE},
+			{"justShow=", EWorkType::EXP_LIST},
+			{"justRemove=", EWorkType::EXP_PURGE},
+			{"justShowDamaged=", EWorkType::EXP_LIST_DAMAGED},
+			{"justRemoveDamaged=", EWorkType::EXP_PURGE_DAMAGED},
+			{"justTruncDamaged=", EWorkType::EXP_TRUNC_DAMAGED},
+			{"doImport=", EWorkType::IMPORT},
+			{"doMirror=", EWorkType::MIRROR},
+			{"doDelete=", EWorkType::DELETE_CONFIRM},
+			{"doDeleteYes=", EWorkType::DELETE},
+			{"doTruncate=", EWorkType::TRUNCATE_CONFIRM},
+			{"doTruncateYes=", EWorkType::TRUNCATE},
+			{"doCount=", EWorkType::COUNT_STATS},
+			{"doTraceStart=", EWorkType::TRACE_START},
+			{"doTraceEnd=", EWorkType::TRACE_END},
 //			{"doJStats", workJStats}
 	};
 
@@ -367,55 +390,99 @@ ESpecialWorkType DetectWorkType(cmstring& cmd, cmstring& sHost, const char* auth
 			return needle.type;
 
 	// something weird, go to the maint page
-	return ESpecialWorkType::workMAINTREPORT;
+	return EWorkType::REPORT;
 }
 
-tFileItemPtr Create(ESpecialWorkType jobType, bufferevent *bev, const tHttpUrl& url, cmstring& refinedPath, const header& reqHead)
+tFileItemPtr Create(EWorkType jobType, bufferevent *bev, const tHttpUrl& url, const header& reqHead, SomeData *arg)
 {
-	ESpecialWorkType xt;
-
 	try
 	{
-		if (jobType == ESpecialWorkType::workTypeDetect)
+		if (jobType == EWorkType::UNKNOWN)
 			return tFileItemPtr(); // not for us?
 
-		auto item = new BufferedPtItem(jobType, refinedPath, bev);
+		auto item = new BufferedPtItem(jobType, url.sPath, bev, arg);
 		auto ret = as_lptr<fileitem>(item);
 		if (! item->GetHandler())
 			return tFileItemPtr();
 
-		auto runner = [item, ret] ()
+		if (item->GetHandler()->IsNonBlocking())
+		{
+			item->GetHandler()->Run();
+			item->Finish();
+			return ret;
+		}
+
+		// we only pass the bare pointer to it, release the reference on the main thread only and only after the BG thread action is finished!
+		ret->__inc_ref();
+		auto runner = [item] ()
 		{
 			try
 			{
 				item->GetHandler()->Run();
-				evabase::Post([item, ret]()
+				evabase::Post([item]()
 				{
+					// release the probably final reference when done
+					tFileItemPtr p(item, false);
 					item->Finish();
 				});
 			}
 			catch (...)
 			{
-
+				// XXX: needing special handling here?
 			}
 		};
-		if (han->IsNonBlocking())
-		{
-			runner();
-		}
-		else
-		{
-			if(!tpool->runBackgrounded(runner))
-			{
-				delete ret;
-				return nullptr;
-			}
-		}
-	}  catch (...) {
-		return nullptr;
 
+		if(g_tpool->schedule(runner))
+			return ret;
+
+		// FAIL STATE!
+		ret->__dec_ref();
+		return tFileItemPtr();
+	}
+	catch (...)
+	{
+		return tFileItemPtr();
 	}
 }
 
+class BufItemPipeReader : public fileitem::ICacheDataSender
+{
+	lint_ptr<BufferedPtItem> source;
+public:
+	BufItemPipeReader(BufferedPtItem* p) : source(p)
+	{
+	}
+	// ICacheDataSender interface
+public:
+	off_t NewBytesAvailable() override
+	{
+		return source->GetCheckedSize() - source->m_nSendPos;
+	}
+	ssize_t SendData(bufferevent *target, size_t maxTake) override
+	{
+		auto ret = evbuffer_remove_buffer(source->PipeRx(), besender(target), maxTake);
+		if (ret < 0)
+			source->DlSetError({500, "Stream error"}, fileitem::EDestroyMode::DELETE);
+		else
+			source->m_nSendPos += ret;
+		return ret;
+	}
+};
+
+std::unique_ptr<fileitem::ICacheDataSender> BufferedPtItem::GetCacheSender(off_t startPos)
+{
+	ebstream view(PipeRx());
+	auto have = off_t(view.size());
+	if (have < startPos)
+		return std::unique_ptr<ICacheDataSender>();
+	if (startPos > 0)
+		view.drop(startPos);
+	return make_unique<BufItemPipeReader>(this);
+}
+
+void cb_notify_new_pipe_data(struct bufferevent *bev, void *ctx)
+{
+	((BufferedPtItem*)ctx)->GotNewData();
+}
 
 }

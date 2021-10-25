@@ -8,7 +8,7 @@
 #include "job.h"
 
 #include <iostream>
-#include <meta.h>
+#include "meta.h"
 
 #ifdef HAVE_ZLIB
 #include <zlib.h>
@@ -45,8 +45,7 @@ tMarkupFileSend::tMarkupFileSend(tSpecialRequestHandler::tRunParms&& parms,
 {
 }
 
-static cmstring errstring("Information about APT configuration not available, "
-		"please contact the system administrator.");
+static auto errstring = "Information about APT configuration not available, please contact the system administrator."sv;
 
 void tMarkupFileSend::Run()
 {
@@ -60,14 +59,14 @@ void tMarkupFileSend::Run()
 	}
 	if(m_bFatalError)
 	{
-		SetMimeResponseHeader(500, "Template Not Found", "text/plain");
-		return SendRaw(errstring.data(), (size_t) errstring.size());
+		m_parms.output.ManualStart(500, "Template Not Found", "text/plain", se, errstring.size());
+		return SendChunkRemoteOnly(errstring);
 	}
     auto sv = fr.getView();
     auto pr = sv.data();
     auto pend = pr + sv.size();
     // XXX: redo more nicely with string_view operations?
-	SetMimeResponseHeader(m_httpStatus.code, m_httpStatus.msg, m_sMimeType);
+	m_parms.output.ManualStart(m_httpStatus.code, m_httpStatus.msg, m_sMimeType);
 
 	auto lastchar=pend-1;
 	while(pr<pend)
@@ -137,7 +136,7 @@ tDeleter::tDeleter(tRunParms&& parms, const mstring& vmode)
 		return;
 	}
 
-	auto del = (m_parms.type == ESpecialWorkType::workDELETE);
+	auto del = (m_parms.type == EWorkType::DELETE);
 
 	mstring params(m_parms.cmd, qpos+1);
 	mstring blob;
@@ -237,15 +236,15 @@ tDeleter::tDeleter(tRunParms&& parms, const mstring& vmode)
 	}
 
 
-	if (m_parms.type == ESpecialWorkType::workDELETECONFIRM
-			|| m_parms.type == ESpecialWorkType::workTRUNCATECONFIRM)
+	if (m_parms.type == EWorkType::DELETE_CONFIRM
+			|| m_parms.type == EWorkType::TRUNCATE_CONFIRM)
 	{
 		for (const auto& path : filePaths)
 			sHidParms << html_sanitize(path) << "<br>\n";
 		for (const auto& pathId : files)
 			sHidParms << "<input type=\"hidden\" name=\"kf\" value=\"" <<
 			to_base36(pathId) << "\">\n";
-		if(m_parms.type == ESpecialWorkType::workDELETECONFIRM && !extraFiles.empty())
+		if(m_parms.type == EWorkType::DELETE_CONFIRM && !extraFiles.empty())
 		{
 			sHidParms << sBRLF << "<b>Extra files found</b>" << sBRLF
 					<< "<p>It's recommended to delete the related files (see below) as well, otherwise "
@@ -324,8 +323,8 @@ inline int tMarkupFileSend::CheckCondition(LPCSTR id, size_t len)
 
 	if(RAWEQ(id, len, "delConfirmed"))
 	{
-		return m_parms.type != ESpecialWorkType::workDELETE
-				&& m_parms.type != ESpecialWorkType::workTRUNCATE;
+		return m_parms.type != EWorkType::DELETE
+				&& m_parms.type != EWorkType::TRUNCATE;
 	}
 
 	return -2;
@@ -394,7 +393,7 @@ void tMaintPage::SendProp(cmstring &key)
 #endif
 	return tMarkupFileSend::SendProp(key);
 }
-
+/*
 void tMarkupFileSend::SendRaw(const char* pBuf, size_t len)
 {
 	// go the easy way if nothing to replace there
@@ -406,6 +405,7 @@ void tMarkupFileSend::SendRaw(const char* pBuf, size_t len)
 	SendRawData(m_fmtHelper.rptr(), m_fmtHelper.size(), MSG_MORE | MSG_NOSIGNAL);
 	SendRawData(pBuf, len, MSG_NOSIGNAL);
 }
+*/
 
 void tMarkupFileSend::SendProp(cmstring &key)
 {
@@ -486,8 +486,6 @@ void tMarkupFileSend::SendProp(cmstring &key)
 		auto pixels = statsMax ? (SCALEFAC * stats.second/statsMax) : 0;
 		return SendChunk(m_fmtHelper.clear() << pixels);
 	}
-
-
 }
 
 }

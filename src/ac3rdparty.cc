@@ -1,5 +1,4 @@
 #include "config.h"
-#include "ac3rdparty.h"
 
 #include <mutex>
 #include <deque>
@@ -57,15 +56,14 @@ void ACNG_API globalSslInit() {}
 void ACNG_API globalSslDeInit() {}
 #endif
 
-
-void ac3rdparty_init()
+void ACNG_API ac3rdparty_init()
 {
 	ares_library_init(ARES_LIB_INIT_ALL);
 	evthread_use_pthreads();
 	globalSslInit();
 }
 
-void ac3rdparty_deinit()
+void ACNG_API ac3rdparty_deinit()
 {
 	globalSslDeInit();
 	libevent_global_shutdown();

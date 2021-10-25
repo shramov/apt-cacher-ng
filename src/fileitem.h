@@ -94,7 +94,7 @@ public:
 		 * @brief Available reports length available to send
 		 * @return Negative on error, otherwyse available bytes
 		 */
-		virtual off_t Available() =0;
+		virtual off_t NewBytesAvailable() =0;
 		/**
 		 * @brief SendData moves data from internal cached item descriptor to the target stream.
 		 * @param target The bufferevent covering the receiver connection.
@@ -199,6 +199,7 @@ protected:
 	 */
 	virtual void DlFinish(bool forceUpdateHeader);
 
+public:
 	/**
 	 * @brief Mark this item as defect, optionally so that its data will be invalidated in cache when released
 	 *
@@ -207,6 +208,17 @@ protected:
 
 	virtual void DlSetError(const tRemoteStatus& errState, EDestroyMode destroyMode);
 
+	/**
+	 * @brief SetHeader works similar to DlStarted but with more predefined (for local generation) parameters
+	 * @param statusCode
+	 * @param statusMessage
+	 * @param mimetype
+	 * @param originOrRedirect
+	 * @param contLen
+	 */
+	void ManualStart(int statusCode, string_view statusMessage, string_view mimetype = "octet/stream", string_view originOrRedirect = "", off_t contLen = -1);
+
+protected:
 	// flag for shared objects and a self-reference for fast and exact deletion, together with m_globRef
 	IFileItemRegistry* m_owner = nullptr;
 	tFiGlobMap::iterator m_globRef;

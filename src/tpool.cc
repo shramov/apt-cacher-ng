@@ -123,6 +123,6 @@ std::shared_ptr<tpool> tpool::Create(unsigned maxBacklog, unsigned maxActive, un
 	return std::make_shared<tpoolImpl>(maxBacklog, maxActive, maxStandby);
 }
 
-SHARED_PTR<tpool> g_tpool;
+SHARED_PTR<tpool> ACNG_API g_tpool;
 
 }

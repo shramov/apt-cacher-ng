@@ -66,7 +66,7 @@ void expiration::HandlePkgEntry(const tRemoteFileInfo &entry)
 				auto finish_bad = [&](cmstring& reason)->bool
 				{
 					if (m_damageList.is_open()) m_damageList << sPathRel << "\n";
-					SendChunk(" (treating as damaged file...) ");
+					SendChunk(" (treating as damaged file...) "sv);
 					AddDelCbox(sPathRel, reason);
 					SendChunk(CLASSEND);
 					return true;
@@ -194,9 +194,9 @@ void expiration::HandlePkgEntry(const tRemoteFileInfo &entry)
 						!descHave.fpr.ScanFile(sPathAbs, entry.fpr.csType))
 				{
 					// IO error? better keep it for now, not sure how to deal with it
-					SendFmt << ECLASS "An error occurred while checksumming "
-					<< sPathRel << ", leaving as-is for now.";
-					log::err(tSS() << "Error reading " << sPathAbs );
+					SendFmt << ECLASS "An error occurred while checksumming "sv
+					<< sPathRel << ", leaving as-is for now."sv;
+					log::err(string("Error reading "sv) + sPathAbs);
 					AddDelCbox(sPathRel, "IO error");
 					SendFmt<<CLASSEND;
 					return false;
@@ -250,11 +250,14 @@ void expiration::HandlePkgEntry(const tRemoteFileInfo &entry)
 				{
 					SendFmt << WCLASS << " incomplete download, truncating (as requested): "
 					<< sPathRel;
+#warning implementme with new paradigm
+					/*
 					auto hodler = GetDlRes().GetItemRegistry()->Create(sPathRel,
                                                           ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY,
                                                           fileitem::tSpecialPurposeAttr());
 					if (hodler.get())
 						hodler.get()->MarkFaulty(false);
+						*/
 					return finish_good(0);
 				}
 				// otherwise be quiet and don't care
@@ -484,15 +487,15 @@ void expiration::Action()
 {
 	switch(m_parms.type)
 	{
-	case ESpecialWorkType::workExPurge:
+	case EWorkType::EXP_PURGE:
 		LoadPreviousData(true);
 		RemoveAndStoreStatus(true);
 		return;
-	case ESpecialWorkType::workExList:
+	case EWorkType::EXP_LIST:
 		return ListExpiredFiles();
-	case ESpecialWorkType::workExPurgeDamaged:
-	case ESpecialWorkType::workExListDamaged:
-	case ESpecialWorkType::workExTruncDamaged:
+	case EWorkType::EXP_PURGE_DAMAGED:
+	case EWorkType::EXP_LIST_DAMAGED:
+	case EWorkType::EXP_TRUNC_DAMAGED:
 		return HandleDamagedFiles();
 	default:
 		break;
@@ -687,7 +690,9 @@ void expiration::TrimFiles()
 			continue;
 
 		// this is just probing, make sure not to interact with DL
-		auto user = GetDlRes().GetItemRegistry()->Create(fil, ESharingHow::ALWAYS_TRY_SHARING, fileitem::tSpecialPurposeAttr());
+#warning implement with other means
+		/*
+		 * auto user = GetDlRes().GetItemRegistry()->Create(fil, ESharingHow::ALWAYS_TRY_SHARING, fileitem::tSpecialPurposeAttr());
 		if ( ! user.get())
 			continue;
 		auto pFi = user.get();
@@ -698,6 +703,7 @@ void expiration::TrimFiles()
 			SendFmt << "Error at " << fil << " (" << tErrnoFmter() << ")"
 					<< sBRLF;
 		}
+	*/
 	}
 }
 
@@ -705,41 +711,46 @@ void expiration::HandleDamagedFiles()
 {
 	filereader f;
 	if(!f.OpenFile(SABSPATH(FNAME_DAMAGED)))
-		{
-			this->SendChunk(WITHLEN("List of damaged files not found"));
-			return;
-		}
+	{
+		this->SendChunk(WITHLEN("List of damaged files not found"));
+		return;
+	}
 	mstring s;
 	while(f.GetOneLine(s))
-		{
-			if(s.empty())
-				continue;
+	{
+		if(s.empty())
+			continue;
 
-			if(this->m_parms.type == ESpecialWorkType::workExPurgeDamaged)
+#warning reimplement
+		/*
+		if(this->m_parms.type == EWorkType::EXP_PURGE_DAMAGED)
+		{
+			SendFmt << "Removing " << s << sBRLF;
+			auto holder = GetDlRes().GetItemRegistry()->Create(s, ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY, fileitem::tSpecialPurposeAttr());
+			if (holder.get())
 			{
-				SendFmt << "Removing " << s << sBRLF;
-				auto holder = GetDlRes().GetItemRegistry()->Create(s, ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY, fileitem::tSpecialPurposeAttr());
-				if (holder.get())
-				{
-					holder.get()->MarkFaulty(true);
-				}
-				else
-				{
-					// still little risk but not of crashing
-					unlink(SZABSPATH(s));
-					unlink(SZABSPATH(s+".head"));
-				}
-			}
-			else if(this->m_parms.type == ESpecialWorkType::workExTruncDamaged)
-			{
-				SendFmt << "Truncating " << s << sBRLF;
-				auto holder = GetDlRes().GetItemRegistry()->Create(s, ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY, fileitem::tSpecialPurposeAttr());
-				if (holder.get())
-					holder.get()->MarkFaulty();
+				holder.get()->MarkFaulty(true);
 			}
 			else
-				SendFmt << s << sBRLF;
+			{
+				// still little risk but not of crashing
+				unlink(SZABSPATH(s));
+				unlink(SZABSPATH(s+".head"));
+			}
 		}
+		else if(this->m_parms.type == EWorkType::EXP_TRUNC_DAMAGED)
+		{
+			SendFmt << "Truncating " << s << sBRLF;
+			auto holder = GetDlRes().GetItemRegistry()->Create(s, ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY, fileitem::tSpecialPurposeAttr());
+			if (holder.get())
+				holder.get()->MarkFaulty();
+		}
+		else
+			SendFmt << s << sBRLF;
+
+		*/
+
+	}
 	return;
 }
 

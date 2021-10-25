@@ -90,8 +90,11 @@ void pkgmirror::Action()
 	}
 	if(m_bUseDelta)
 	{
+#warning implement me
+		/*
 		if(!GetDlRes().SetupDownloader())
 			return;
+			*/
 	}
 	BuildCacheFileList();
 

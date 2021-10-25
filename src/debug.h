@@ -16,9 +16,13 @@ namespace acng
 #ifdef DEBUG
 #define ASSERT(x) assert(x)
 #define IFDEBUG(x) x
+#define IFDEBUGELSE(x, elseValue) x
+#define NONDEBUGVOID(x)
 #else
 #define ASSERT(x)
 #define IFDEBUG(x)
+#define IFDEBUGELSE(x, elseValue) elseValue
+#define NONDEBUGVOID(x) (void) x
 #endif
 
 #ifndef DEBUG

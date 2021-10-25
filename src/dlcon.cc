@@ -498,8 +498,8 @@ struct tDlJob
 			inBuf.drop(n);
 			if (n != nToStore)
 			{
-#error implement me. Shall subscribe to notify on some poke method, and stop acting here until the poke method reports storabe availability
-				m_parent->Subscribe2BlockingItem(m_pStorageRef);
+#warning implement me. Shall subscribe to notify on some poke method, and stop acting here until the poke method reports storabe availability
+				//m_parent->Subscribe2BlockingItem(m_pStorageRef);
 				return HINT_MORE;
 			}
 		}
@@ -985,6 +985,11 @@ continue_key_changed:;
 	return jobs.empty();
 }
 
+void CDlConn::Dispose()
+{
+	ASSERT(!"implementme");
+}
+
 TDlStream::EAddResult TDlStream::takeNewJobs(TDlJobQueue &input, mstring &changedKey, bool hostFitWasChecked)
 {
 	auto posHint = m_backlog.end();
@@ -1045,7 +1050,8 @@ TDlStream::EAddResult TDlStream::takeNewJobs(TDlJobQueue &input, mstring &change
 	}
 	if (blsize != m_backlog.size())
 	{
-		shallRequestMore();
+		ASSERT(!"implementme");
+		//shallRequestMore();
 	}
 	return EAddResult::CONSUMED_OR_NO_FIT;
 	//return input.empty() ? EAddResult::CONSUMED_OR_NO_FIT : EAddResult::ERROR;

@@ -14,7 +14,8 @@ struct evbuffer;
 namespace acng
 {
 
-class ACNG_API header {
+class ACNG_API header
+{
 public:
 	enum eHeadType : char
 	{

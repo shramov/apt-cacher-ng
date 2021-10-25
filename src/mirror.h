@@ -15,10 +15,7 @@ namespace acng
 class pkgmirror: public cacheman
 {
 public:
-	// XXX: for c++11... using tCacheOperation::tCacheOperation;
-	inline pkgmirror(tSpecialRequestHandler::tRunParms&& parms)
-	: cacheman(move(parms)) {};
-
+	using cacheman::cacheman;
 	virtual ~pkgmirror() {};
 	void Action() override;
 

@@ -1,12 +1,14 @@
 #ifndef TPOOL_H
 #define TPOOL_H
 
+#include "config.h"
 #include <functional>
 #include <memory>
 
-namespace acng {
+namespace acng
+{
 
-class tpool
+class ACNG_API tpool
 {
 public:
 	tpool() =default;

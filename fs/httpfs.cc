@@ -20,8 +20,7 @@
 #include "fileio.h"
 #include "dlcon.h"
 #include "acregistry.h"
-#include "ac3rdparty.h"
-
+#include "acstartstop.h"
 
 #include <list>
 #include <mutex>

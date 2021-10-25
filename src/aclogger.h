@@ -73,12 +73,9 @@ void transfer(uint64_t bytesIn, uint64_t bytesOut, cmstring& sClient, cmstring& 
 		bool bAsError);
 
 void ACNG_API err(const char *msg, size_t len);
-void ACNG_API err(tSS&& msg);
-void ACNG_API err(const tSS& msg);
-//void ACNG_API err(std::string&& msg);
 inline void err(string_view msg) { if (logIsEnabled) return err(msg.data(), msg.length()); }
 inline void err(LPCSTR msg) { return err(string_view(msg));}
-inline void err(cmstring& msg) { return err(string_view(msg));}
+//inline void err(cmstring& msg) { return err(string_view(msg));}
 
 void ACNG_API dbg(const char *msg, size_t len);
 inline void dbg(string_view msg)

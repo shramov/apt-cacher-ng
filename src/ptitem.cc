@@ -105,16 +105,21 @@ bool tPassThroughFitem::DlStarted(evbuffer *rawData, size_t headerLen, const tHt
 class tPassThroughFitem::TSender : public fileitem::ICacheDataSender
 {
 	lint_ptr<tPassThroughFitem> parent;
-	TSender(tPassThroughFitem* p) : parent(p) {}
 public:
+	TSender(tPassThroughFitem* p) : parent(p) {}
 	ssize_t SendData(bufferevent* target, size_t maxTake) override
 	{
-		// push the data source when needed
-		if (evbuffer_get_length(parent->m_q) >= PT_BUFFER_LIMIT)
-			parent->NotifyObservers();
-
 		auto tocopy = std::min(evbuffer_get_length(parent->m_q), maxTake);
-		return evbuffer_remove_buffer(parent->m_q, bufferevent_get_input(target), tocopy);
+		auto howmuch = evbuffer_remove_buffer(parent->m_q, bufferevent_get_input(target), tocopy);
+		// push the data source when needed
+		//if (evbuffer_get_length(parent->m_q) >= PT_BUFFER_LIMIT)
+		parent->NotifyObservers();
+		return howmuch;
+	}
+
+	virtual off_t NewBytesAvailable() override
+	{
+		return evbuffer_get_length(parent->m_q);
 	}
 };
 

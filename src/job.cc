@@ -109,8 +109,9 @@ job::~job()
 {
 	LOGSTART("job::~job");
 
+#warning restore assert
 	// shall have sent ANYTHING in response
-	ASSERT(m_nAllDataCount != 0);
+//	ASSERT(m_nAllDataCount != 0);
 
 	int stcode = 200;
 	off_t inCount = 0;
@@ -258,9 +259,9 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 
 		if(!theUrl.SetHttpUrl(sReqPath, false))
 		{
-			m_pItem.reset(tSpecialRequestHandler::Create(ESpecialWorkType::workUSERINFO, theUrl, sReqPath, h));
 			LOG("work type: USERINFO");
-			return;
+			m_pItem.reset(Create(EWorkType::USER_INFO, be, theUrl, h));
+			return m_pItem ? void() : report_overload(__LINE__);;
 		}
 		LOG("refined path: " << theUrl.sPath << "\n on host: " << theUrl.sHost);
 
@@ -286,9 +287,13 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 
 		try
 		{
-			auto spItem = tSpecialRequestHandler::Create(ESpecialWorkType::workTypeDetect, theUrl, sReqPath, h);
-			if (spItem)
-				return m_pItem.reset(spItem);
+			auto t = DetectWorkType(theUrl, h.h[header::AUTHORIZATION]);
+			if (t > EWorkType::REGULAR)
+			{
+				m_pItem.reset(Create(t, be, theUrl, h));
+				if (!m_pItem)
+					return report_overload(__LINE__);
+			}
 		}
 		catch (...)
 		{
@@ -350,8 +355,8 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 			if (data_type == FILE_INVALID)
 			{
 				LOG("generic user information page for " << theUrl.sPath);
-				m_pItem = PrepSpecialItem(ESpecialWorkType::workUSERINFO);
-				return;
+				m_pItem.reset(Create(EWorkType::USER_INFO, be, theUrl, h));
+				return m_pItem ? void() : report_overload(__LINE__);;
 			}
 		}
 
@@ -417,7 +422,7 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 
 		if (bPtMode && fistate != fileitem::FIST_COMPLETE)
 		{
-			m_pItem.reset(new tPassThroughFitem(m_sFileLoc, false));
+			m_pItem.reset(new tPassThroughFitem(m_sFileLoc));
 			fistate = fileitem::FIST_DLPENDING;
 		}
 
@@ -506,27 +511,9 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 	}
 }
 
-void job::PrepFatalError(const header &h, string_view error_headline)
+void job::PrepareFatalError(const header &h, const string_view errorStatus)
 {
-#warning implementme
-}
-
-job::eJobResult job::Poke(bufferevent *be)
-{
-#warning add more paths for temporary Prepare() states
-
-	if (m_sendingEnabled)
-	{
-		if (m_dataSender)
-			return SendData(be);
-
-		// ok, no sender initialized yet
-		m_dataSender = m_pItem->GetCacheSender(m_nReqRangeFrom);
-
-		if (m_dataSender)
-			return SendData(be);
-	}
-	return subscribeAndExit();
+	SetEarlySimpleResponse(errorStatus, true);
 }
 
 job::eJobResult job::subscribeAndExit()
@@ -537,7 +524,9 @@ job::eJobResult job::subscribeAndExit()
 	try
 	{
 		ASSERT(m_pItem); // very unlikely to fail
-		m_subKey = m_pItem->Subscribe([this]() { return m_parent.poke(); });
+		m_subKey = m_pItem->Subscribe([this]() {
+			return m_parent.poke(GetId());
+		});
 		return R_WILLNOTIFY;
 	}
 	catch (...)
@@ -551,19 +540,21 @@ off_t job::CheckSendableState()
 	auto st = m_pItem->GetStatus();
 	if (st > fileitem::FIST_COMPLETE)
 		return -1;
-	if (!m_dataSender)
+	if (! m_dataSender && m_pItem)
+		m_dataSender = m_pItem->GetCacheSender(m_nReqRangeFrom);
+	if (! m_dataSender)
 		return 0;
-	return m_dataSender->Available();
+	return m_dataSender->NewBytesAvailable();
 }
 
-beview job::GetBufFmter()
+ebstream job::GetBufFmter()
 {
 	if (!m_preHeadBuf.valid())
 		m_preHeadBuf.reset(evbuffer_new());
-	return beview(*m_preHeadBuf);
+	return ebstream(*m_preHeadBuf);
 };
 
-job::eJobResult job::SendData(bufferevent* be)
+job::eJobResult job::Resume(bool canSend, bufferevent* be)
 {
 	LOGSTARTFUNC;
 
@@ -594,12 +585,8 @@ job::eJobResult job::SendData(bufferevent* be)
 		return return_discon(); // shouldn't be here
 	}
 
-	off_t nBodySizeSoFar(0);
-	fileitem::FiStatus fistate(fileitem::FIST_DLERROR);
-
 	auto fi = m_pItem.get();
-	// sending helper(s) should be already prepared by Poke when we have entered this method!
-	ASSERT(fi && m_dataSender);
+	ASSERT(fi);
 
 	do
 	{
@@ -607,8 +594,8 @@ job::eJobResult job::SendData(bufferevent* be)
 
 		if (m_preHeadBuf.valid())
 		{
-			ldbg("prebuf sending: " << *m_preHeadBuf);
-			if (0 != evbuffer_add_buffer(input(be), *m_preHeadBuf))
+			ldbg("prebuf sending: " << m_preHeadBuf.get());
+			if (0 != evbuffer_add_buffer(besender(be), *m_preHeadBuf))
 				return R_DISCON;
 			m_preHeadBuf.reset();
 		}
@@ -622,10 +609,12 @@ job::eJobResult job::SendData(bufferevent* be)
 		case (STATE_NOT_STARTED):
 		{
 #define CHECK_SENDABLE_OR_BACKOFF auto sstate = CheckSendableState(); \
-	if (sstate == 0) return subscribe2item(); \
+	if (sstate == 0) return subscribeAndExit(); \
 	if (sstate < 0) { if (HandleSuddenError()) continue; return R_DISCON; };
 
-			CHECK_SENDABLE_OR_BACKOFF;
+			if (fi->GetStatus() < fileitem::FIST_DLGOTHEAD)
+				return subscribeAndExit();
+
 			dbgline;
 			CookResponseHeader();
 			ASSERT(m_activity != STATE_NOT_STARTED);
@@ -645,14 +634,17 @@ job::eJobResult job::SendData(bufferevent* be)
 		{
 			if (m_bIsHeadOnly) // there is no data to come!
 				return fin_stream_good();
+
 			CHECK_SENDABLE_OR_BACKOFF;
 
-			auto limit = nBodySizeSoFar - m_nSendPos;
+			ASSERT(fi->GetCheckedSize() >=0);
+
+			auto limit = fi->GetCheckedSize() - m_nSendPos;
 			if (m_nReqRangeTo >= 0)
 				limit = min(m_nReqRangeTo + 1 - m_nSendPos, limit);
 			if (limit <= 0)
 				return R_DISCON;
-			ldbg("~senddata: to " << nBodySizeSoFar << ", OLD m_nSendPos: " << m_nSendPos);
+			ldbg("~senddata: to " << fi->GetCheckedSize() << ", OLD m_nSendPos: " << m_nSendPos);
 			auto n = m_dataSender->SendData(be, limit);
 			if (n < 0)
 				return return_discon();
@@ -661,7 +653,7 @@ job::eJobResult job::SendData(bufferevent* be)
 			if (n < limit)
 				return subscribeAndExit();
 			ldbg("~senddata: " << n << " new m_nSendPos: " << m_nSendPos);
-			if ((fistate == fileitem::FIST_COMPLETE && m_nSendPos == nBodySizeSoFar)
+			if ((fi->GetStatus() == fileitem::FIST_COMPLETE && m_nSendPos == fi->GetCheckedSize())
 				|| (m_nReqRangeTo >= 0 && m_nSendPos >= m_nReqRangeTo + 1))
 			{
 				return fin_stream_good();
@@ -671,15 +663,15 @@ job::eJobResult job::SendData(bufferevent* be)
 		case (STATE_SEND_CHUNK_HEADER):
 		{
 			CHECK_SENDABLE_OR_BACKOFF;
-			beview hfmt(input(be));
-			if (fistate == fileitem::FIST_COMPLETE && m_nSendPos == nBodySizeSoFar)
+			ebstream hfmt(be);
+			if (fi->GetStatus() == fileitem::FIST_COMPLETE && m_nSendPos == fi->GetCheckedSize())
 			{
 				hfmt << "0\r\n\r\n"sv;
 				m_activity = STATE_DONE;
 			}
 			else
 			{
-				m_nChunkEnd = nBodySizeSoFar;
+				m_nChunkEnd = fi->GetCheckedSize();
 				hfmt << tSS::hex << (m_nChunkEnd - m_nSendPos) << svRN;
 				m_activity = STATE_SEND_CHUNK_DATA;
 			}
@@ -687,6 +679,7 @@ job::eJobResult job::SendData(bufferevent* be)
 		}
 		case (STATE_SEND_CHUNK_DATA):
 		{
+			CHECK_SENDABLE_OR_BACKOFF;
 			// this is only entered after STATE_SEND_CHUNK_HEADER
 			auto limit = m_nChunkEnd - m_nSendPos;
 			auto n = m_dataSender->SendData(be, limit);

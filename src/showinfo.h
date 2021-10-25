@@ -1,7 +1,9 @@
 #ifndef SHOWINFO_H_
 #define SHOWINFO_H_
 
-#include "maintenance.h"
+#include "mainthandler.h"
+#include "meta.h"
+
 #include <list>
 
 namespace acng
@@ -13,11 +15,11 @@ public:
 	void Run() override;
 protected:
 	tMarkupFileSend(tRunParms&& parms,
-			const char * filename,
-			const char *mimetype,
+					const char * filename,
+					const char *mimetype,
 					const tRemoteStatus& st);
 	// presets some default properties for header/footer/etc.
-	void SendRaw(const char *pBuf, size_t len);
+
 	const char *m_sFileName, *m_sMimeType;
 	tRemoteStatus m_httpStatus;
 
@@ -36,7 +38,7 @@ private:
 struct tStyleCss : public tMarkupFileSend
 {
 	inline tStyleCss(tRunParms&& parms) :
-	tMarkupFileSend(std::move(parms), "style.css", "text/css", "200 OK") {};
+	tMarkupFileSend(std::move(parms), "style.css", "text/css", {200, "OK"}) {};
 };
 
 class tDeleter : public tMarkupFileSend
@@ -54,8 +56,8 @@ public:
 
 struct tShowInfo : public tMarkupFileSend
 {
-	tShowInfo(const tRunParms& parms)
-	:tMarkupFileSend(parms, "userinfo.html", "text/html", "406 Usage Information") {};
+	tShowInfo(tRunParms&& parms)
+		:tMarkupFileSend(std::move(parms), "userinfo.html", "text/html", {406, "Usage Information"}) {};
 };
 
 struct tMaintPage : public tMarkupFileSend

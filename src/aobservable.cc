@@ -13,27 +13,34 @@ aobservable::subscription aobservable::subscribe(const aobservable::TNotifier &n
 	if (!newSubscriber) // XXX: not accepting invalid subscribers to avoid later checks, but what then?
 		return subscription();
 	m_observers.emplace_back(newSubscriber);
-	return subscription(as_lptr(this), m_observers.end());
+	return subscription(as_lptr(this), m_observers.rend().base());
 }
 
 void aobservable::unsubscribe(TActionList::iterator what)
 {
 	ASSERT_HAVE_MAIN_THREAD;
+
 	// set a flag to remove the current item instead?
 	if (what == m_currentlyProcessing)
 		m_currentlyProcessing = m_observers.end();
-	else
+	else if (what != m_observers.end())
 		m_observers.erase(what);
 }
 
 void aobservable::doSchedule()
 {
+	ASSERT_HAVE_MAIN_THREAD;
+
 	m_bNotifyPending = true;
-	evabase::Post([me = as_lptr(this)] () mutable { me->doNotify(); });
+	evabase::Post([me = as_lptr(this)] () mutable {
+		me->doNotify();
+	});
 }
 
 void aobservable::doNotify()
 {	
+	ASSERT_HAVE_MAIN_THREAD;
+
 	m_bNotifyPending = false;
 
 	for (auto it = m_observers.begin(); it != m_observers.end(); )

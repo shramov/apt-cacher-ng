@@ -37,7 +37,7 @@ static uint64_t g_ivJobId = 0;
 
 unordered_map<uintptr_t, lint_ptr<connImpl>> global_index;
 
-void StartServing(unique_bufferevent_fdclosing be, string clientName);
+void StartServingBE(unique_bufferevent_fdclosing&& be, string clientName);
 
 class connImpl : public IConnBase
 {
@@ -92,8 +92,12 @@ public:
 	 * @param jobId
 	 * @return
 	 */
-	bool poke(uint_fast32_t jobId) override
+	void poke(uint_fast32_t jobId) override
 	{
+		LOGSTARTFUNCx(jobId);
+		NONDEBUGVOID(jobId);
+		continueJobs();
+#if 0
 		if (m_jobs.empty())
 			return false;
 		unsigned offset = 0;
@@ -110,6 +114,8 @@ public:
 			continueJobs();
 
 		return !m_jobs.empty() && m_jobs.front().GetId() <= jobId;
+
+#endif
 	}
 
 	void setup()
@@ -117,7 +123,7 @@ public:
 		LOGSTARTFUNC;
 		bufferevent_setcb(*m_be, cbRead, cbCanWrite, cbStatus, this);
 		if (m_hSize > 0)
-			addOneJob(svEmpty);
+			addOneJob();
 	}
 
 	static void go(bufferevent* pBE, header&& h, size_t hRawSize, string clientName)
@@ -130,7 +136,7 @@ public:
 			worker->m_be.m_p = pBE;
 			pBE = nullptr;
 			worker->setup();
-			(void) worker.release(); // cleaned by its own callback
+			ignore_ptr(worker.release()); // cleaned by its own callback
 		}
 		catch (const bad_alloc&)
 		{
@@ -166,19 +172,17 @@ public:
 		me->continueJobs();
 	}
 
-	void addOneJob(const string_view error)
+	void addOneJob(string_view errorStatus = svEmpty)
 	{
 		if (m_h.type == header::GET)
 		{
 #warning excpt. safe?
-			m_jobs.emplace_back(*this, g_ivJobId++);
-			if (error.size())
-				m_jobs.back().PrepFatalError(m_h, error);
+			m_jobs.emplace_back(*this);
+			if (!errorStatus.empty())
+				m_jobs.back().PrepareFatalError(m_h, errorStatus);
 			else
 				m_jobs.back().Prepare(m_h, *m_be, m_hSize, m_sClientHost);
 			evbuffer_drain(bufferevent_get_output(*m_be), m_hSize);
-			if (m_jobs.size() == 1)
-				m_jobs.back().EnableSending(*m_be);
 		}
 		else
 		{
@@ -203,26 +207,25 @@ public:
 			else if (m_hSize == 0)
 				return; // more data to ome
 			else
-				addOneJob(svEmpty);
+				addOneJob();
 		}
 	}
 	void continueJobs()
 	{
 		while (!m_jobs.empty())
 		{
-			auto jr = m_jobs.front().Poke(*m_be);
+			auto jr = m_jobs.front().Resume(true, *m_be);
 			switch (jr)
 			{
 			case job::eJobResult::R_DISCON:
+				DBGQLOG("Discon for " << m_jobs.front().GetId());
 				m_jobs.clear();
 				m_opMode = PREP_SHUTDOWN; // terminated below
 				break;
 			case job::eJobResult::R_DONE:
 				m_jobs.pop_front();
-				if (!m_jobs.empty())
-					m_jobs.front().EnableSending(*m_be);
 				continue;
-			case job::eJobResult::R_TOBEAWAKEN:
+			case job::eJobResult::R_WILLNOTIFY:
 				return;
 			}
 		}
@@ -237,7 +240,7 @@ public:
 			auto destroyer(as_lptr(this));
 			bufferevent_disable(*m_be, EV_READ|EV_WRITE);
 			bufferevent_setcb(*m_be, nullptr, nullptr, nullptr, nullptr);
-			return StartServing(unique_bufferevent_fdclosing(m_be.release()), m_sClientHost);
+			return StartServingBE(unique_bufferevent_fdclosing(m_be.release()), m_sClientHost);
 		}
 		case PREP_SHUTDOWN:
 			auto destroyer = as_lptr(this);
@@ -265,7 +268,7 @@ struct TDirectConnector : public tLintRefcounted
 
 	static void PassThrough(bufferevent* be, cmstring& uri)
 	{
-		auto pin = as_lptr(new TDirectConnector);
+		auto pin = make_lptr<TDirectConnector>();
 		pin->be.m_p = be;
 
 		if(!rex::Match(uri, rex::PASSTHROUGH) || !pin->url.SetHttpUrl(uri))
@@ -281,18 +284,24 @@ struct TDirectConnector : public tLintRefcounted
 						   [pin] (atransport::tResult res) mutable
 		{
 			if (!res.err.empty())
-				return beview(*pin->be) << "HTTP/1.0 502 CONNECT error: "sv << res.err << "\r\n\r\n"sv, void();
+				return ebstream(*pin->be) << "HTTP/1.0 502 CONNECT error: "sv << res.err << "\r\n\r\n"sv, void();
 
-			beview(*pin->be) << "HTTP/1.0 200 Connection established\r\n\r\n"sv;
+			ebstream(*pin->be) << "HTTP/1.0 200 Connection established\r\n\r\n"sv;
 			bufferevent_setcb(pin->be.get(), cbRxClient, cbTxClient, cbEvent, pin.get());
 			bufferevent_setcb(res.strm->GetBufferEvent(), cbTxClient, cbRxClient, cbEvent, pin.get());
 			pin->outStream = move(res.strm);
 			setup_be_bidirectional(pin->be.get());
 			setup_be_bidirectional(res.strm->GetBufferEvent());
-			(void) pin.release(); // cbEvent will care
+			ignore_ptr(pin.release()); // cbEvent will care
 		},
 		parms
 		);
+
+#warning analyze
+		/*
+		 *
+		 * src/conn.cc:302:2: Potential leak of memory pointed to by 'pin.m_ptr' [clang-analyzer-cplusplus.NewDeleteLeaks]
+		 * */
 	}
 	static void cbRxClient(struct bufferevent *bev, void *)
 	{
@@ -307,7 +316,7 @@ struct TDirectConnector : public tLintRefcounted
 		auto pin = as_lptr((TDirectConnector*)ctx);
 		if (what & (BEV_EVENT_EOF | BEV_EVENT_ERROR | BEV_EVENT_TIMEOUT))
 			return; // destroying the handler
-		(void) pin.release();
+		ignore_ptr(pin.release());
 	}
 };
 
@@ -320,10 +329,16 @@ struct Dispatcher
 	Dispatcher(string name) : clientName(name)
 	{
 	}
+	~Dispatcher()
+	{
+
+	}
 	bool Go() noexcept
 	{
+		// dispatcher only fetches the relevant type header
 		bufferevent_setcb(*m_be, Dispatcher::cbRead, nullptr, Dispatcher::cbStatus, this);
-		bufferevent_setwatermark(*m_be, EV_READ, 0, MAX_IN_BUF);
+#warning tune me
+//		bufferevent_setwatermark(*m_be, EV_READ, 0, MAX_IN_BUF);
 		return 0 == bufferevent_enable(*m_be, EV_READ);
 	}
 
@@ -335,13 +350,13 @@ struct Dispatcher
 	static void cbRead(bufferevent* pBE, void* ctx)
 	{
 		auto* me = (Dispatcher*)ctx;
-		auto rbuf = bufferevent_get_output(pBE);
+		auto rbuf = bufferevent_get_input(pBE);
 		header h;
 		auto hlen = h.Load(rbuf);
 		if (!hlen)
 			return; // will come back with more data
 
-		beview sout(pBE);
+		ebstream sout(pBE);
 		const auto& tgt = h.getRequestUrl();
 		auto flushClose = [&]()
 		{
@@ -391,7 +406,7 @@ struct Dispatcher
 		return delete me;
 	}
 
-	static void AppendMetaHeaders(beview& sout)
+	static void AppendMetaHeaders(ebstream& sout)
 	{
 		sout << "Connection: close\r\n"sv;
 #ifdef DEBUG
@@ -404,7 +419,7 @@ struct Dispatcher
 	}
 };
 
-void StartServing(unique_bufferevent_fdclosing be, string clientName)
+void StartServingBE(unique_bufferevent_fdclosing&& be, string clientName)
 {
 	if (!be.valid())
 		return; // force-close everything
@@ -416,12 +431,13 @@ void StartServing(unique_bufferevent_fdclosing be, string clientName)
 }
 
 
-void StartServing(unique_fd fd, string clientName)
+void StartServing(unique_fd&& fd, string clientName)
 {
 	evutil_make_socket_nonblocking(fd.get());
 	evutil_make_socket_closeonexec(fd.get());
-	unique_bufferevent_fdclosing be(bufferevent_socket_new(evabase::base, fd.get(), BEV_OPT_DEFER_CALLBACKS));
+	// fd ownership moves to bufferevent closer
+	unique_bufferevent_fdclosing be(bufferevent_socket_new(evabase::base, fd.release(), BEV_OPT_DEFER_CALLBACKS));
 #warning tune watermarks! set timeout!
-	return StartServing(move(be), move(clientName));
+	return StartServingBE(move(be), move(clientName));
 }
 }

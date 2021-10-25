@@ -280,7 +280,7 @@ public:
 	}
 	ssize_t SendData(bufferevent *target, size_t maxTake) override
 	{
-		auto n = eb_move_atmost(bufferevent_get_input(target), *m_buf, maxTake);
+		auto n = evbuffer_remove_buffer(*m_buf, besender(target), maxTake);
 		if (n > 0)
 			m_pos += n;
 		return n;
@@ -288,20 +288,20 @@ public:
 
 	// ICacheDataSender interface
 public:
-	off_t Available() override
+	off_t NewBytesAvailable() override
 	{
 		return m_nCurSize - m_pos;
 	}
 };
 
-class TSegmentSender : public fileitem::ICacheDataSender
+class ACNG_API TSegmentSender : public fileitem::ICacheDataSender
 {
 public:
 	TSegmentSender(int fd, off_t offset);
 
 	// ICacheDataSender interface
 public:
-	off_t Available() override;
+	off_t NewBytesAvailable() override;
 
 	// ICacheDataSender interface
 public:
@@ -615,7 +615,44 @@ void fileitem::DlSetError(const tRemoteStatus& errState, fileitem::EDestroyMode 
 		m_eDestroy = kmode;
 }
 
+void fileitem::ManualStart(int statusCode, string_view statusMessage, string_view mimetype, string_view originOrRedirect, off_t contLen)
+{
+	ASSERT(!statusMessage.empty());
+	ASSERT(m_status < FIST_COMPLETE);
+	auto q = [pin = as_lptr(this), statusCode, statusMessage, mimetype, originOrRedirect, contLen]()
+	{
+		pin->m_responseStatus = {statusCode, string(statusMessage)};
+		if (!mimetype.empty())
+			pin->m_contentType = mimetype;
+		pin->m_responseOrigin = originOrRedirect;
+		if (contLen >= 0)
+			pin->m_nContentLength = contLen;
+		if (pin->m_status < FIST_DLGOTHEAD)
+			pin->m_status = FIST_DLGOTHEAD;
+		pin->NotifyObservers();
+	};
+	if (evabase::IsMainThread())
+		q();
+	else
+		evabase::Post(q);
+}
 
+TSegmentSender::TSegmentSender(int fd, off_t offset)
+{
+	ASSERT(!"implementme");
+}
+
+off_t TSegmentSender::NewBytesAvailable()
+{
+	ASSERT(!"implementme");
+	return -1;
+}
+
+ssize_t TSegmentSender::SendData(bufferevent *target, size_t maxTake)
+{
+	ASSERT(!"implementme");
+	return -1;
+}
 
 
 }

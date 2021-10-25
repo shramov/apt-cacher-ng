@@ -47,7 +47,7 @@ int yes(1);
 
 const struct timeval g_resumeTimeout { 2, 11 };
 
-inline void SetupConAndGo(unique_fd man_fd, string clientName, LPCSTR clientPort)
+void SetupConAndGo(unique_fd&& man_fd, string clientName, LPCSTR clientPort)
 {
 	USRDBG("Client name: " << clientName << ":" << clientPort);
 	try
@@ -252,8 +252,6 @@ int ACNG_API Setup()
 		cerr << "Neither TCP nor UNIX interface configured, cannot proceed.\n";
 		exit(EXIT_FAILURE);
 	}
-
-	g_tpool = tpool::Create(300, 30);
 
 	unsigned nCreated = 0;
 

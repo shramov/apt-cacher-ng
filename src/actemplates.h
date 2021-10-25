@@ -22,13 +22,22 @@ struct auto_raii
 	T m_p;
 	auto_raii() : m_p(inval_default) {}
 	explicit auto_raii(T xp) : m_p(xp) {}
-	~auto_raii() { if (m_p != inval_default) TFreeFunc(m_p); }
-	T release() { auto ret=m_p; m_p = inval_default; return ret;}
+	~auto_raii() {
+		if (m_p != inval_default)
+			TFreeFunc(m_p);
+	}
+	T release() {
+		auto ret = m_p;
+		m_p = inval_default;
+		return ret;
+	}
 	T get() const { return m_p; }
 	T& operator*() { return m_p; }
 	auto_raii(const auto_raii&) = delete;
 	auto_raii(auto_raii && other)
 	{
+		if (& m_p == & other.m_p)
+			return;
 		m_p = other.m_p;
 		other.m_p = inval_default;
 	}
@@ -54,7 +63,12 @@ struct auto_raii
 		m_p = rawNew;
 		return *this;
 	}
-	void swap(auto_raii &other) { this->reset(other); }
+	void swap(auto_raii &other)
+	{
+		auto p = m_p;
+		m_p = other.m_p;
+		other.m_p = p;
+	}
 	void reset()
 	{
 		if (valid())

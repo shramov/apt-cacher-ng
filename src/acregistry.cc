@@ -94,8 +94,8 @@ void fileitem::Abandon()
 		m_status = fileitem::FIST_DLSTOP;
 	m_responseStatus.msg = "Cache file item expired";
 	m_responseStatus.code = 500;
-	notifyAll();
-#warning eh, when notify is done, it should release everything... OR FIX THE CONCEPT
+	NotifyObservers();
+
 	if (manger)
 	{
 		LOG("*this is last entry, deleting dl/fi mapping");

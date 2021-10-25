@@ -4,10 +4,11 @@
 #include "config.h"
 #include "acfg.h"
 #include "dirwalk.h"
-#include "maintenance.h"
+#include "mainthandler.h"
 #include "csmapping.h"
 #include "bgtask.h"
 #include "conn.h"
+#include "meta.h"
 
 #include <unordered_map>
 #include <unordered_set>
@@ -40,11 +41,9 @@ class ACNG_API cacheman :
 		public IFileHandler,
 		public tExclusiveUserAction
 {
-protected:
-	IConnBase &GetDlRes() { return * m_parms.pDlResProvider; }
 
 public:
-	cacheman(tSpecialRequestHandler::tRunParms&& parms);
+	cacheman(tRunParms&& parms);
 	virtual ~cacheman() =default;
 
 	enum enumMetaType

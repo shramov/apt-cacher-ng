@@ -105,10 +105,8 @@ public:
 	inline tSS & operator<<(unsigned long val) __tss_nbrfmt("%lu", "%lx", val);
 	inline tSS & operator<<(long long val) __tss_nbrfmt("%lld", "%llx", val);
 	inline tSS & operator<<(unsigned long long val) __tss_nbrfmt("%llu", "%llx", val);
-#ifdef DEBUG
 	inline tSS & operator<<(void* val) __tss_nbrfmt("ptr:%llu", "ptr:0x%llx", (long long unsigned) val);
 	tSS &operator<<(evbuffer* eb);
-#endif
 
     enum fmtflags : bool { hex, dec };
     inline tSS & operator<<(fmtflags mode) { m_fmtmode=mode; return *this;}
@@ -191,28 +189,35 @@ inline int bufferevent_write(bufferevent* bev, string_view chunk)
 }
 
 /**
- * @brief Facade for stream-like formatting on a evbuffer backend
+ * @brief Liteweight facade for stream-like formatting on a evbuffer backend
  */
-struct beview
+struct ebstream
 {
 	evbuffer* be;
-	enum fmtflags : bool { hex, dec };
-	fmtflags m_fmtmode;
-	beview(bufferevent* pbe) : be(bufferevent_get_input(pbe)) {}
-	beview(evbuffer* pbe) : be(pbe) {}
+	enum fmt_int : bool { hex, dec } fmt_imode = dec;
+	enum fmt_buf : bool { consume_buffers, copy_buffers } fmt_bmode = copy_buffers;
+	ebstream(bufferevent* pbe) : be(bufferevent_get_output(pbe)) {}
+	ebstream(evbuffer* pbe) : be(pbe) {}
 
-	beview& operator<<(string_view sv) { if (0 == evbuffer_add(be, sv.data(), sv.size())) return *this; throw std::bad_alloc(); }
-	beview & operator<<(fmtflags mode) { m_fmtmode = mode; return *this;}
-	beview & operator<<(tSS::fmtflags mode) { m_fmtmode = (fmtflags) mode; return *this;} // XXX: cleanup code and drop this
-	beview & operator<<(long val) { evbuffer_add_printf(be, m_fmtmode == dec ? "%ld" : "%lx", val); return *this; }
-	beview & clear() { evbuffer_drain(be, size()); return *this; }
+	ebstream& operator<<(string_view sv) { if (0 == evbuffer_add(be, sv.data(), sv.size())) return *this; throw std::bad_alloc(); }
+	ebstream & operator<<(fmt_int mode) { fmt_imode = mode; return *this;}
+	ebstream & operator<<(fmt_buf mode) { fmt_bmode = mode; return *this;}
+	ebstream & operator<<(long val) { evbuffer_add_printf(be, fmt_bmode ? "%ld" : "%lx", val); return *this; }
+	// XXX: this consumes the contents, should be better documented
+	ebstream & operator<<(evbuffer* donor) { fmt_bmode == consume_buffers ? evbuffer_add_buffer(be, donor) : evbuffer_add_buffer_reference(be, donor); return *this; }
+	ebstream & drop(size_t howMuch) { evbuffer_drain(be, howMuch); return *this; }
+	ebstream & clear() { return drop(size()); }
 	size_t size() { return evbuffer_get_length(be); }
 };
 
-struct bSS : public beview
+/**
+ * @brief The bSS is a version of ebstream with self-hosted buffer
+ */
+struct bSS : public ebstream
 {
-	bSS() : beview(evbuffer_new()) { if(!be) throw std::bad_alloc(); }
+	bSS() : ebstream(evbuffer_new()) { if(!be) throw std::bad_alloc(); }
 	~bSS() { evbuffer_free(be); }
+	evbuffer* release() { auto ret = be; be = nullptr; return ret; }
 };
 
 }

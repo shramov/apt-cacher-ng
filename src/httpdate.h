@@ -42,6 +42,16 @@ public:
     //operator string_view() const;
     time_t value(time_t ifBad) const { return isSet() ? ParseDate(buf, ifBad) : ifBad; }
     bool isSet() const { return length && *buf; }
+	/**
+	 * @brief Set to any specified value without further checks
+	 * @param value UTC time
+	 * @return Reference to itself
+	 */
+	tHttpDate& Set(time_t value)
+	{
+		length = FormatTime(buf, sizeof(buf), value);
+		return *this;
+	}
     void unset() { buf[0] = length = isnorm = 0; }
 
     // messy stuff

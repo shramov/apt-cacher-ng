@@ -14,6 +14,8 @@
 #include "filereader.h"
 #include "evabase.h"
 
+#include <condition_variable>
+
 #include <limits.h>
 #include <errno.h>
 
@@ -65,15 +67,10 @@ void tExclusiveUserAction::Run()
 		g_bgTaskCondVar.notify_all();
 		tStrPos nQuest = m_parms.cmd.find("?");
 		if(nQuest != stmiss)
-		{
-			evabase::Post([ item = m_parms.pin(), tgt = m_parms.cmd.substr(0,nQuest) ](){
-				item->DlStarted(302, "Redirect", "", tgt);
-			});
-		}
-		return;
+			return m_parms.output.ManualStart(302, "Redirect"sv, ""sv, m_parms.cmd.substr(0,nQuest));
 	}
 
-	SetMimeResponseHeader(200, "OK", "text/html");
+	m_parms.output.ManualStart(200, "OK", "text/html");
 
 	tSS deco;
 	const char *mark(nullptr);
@@ -137,7 +134,7 @@ void tExclusiveUserAction::Run()
 		SendChunkSZ("<br>Attempting to attach to the log output... <br>\n");
 
 		tSS sendbuf(4096);
-		lguard g(g_bgTaskMx);
+		ulock g(g_bgTaskMx);
 
 		for(;;)
 		{
@@ -169,14 +166,14 @@ void tExclusiveUserAction::Run()
 					goto finish_action;
 				if(r == -EAGAIN)
 				{
-					g_StateCv.wait_for(g, 1, 1);
+					g_bgTaskCondVar.wait_for(g, std::chrono::seconds(1));
 					if(!nBgTimestamp)
 						break;
 					continue;
 				}
 				if(r == 0)
 				{
-					g_StateCv.wait_for(g, 5, 1);
+					g_bgTaskCondVar.wait_for(g, std::chrono::seconds(5));
 					if(!nBgTimestamp)
 						break;
 					continue;
@@ -200,19 +197,19 @@ void tExclusiveUserAction::Run()
 			/*****************************************************
 			 * This is the worker part
 			 *****************************************************/
-			lockuniq g(&g_StateCv);
+			ulock g(g_bgTaskMx);
 			g_sigTaskAbort=false;
-			tDtorEx cleaner([&](){g.reLockSafe(); nBgTimestamp = 0; g_StateCv.notifyAll();});
-			g.unLock();
+			tDtorEx cleaner([&](){g.lock(); nBgTimestamp = 0; g_bgTaskCondVar.notify_all();});
+			g.unlock();
 
-			SendFmt << "Maintenance task <b>" << GetTaskName()
+			SendFmt << "Maintenance task <b>" << GetTaskName(m_parms.type)
 					<< "</b>, apt-cacher-ng version: " ACVERSION;
 			string link = "http://" + GetMyHostPort() + "/" + cfg::reportpage;
 			SendFmtRemote << " (<a href=\"" << m_parms.cmd << "&sigabort=" << rand()
 					<< "\">Cancel</a>)"
 					<< "\n<!--\n"
 					<< maark << int(ControLineType::BeforeError)
-					<< "Maintenance Task: " << GetTaskName() << "\n"
+					<< "Maintenance Task: " << GetTaskName(m_parms.type) << "\n"
 					<< maark << int(ControLineType::BeforeError)
 					<< "See file " << logPath << " for more details.\n"
 					<< maark << int(ControLineType::BeforeError)
@@ -315,13 +312,13 @@ void tExclusiveUserAction::SendChunkLocalOnly(const char *data, size_t len)
 	{
 		m_reportStream.write(data, len);
 		m_reportStream.flush();
-		g_StateCv.notifyAll();
+		g_bgTaskCondVar.notify_all();
 	}
 }
 
 time_t tExclusiveUserAction::GetTaskId()
 {
-	lockguard guard(&g_StateCv);
+	lguard guard(g_bgTaskMx);
 	return nBgTimestamp;
 }
 
@@ -381,167 +378,6 @@ void tBgTester::Action()
 
 #endif // DEBUG
 
-
-inline void job::PrepareLocalDownload(const string &visPath,
-									  const string &fsBase, const string &fsSubpath)
-{
-	mstring absPath = fsBase+SZPATHSEP+fsSubpath;
-	Cstat stbuf(absPath);
-	if (!stbuf)
-	{
-		switch(errno)
-		{
-		case EACCES:
-			SetEarlySimpleResponse("403 Permission denied");
-			break;
-		case EBADF:
-		case EFAULT:
-		case ENOMEM:
-		case EOVERFLOW:
-		default:
-			SetEarlySimpleResponse("500 Internal server error");
-			break;
-		case ELOOP:
-			SetEarlySimpleResponse("500 Infinite link recursion");
-			break;
-		case ENAMETOOLONG:
-			SetEarlySimpleResponse("500 File name too long");
-			break;
-		case ENOENT:
-		case ENOTDIR:
-			SetEarlySimpleResponse("404, File or directory not found");
-			break;
-		}
-		return;
-	}
-
-	if(S_ISDIR(stbuf.st_mode))
-	{
-		// unconfuse the browser
-		if (!endsWithSzAr(visPath, SZPATHSEPUNIX))
-		{
-			class dirredirect : public tGeneratedFitemBase
-			{
-			public:	dirredirect(const string &visPath)
-					: tGeneratedFitemBase(visPath, {301, "Moved Permanently"}, visPath + "/")
-				{
-					m_data << "<!DOCTYPE html>\n<html lang=\"en\"><head><title>301 Moved Permanently</title></head><body><h1>Moved Permanently</h1>"
-					"<p>The document has moved <a href=\""+visPath+"/\">here</a>.</p></body></html>";
-					seal();
-				}
-			};
-			m_pItem = m_parent.GetItemRegistry()->Create(make_shared<dirredirect>(visPath), false);
-			return;
-		}
-
-		class listing: public tGeneratedFitemBase
-		{
-		public:
-			listing(const string &visPath) :
-				tGeneratedFitemBase(visPath, {200, "OK"})
-			{
-				seal(); // for now...
-			}
-		};
-		auto p = make_shared<listing>(visPath);
-		m_pItem = m_parent.GetItemRegistry()->Create(p, false);
-		tSS & page = p->m_data;
-
-		page << "<!DOCTYPE html>\n<html lang=\"en\"><head><title>Index of "
-				<< visPath << "</title></head>"
-		"<body><h1>Index of " << visPath << "</h1>"
-		"<table><tr><th>&nbsp;</th><th>Name</th><th>Last modified</th><th>Size</th></tr>"
-		"<tr><th colspan=\"4\"><hr></th></tr>";
-
-		DIR *dir = opendir(absPath.c_str());
-		if (!dir) // weird, whatever... ignore...
-			page<<"ERROR READING DIRECTORY";
-		else
-		{
-			// quick hack with sorting by custom keys, good enough here
-			priority_queue<tStrPair, std::vector<tStrPair>, std::greater<tStrPair>> sortHeap;
-			for(struct dirent *pdp(0);0!=(pdp=readdir(dir));)
-			{
-				if (0!=::stat(mstring(absPath+SZPATHSEP+pdp->d_name).c_str(), &stbuf))
-					continue;
-
-				bool bDir=S_ISDIR(stbuf.st_mode);
-
-				char datestr[32]={0};
-				struct tm tmtimebuf;
-				strftime(datestr, sizeof(datestr)-1,
-						 "%d-%b-%Y %H:%M", localtime_r(&stbuf.st_mtime, &tmtimebuf));
-
-				string line;
-				if(bDir)
-					line += "[DIR]";
-				else if(startsWithSz(cfg::GetMimeType(pdp->d_name), "image/"))
-					line += "[IMG]";
-				else
-					line += "[&nbsp;&nbsp;&nbsp;]";
-				line += string("</td><td><a href=\"") + pdp->d_name
-						+ (bDir? "/\">" : "\">" )
-						+ pdp->d_name
-						+"</a></td><td>"
-						+ datestr
-						+ "</td><td align=\"right\">"
-						+ (bDir ? string("-") : offttosH(stbuf.st_size));
-				sortHeap.push(make_pair(string(bDir?"a":"b")+pdp->d_name, line));
-				//dbgprint((mstring)line);
-			}
-			closedir(dir);
-			while(!sortHeap.empty())
-			{
-				page.add(WITHLEN("<tr><td valign=\"top\">"));
-				page << sortHeap.top().second;
-				page.add(WITHLEN("</td></tr>\r\n"));
-				sortHeap.pop();
-			}
-
-		}
-		page << "<tr><td colspan=\"4\">" <<GetFooter();
-		page << "</td></tr></table></body></html>";
-		p->seal();
-		return;
-	}
-	if(!S_ISREG(stbuf.st_mode))
-	{
-		SetEarlySimpleResponse("403 Unsupported data type");
-		return;
-	}
-	/*
-	 * This variant of file item handler sends a local file. The
-	 * header data is generated as needed, the relative cache path variable
-	 * is reused for the real path.
-	 */
-	class tLocalGetFitem : public TFileitemWithStorage
-	{
-	public:
-		tLocalGetFitem(string sLocalPath, struct stat &stdata) : TFileitemWithStorage(sLocalPath)
-		{
-			m_status=FIST_COMPLETE;
-			m_nSizeChecked=m_nSizeCachedInitial=stdata.st_size;
-			m_spattr.bVolatile=false;
-			m_responseStatus = { 200, "OK"};
-			m_nContentLength = m_nSizeChecked = stdata.st_size;
-			m_responseModDate = tHttpDate(stdata.st_mtim.tv_sec);
-			cmstring &sMimeType=cfg::GetMimeType(sLocalPath);
-			if(!sMimeType.empty())
-				m_contentType = sMimeType;
-		};
-		unique_fd GetFileFd() override
-		{
-			int fd=open(m_sPathRel.c_str(), O_RDONLY);
-#ifdef HAVE_FADVISE
-			// optional, experimental
-			if(fd>=0)
-				posix_fadvise(fd, 0, m_nSizeChecked, POSIX_FADV_SEQUENTIAL);
-#endif
-			return unique_fd(fd);
-		}
-	};
-	m_pItem = m_parent.GetItemRegistry()->Create(make_shared<tLocalGetFitem>(absPath, stbuf), false);
-}
 
 
 }

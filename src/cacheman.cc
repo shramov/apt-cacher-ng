@@ -99,15 +99,14 @@ cmstring& cacheman::GetFirstPresentPath(const tFileGroups& groups, const tConten
 	return se;
 }
 
-cacheman::cacheman(const tSpecialRequestHandler::tRunParms& parms) :
-	tExclusiveUserAction(parms),
+cacheman::cacheman(tRunParms&& parms) :
+	tExclusiveUserAction(move(parms)),
 	m_bErrAbort(false), m_bVerbose(false), m_bForceDownload(false),
 	m_bScanInternals(false), m_bByPath(false), m_bByChecksum(false), m_bSkipHeaderChecks(false),
 	m_bTruncateDamaged(false),
 	m_nErrorCount(0),
 	m_nProgIdx(0), m_nProgTell(1)
 {
-	ASSERT(parms.pDlResProvider);
 	m_szDecoFile="maint.html";
 	m_gMaintTimeNow=GetTime();
 
@@ -1282,7 +1281,9 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 			}
 			if(!probeOrig.ScanFile(SABSPATH(pb),
 					CSTYPE_SHA256, true, df.p))
+			{
 				continue;
+			}
 			df.close();
 			if(probeStateWanted == probeOrig)
 			{
@@ -1302,14 +1303,14 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 				if(h.LoadFromFile(SABSPATH(pindexPathRel)+".head")
 						&& h.h[header::XORIG])
 				{
-					auto len=strlen(h.h[header::XORIG]);
+					auto len = strlen(h.h[header::XORIG]);
 					if(len < diffIdxSfx.length())
                         return PATCH_FAIL; // heh?
                     h.h[header::XORIG][len-diffIdxSfx.length()] = 0;
 				}                
 
 				if(m_bVerbose)
-					SendFmt << "Installing as " << path << ", state: " <<  probeStateWanted << hendl;
+					SendFmt << "Installing as " << path << ", state: " << (string) probeStateWanted << hendl;
 
 				/*
 				 * We don't know the change date from the index, let's consider it very old.

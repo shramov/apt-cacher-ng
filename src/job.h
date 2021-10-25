@@ -23,30 +23,15 @@ public:
 	{
 		R_DONE = 0, R_DISCON = 2, R_WILLNOTIFY
     };
+	job(IConnBase& parent) : m_parent(parent) {}
 
-	job(IConnBase& parent, uint_fast32_t id) : m_parent(parent), m_id(id) {}
 	~job();
 
 	void Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& callerHostname);
-	/*
-	 * Prepare an error body and disconnect hint afterwards
-	 * */
-	void PrepFatalError(const header &h, string_view error_headline);
-	uint_fast32_t GetId() { return m_id; }
+	void PrepareFatalError(const header &h, string_view errorStatus);	
+	eJobResult Resume(bool canSend, bufferevent* be);
 
-	/**
-	 * @brief Poke dispatches the current state and continues from wherever we were
-	 * @param be Output stream
-	 * @return Continuation hint for the caller
-	 */
-	eJobResult Poke(bufferevent* be);
-
-	/**
-	 * @brief EnableSending is equivalent to Poke but it enable sending when called
-	 * @param be see Poke
-	 * @return see Poke
-	 */
-	eJobResult EnableSending(bufferevent* be) { m_sendingEnabled = true; return Poke(be); }
+	uint_fast32_t GetId() { return IFDEBUGELSE(m_id, 0); }
 
     SUTPRIVATE:
 
@@ -67,11 +52,11 @@ public:
 	aobservable::subscription m_subKey;
 	// std::shared_ptr<SomeData> m_tempData; // local state snapshot for delayed data retrieval
 	std::unique_ptr<fileitem::ICacheDataSender> m_dataSender;
+#ifdef DEBUG
 	uint_fast32_t m_id;
+#endif
     bool m_bIsHttp11 = true;
 	bool m_bIsHeadOnly = false;
-	bool m_sendingEnabled = false;
-	//ESpecialWorkType m_eMaintWorkType = ESpecialWorkType::workNotSpecial;
 
 	enum EKeepAliveMode : uint8_t
 	{
@@ -99,7 +84,6 @@ public:
 	job(const job&);
 	job& operator=(const job&);
 
-	eJobResult SendData(bufferevent* be);
 	void CookResponseHeader();
     void AddPtHeader(cmstring& remoteHead);
 	void SetEarlySimpleResponse(string_view message, bool nobody = false);
@@ -115,12 +99,16 @@ public:
     void AppendMetaHeaders();
 	void PrependHttpVariant();
 	eJobResult subscribeAndExit();
+	/**
+	 * @brief CheckSendableState reports how many bytes can be sent next
+	 * @return Byte count or -1 on errors
+	 */
 	off_t CheckSendableState();
 	/**
 	 * @brief GetBufFmter prepares the formatting buffer
 	 * @return Format object usable for convenient data adding, which is sent ASAP in the next operation cycles
 	 */
-	beview GetBufFmter();
+	ebstream GetBufFmter();
 };
 
 }
