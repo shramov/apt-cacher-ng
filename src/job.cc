@@ -37,6 +37,8 @@ using namespace std;
 
 namespace acng
 {
+
+uint_fast32_t g_genJobId = 0;
 namespace cfg
 {
 namespace rex {

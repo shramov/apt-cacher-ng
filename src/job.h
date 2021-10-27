@@ -14,7 +14,7 @@ namespace acng
 
 class IConnBase;
 class header;
-
+extern uint_fast32_t g_genJobId;
 class job
 {
 public:
@@ -53,7 +53,7 @@ public:
 	// std::shared_ptr<SomeData> m_tempData; // local state snapshot for delayed data retrieval
 	std::unique_ptr<fileitem::ICacheDataSender> m_dataSender;
 #ifdef DEBUG
-	uint_fast32_t m_id;
+	uint_fast32_t m_id = g_genJobId++;
 #endif
     bool m_bIsHttp11 = true;
 	bool m_bIsHeadOnly = false;

@@ -617,10 +617,13 @@ void fileitem::DlSetError(const tRemoteStatus& errState, fileitem::EDestroyMode 
 
 void fileitem::ManualStart(int statusCode, string_view statusMessage, string_view mimetype, string_view originOrRedirect, off_t contLen)
 {
-	ASSERT(!statusMessage.empty());
-	ASSERT(m_status < FIST_COMPLETE);
 	auto q = [pin = as_lptr(this), statusCode, statusMessage, mimetype, originOrRedirect, contLen]()
 	{
+		ASSERT(!statusMessage.empty());
+		pin->NotifyObservers();
+		if (pin->m_status > FIST_COMPLETE)
+			return; // error-out already
+		ASSERT(pin->m_status < FIST_DLGOTHEAD);
 		pin->m_responseStatus = {statusCode, string(statusMessage)};
 		if (!mimetype.empty())
 			pin->m_contentType = mimetype;
@@ -629,7 +632,6 @@ void fileitem::ManualStart(int statusCode, string_view statusMessage, string_vie
 			pin->m_nContentLength = contLen;
 		if (pin->m_status < FIST_DLGOTHEAD)
 			pin->m_status = FIST_DLGOTHEAD;
-		pin->NotifyObservers();
 	};
 	if (evabase::IsMainThread())
 		q();

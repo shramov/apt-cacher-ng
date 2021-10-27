@@ -44,7 +44,9 @@ public:
 			}
 			return *this;
 		}
-		subscription(subscription&& src) { *this = std::move(src); }
+		subscription(subscription&& src) {
+			*this = std::move(src);
+		}
 		bool valid() const { return observable.get(); }
 		void clear() { if(valid()) observable->unsubscribe(what); observable.reset(); }
 	};

@@ -261,8 +261,6 @@ void daemon_init()
 
 	SetupCacheDir();
 
-	g_tpool = tpool::Create(300, 30);
-
 	//DelTree(cfg::cacheDirSlash + sReplDir);
 	SetupServerItemRegistry();
 
@@ -315,10 +313,10 @@ void ac3rdparty_deinit();
 int main(int argc, const char **argv)
 {
 	using namespace acng;
+	ac3rdparty_init();
 	evabase dabase;
 	parse_options(argc, argv);
 	tStartStop g;
-	ac3rdparty_init();
 	g.atexit([](){ ac3rdparty_deinit(); });
 	daemon_init();
 	g.atexit([](){ daemon_deinit(); });

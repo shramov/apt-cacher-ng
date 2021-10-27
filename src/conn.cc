@@ -49,7 +49,7 @@ class connImpl : public IConnBase
 		ACTIVE,
 		PREP_SHUTDOWN,
 		PREP_TYPECHANGE
-	} m_opMode;
+	} m_opMode = ACTIVE;
 
 	deque<job> m_jobs;
 	lint_ptr<dlcontroller> m_pDlClient;

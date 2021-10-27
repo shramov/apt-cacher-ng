@@ -253,6 +253,8 @@ int ACNG_API Setup()
 		exit(EXIT_FAILURE);
 	}
 
+	g_tpool = tpool::Create(300, 30);
+
 	unsigned nCreated = 0;
 
 	if (cfg::udspath.empty())

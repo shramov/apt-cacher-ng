@@ -39,11 +39,6 @@ ACNG_API bool logIsEnabled = true;
 
 off_t totalIn(0), totalOut(0);
 
-inline bool runsOnMainThread()
-{
-	return std::this_thread::get_id() == evabase::GetMainThreadId();
-}
-
 std::pair<off_t,off_t> GetCurrentCountersInOut()
 {
 	return std::make_pair(totalIn, totalOut);
@@ -218,7 +213,7 @@ void misc_io(const string & sLine, const char cLogType)
 
 void misc(const string & sLine, const char cLogType)
 {
-	if (runsOnMainThread())
+	if (evabase::IsMainThread())
 		return misc_io(sLine, cLogType);
 	evabase::Post([sLine, cLogType](){ misc_io(sLine, cLogType); });
 }
@@ -247,7 +242,7 @@ void err_io(const char *msg, size_t len)
 
 void err(const char *msg, size_t len)
 {
-	if (runsOnMainThread())
+	if (evabase::IsMainThread())
 		return err_io(msg, len);
 	evabase::Post([sLine = string(msg, len)]() { err_io(sLine.data(), sLine.size()); });
 }
@@ -281,7 +276,7 @@ void dbg_io(const char *msg, size_t len)
 }
 void dbg(const char *msg, size_t len)
 {
-	if (runsOnMainThread())
+	if (evabase::IsMainThread())
 		return dbg_io(msg, len);
 	evabase::Post([sLine = string(msg, len)]() { dbg_io(sLine.data(), sLine.size()); });
 }

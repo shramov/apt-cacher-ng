@@ -58,8 +58,8 @@ void ACNG_API globalSslDeInit() {}
 
 void ACNG_API ac3rdparty_init()
 {
-	ares_library_init(ARES_LIB_INIT_ALL);
 	evthread_use_pthreads();
+	ares_library_init(ARES_LIB_INIT_ALL);
 	globalSslInit();
 }
 

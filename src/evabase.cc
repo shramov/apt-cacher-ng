@@ -41,8 +41,8 @@ std::atomic<bool> evabase::in_shutdown = ATOMIC_VAR_INIT(false);
 struct event *handover_wakeup;
 const struct timeval timeout_asap{0,0};
 #warning add unlocked queues which are only used when installing thread is the main thread
-deque<tCancelableAction> incoming_cancelable_q, processing_cancelable_q;
-deque<tAction> incoming_simple_q, processing_simple_q;
+deque<tCancelableAction> incoming_cancelable_q, temp_cancelable_q, local_cancelable_q;
+deque<tAction> incoming_simple_q, temp_simple_q, local_simple_q;
 std::mutex handover_mx;
 void RejectPendingDnsRequests();
 
@@ -280,45 +280,58 @@ void evabase::SignalStop()
 
 void cb_handover(evutil_socket_t, short, void*)
 {
-	for(const auto& ac: processing_cancelable_q)
+	bool retrigger = false;
+	temp_simple_q.swap(local_simple_q);
+	for(const auto& ac: temp_simple_q)
+	{
+		if(AC_LIKELY(ac))
+			ac();
+	}
+	temp_simple_q.clear();
+
+	temp_cancelable_q.swap(local_cancelable_q);
+	for(const auto& ac: temp_cancelable_q)
 	{
 		if(AC_LIKELY(ac))
 			ac(evabase::in_shutdown);
 	}
-	processing_cancelable_q.clear();
+	temp_cancelable_q.clear();
+//	retrigger |= !local_cancelable_q.empty();
 
 	{
 		std::lock_guard g(handover_mx);
-		processing_cancelable_q.swap(incoming_cancelable_q);
-		processing_simple_q.swap(incoming_simple_q);
+		temp_simple_q.swap(incoming_simple_q);
+		temp_cancelable_q.swap(incoming_cancelable_q);
 	}
-
-	for(const auto& ac: processing_simple_q)
+	for(const auto& ac: temp_simple_q)
 	{
 		if(AC_LIKELY(ac))
 			ac();
 	}
-	processing_simple_q.clear();
-
-	for(const auto& ac: processing_cancelable_q)
+	temp_simple_q.clear();
+	for(const auto& ac: temp_cancelable_q)
 	{
 		if(AC_LIKELY(ac))
 			ac(evabase::in_shutdown);
 	}
-	for(const auto& ac: processing_simple_q)
+	temp_cancelable_q.clear();
+	retrigger |= !local_simple_q.empty();
+	retrigger |= !local_cancelable_q.empty();
+	if (!retrigger)
 	{
-		if(AC_LIKELY(ac))
-			ac();
+		std::lock_guard g(handover_mx);
+		temp_simple_q.swap(incoming_simple_q);
+		temp_cancelable_q.swap(incoming_cancelable_q);
 	}
-	processing_cancelable_q.clear();
-	processing_simple_q.clear();
+	if (retrigger)
+		event_add(handover_wakeup, &timeout_asap);
 }
 
 void evabase::Post(tCancelableAction&& act)
 {
 	if (evabase::IsMainThread())
 	{
-		processing_cancelable_q.emplace_back(move(act));
+		local_cancelable_q.emplace_back(move(act));
 	}
 	else
 	{
@@ -333,7 +346,7 @@ void evabase::Post(tAction && act)
 {
 	if (evabase::IsMainThread())
 	{
-		processing_simple_q.emplace_back(move(act));
+		local_simple_q.emplace_back(move(act));
 	}
 	else
 	{
