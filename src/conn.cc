@@ -33,10 +33,6 @@ namespace acng
 
 class connImpl;
 
-static uint64_t g_ivJobId = 0;
-
-unordered_map<uintptr_t, lint_ptr<connImpl>> global_index;
-
 void StartServingBE(unique_bufferevent_fdclosing&& be, string clientName);
 
 class connImpl : public IConnBase
@@ -121,6 +117,7 @@ public:
 	void setup()
 	{
 		LOGSTARTFUNC;
+		set_connect_sock_flags(bufferevent_getfd(*m_be));
 		bufferevent_setcb(*m_be, cbRead, cbCanWrite, cbStatus, this);
 		if (m_hSize > 0)
 			addOneJob();
@@ -141,7 +138,7 @@ public:
 		catch (const bad_alloc&)
 		{
 			if (pBE)
-				be_free_fd_close(pBE);
+				be_free_close(pBE);
 		}
 	}
 
@@ -158,7 +155,7 @@ public:
 		{
 			auto destroyer = as_lptr((connImpl*)ctx, false);
 			if (destroyer->m_be.get())
-				be_free_fd_close(destroyer->m_be.release());
+				be_free_close(destroyer->m_be.release());
 		}
 	}
 	static void cbRead(bufferevent* pBE, void* ctx)
@@ -192,7 +189,7 @@ public:
 	}
 	void onRead(bufferevent* pBE)
 	{
-		auto obuf = bufferevent_get_output(pBE);
+		auto obuf = bereceiver(pBE);
 		switch (m_opMode)
 		{
 		case PREP_SHUTDOWN:
@@ -244,7 +241,7 @@ public:
 		}
 		case PREP_SHUTDOWN:
 			auto destroyer = as_lptr(this);
-			return be_flush_and_release_and_fd_close(m_be.release());
+			return be_flush_free_close(m_be.release());
 		}
 	}
 
@@ -361,7 +358,7 @@ struct Dispatcher
 		auto flushClose = [&]()
 		{
 			AppendMetaHeaders(sout);
-			be_flush_and_close(me->m_be.release());
+			return be_flush_free_close(me->m_be.release());
 		};
 
 		if (hlen < 0) // client sends BS?

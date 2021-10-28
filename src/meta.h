@@ -92,6 +92,7 @@ tStrPos findHostStart(const mstring & sUri);
 
 #define ELVIS(x, y) (x ? x : y)
 #define OPTSET(x, y) if(!x) x = y
+#define INCPOS(where, n) if (n > 0) where +=n;
 
 // Sometimes I miss Perl...
 tStrVec::size_type Tokenize(cmstring &in, const char* sep, tStrVec & out, bool bAppend=false, mstring::size_type nStartOffset=0);

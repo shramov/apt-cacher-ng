@@ -14,6 +14,7 @@
 #include "portutils.h"
 #include "debug.h"
 #include "ptitem.h"
+#include "aclocal.h"
 #include "tpool.h"
 
 #include <stdio.h>
@@ -51,7 +52,7 @@ public:
 		string_view msg = "Not Authorized. Please contact Apt-Cacher NG administrator for further questions.\n\n"
 				   "For Admin: Check the AdminAuth option in one of the *.conf files in Apt-Cacher NG "
 				   "configuration directory, probably " CFGDIR;
-		m_parms.output.ManualStart(401, "Not Authorized"sv, "text/plain"sv, "", msg.size());
+		m_parms.output.ManualStart(401, "Not Authorized", "text/plain", "", msg.size());
 		m_parms.output.AddExtraHeaders("WWW-Authenticate: Basic realm=\"For login data, see AdminAuth in Apt-Cacher NG config files\"\r\n");
 		SendChunkRemoteOnly(msg);
 	}
@@ -66,7 +67,7 @@ public:
 	{
 		string_view msg = "Not Authorized. To start this action, an administrator password must be set and "
 						  "you must be logged in.";
-		m_parms.output.ManualStart(403, "Access Forbidden", "text/plain"sv, ""sv, msg.size());
+		m_parms.output.ManualStart(403, "Access Forbidden", "text/plain", se, msg.size());
 		SendChunkRemoteOnly(msg);
 	}
 };
@@ -81,6 +82,8 @@ static tSpecialRequestHandler* MakeMaintWorker(tSpecialRequestHandler::tRunParms
 	case EWorkType::UNKNOWN:
 	case EWorkType::REGULAR:
 		return nullptr;
+	case EWorkType::LOCALITEM:
+		return new aclocal(move(parms));
 	case EWorkType::EXPIRE:
 	case EWorkType::EXP_LIST:
 	case EWorkType::EXP_PURGE:
@@ -120,6 +123,7 @@ static tSpecialRequestHandler* MakeMaintWorker(tSpecialRequestHandler::tRunParms
 }
 
 void cb_notify_new_pipe_data(struct bufferevent *bev, void *ctx);
+void cb_bgpipe_event(struct bufferevent *bev, short what, void *ctx);
 
 class BufferedPtItem : public BufferedPtItemBase
 {
@@ -130,14 +134,8 @@ public:
 	tSpecialRequestHandler* GetHandler() { return handler.get(); }
 
 	// where the cursor is, matches the begin of the current buffer
-	off_t m_nSendPos = 0;
+	off_t m_nCursor = 0;
 
-	void GotNewData()
-	{
-		auto len = evbuffer_get_length(PipeRx());
-		m_nSizeChecked = m_nSendPos + len;
-		NotifyObservers();
-	}
 	~BufferedPtItem()
 	{
 		ASSERT_HAVE_MAIN_THREAD;
@@ -145,7 +143,7 @@ public:
 		if (m_pipeInOut[1]) bufferevent_free(m_pipeInOut[1]);
 	}
 
-	BufferedPtItem(EWorkType jobType, mstring cmd, bufferevent *bev, SomeData *arg)
+	BufferedPtItem(EWorkType jobType, mstring cmd, bufferevent *bev, void* arg)
 		: BufferedPtItemBase("_internal_task")
 		// XXX: resolve the name to task type for the logs? Or replace the name with something useful later? Although, not needed, and also w/ format not fitting the purpose.
 	{
@@ -158,14 +156,14 @@ public:
 			handler.reset(MakeMaintWorker({jobType, move(cmd), bufferevent_getfd(bev), *this, arg}));
 			if (handler)
 			{
-				auto flags =  (!handler->IsNonBlocking() * BEV_OPT_THREADSAFE)
+				auto flags =  (handler->m_bNeedsBgThread * BEV_OPT_THREADSAFE)
 							  | BEV_OPT_DEFER_CALLBACKS | BEV_OPT_UNLOCK_CALLBACKS;
 				if (AC_UNLIKELY(bufferevent_pair_new(evabase::base, flags, m_pipeInOut)))
 				{
 					throw std::bad_alloc();
 				}
 				// trigger of passed data notification
-				bufferevent_setcb(m_pipeInOut[1], cb_notify_new_pipe_data, nullptr, nullptr, this);
+				bufferevent_setcb(m_pipeInOut[1], cb_notify_new_pipe_data, nullptr, cb_bgpipe_event, this);
 				bufferevent_enable(m_pipeInOut[1], EV_READ);
 				bufferevent_enable(m_pipeInOut[0], EV_WRITE);
 
@@ -199,31 +197,69 @@ public:
 	void AddExtraHeaders(mstring appendix) override
 	{
 		if (! evabase::IsMainThread())
-			return evabase::Post([this, appendix ]() {m_extraHeaders = move(appendix); });
+			return evabase::Post([this, appendix ]() { m_extraHeaders = move(appendix); });
 		m_extraHeaders = move(appendix);
 	}
-	void Finish()
+	void Eof()
+	{
+		bufferevent_flush(m_pipeInOut[0], EV_WRITE, BEV_FINISHED);
+	}
+
+	void BgPipeEvent(short what)
+	{
+		LOGSTARTFUNCs;
+		ldbg(what);
+		if (what & (BEV_EVENT_ERROR | BEV_EVENT_TIMEOUT | BEV_EVENT_EOF))
+		{
+			Finish();
+		}
+	}
+
+	void GotNewData()
 	{
 		ASSERT_HAVE_MAIN_THREAD;
-		if (m_status < FiStatus::FIST_COMPLETE)
-			m_status = FiStatus::FIST_COMPLETE;
-		if (m_nSizeChecked < 0)
-			m_nSizeChecked = 0;
-		if (m_responseStatus.code < 200)
-			m_responseStatus.code = 200;
-		if (m_responseStatus.msg.empty())
-			m_responseStatus.msg = "ACNG internal error"sv;
+		LOGSTARTFUNC;
+		auto len = evbuffer_get_length(PipeRx());
+		m_nSizeChecked = m_nCursor + len;
+		ldbg(len << " -> " << m_nSizeChecked);
 		NotifyObservers();
 	}
-	//std::unique_ptr<ICacheDataSender> GetCacheSender(off_t startPos) override;
 
-	// fileitem interface
-public:
-	std::unique_ptr<ICacheDataSender> GetCacheSender(off_t startPos) override;
+	std::unique_ptr<ICacheDataSender> GetCacheSender() override;
+
 	const string &GetExtraResponseHeaders() override
 	{
 		ASSERT_HAVE_MAIN_THREAD;
 		return m_extraHeaders;
+	}
+private:
+	/**
+	 * @brief Finish should not be called directly, only through the Pipe EOF callback!
+	 */
+	void Finish()
+	{
+		ASSERT_HAVE_MAIN_THREAD;
+		LOGSTARTFUNC;
+
+		if (m_status < FIST_DLGOTHEAD)
+		{
+			ldbg("shall not finish b4 start");
+			evabase::Post([pin = as_lptr(this)](){ pin->Finish(); });
+			return;
+		}
+
+		if (m_status < FiStatus::FIST_COMPLETE)
+			m_status = FiStatus::FIST_COMPLETE;
+		if (m_nSizeChecked < 0)
+			m_nSizeChecked = 0;
+		if (m_nContentLength < 0)
+			m_nContentLength = m_nSizeChecked;
+		if (m_responseStatus.code < 200)
+			m_responseStatus.code = 200;
+		if (m_responseStatus.msg.empty())
+			m_responseStatus.msg = "ACNG internal error"sv;
+		ldbg( "fist: " << m_status << ", goodsize: " << m_nSizeChecked);
+		NotifyObservers();
 	}
 };
 
@@ -233,7 +269,7 @@ void tSpecialRequestHandler::SendChunkRemoteOnly(string_view sv)
 
 	if(!sv.data() || sv.empty())
 		return;
-	evbuffer_add(PipeTx(), sv);
+	send(PipeTx(), sv);
 }
 
 void tSpecialRequestHandler::SendChunkRemoteOnly(evbuffer* data)
@@ -283,6 +319,7 @@ string_view GetTaskName(EWorkType type)
 	switch(type)
 	{
 	case EWorkType::UNKNOWN: return "SpecialOperation"sv;
+	case EWorkType::LOCALITEM: return "Local File Server"sv;
 	case EWorkType::REGULAR: return se;
 	case EWorkType::EXPIRE: return "Expiration"sv;
 	case EWorkType::EXP_LIST: return "Expired Files Listing"sv;
@@ -311,15 +348,11 @@ string_view GetTaskName(EWorkType type)
 	return "UnknownTask"sv;
 }
 
-EWorkType DetectWorkType(const tHttpUrl& reqUrl, const char* auth)
+EWorkType DetectWorkType(const tHttpUrl& reqUrl, string_view rawCmd, const char* auth)
 {
 	LOGSTARTs("DispatchMaintWork");
 
-	const auto& cmd = reqUrl.sPath;
-	LOG("cmd: " << cmd);
-
-	if (reqUrl.sHost == "style.css")
-		return EWorkType::STYLESHEET;
+	LOG("cmd: " << rawCmd);
 
 #if 0 // defined(DEBUG)
 	if(cmd.find("tickTack")!=stmiss)
@@ -329,23 +362,22 @@ EWorkType DetectWorkType(const tHttpUrl& reqUrl, const char* auth)
 	}
 #endif
 
-	auto epos=cmd.find('?');
-	if(epos == stmiss)
-		epos=cmd.length();
-	auto spos=cmd.find_first_not_of('/');
-	auto wlen=epos-spos;
-
-	// this can also hide in the URL!
-	if(wlen==cssString.length() && 0 == (cmd.compare(spos, wlen, cssString)))
+	if (reqUrl.sHost == "style.css")
 		return EWorkType::STYLESHEET;
 
-	// not starting like the maint page?
-	if(cmd.compare(spos, wlen, cfg::reportpage))
+	if (reqUrl.sHost == cfg::reportpage)
+		return EWorkType::REPORT;
+
+	trimBack(rawCmd);
+	trimFront(rawCmd, "/");
+
+	if (!startsWith(rawCmd, cfg::reportpage))
 		return EWorkType::UNKNOWN;
 
-	// ok, filename identical, also the end, or having a parameter string?
-	if(epos == cmd.length())
+	rawCmd.remove_prefix(cfg::reportpage.length());
+	if (rawCmd.empty() || rawCmd[0] != '?')
 		return EWorkType::REPORT;
+	rawCmd.remove_prefix(1);
 
 	// not smaller, was already compared, can be only longer, means having parameters,
 	// means needs authorization
@@ -364,36 +396,38 @@ EWorkType DetectWorkType(const tHttpUrl& reqUrl, const char* auth)
 	 default: return EWorkType::AUTH_DENY;
 	}
 
-	struct { LPCSTR trigger; EWorkType type; } matches [] =
+	struct { string_view trigger; EWorkType type; } matches [] =
 	{
-			{"doExpire=", EWorkType::EXPIRE},
-			{"justShow=", EWorkType::EXP_LIST},
-			{"justRemove=", EWorkType::EXP_PURGE},
-			{"justShowDamaged=", EWorkType::EXP_LIST_DAMAGED},
-			{"justRemoveDamaged=", EWorkType::EXP_PURGE_DAMAGED},
-			{"justTruncDamaged=", EWorkType::EXP_TRUNC_DAMAGED},
-			{"doImport=", EWorkType::IMPORT},
-			{"doMirror=", EWorkType::MIRROR},
-			{"doDelete=", EWorkType::DELETE_CONFIRM},
-			{"doDeleteYes=", EWorkType::DELETE},
-			{"doTruncate=", EWorkType::TRUNCATE_CONFIRM},
-			{"doTruncateYes=", EWorkType::TRUNCATE},
-			{"doCount=", EWorkType::COUNT_STATS},
-			{"doTraceStart=", EWorkType::TRACE_START},
-			{"doTraceEnd=", EWorkType::TRACE_END},
+			{"doExpire="sv, EWorkType::EXPIRE},
+			{"justShow="sv, EWorkType::EXP_LIST},
+			{"justRemove="sv, EWorkType::EXP_PURGE},
+			{"justShowDamaged="sv, EWorkType::EXP_LIST_DAMAGED},
+			{"justRemoveDamaged="sv, EWorkType::EXP_PURGE_DAMAGED},
+			{"justTruncDamaged="sv, EWorkType::EXP_TRUNC_DAMAGED},
+			{"doImport="sv, EWorkType::IMPORT},
+			{"doMirror="sv, EWorkType::MIRROR},
+			{"doDelete="sv, EWorkType::DELETE_CONFIRM},
+			{"doDeleteYes="sv, EWorkType::DELETE},
+			{"doTruncate="sv, EWorkType::TRUNCATE_CONFIRM},
+			{"doTruncateYes="sv, EWorkType::TRUNCATE},
+			{"doCount="sv, EWorkType::COUNT_STATS},
+			{"doTraceStart="sv, EWorkType::TRACE_START},
+			{"doTraceEnd="sv, EWorkType::TRACE_END},
 //			{"doJStats", workJStats}
 	};
 
 #warning check perfromance, might be inefficient, maybe use precompiled regex for do* and just* or at least separate into two groups
 	for(auto& needle: matches)
-		if(StrHasFrom(cmd, needle.trigger, epos))
+	{
+		if (rawCmd.find(needle.trigger) != stmiss)
 			return needle.type;
+	}
 
 	// something weird, go to the maint page
 	return EWorkType::REPORT;
 }
 
-tFileItemPtr Create(EWorkType jobType, bufferevent *bev, const tHttpUrl& url, const header& reqHead, SomeData *arg)
+tFileItemPtr Create(EWorkType jobType, bufferevent *bev, const tHttpUrl& url, void* arg)
 {
 	try
 	{
@@ -405,10 +439,10 @@ tFileItemPtr Create(EWorkType jobType, bufferevent *bev, const tHttpUrl& url, co
 		if (! item->GetHandler())
 			return tFileItemPtr();
 
-		if (item->GetHandler()->IsNonBlocking())
+		if (!item->GetHandler()->m_bNeedsBgThread)
 		{
 			item->GetHandler()->Run();
-			item->Finish();
+			item->Eof();
 			return ret;
 		}
 
@@ -419,12 +453,9 @@ tFileItemPtr Create(EWorkType jobType, bufferevent *bev, const tHttpUrl& url, co
 			try
 			{
 				item->GetHandler()->Run();
-				evabase::Post([item]()
-				{
-					// release the probably final reference when done
-					tFileItemPtr p(item, false);
-					item->Finish();
-				});
+				item->Eof();
+				// release the potentially last reference when done
+				evabase::Post([item]() { tFileItemPtr p(item, false); });
 			}
 			catch (...)
 			{
@@ -452,37 +483,41 @@ public:
 	BufItemPipeReader(BufferedPtItem* p) : source(p)
 	{
 	}
-	// ICacheDataSender interface
-public:
-	off_t NewBytesAvailable() override
+	ssize_t SendData(bufferevent *target, off_t& callerSendPos, size_t maxTake) override
 	{
-		return source->GetCheckedSize() - source->m_nSendPos;
-	}
-	ssize_t SendData(bufferevent *target, size_t maxTake) override
-	{
-		auto ret = evbuffer_remove_buffer(source->PipeRx(), besender(target), maxTake);
-		if (ret < 0)
-			source->DlSetError({500, "Stream error"}, fileitem::EDestroyMode::DELETE);
-		else
-			source->m_nSendPos += ret;
+		if (callerSendPos < source->m_nCursor)
+			return 0;
+		auto eb = source->PipeRx();
+		if (callerSendPos > source->m_nCursor)
+		{
+			auto todrop = min(off_t(evbuffer_get_length(eb)), callerSendPos - source->m_nCursor);
+			if (evbuffer_drain(eb, todrop))
+				return -1;
+			source->m_nCursor += todrop;
+			// still not enough, come back later
+			if (callerSendPos != source->m_nCursor)
+				return 0;
+		}
+		auto ret = evbuffer_remove_buffer(eb, besender(target), maxTake);
+		INCPOS(callerSendPos, ret);
+		INCPOS(source->m_nCursor, ret);
 		return ret;
 	}
 };
 
-std::unique_ptr<fileitem::ICacheDataSender> BufferedPtItem::GetCacheSender(off_t startPos)
+std::unique_ptr<fileitem::ICacheDataSender> BufferedPtItem::GetCacheSender()
 {
-	ebstream view(PipeRx());
-	auto have = off_t(view.size());
-	if (have < startPos)
-		return std::unique_ptr<ICacheDataSender>();
-	if (startPos > 0)
-		view.drop(startPos);
 	return make_unique<BufItemPipeReader>(this);
 }
 
-void cb_notify_new_pipe_data(struct bufferevent *bev, void *ctx)
+void cb_notify_new_pipe_data(struct bufferevent *, void *ctx)
 {
 	((BufferedPtItem*)ctx)->GotNewData();
 }
+void cb_bgpipe_event(struct bufferevent *, short what, void *ctx)
+{
+	((BufferedPtItem*)ctx)->BgPipeEvent(what);
+}
+
 
 }

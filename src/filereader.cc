@@ -342,8 +342,10 @@ bool filereader::OpenFile(const string & sFilename, bool bNoMagic, unsigned nFak
 	// ORDER DOES MATTER! No returns anymore before the mmap entry was booked in "the memory"
 
 #ifdef HAVE_MADVISE
-	// if possible, prepare to read that
-	posix_madvise(m_szFileBuf, statbuf.st_size, POSIX_MADV_SEQUENTIAL);
+	if (statbuf.st_size > 8000) // optimize but only for larger files
+	{
+		posix_madvise(m_szFileBuf, statbuf.st_size, POSIX_MADV_SEQUENTIAL);
+	}
 #endif
 	
 #ifdef SHRINKTEST

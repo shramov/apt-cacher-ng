@@ -229,7 +229,8 @@ ACNG_API int evabase::MainLoop()
 
 	int r = event_base_loop(evabase::base, EVLOOP_NO_EXIT_ON_EMPTY);
 
-	auto push_loop = [eb = evabase::base]() {
+	auto push_loop = [eb = evabase::base]()
+	{
 		// push the loop a few times to make sure that the state change
 		// is propagated to the background threads
 		for (int i = 10; i >= 0; --i)

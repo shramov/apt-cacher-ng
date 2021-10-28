@@ -30,8 +30,6 @@ public:
 	  */
 	virtual void Run() override;
 
-	bool IsNonBlocking() const override { return false; }
-
 protected:
 	bool CheckStopSignal();
 

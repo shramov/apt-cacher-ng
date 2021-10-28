@@ -35,7 +35,7 @@ public:
 protected:
 		bool DlStarted(evbuffer *rawData, size_t headerLen, const tHttpDate &modDate, cmstring &origin, tRemoteStatus status, off_t bytes2seek, off_t bytesAnnounced) override;
 public:
-		std::unique_ptr<ICacheDataSender> GetCacheSender(off_t startPos) override;
+		std::unique_ptr<ICacheDataSender> GetCacheSender() override;
 };
 
 }

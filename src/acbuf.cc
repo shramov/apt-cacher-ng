@@ -169,7 +169,9 @@ tSS& tSS::operator<<(evbuffer* eb)
 {
 	auto len = evbuffer_get_length(eb);
 	reserve_atleast(len);
-	evbuffer_copyout(eb, wptr(), len);
+	auto nCopied = evbuffer_copyout(eb, wptr(), len);
+	if (nCopied > 0)
+		got(nCopied);
 	return *this;
 }
 

@@ -1,3 +1,12 @@
+apt-cacher-ng (4.0) 4-ELIZA; urgency=low
+
+  * A new(er) generation of Apt-Cacher NG is emerging!
+  * Completely revamped item serving code, now mostly single-threaded
+    asynchronous IO style
+  * Revised response processing code, unifying header creation
+
+ -- 
+
 apt-cacher-ng (3.7.3) THERE-IS-NO-KNIVE; urgency=low
 
   [ IMPROVEMENTS ]

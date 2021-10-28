@@ -55,7 +55,7 @@ public:
 		int fd;
 		// reference to the carrier item
 		BufferedPtItemBase& output;
-		SomeData *arg;
+		void* arg;
 		lint_ptr<fileitem> pin();
 	};
 
@@ -65,8 +65,6 @@ public:
 	virtual void Run() =0;
 
 	virtual ~tSpecialRequestHandler();
-
-	virtual bool IsNonBlocking() const { return false; }
 
 	tSpecialRequestHandler(tRunParms&& parms);
 
@@ -136,6 +134,8 @@ public:
 #define SendChunkSZ(x) SendChunk(WITHLEN(x))
 
 	bSS m_fmtHelper;
+
+	bool m_bNeedsBgThread = true;
 };
 
 std::string to_base36(unsigned int val);

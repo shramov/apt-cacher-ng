@@ -91,17 +91,12 @@ public:
 	{
 	public:
 		/**
-		 * @brief Available reports length available to send
-		 * @return Negative on error, otherwyse available bytes
-		 */
-		virtual off_t NewBytesAvailable() =0;
-		/**
 		 * @brief SendData moves data from internal cached item descriptor to the target stream.
 		 * @param target The bufferevent covering the receiver connection.
 		 * @param maxTake Limits the data to be transfered
 		 * @return How much data was added to target, -1 on error
 		 */
-		virtual ssize_t SendData(bufferevent* target, size_t maxTake) =0;
+		virtual ssize_t SendData(bufferevent* target, off_t& sendPos, size_t maxTake) =0;
 		virtual ~ICacheDataSender() = default;
 	};
 	/**
@@ -109,7 +104,7 @@ public:
 	 * @param startPos
 	 * @return Invalid pointer if the helper is not usable yet
 	 */
-	virtual std::unique_ptr<ICacheDataSender> GetCacheSender(off_t startPos = 0) =0;
+	virtual std::unique_ptr<ICacheDataSender> GetCacheSender() =0;
 
 	fileitem(string_view sPathRel);
 	virtual ~fileitem() =default;
@@ -128,6 +123,7 @@ public:
 	off_t GetCheckedSize() { return m_nSizeChecked; }
 	bool IsVolatile() { return m_spattr.bVolatile; }
 	bool IsHeadOnly() { return m_spattr.bHeadOnly; }
+	bool IsLocallyGenerated() { return m_bLocallyGenerated; }
 	off_t GetRangeLimit() { return m_spattr.nRangeLimit; }
 
 	off_t m_nIncommingCount = 0;
@@ -143,11 +139,14 @@ public:
 	// trade-off between unneccessary parsing and on-the-heap storage
 	tHttpDate m_responseModDate;
 
-	string_view m_contentType = "octet/stream";
+	mstring m_contentType = "octet/stream";
 
 protected:
 
 	bool m_bPreallocated = false;
+
+	/** Relax the safety-checks on the remote body type */
+	bool m_bLocallyGenerated = false;
 	/**
 	 * The item is usable but data might be fishy, so that file must be removed/replaced on opening.
 	 */
@@ -216,7 +215,7 @@ public:
 	 * @param originOrRedirect
 	 * @param contLen
 	 */
-	void ManualStart(int statusCode, string_view statusMessage, string_view mimetype = "octet/stream", string_view originOrRedirect = "", off_t contLen = -1);
+	void ManualStart(int statusCode, mstring statusMessage, mstring mimetype = "octet/stream", mstring originOrRedirect = "", off_t contLen = -1);
 
 protected:
 	// flag for shared objects and a self-reference for fast and exact deletion, together with m_globRef
@@ -276,7 +275,7 @@ protected:
 
 	// fileitem interface
 public:
-	std::unique_ptr<ICacheDataSender> GetCacheSender(off_t startPos) override;
+	std::unique_ptr<ICacheDataSender> GetCacheSender() override;
 };
 
 }

@@ -405,6 +405,8 @@ inline deque<tRowData> GetStats()
 
 string GetStatReport()
 {
+#warning reimplement this in an iframe!
+	return "";
 	string ret;
 	vector<char> buf(1024);
 	for (auto& entry : log::GetStats())

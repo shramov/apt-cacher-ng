@@ -87,8 +87,6 @@ public:
 	void CookResponseHeader();
     void AddPtHeader(cmstring& remoteHead);
 	void SetEarlySimpleResponse(string_view message, bool nobody = false);
-	void PrepareLocalDownload(const mstring &visPath, const mstring &fsBase,
-			const mstring &fsSubpath);
 
     bool ParseRange(const header& h);
 	/**
@@ -99,11 +97,6 @@ public:
     void AppendMetaHeaders();
 	void PrependHttpVariant();
 	eJobResult subscribeAndExit();
-	/**
-	 * @brief CheckSendableState reports how many bytes can be sent next
-	 * @return Byte count or -1 on errors
-	 */
-	off_t CheckSendableState();
 	/**
 	 * @brief GetBufFmter prepares the formatting buffer
 	 * @return Format object usable for convenient data adding, which is sent ASAP in the next operation cycles

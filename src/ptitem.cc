@@ -107,23 +107,17 @@ class tPassThroughFitem::TSender : public fileitem::ICacheDataSender
 	lint_ptr<tPassThroughFitem> parent;
 public:
 	TSender(tPassThroughFitem* p) : parent(p) {}
-	ssize_t SendData(bufferevent* target, size_t maxTake) override
+	ssize_t SendData(bufferevent* target, off_t& callerSendPos, size_t maxTake) override
 	{
 		auto tocopy = std::min(evbuffer_get_length(parent->m_q), maxTake);
 		auto howmuch = evbuffer_remove_buffer(parent->m_q, bufferevent_get_input(target), tocopy);
-		// push the data source when needed
-		//if (evbuffer_get_length(parent->m_q) >= PT_BUFFER_LIMIT)
 		parent->NotifyObservers();
+		callerSendPos += howmuch;
 		return howmuch;
-	}
-
-	virtual off_t NewBytesAvailable() override
-	{
-		return evbuffer_get_length(parent->m_q);
 	}
 };
 
-std::unique_ptr<fileitem::ICacheDataSender> tPassThroughFitem::GetCacheSender(off_t)
+std::unique_ptr<fileitem::ICacheDataSender> tPassThroughFitem::GetCacheSender()
 {
 	return std::make_unique<TSender>(this);
 }

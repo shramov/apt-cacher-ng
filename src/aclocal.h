@@ -8,7 +8,9 @@ namespace acng
 
 class aclocal : public acng::tSpecialRequestHandler
 {
-	struct TParms : public SomeData
+public:
+
+	struct TParms
 	{
 		mstring visPath;
 		mstring fsBase;
@@ -16,7 +18,6 @@ class aclocal : public acng::tSpecialRequestHandler
 		off_t offset;
 	};
 
-public:
 	aclocal(tSpecialRequestHandler::tRunParms&& parms);
 	void Run() override;
 

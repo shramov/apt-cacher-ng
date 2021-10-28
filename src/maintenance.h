@@ -12,6 +12,7 @@ enum class EWorkType : int8_t
 {
 	UNKNOWN = -1,
 	REGULAR = 0,
+	LOCALITEM,
 	// expiration types
 	EXPIRE,
 	EXP_LIST,
@@ -36,7 +37,7 @@ enum class EWorkType : int8_t
 	//,workBGTEST,
 };
 
-EWorkType DetectWorkType(const tHttpUrl& reqUrl, const char* auth);
+EWorkType DetectWorkType(const tHttpUrl& reqUrl, string_view rawCmd, const char* auth);
 /**
  * @brief Create a new "hot" fileitem (might have a thread attached already).
  * @param wType
@@ -46,7 +47,7 @@ EWorkType DetectWorkType(const tHttpUrl& reqUrl, const char* auth);
  * @return New fileitem object pointer, nullptr if the request is not supposed to be served by us
  */
 
-tFileItemPtr Create(EWorkType jobType, bufferevent *bev, const tHttpUrl& url, const header& reqHead, SomeData *arg=nullptr);
+tFileItemPtr Create(EWorkType jobType, bufferevent *bev, const tHttpUrl& url, void *arg = nullptr);
 
 }
 

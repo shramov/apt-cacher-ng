@@ -268,76 +268,55 @@ class TSimpleSender : public fileitem::ICacheDataSender
 {
 	// ICacheDataSender interface
 	unique_eb m_buf = unique_eb(evbuffer_new());
-	off_t m_pos = 0;
-	off_t& m_nCurSize;
+	off_t m_nCursor = 0;
+	int m_error = 0;
 public:
-	TSimpleSender(int fd, off_t offset, off_t fileSize, off_t& curSizeVar)
-		: m_nCurSize(curSizeVar)
+	TSimpleSender(int fd, off_t fileSize)
 	{
 		CHECK_ALLOCATED(*m_buf);
-		evbuffer_add_file(*m_buf, fd, offset, fileSize - offset);
-		m_pos = offset;
+		m_error = evbuffer_add_file(*m_buf, fd, 0, fileSize);
 	}
-	ssize_t SendData(bufferevent *target, size_t maxTake) override
+	ssize_t SendData(bufferevent *target, off_t& callerSendPos, size_t maxTake) override
 	{
-		auto n = evbuffer_remove_buffer(*m_buf, besender(target), maxTake);
-		if (n > 0)
-			m_pos += n;
-		return n;
-	}
+		if (m_error)
+			return -1;
 
-	// ICacheDataSender interface
-public:
-	off_t NewBytesAvailable() override
-	{
-		return m_nCurSize - m_pos;
+		// whole file is mapped -> drain whatever is needed
+		if (callerSendPos > m_nCursor)
+		{
+			if (evbuffer_drain(*m_buf, (callerSendPos - m_nCursor)))
+				return -1;
+		}
+#warning this still sucks, retval is int which is a potential 2gb limit. Add a better wrapper which runs this multiple times.
+		auto n = evbuffer_remove_buffer(*m_buf, besender(target), maxTake);
+		INCPOS(callerSendPos, n);
+		return n;
 	}
 };
 
 class ACNG_API TSegmentSender : public fileitem::ICacheDataSender
 {
 public:
-	TSegmentSender(int fd, off_t offset);
-
-	// ICacheDataSender interface
-public:
-	off_t NewBytesAvailable() override;
-
-	// ICacheDataSender interface
-public:
-	ssize_t SendData(bufferevent *target, size_t maxTake) override;
+	TSegmentSender(int fd, off_t offset) {ASSERT(!"notimplemented");};
+	ssize_t SendData(bufferevent *target, off_t& callerSendPos, size_t maxTake) override {ASSERT(!"notimplemented");};
 };
 
-std::unique_ptr<fileitem::ICacheDataSender> TFileitemWithStorage::GetCacheSender(off_t startPos)
+std::unique_ptr<fileitem::ICacheDataSender> TFileitemWithStorage::GetCacheSender()
 {
 	LOGSTART("fileitem::GetFileFd");
 	setLockGuard;
 
-	if (m_status < FIST_DLRECEIVING || m_nSizeChecked < startPos)
-		return std::unique_ptr<fileitem::ICacheDataSender>();
-
 	USRDBG("Opening " << m_sPathRel);
 	int fd = open(SZABSPATH(m_sPathRel), O_RDONLY);
-	if (startPos < m_nSizeChecked)
-		return std::unique_ptr<fileitem::ICacheDataSender>();
-#warning implement segment sender
-	ASSERT(m_nContentLength < 0 || startPos < m_nContentLength);
-	ASSERT(!"implement segment sender if needed");
-#if 0
 
 #ifdef HAVE_FADVISE
-	// optional, experimental
-	if (fd != -1)
-		posix_fadvise(fd, 0, m_nSizeChecked, POSIX_FADV_SEQUENTIAL);
+	posix_fadvise(fd, 0, m_nSizeChecked, POSIX_FADV_SEQUENTIAL);
 #endif
 
-	return unique_fd(fd);
-#endif
+	if (m_nSizeChecked > 0 || m_status == FIST_COMPLETE)
+		return make_unique<TSimpleSender>(fd, m_nSizeChecked);
 
-	if (m_nContentLength > 0 || m_status == FIST_COMPLETE)
-		return make_unique<TSimpleSender>(fd, startPos, m_nContentLength, m_nSizeChecked);
-
-	return make_unique<TSegmentSender>(fd, startPos);
+	return make_unique<TSegmentSender>(fd, 0);
 }
 
 /*
@@ -615,16 +594,21 @@ void fileitem::DlSetError(const tRemoteStatus& errState, fileitem::EDestroyMode 
 		m_eDestroy = kmode;
 }
 
-void fileitem::ManualStart(int statusCode, string_view statusMessage, string_view mimetype, string_view originOrRedirect, off_t contLen)
+void fileitem::ManualStart(int statusCode, mstring statusMessage, mstring mimetype, mstring originOrRedirect, off_t contLen)
 {
+	LOGSTARTFUNCs;
 	auto q = [pin = as_lptr(this), statusCode, statusMessage, mimetype, originOrRedirect, contLen]()
 	{
+		LOGSTARTFUNCs
 		ASSERT(!statusMessage.empty());
+		pin->m_bLocallyGenerated = true;
 		pin->NotifyObservers();
+		ldbg(pin->m_status);
 		if (pin->m_status > FIST_COMPLETE)
 			return; // error-out already
 		ASSERT(pin->m_status < FIST_DLGOTHEAD);
 		pin->m_responseStatus = {statusCode, string(statusMessage)};
+		ldbg(statusCode << " " << statusMessage)
 		if (!mimetype.empty())
 			pin->m_contentType = mimetype;
 		pin->m_responseOrigin = originOrRedirect;
@@ -634,27 +618,15 @@ void fileitem::ManualStart(int statusCode, string_view statusMessage, string_vie
 			pin->m_status = FIST_DLGOTHEAD;
 	};
 	if (evabase::IsMainThread())
+	{
+		dbgline;
 		q();
+	}
 	else
+	{
+		dbgline;
 		evabase::Post(q);
+	}
 }
-
-TSegmentSender::TSegmentSender(int fd, off_t offset)
-{
-	ASSERT(!"implementme");
-}
-
-off_t TSegmentSender::NewBytesAvailable()
-{
-	ASSERT(!"implementme");
-	return -1;
-}
-
-ssize_t TSegmentSender::SendData(bufferevent *target, size_t maxTake)
-{
-	ASSERT(!"implementme");
-	return -1;
-}
-
 
 }

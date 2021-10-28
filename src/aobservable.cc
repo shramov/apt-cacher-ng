@@ -45,12 +45,18 @@ void aobservable::doNotify()
 
 	for (auto it = m_observers.begin(); it != m_observers.end(); )
 	{
+		// set the flag
 		m_currentlyProcessing = it;
+
 		(*it)();
+
 		if (m_currentlyProcessing == it)
 			++it;
 		else // hot removal was requested by unsubscribe?
 			it = m_observers.erase(it);
+
+		// and remove the flag again
+		m_currentlyProcessing = m_observers.end();
 	}
 
 	if (m_bNotifyPending) // requested again?

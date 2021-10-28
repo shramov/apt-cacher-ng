@@ -15,19 +15,19 @@ namespace acng
 aclocal::aclocal(tSpecialRequestHandler::tRunParms&& parms)
 	: acng::tSpecialRequestHandler(move(parms))
 {
-	auto p = dynamic_cast<TParms*>(m_parms.arg);
+	auto p = (const TParms*)(m_parms.arg);
 	if (!p)
 		throw std::bad_cast();
 }
 
 void aclocal::SetEarlySimpleResponse(int code, string_view msg)
 {
-	m_parms.output.ManualStart(code, msg);
+	m_parms.output.ManualStart(code, to_string(msg));
 }
 
 void aclocal::Run()
 {
-	auto p = dynamic_cast<TParms*>(m_parms.arg);
+	auto p = (const TParms*)(m_parms.arg);
 	auto& fsBase = p->fsBase;
 	auto& fsSubpath = p->fsSubpath;
 	auto& visPath = p->visPath;
@@ -65,10 +65,10 @@ void aclocal::Run()
 			tFmtSendObj tx(this, true);
 			m_fmtHelper << "<!DOCTYPE html>\n<html lang=\"en\"><head><title>301 Moved Permanently</title></head><body><h1>Moved Permanently</h1>"
 				 "<p>The document has moved <a href=\""sv << visPath << "/\">here</a>.</p></body></html>"sv;
-			m_parms.output.ManualStart(301, "Moved Permanently"sv, "text/html"sv, visPath + "/", m_fmtHelper.size());
+			m_parms.output.ManualStart(301, "Moved Permanently", "text/html", visPath + "/", m_fmtHelper.size());
 			return;
 		}
-		m_parms.output.ManualStart(200, "OK", "text/html"sv);
+		m_parms.output.ManualStart(200, "OK", "text/html");
 		SendFmt << "<!DOCTYPE html>\n<html lang=\"en\"><head><title>Index of "sv
 			 << visPath << "</title></head><body><h1>Index of "sv << visPath << "</h1>"sv
 															   "<table><tr><th>&nbsp;</th><th>Name</th><th>Last modified</th><th>Size</th></tr>"sv
@@ -113,7 +113,7 @@ void aclocal::Run()
 			while(!sortHeap.empty())
 			{
 				evbuffer *p = sortHeap.top().second;
-				SendFmt << "<tr><td valign=\"top\">"sv << bSS::consume_buffers << p << "</td></tr>\r\n"sv;
+				SendFmt << "<tr><td valign=\"top\">"sv << ebstream::bmode::buftake << p << "</td></tr>\r\n"sv;
 				evbuffer_free(p);
 				sortHeap.pop();
 			}

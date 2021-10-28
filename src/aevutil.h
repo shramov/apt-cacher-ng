@@ -40,7 +40,8 @@ struct TEbUniqueLock : public auto_raii<evbuffer*, evbuffer_unlock, nullptr>
 
 inline evbuffer* besender(bufferevent* be) { return bufferevent_get_output(be); }
 inline evbuffer* bereceiver(bufferevent* be) { return bufferevent_get_input(be); }
-inline void evbuffer_add(evbuffer *dest, string_view sv) { if (evbuffer_add(dest, sv.data(), sv.length())) throw std::bad_alloc();}
+inline void send(evbuffer *dest, string_view sv) { if (evbuffer_add(dest, sv.data(), sv.length())) throw std::bad_alloc();}
+inline void send(bufferevent *dest, string_view sv) { return send(besender(dest), sv); }
 
 using unique_event = auto_raii<event*, event_free, nullptr>;
 using unique_eb = auto_raii<evbuffer*, evbuffer_free, nullptr>;
@@ -49,9 +50,8 @@ using unique_eb = auto_raii<evbuffer*, evbuffer_free, nullptr>;
  * @brief bufferevent_free_fd_close destroys releases bufferevent AND closes the socket manually.
  * XXX: actually, send a shutdown command first?
  */
-void be_free_fd_close(bufferevent*);
-void be_flush_and_close(bufferevent*);
-void be_flush_and_release_and_fd_close(bufferevent*);
+void be_free_close(bufferevent*);
+void be_flush_free_close(bufferevent*);
 /**
  * This will simply finish the bufferent by freeing, closing of the FD must be handled by bufferevent (... CLOSE_ON_FREE)
  */
@@ -59,12 +59,12 @@ using unique_bufferevent = auto_raii<bufferevent*, bufferevent_free, nullptr>;
 /**
  * Free the event when finishing and close its FD explicitly.
  */
-using unique_bufferevent_fdclosing = auto_raii<bufferevent*, be_free_fd_close, nullptr>;
+using unique_bufferevent_fdclosing = auto_raii<bufferevent*, be_free_close, nullptr>;
 /**
  * Flush the outgoing data by getting the confirmation from peer,
  * then free the event when finishing and close its FD explicitly.
  */
-using unique_bufferevent_flushclosing = auto_raii<bufferevent*, be_flush_and_release_and_fd_close, nullptr>;
+using unique_bufferevent_flushclosing = auto_raii<bufferevent*, be_flush_free_close, nullptr>;
 
 // configure timeouts and enable a bufferent for bidirectional communication
 void setup_be_bidirectional(bufferevent *be);

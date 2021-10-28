@@ -14,6 +14,7 @@
 #include "maintenance.h"
 #include "evabase.h"
 #include "aevutil.h"
+#include "aclocal.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -236,9 +237,11 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 	{
 		if (0 == strncasecmp(h.h[header::CONNECTION], WITHLEN("close")))
 			m_keepAlive = CLOSE;
-		if (0 == strncasecmp(h.h[header::CONNECTION], WITHLEN("Keep-Alive")))
+		else if (0 == strncasecmp(h.h[header::CONNECTION], WITHLEN("Keep-Alive")))
 			m_keepAlive = KEEP;
 	}
+	else if (m_bIsHttp11)
+		m_keepAlive = CLOSE;
 
 	constexpr string_view fname = "/_actmp";
 
@@ -262,7 +265,7 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 		if(!theUrl.SetHttpUrl(sReqPath, false))
 		{
 			LOG("work type: USERINFO");
-			m_pItem.reset(Create(EWorkType::USER_INFO, be, theUrl, h));
+			m_pItem.reset(Create(EWorkType::USER_INFO, be, theUrl ));
 			return m_pItem ? void() : report_overload(__LINE__);;
 		}
 		LOG("refined path: " << theUrl.sPath << "\n on host: " << theUrl.sHost);
@@ -289,13 +292,18 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 
 		try
 		{
-			auto t = DetectWorkType(theUrl, h.h[header::AUTHORIZATION]);
+			auto t = DetectWorkType(theUrl, sReqPath, h.h[header::AUTHORIZATION]);
+			ldbg("type: " << (int) t);
 			if (t > EWorkType::REGULAR)
 			{
-				m_pItem.reset(Create(t, be, theUrl, h));
-				if (!m_pItem)
-					return report_overload(__LINE__);
+				m_pItem.reset(Create(t, be, theUrl));
+				return m_pItem ? void() : report_overload(__LINE__);
 			}
+		}
+		catch (const exception& ex)
+		{
+			LOG(ex.what());
+			return report_overload(__LINE__);
 		}
 		catch (...)
 		{
@@ -309,7 +317,11 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 			if (it != cfg::localdirs.end())
 			{
 				ParseRange(h);
-				PrepareLocalDownload(sReqPath, it->second, theUrl.sPath);
+				aclocal::TParms serveParms
+				{
+					sReqPath, it->second, theUrl.sPath, m_nReqRangeFrom < 0 ? 0 : m_nReqRangeFrom
+				};
+				m_pItem.reset(Create(EWorkType::LOCALITEM, be, theUrl, &serveParms));
 				return;
 			}
 		}
@@ -357,7 +369,7 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 			if (data_type == FILE_INVALID)
 			{
 				LOG("generic user information page for " << theUrl.sPath);
-				m_pItem.reset(Create(EWorkType::USER_INFO, be, theUrl, h));
+				m_pItem.reset(Create(EWorkType::USER_INFO, be, theUrl));
 				return m_pItem ? void() : report_overload(__LINE__);;
 			}
 		}
@@ -525,6 +537,7 @@ job::eJobResult job::subscribeAndExit()
 
 	try
 	{
+#warning better function for range start -> compare right there and don't call parent. must also check dl-receiving state.
 		ASSERT(m_pItem); // very unlikely to fail
 		m_subKey = m_pItem->Subscribe([this]() {
 			return m_parent.poke(GetId());
@@ -535,18 +548,6 @@ job::eJobResult job::subscribeAndExit()
 	{
 		return R_DISCON;
 	}
-}
-
-off_t job::CheckSendableState()
-{
-	auto st = m_pItem->GetStatus();
-	if (st > fileitem::FIST_COMPLETE)
-		return -1;
-	if (! m_dataSender && m_pItem)
-		m_dataSender = m_pItem->GetCacheSender(m_nReqRangeFrom);
-	if (! m_dataSender)
-		return 0;
-	return m_dataSender->NewBytesAvailable();
 }
 
 ebstream job::GetBufFmter()
@@ -587,8 +588,14 @@ job::eJobResult job::Resume(bool canSend, bufferevent* be)
 		return return_discon(); // shouldn't be here
 	}
 
+#define HANDLE_OR_DISCON { if (HandleSuddenError()) continue ; return R_DISCON; }
+#define ENSURE_NOT_ITEM_ERROR if (fi->GetStatus() > fileitem::FIST_COMPLETE) HANDLE_OR_DISCON;
+#define ENSURE_SENDER_SET if (!m_dataSender) m_dataSender = fi->GetCacheSender(); if (!m_dataSender) HANDLE_OR_DISCON;
+#define SWITCHPHASE(t) { m_activity = t; continue; }
+
 	auto fi = m_pItem.get();
-	ASSERT(fi);
+	if (AC_UNLIKELY(!fi && HandleSuddenError()))
+		return R_DISCON;
 
 	do
 	{
@@ -596,9 +603,11 @@ job::eJobResult job::Resume(bool canSend, bufferevent* be)
 
 		if (m_preHeadBuf.valid())
 		{
-			ldbg("prebuf sending: " << m_preHeadBuf.get());
+			ldbg("prebuf sending: " << *m_preHeadBuf);
 			if (0 != evbuffer_add_buffer(besender(be), *m_preHeadBuf))
 				return R_DISCON;
+
+			// never used again, even chunk-head-builder writes to stream
 			m_preHeadBuf.reset();
 		}
 
@@ -610,17 +619,13 @@ job::eJobResult job::Resume(bool canSend, bufferevent* be)
 		}
 		case (STATE_NOT_STARTED):
 		{
-#define CHECK_SENDABLE_OR_BACKOFF auto sstate = CheckSendableState(); \
-	if (sstate == 0) return subscribeAndExit(); \
-	if (sstate < 0) { if (HandleSuddenError()) continue; return R_DISCON; };
-
 			if (fi->GetStatus() < fileitem::FIST_DLGOTHEAD)
 				return subscribeAndExit();
 
 			dbgline;
 			CookResponseHeader();
 			ASSERT(m_activity != STATE_NOT_STARTED);
-			// state was changed to sending or error
+			// state was changed to some sending state or error
 			continue;
 		}
 		case (STATE_SEND_BUF_NOT_FITEM):
@@ -637,24 +642,25 @@ job::eJobResult job::Resume(bool canSend, bufferevent* be)
 			if (m_bIsHeadOnly) // there is no data to come!
 				return fin_stream_good();
 
-			CHECK_SENDABLE_OR_BACKOFF;
+			ENSURE_NOT_ITEM_ERROR;
+			ENSURE_SENDER_SET;
 
-			ASSERT(fi->GetCheckedSize() >=0);
+			if (fi->GetCheckedSize() <= m_nSendPos)
+				return subscribeAndExit();
 
 			auto limit = fi->GetCheckedSize() - m_nSendPos;
 			if (m_nReqRangeTo >= 0)
 				limit = min(m_nReqRangeTo + 1 - m_nSendPos, limit);
 			if (limit <= 0)
 				return R_DISCON;
-			ldbg("~senddata: to " << fi->GetCheckedSize() << ", OLD m_nSendPos: " << m_nSendPos);
-			auto n = m_dataSender->SendData(be, limit);
+			//ldbg("~senddata: to " << fi->GetCheckedSize() << ", OLD m_nSendPos: " << m_nSendPos);
+			auto n = m_dataSender->SendData(be, m_nSendPos, limit);
 			if (n < 0)
 				return return_discon();
-			m_nSendPos += n;
 			m_nAllDataCount += n;
 			if (n < limit)
 				return subscribeAndExit();
-			ldbg("~senddata: " << n << " new m_nSendPos: " << m_nSendPos);
+			//ldbg("~senddata: " << n << " new m_nSendPos: " << m_nSendPos);
 			if ((fi->GetStatus() == fileitem::FIST_COMPLETE && m_nSendPos == fi->GetCheckedSize())
 				|| (m_nReqRangeTo >= 0 && m_nSendPos >= m_nReqRangeTo + 1))
 			{
@@ -664,36 +670,39 @@ job::eJobResult job::Resume(bool canSend, bufferevent* be)
 		}
 		case (STATE_SEND_CHUNK_HEADER):
 		{
-			CHECK_SENDABLE_OR_BACKOFF;
-			ebstream hfmt(be);
-			if (fi->GetStatus() == fileitem::FIST_COMPLETE && m_nSendPos == fi->GetCheckedSize())
+			ENSURE_NOT_ITEM_ERROR;
+			m_nChunkEnd = fi->GetCheckedSize();
+			if (m_nChunkEnd < m_nSendPos)
+				return subscribeAndExit();
+
+			ebstream outStream(be);
+			outStream << ebstream::imode::hex << (m_nChunkEnd - m_nSendPos) << svRN;
+			// ... unless we are at the end already
+			if (fi->GetStatus() == fileitem::FIST_COMPLETE && m_nSendPos == fi->m_nContentLength)
 			{
-				hfmt << "0\r\n\r\n"sv;
+				outStream << svRN;
 				m_activity = STATE_DONE;
 			}
 			else
 			{
-				m_nChunkEnd = fi->GetCheckedSize();
-				hfmt << tSS::hex << (m_nChunkEnd - m_nSendPos) << svRN;
+				ENSURE_SENDER_SET;
 				m_activity = STATE_SEND_CHUNK_DATA;
 			}
 			continue;
 		}
 		case (STATE_SEND_CHUNK_DATA):
 		{
-			CHECK_SENDABLE_OR_BACKOFF;
-			// this is only entered after STATE_SEND_CHUNK_HEADER
+			// entered after STATE_SEND_CHUNK_HEADER, end was checked
 			auto limit = m_nChunkEnd - m_nSendPos;
-			auto n = m_dataSender->SendData(be, limit);
+			auto n = m_dataSender->SendData(be, m_nSendPos, limit);
 			if (n < 0)
 				return return_discon();
-			m_nSendPos += n;
 			m_nAllDataCount += n;
 			if (n < limit)
 				return subscribeAndExit();
 			if (m_nSendPos == m_nChunkEnd)
 			{
-				SB << svRN;
+				bufferevent_write(be, svRN);
 				m_activity = STATE_SEND_CHUNK_HEADER;
 			}
 			continue;
@@ -770,7 +779,7 @@ inline void job::CookResponseHeader()
 	if(!remoteHead.empty())
 		return AddPtHeader(remoteHead);
 
-	SB << tSS::dec;
+	SB << ebstream::imode::dec;
 
 	// we might need to massage this before responding
 	auto status = fi->m_responseStatus;
@@ -792,8 +801,8 @@ inline void job::CookResponseHeader()
 		m_activity = STATE_SEND_BUF_NOT_FITEM;
 		return AppendMetaHeaders();
 	}
-	// everything else is either an error, or not-modified, or must have content
-	if (status.code != 200)
+	// everything else is either an error, or not-modified, or must have content. For error pages, cut their content to avoid any side effects for user
+	if (status.code != 200 && ! fi->IsLocallyGenerated())
 	{
 		return quickResponse(ltos(status.code) + " " + status.msg);
 	}
@@ -813,7 +822,7 @@ inline void job::CookResponseHeader()
 	auto goChunked = true;
 #else
 	auto goChunked =
-			contLen < 0 && fist == fileitem::FIST_DLRECEIVING
+			contLen < 0 && fist < fileitem::FIST_COMPLETE
 					// except for when only a range is wanted and that range is already available
 					&& !(m_nReqRangeTo > 0 && ds >= m_nReqRangeTo);
 #endif
@@ -895,11 +904,6 @@ void job::SetEarlySimpleResponse(string_view message, bool nobody)
 	   << "\r\nContent-Type: text/html\r\n"sv;
 	AppendMetaHeaders();
 	SB << body;
-}
-
-void job::PrepareLocalDownload(const mstring &visPath, const mstring &fsBase, const mstring &fsSubpath)
-{
-#warning implementme
 }
 
 void job::AppendMetaHeaders()

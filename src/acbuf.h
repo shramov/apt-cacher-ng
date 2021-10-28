@@ -1,4 +1,4 @@
-
+﻿
 #ifndef _acbuf_H
 #define _acbuf_H
 
@@ -98,7 +98,7 @@ public:
 	inline tSS & operator<<(const acbuf& val) { return add(val.rptr(), val.size()); };
 	inline tSS & operator<<(const string_view& val) { return add(val.data(), val.size()); };
 
-#define __tss_nbrfmt(x, h, y) { reserve_atleast(22); got(sprintf(wptr(), m_fmtmode == hex ? h : x, y)); return *this; }
+#define __tss_nbrfmt(x, h, y) { reserve_atleast(22); got(sprintf(wptr(), m_fmtmode == fmtflags::hex ? h : x, y)); return *this; }
 	inline tSS & operator<<(int val) __tss_nbrfmt("%d", "%x", val);
 	inline tSS & operator<<(unsigned int val) __tss_nbrfmt("%u", "%x", val);
 	inline tSS & operator<<(long val) __tss_nbrfmt("%ld", "%lx", val);
@@ -108,7 +108,7 @@ public:
 	inline tSS & operator<<(void* val) __tss_nbrfmt("ptr:%llu", "ptr:0x%llx", (long long unsigned) val);
 	tSS &operator<<(evbuffer* eb);
 
-    enum fmtflags : bool { hex, dec };
+	enum class fmtflags : bool { hex, dec };
     inline tSS & operator<<(fmtflags mode) { m_fmtmode=mode; return *this;}
 
 	operator std::string() const { return std::string(rptr(), size()); }
@@ -116,8 +116,8 @@ public:
     inline size_t length() const { return size();}
     inline const char * data() const { return rptr();}
 
-    inline tSS() : m_fmtmode(dec){}
-    inline tSS(size_t sz) : m_fmtmode(dec) { setsize(sz); }
+	inline tSS() : m_fmtmode(fmtflags::dec){}
+	inline tSS(size_t sz) : m_fmtmode(fmtflags::dec) { setsize(sz); }
     inline tSS(const tSS &src) : acbuf(), m_fmtmode(src.m_fmtmode) { add(src.data(), src.size()); }
     // move ctor: steal resources and defuse dtor
     inline tSS(tSS&& src) : m_fmtmode(src.m_fmtmode) { m_buf = src.m_buf; src.m_buf = 0;
@@ -194,17 +194,19 @@ inline int bufferevent_write(bufferevent* bev, string_view chunk)
 struct ebstream
 {
 	evbuffer* be;
-	enum fmt_int : bool { hex, dec } fmt_imode = dec;
-	enum fmt_buf : bool { consume_buffers, copy_buffers } fmt_bmode = copy_buffers;
+	enum class imode : bool { hex, dec } m_imode = imode::dec;
+	enum class bmode : bool { buftake, bufcopy } m_bmode = bmode::bufcopy;
 	ebstream(bufferevent* pbe) : be(bufferevent_get_output(pbe)) {}
 	ebstream(evbuffer* pbe) : be(pbe) {}
 
 	ebstream& operator<<(string_view sv) { if (0 == evbuffer_add(be, sv.data(), sv.size())) return *this; throw std::bad_alloc(); }
-	ebstream & operator<<(fmt_int mode) { fmt_imode = mode; return *this;}
-	ebstream & operator<<(fmt_buf mode) { fmt_bmode = mode; return *this;}
-	ebstream & operator<<(long val) { evbuffer_add_printf(be, fmt_bmode ? "%ld" : "%lx", val); return *this; }
+	ebstream & operator<<(imode mode) { m_imode = mode; return *this;}
+	ebstream & operator<<(bmode mode) { m_bmode = mode; return *this;}
+	ebstream & operator<<(tSS::fmtflags) =delete; // XXX: detect legacy code causing bad conversion to integer
+	//ebstream & operator<<(int) =delete; // XXX: detect legacy code causing bad conversion to integer
+	ebstream & operator<<(long val) { evbuffer_add_printf(be, (m_imode == imode::dec ? "%ld" : "%lx"), val); return *this; }
 	// XXX: this consumes the contents, should be better documented
-	ebstream & operator<<(evbuffer* donor) { fmt_bmode == consume_buffers ? evbuffer_add_buffer(be, donor) : evbuffer_add_buffer_reference(be, donor); return *this; }
+	ebstream & operator<<(evbuffer* donor) { m_bmode == bmode::buftake ? evbuffer_add_buffer(be, donor) : evbuffer_add_buffer_reference(be, donor); return *this; }
 	ebstream & drop(size_t howMuch) { evbuffer_drain(be, howMuch); return *this; }
 	ebstream & clear() { return drop(size()); }
 	size_t size() { return evbuffer_get_length(be); }
