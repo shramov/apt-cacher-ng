@@ -11,6 +11,7 @@ Vcs-Browser: https://salsa.debian.org/blade/apt-cacher-ng/
 Package: apt-cacher-ng
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}, adduser, lsb-base
+Pre-Depends: ${misc:Pre-Depends}
 Recommends: ca-certificates
 Suggests: doc-base, avahi-daemon
 Description: caching proxy server for software repositories
