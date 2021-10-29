@@ -35,7 +35,7 @@ override_dh_auto_test:
 
 override_dh_install:
 	# let dh_systemd deal with them
-	mv $(TGT)/usr/lib/tmpfiles.d/apt-cacher-ng.conf debian/apt-cacher-ng.tmpfile
+	mv $(TGT)/usr/lib/tmpfiles.d/apt-cacher-ng.conf debian/apt-cacher-ng.tmpfiles
 	mv $(TGT)/lib/systemd/system/*.service debian/
 	$(MAKE) -C dbgen package DBGENERATOR=dbgenerator
 	test -r debian/apt-cacher-ng/etc/apt-cacher-ng/backends_debian.default || mv debian/apt-cacher-ng/usr/lib/apt-cacher-ng/backends_debian.default debian/apt-cacher-ng/etc/apt-cacher-ng/
