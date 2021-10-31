@@ -116,7 +116,9 @@ int header::Load(string_view input, std::vector<std::pair<string_view,string_vie
 		return 0;
     if(!input.data())
 		return -1;
-    type = INVALID;
+
+	clear();
+
 #define IFCUT(s, t) if(startsWith(input, s)) { type=t; input.remove_prefix(s.size()); }
 	if(startsWith(input, "HTTP/1."sv) && input.length() > 7)
 	{

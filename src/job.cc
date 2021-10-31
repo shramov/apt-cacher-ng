@@ -591,11 +591,12 @@ job::eJobResult job::Resume(bool canSend, bufferevent* be)
 #define HANDLE_OR_DISCON { if (HandleSuddenError()) continue ; return R_DISCON; }
 #define ENSURE_NOT_ITEM_ERROR if (fi->GetStatus() > fileitem::FIST_COMPLETE) HANDLE_OR_DISCON;
 #define ENSURE_SENDER_SET if (!m_dataSender) m_dataSender = fi->GetCacheSender(); if (!m_dataSender) HANDLE_OR_DISCON;
-#define SWITCHPHASE(t) { m_activity = t; continue; }
 
 	auto fi = m_pItem.get();
 	if (AC_UNLIKELY(!fi && HandleSuddenError()))
 		return R_DISCON;
+
+	fileitem::FiStatus fist;
 
 	do
 	{
@@ -609,6 +610,16 @@ job::eJobResult job::Resume(bool canSend, bufferevent* be)
 
 			// never used again, even chunk-head-builder writes to stream
 			m_preHeadBuf.reset();
+			// that's a wildcard for special operation with just the prebuf and no file item in placex^
+			if (m_activity == STATE_SEND_BUF_NOT_FITEM)
+				return fin_stream_good();
+		}
+
+		if (m_pItem)
+		{
+			fist = m_pItem->GetStatus();
+			if (fist > fileitem::FIST_COMPLETE)
+				HANDLE_OR_DISCON;
 		}
 
 		switch (m_activity)
@@ -619,10 +630,12 @@ job::eJobResult job::Resume(bool canSend, bufferevent* be)
 		}
 		case (STATE_NOT_STARTED):
 		{
-			if (fi->GetStatus() < fileitem::FIST_DLGOTHEAD)
+			if (fist < fileitem::FIST_DLGOTHEAD)
+				return subscribeAndExit();
+			auto have = m_pItem->GetCheckedSize();
+			if (have < (m_nReqRangeFrom != -1 ? m_nReqRangeFrom : 0))
 				return subscribeAndExit();
 
-			dbgline;
 			CookResponseHeader();
 			ASSERT(m_activity != STATE_NOT_STARTED);
 			// state was changed to some sending state or error
@@ -642,7 +655,6 @@ job::eJobResult job::Resume(bool canSend, bufferevent* be)
 			if (m_bIsHeadOnly) // there is no data to come!
 				return fin_stream_good();
 
-			ENSURE_NOT_ITEM_ERROR;
 			ENSURE_SENDER_SET;
 
 			if (fi->GetCheckedSize() <= m_nSendPos)
@@ -670,15 +682,16 @@ job::eJobResult job::Resume(bool canSend, bufferevent* be)
 		}
 		case (STATE_SEND_CHUNK_HEADER):
 		{
-			ENSURE_NOT_ITEM_ERROR;
 			m_nChunkEnd = fi->GetCheckedSize();
-			if (m_nChunkEnd < m_nSendPos)
-				return subscribeAndExit();
+			if (m_nReqRangeTo >= 0 && m_nChunkEnd > m_nReqRangeTo)
+				m_nChunkEnd = m_nReqRangeTo + 1;
+
+			auto len = m_nChunkEnd - m_nSendPos;
 
 			ebstream outStream(be);
-			outStream << ebstream::imode::hex << (m_nChunkEnd - m_nSendPos) << svRN;
-			// ... unless we are at the end already
-			if (fi->GetStatus() == fileitem::FIST_COMPLETE && m_nSendPos == fi->m_nContentLength)
+			outStream << ebstream::imode::hex << len << svRN;
+
+			if (len == 0)
 			{
 				outStream << svRN;
 				m_activity = STATE_DONE;
@@ -863,7 +876,8 @@ inline void job::CookResponseHeader()
 	m_nReqRangeTo = -1;
 	m_nReqRangeFrom = 0;
 	PrependHttpVariant();
-	SB << "200 OK"sv << svRN
+	auto msg = fi->m_responseStatus.msg.empty() ? "Unknown"sv : fi->m_responseStatus.msg;
+	SB << fi->m_responseStatus.code << " " << msg << svRN
 	   << "Content-Type: "sv << fi->m_contentType << svRN
 	   << "Last-Modified: "sv << fi->m_responseModDate.view() << svRN
 	   << "Content-Length: "sv << contLen << svRN

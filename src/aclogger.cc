@@ -274,11 +274,18 @@ void dbg_io(const char *msg, size_t len)
 			cerr.write(msg, len) << szNEWLINE;
 	}
 }
+mutex dbglogmx;
 void dbg(const char *msg, size_t len)
 {
+	// simplify, good enough for debugging
+	lguard g(dbglogmx);
+	dbg_io(msg, len);
+
+	/*
 	if (evabase::IsMainThread())
 		return dbg_io(msg, len);
 	evabase::Post([sLine = string(msg, len)]() { dbg_io(sLine.data(), sLine.size()); });
+*/
 }
 #warning TODO: add dbg/misc variants which consume a tSS or string per universal ref and move that? Does it make sense? std::function cannot capture by move
 

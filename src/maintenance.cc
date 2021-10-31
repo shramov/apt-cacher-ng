@@ -365,7 +365,7 @@ EWorkType DetectWorkType(const tHttpUrl& reqUrl, string_view rawCmd, const char*
 	if (reqUrl.sHost == "style.css")
 		return EWorkType::STYLESHEET;
 
-	if (reqUrl.sHost == cfg::reportpage)
+	if (reqUrl.sHost == cfg::reportpage && reqUrl.sPath == "/")
 		return EWorkType::REPORT;
 
 	trimBack(rawCmd);

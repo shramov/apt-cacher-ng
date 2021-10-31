@@ -110,7 +110,7 @@ public:
 	ssize_t SendData(bufferevent* target, off_t& callerSendPos, size_t maxTake) override
 	{
 		auto tocopy = std::min(evbuffer_get_length(parent->m_q), maxTake);
-		auto howmuch = evbuffer_remove_buffer(parent->m_q, bufferevent_get_input(target), tocopy);
+		auto howmuch = evbuffer_remove_buffer(parent->m_q, besender(target), tocopy);
 		parent->NotifyObservers();
 		callerSendPos += howmuch;
 		return howmuch;

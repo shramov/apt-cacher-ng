@@ -179,7 +179,7 @@ public:
 				m_jobs.back().PrepareFatalError(m_h, errorStatus);
 			else
 				m_jobs.back().Prepare(m_h, *m_be, m_hSize, m_sClientHost);
-			evbuffer_drain(bufferevent_get_output(*m_be), m_hSize);
+			evbuffer_drain(bereceiver(*m_be), m_hSize);
 		}
 		else
 		{
@@ -283,36 +283,33 @@ struct TDirectConnector : public tLintRefcounted
 			if (!res.err.empty())
 				return ebstream(*pin->be) << "HTTP/1.0 502 CONNECT error: "sv << res.err << "\r\n\r\n"sv, void();
 
+			auto targetCon = res.strm->GetBufferEvent();
 			ebstream(*pin->be) << "HTTP/1.0 200 Connection established\r\n\r\n"sv;
-			bufferevent_setcb(pin->be.get(), cbRxClient, cbTxClient, cbEvent, pin.get());
-			bufferevent_setcb(res.strm->GetBufferEvent(), cbTxClient, cbRxClient, cbEvent, pin.get());
+			bufferevent_setcb(pin->be.get(), cbClientReadable, cbClientWriteable, cbEvent, pin.get());
+			bufferevent_setcb(targetCon, cbClientWriteable, cbClientReadable, cbEvent, pin.get());
 			pin->outStream = move(res.strm);
 			setup_be_bidirectional(pin->be.get());
-			setup_be_bidirectional(res.strm->GetBufferEvent());
+			setup_be_bidirectional(targetCon);
 			ignore_ptr(pin.release()); // cbEvent will care
 		},
 		parms
 		);
-
-#warning analyze
-		/*
-		 *
-		 * src/conn.cc:302:2: Potential leak of memory pointed to by 'pin.m_ptr' [clang-analyzer-cplusplus.NewDeleteLeaks]
-		 * */
 	}
-	static void cbRxClient(struct bufferevent *bev, void *)
+	static void cbClientReadable(struct bufferevent *bev, void *ctx)
 	{
-		evbuffer_add_buffer(bufferevent_get_output(bev), bufferevent_get_input(bev));
+		auto me = (TDirectConnector*)ctx;
+		bufferevent_write_buffer(me->outStream->GetBufferEvent(), bereceiver(me->be.m_p));
 	};
-	static void cbTxClient(struct bufferevent *bev, void *)
+	static void cbClientWriteable(struct bufferevent *bev, void *ctx)
 	{
-		evbuffer_add_buffer(bufferevent_get_input(bev), bufferevent_get_output(bev));
+		auto me = (TDirectConnector*)ctx;
+		bufferevent_write_buffer(me->be.m_p, bereceiver(me->outStream->GetBufferEvent()));
 	}
 	static void cbEvent(struct bufferevent *, short what, void *ctx)
 	{
 		auto pin = as_lptr((TDirectConnector*)ctx);
 		if (what & (BEV_EVENT_EOF | BEV_EVENT_ERROR | BEV_EVENT_TIMEOUT))
-			return; // destroying the handler
+			return; // destroying the handler via pin
 		ignore_ptr(pin.release());
 	}
 };
@@ -347,7 +344,7 @@ struct Dispatcher
 	static void cbRead(bufferevent* pBE, void* ctx)
 	{
 		auto* me = (Dispatcher*)ctx;
-		auto rbuf = bufferevent_get_input(pBE);
+		auto rbuf = bereceiver(pBE);
 		header h;
 		auto hlen = h.Load(rbuf);
 		if (!hlen)

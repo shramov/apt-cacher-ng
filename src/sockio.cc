@@ -120,6 +120,8 @@ void setup_be_bidirectional(bufferevent *be)
 	auto* tmout = cfg::GetNetworkTimeout();
 	bufferevent_set_timeouts(be, tmout, tmout);
 	bufferevent_enable(be, EV_READ|EV_WRITE);
+	int yes(1);
+	::setsockopt(bufferevent_getfd(be), IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
 }
 
 }

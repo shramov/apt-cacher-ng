@@ -16,6 +16,7 @@
 
 using namespace std;
 
+#warning stop abusing this, use more regular pattern, and use better lookup for prop names.
 #ifdef SendFmt
 // just be sure about that, its buffer is used here directly, tFmtSendObj helper must not interfere
 #undef SendFmt
@@ -60,8 +61,14 @@ void tMarkupFileSend::Run()
 	}
 	if(m_bFatalError)
 	{
-		m_parms.output.ManualStart(500, "Template Not Found", "text/plain", se, errstring.size());
-		return SendChunkRemoteOnly(errstring);
+		log::err(string("Error reading local page template: " ) + m_sFileName);
+		auto msg = "<html><h1>500 Template not found</h1>Please contact the system administrator.</html>"sv;
+		m_parms.output.ManualStart(500, "Template Not Found", "text/html", se, msg.size());
+		SendChunkRemoteOnly(msg);
+#warning print this?
+//		SendChunkRemoteOnly(errstring);
+//		SendFmt << "</html>";
+		return;
 	}
     auto sv = fr.getView();
     auto pr = sv.data();
