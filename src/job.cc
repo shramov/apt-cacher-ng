@@ -31,7 +31,6 @@ using namespace std;
 //#define FORCE_CHUNKED
 
 #define PT_BUF_MAX 64000
-#define SB GetBufFmter()
 
 // hunting Bug#955793: [Heisenbug] evbuffer_write_atmost returns -1 w/o updating errno
 //#define DBG_DISCONNECT //std::cerr << "DISCO? " << __LINE__ << std::endl;
@@ -209,7 +208,7 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 	};
 	auto report_badcache = [this]()
 	{
-		SetEarlySimpleResponse("503 Error with cache data, please consult apt-cacher.err"sv);
+		SetEarlySimpleResponse("503 Error in cache data, please consult the apt-cacher.err logfile"sv);
 	};
 	auto report_invpath = [this]()
 	{
@@ -317,10 +316,11 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 			if (it != cfg::localdirs.end())
 			{
 				ParseRange(h);
-				aclocal::TParms serveParms
-				{
-					sReqPath, it->second, theUrl.sPath, m_nReqRangeFrom < 0 ? 0 : m_nReqRangeFrom
-				};
+				aclocal::TParms serveParms;
+				serveParms.visPath = sReqPath;
+				serveParms.fsBase = it->second;
+				serveParms.fsSubpath = theUrl.sPath;
+				serveParms.offset = m_nReqRangeFrom < 0 ? 0 : m_nReqRangeFrom;
 				m_pItem.reset(Create(EWorkType::LOCALITEM, be, theUrl, &serveParms));
 				return;
 			}
@@ -593,14 +593,22 @@ job::eJobResult job::Resume(bool canSend, bufferevent* be)
 #define ENSURE_SENDER_SET if (!m_dataSender) m_dataSender = fi->GetCacheSender(); if (!m_dataSender) HANDLE_OR_DISCON;
 
 	auto fi = m_pItem.get();
-	if (AC_UNLIKELY(!fi && HandleSuddenError()))
-		return R_DISCON;
+	if (m_activity != STATE_SEND_BUF_NOT_FITEM && m_activity != STATE_DONE)
+	{
+		if (!fi && HandleSuddenError())
+			return R_DISCON;
+	}
 
 	fileitem::FiStatus fist;
 
 	do
 	{
 		LOG(int(m_activity));
+
+		// shouldn't be here.
+//XXX: is this actually needed? No notifications are currently passed unless the sending position is reached.
+		if (!canSend)
+			return return_discon();
 
 		if (m_preHeadBuf.valid())
 		{
@@ -687,6 +695,8 @@ job::eJobResult job::Resume(bool canSend, bufferevent* be)
 				m_nChunkEnd = m_nReqRangeTo + 1;
 
 			auto len = m_nChunkEnd - m_nSendPos;
+			if (len == 0 && fist < fileitem::FIST_COMPLETE)
+				return subscribeAndExit();
 
 			ebstream outStream(be);
 			outStream << ebstream::imode::hex << len << svRN;
@@ -732,6 +742,7 @@ inline void job::AddPtHeader(cmstring& remoteHead)
 	// don't care about its contents, with exception of chunked transfer-encoding
 	// since it's too messy to support, use the plain close-on-end strategy here
 	auto szTEHeader = strcasestr(szHeadBegin, badTE.c_str());
+	auto SB = GetBufFmter();
 	if(szTEHeader == nullptr)
 		SB << remoteHead;
 	else
@@ -792,6 +803,8 @@ inline void job::CookResponseHeader()
 	if(!remoteHead.empty())
 		return AddPtHeader(remoteHead);
 
+	auto SB = GetBufFmter();
+
 	SB << ebstream::imode::dec;
 
 	// we might need to massage this before responding
@@ -831,69 +844,62 @@ inline void job::CookResponseHeader()
 	// possible or considered here (because too nasty to track later errors,
 	// better just resend it, this is a rare case anyway)
 	auto contLen = fi->m_nContentLength;
-#ifdef FORCE_CHUNKED
-#warning FORCE_CHUNKED active!
-	auto goChunked = true;
-#else
-	auto goChunked =
-			contLen < 0 && fist < fileitem::FIST_COMPLETE
-					// except for when only a range is wanted and that range is already available
-					&& !(m_nReqRangeTo > 0 && ds >= m_nReqRangeTo);
-#endif
-	if (goChunked)
+	bool goChunked = false;
+	bool withRange = m_nReqRangeFrom >= 0;
+
+	// check whether it's a sane range (if set)
+	if (contLen >= 0)
 	{
-		// set for full transfer in chunked mode
-		m_activity = STATE_SEND_CHUNK_HEADER;
-		m_nReqRangeTo = -1;
-		m_nReqRangeFrom = 0;
-		addStatusLineFromItem();
-		SB << "Content-Type: "sv << fi->m_contentType << svRN;
-		SB << "Last-Modified: "sv << fi->GetLastModified().view() << svRN;
-		SB << "Transfer-Encoding: chunked\r\n"sv << src;
-		AppendMetaHeaders();
-		return;
+		if (m_nReqRangeFrom >= contLen || m_nReqRangeTo + 1 > contLen)
+			return quickResponse("416 Requested Range Not Satisfiable"sv);
 	}
-	// also check whether it's a sane range (if set)
-	if (contLen >= 0 && (m_nReqRangeFrom >= contLen || m_nReqRangeTo + 1 > contLen))
-		return quickResponse("416 Requested Range Not Satisfiable"sv);
-	// okay, date is good, no chunking needed, can serve a range request smoothly (beginning is available) or fall back to 200?
-	if (m_nReqRangeFrom >= 0 && ds > m_nReqRangeFrom && contLen > 0)
+	else // unknown body length, what are the options?
 	{
-		m_nSendPos = m_nReqRangeFrom;
-		auto cl = m_nReqRangeTo < 0 ? contLen - m_nReqRangeFrom : m_nReqRangeTo + 1 - m_nReqRangeFrom;
-		auto last = m_nReqRangeTo > 0 ? m_nReqRangeTo : contLen - 1;
-		PrependHttpVariant();
-		SB << "206 Partial Content"sv << svRN
-		   << "Content-Type: "sv << fi->m_contentType << svRN
-		   << "Last-Modified: "sv << fi->GetLastModified().view() << svRN
-		   << "Content-Range: bytes "sv << m_nReqRangeFrom << "-"sv << last << "/"sv << contLen << svRN
-		   << "Content-Length: "sv << cl << svRN
-		   << src;
-		AppendMetaHeaders();
-		return;
+		goChunked = true;
+		// have enough body range here?
+		if (m_nReqRangeTo >= 0 && m_nReqRangeTo < ds)
+			goChunked = false;
 	}
-	// everything else is plain full-body response
-	m_nReqRangeTo = -1;
-	m_nReqRangeFrom = 0;
+	m_activity = goChunked ? STATE_SEND_CHUNK_HEADER : STATE_SEND_DATA;
+
 	PrependHttpVariant();
-	auto msg = fi->m_responseStatus.msg.empty() ? "Unknown"sv : fi->m_responseStatus.msg;
-	SB << fi->m_responseStatus.code << " " << msg << svRN
+	SB << (withRange ? "206 Partial Content"sv : "200 OK"sv) << svRN
 	   << "Content-Type: "sv << fi->m_contentType << svRN
-	   << "Last-Modified: "sv << fi->GetLastModified().view() << svRN
-	   << "Content-Length: "sv << contLen << svRN
-	   << src;
+	   << "Last-Modified: "sv << fi->GetLastModified().view() << svRN;
+	if (goChunked)
+	   SB << "Transfer-Encoding: chunked\r\n"sv << src;
+	if (withRange)
+	{
+		SB << "Content-Range: bytes "sv << m_nReqRangeFrom << "-"sv ;
+		if (goChunked)
+			SB << "-*/*"sv << svRN;
+		else
+		{
+			auto last = m_nReqRangeTo > 0 ? m_nReqRangeTo : contLen - 1;
+			auto cl = m_nReqRangeTo < 0 ? contLen - m_nReqRangeFrom : m_nReqRangeTo + 1 - m_nReqRangeFrom;
+			SB << last << "/"sv << contLen << svRN
+			   << "Content-Length: "sv << cl << svRN;
+		}
+	}
+	else
+	{
+		if(!goChunked)
+			SB << "Content-Length: "sv << contLen << svRN;
+	}
 	AppendMetaHeaders();
-	return;
 }
 
 void job::PrependHttpVariant()
 {
+	auto SB = GetBufFmter();
 	SB << (m_bIsHttp11 ? "HTTP/1.1 "sv : "HTTP/1.0 "sv);
 }
 
 void job::SetEarlySimpleResponse(string_view message, bool nobody)
 {
 	LOGSTARTFUNC;
+
+	auto SB = GetBufFmter();
 	SB.clear();
 
 	m_activity = STATE_SEND_BUF_NOT_FITEM;
@@ -923,6 +929,8 @@ void job::SetEarlySimpleResponse(string_view message, bool nobody)
 void job::AppendMetaHeaders()
 {
 	auto fi = m_pItem.get();
+	auto SB = GetBufFmter();
+
 	if (fi && ! fi->GetExtraResponseHeaders().empty())
 		SB << fi->GetExtraResponseHeaders();
 

@@ -1,3 +1,7 @@
+UTs for local file delivery and various sizes (1gb, 2gb, 2.5gb, 5gb)
+
+Add guided precaching functionality to acngtool.
+
 Drop "curl" functionality from acngtool. As transitional solution, call
 curl/wget/http(from-apt) as client instead. Then drop DL code usage from UDS
 communication.

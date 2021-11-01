@@ -143,7 +143,7 @@ public:
 		if (m_pipeInOut[1]) bufferevent_free(m_pipeInOut[1]);
 	}
 
-	BufferedPtItem(EWorkType jobType, mstring cmd, bufferevent *bev, void* arg)
+	BufferedPtItem(EWorkType jobType, mstring cmd, bufferevent *bev, SomeData* arg)
 		: BufferedPtItemBase("_internal_task")
 		// XXX: resolve the name to task type for the logs? Or replace the name with something useful later? Although, not needed, and also w/ format not fitting the purpose.
 	{
@@ -222,6 +222,8 @@ public:
 		auto len = evbuffer_get_length(PipeRx());
 		m_nSizeChecked = m_nCursor + len;
 		ldbg(len << " -> " << m_nSizeChecked);
+		if (m_status == FIST_DLGOTHEAD)
+			m_status = FIST_DLRECEIVING;
 		NotifyObservers();
 	}
 
@@ -427,7 +429,7 @@ EWorkType DetectWorkType(const tHttpUrl& reqUrl, string_view rawCmd, const char*
 	return EWorkType::REPORT;
 }
 
-tFileItemPtr Create(EWorkType jobType, bufferevent *bev, const tHttpUrl& url, void* arg)
+tFileItemPtr Create(EWorkType jobType, bufferevent *bev, const tHttpUrl& url, SomeData* arg)
 {
 	try
 	{
@@ -457,9 +459,20 @@ tFileItemPtr Create(EWorkType jobType, bufferevent *bev, const tHttpUrl& url, vo
 				// release the potentially last reference when done
 				evabase::Post([item]() { tFileItemPtr p(item, false); });
 			}
+			catch (const std::exception& exe)
+			{
+				string msg=exe.what();
+				evabase::Post([item, msg]()
+				{
+					item->DlSetError({500, msg}, fileitem::EDestroyMode::DELETE);
+				});
+			}
 			catch (...)
 			{
-				// XXX: needing special handling here?
+				evabase::Post([item]()
+				{
+					item->DlSetError({500, "Unknown processing error"}, fileitem::EDestroyMode::DELETE);
+				});
 			}
 		};
 

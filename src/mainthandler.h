@@ -55,7 +55,7 @@ public:
 		int fd;
 		// reference to the carrier item
 		BufferedPtItemBase& output;
-		void* arg;
+		SomeData* arg;
 		lint_ptr<fileitem> pin();
 	};
 

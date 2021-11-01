@@ -12,12 +12,39 @@ using namespace std;
 namespace acng
 {
 
+const string_view style = R"(
+<style type="text/css">
+body
+{
+   font-family: Verdana, Arial, sans-serif;
+   font-size: small;
+   color: black;
+}
+
+h1 {
+  font-size: medium;
+}
+
+td
+{
+  padding: 1px;
+  align-content: space-around;
+}
+
+tr
+{
+  vertical-align: middle;
+}
+</style>
+)";
+
 aclocal::aclocal(tSpecialRequestHandler::tRunParms&& parms)
 	: acng::tSpecialRequestHandler(move(parms))
 {
-	auto p = (const TParms*)(m_parms.arg);
+	auto* p = dynamic_cast<TParms*>(m_parms.arg);
 	if (!p)
 		throw std::bad_cast();
+	m_extraParms = *p;
 }
 
 void aclocal::SetEarlySimpleResponse(int code, string_view msg)
@@ -27,32 +54,27 @@ void aclocal::SetEarlySimpleResponse(int code, string_view msg)
 
 void aclocal::Run()
 {
-	auto p = (const TParms*)(m_parms.arg);
-	auto& fsBase = p->fsBase;
-	auto& fsSubpath = p->fsSubpath;
-	auto& visPath = p->visPath;
-
-	mstring absPath = fsBase + SZPATHSEP + fsSubpath;
+	mstring absPath = m_extraParms.fsBase + SZPATHSEP + m_extraParms.fsSubpath;
 	Cstat stbuf(absPath);
 	if (!stbuf)
 	{
 		switch(errno)
 		{
 		case EACCES:
-			return SetEarlySimpleResponse(403, "Permission denied");
+			return SetEarlySimpleResponse(403, "Permission denied"sv);
 		case EBADF:
 		case EFAULT:
 		case ENOMEM:
 		case EOVERFLOW:
 		default:
-			return SetEarlySimpleResponse(500, "Internal server error");
+			return SetEarlySimpleResponse(500, "Internal server error"sv);
 		case ELOOP:
-			return SetEarlySimpleResponse(500, "Infinite link recursion");
+			return SetEarlySimpleResponse(500, "Infinite link recursion"sv);
 		case ENAMETOOLONG:
-			return SetEarlySimpleResponse(500, "File name too long");
+			return SetEarlySimpleResponse(500, "File name too long"sv);
 		case ENOENT:
 		case ENOTDIR:
-			return SetEarlySimpleResponse(404, "File or directory not found");
+			return SetEarlySimpleResponse(404, "File or directory not found"sv);
 		}
 		return;
 	}
@@ -60,19 +82,21 @@ void aclocal::Run()
 	if(S_ISDIR(stbuf.st_mode))
 	{
 		// unconfuse the browser
-		if (!endsWithSzAr(visPath, SZPATHSEPUNIX))
+		if (!endsWithSzAr(m_extraParms.visPath, SZPATHSEPUNIX))
 		{
 			tFmtSendObj tx(this, true);
-			m_fmtHelper << "<!DOCTYPE html>\n<html lang=\"en\"><head><title>301 Moved Permanently</title></head><body><h1>Moved Permanently</h1>"
-				 "<p>The document has moved <a href=\""sv << visPath << "/\">here</a>.</p></body></html>"sv;
-			m_parms.output.ManualStart(301, "Moved Permanently", "text/html", visPath + "/", m_fmtHelper.size());
+			m_fmtHelper << "<!DOCTYPE html>\n<html lang=\"en\"><head><title>301 Moved Permanently</title></head><body><h1>Moved Temporarily</h1>"
+				 "<p>The document has moved <a href=\""sv << UrlEscape(m_extraParms.visPath) << "/\">here</a>.</p></body></html>"sv;
+			m_parms.output.ManualStart(301, "Moved Permanently", "text/html", m_extraParms.visPath + "/", m_fmtHelper.size());
 			return;
 		}
 		m_parms.output.ManualStart(200, "OK", "text/html");
-		SendFmt << "<!DOCTYPE html>\n<html lang=\"en\"><head><title>Index of "sv
-			 << visPath << "</title></head><body><h1>Index of "sv << visPath << "</h1>"sv
-															   "<table><tr><th>&nbsp;</th><th>Name</th><th>Last modified</th><th>Size</th></tr>"sv
-															   "<tr><th colspan=\"4\"><hr></th></tr>"sv;
+		SendFmt << "<!DOCTYPE html>\n<html lang=\"en\"><head>"
+				<< style << "<title>Index of "sv
+			 << m_extraParms.visPath << "</title></head><body><h1>Index of "sv
+			 << m_extraParms.visPath << "</h1>"sv
+										"<table><tr><th>&nbsp;</th><th>Name</th><th>Last modified</th><th>Size</th></tr>"sv
+										"<tr><th colspan=\"4\"><hr></th></tr>"sv;
 		auto* dir = opendir(absPath.c_str());
 		if (!dir) // weird, whatever... ignore...
 			SendChunk("ERROR READING DIRECTORY"sv);
@@ -81,22 +105,29 @@ void aclocal::Run()
 			// quick hack with sorting by custom keys, good enough here
 			using tRecord = pair<string, evbuffer*>;
 			priority_queue<tRecord, deque<tRecord>, greater<tRecord>> sortHeap;
-			for(struct dirent *pdp(0);0!=(pdp=readdir(dir));)
+			for(struct dirent *pdp(0); 0 != (pdp=readdir(dir));)
 			{
-				if (0!=::stat(mstring(absPath+SZPATHSEP+pdp->d_name).c_str(), &stbuf))
+				if (0 != ::stat(mstring(absPath+SZPATHSEP+pdp->d_name).c_str(), &stbuf))
 					continue;
 
 				bool bDir=S_ISDIR(stbuf.st_mode);
 				tHttpDate date;
-				bSS line;
+				auto *buf = evbuffer_new();
+				if (!buf)
+					continue;
+				ebstream line(buf);
 				if(bDir)
 					line << "[DIR]"sv;
+				else if(startsWithSz(cfg::GetMimeType(pdp->d_name), "audio/"))
+					line << "[AUD]"sv;
+				else if(startsWithSz(cfg::GetMimeType(pdp->d_name), "video/"))
+					line << "[VID]"sv;
 				else if(startsWithSz(cfg::GetMimeType(pdp->d_name), "image/"))
 					line << "[IMG]"sv;
 				else
 					line << "[&nbsp;&nbsp;&nbsp;]"sv;
 				line << "</td><td><a href=\""sv
-							<< pdp->d_name
+							<< UrlEscape(pdp->d_name)
 						<< (bDir? "/\">"sv : "\">"sv )
 						<< pdp->d_name
 						<< "</a></td><td>"sv
@@ -106,7 +137,7 @@ void aclocal::Run()
 					line << "-"sv;
 				else
 					line << offttosH(stbuf.st_size);
-				sortHeap.push(make_pair(string(bDir?"a":"b") + pdp->d_name, line.release()));
+				sortHeap.push(make_pair(string(bDir?"a":"b") + pdp->d_name, buf));
 				//dbgprint((mstring)line);
 			}
 			closedir(dir);
@@ -121,29 +152,34 @@ void aclocal::Run()
 		SendFmt << "<tr><td colspan=\"4\">"sv << GetFooter() << "</td></tr></table></body></html>"sv;
 		return;
 	}
-	if(!S_ISREG(stbuf.st_mode))
-		return SetEarlySimpleResponse(403, "Unsupported data type");
+	if (!S_ISREG(stbuf.st_mode))
+		return SetEarlySimpleResponse(403, "Unsupported data type"sv);
+
+	cmstring &sMimeType = cfg::GetMimeType(absPath);
 
 	// OKAY, that's plain file delivery now
+	if (stbuf.st_size > 0)
+	{
+		int fd = open(absPath.c_str(), O_RDONLY);
+		if (fd == -1)
+			return SetEarlySimpleResponse(500, "IO error"sv);
 
-	int fd = open(absPath.c_str(), O_RDONLY);
-	if (fd == -1)
-		return SetEarlySimpleResponse(500, "IO error");
 #ifdef HAVE_FADVISE
 		posix_fadvise(fd, 0, stbuf.st_size, POSIX_FADV_SEQUENTIAL);
 #endif
 
-	cmstring &sMimeType=cfg::GetMimeType(absPath);
-	m_parms.output.ManualStart(200, "OK",
-								sMimeType.empty() ? "octet/stream" : sMimeType,
-								se, stbuf.st_size, stbuf.st_mtim.tv_sec);
 #warning check resuming after 3gb on 32bit build, and after 4.7 gb
-	// let's mmap it and then drop the unneeded part on delivery from reader builder
-	if (evbuffer_add_file(PipeTx(), fd, 0, stbuf.st_size))
-	{
-		checkforceclose(fd);
-		return SetEarlySimpleResponse(500, "Internal error");
+		// let's mmap it and then drop the unneeded part on delivery from reader builder
+		if (0 != evbuffer_add_file(PipeTx(), fd, 0, stbuf.st_size))
+		{
+			checkforceclose(fd);
+			return SetEarlySimpleResponse(500, "Internal error"sv);
+		}
 	}
+	m_parms.output.ManualStart(200, "OK",
+							   sMimeType.empty() ? "octet/stream" : sMimeType,
+							   se, stbuf.st_size, stbuf.st_mtim.tv_sec);
+
 }
 
 }

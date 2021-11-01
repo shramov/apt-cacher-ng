@@ -10,7 +10,7 @@ class aclocal : public acng::tSpecialRequestHandler
 {
 public:
 
-	struct TParms
+	struct TParms : public SomeData
 	{
 		mstring visPath;
 		mstring fsBase;
@@ -23,6 +23,7 @@ public:
 
 private:
 	void SetEarlySimpleResponse(int code, string_view msg);
+	TParms m_extraParms;
 };
 
 }

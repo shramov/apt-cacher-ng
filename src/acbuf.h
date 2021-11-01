@@ -218,7 +218,7 @@ struct ebstream
 struct bSS : public ebstream
 {
 	bSS() : ebstream(evbuffer_new()) { if(!be) throw std::bad_alloc(); }
-	~bSS() { evbuffer_free(be); }
+	~bSS() { if(be) evbuffer_free(be); }
 	evbuffer* release() { auto ret = be; be = nullptr; return ret; }
 };
 
