@@ -134,10 +134,9 @@ void aclocal::Run()
 #endif
 
 	cmstring &sMimeType=cfg::GetMimeType(absPath);
-	m_parms.output.m_responseModDate = tHttpDate(stbuf.st_mtim.tv_sec);
 	m_parms.output.ManualStart(200, "OK",
 								sMimeType.empty() ? "octet/stream" : sMimeType,
-								se, stbuf.st_size);
+								se, stbuf.st_size, stbuf.st_mtim.tv_sec);
 #warning check resuming after 3gb on 32bit build, and after 4.7 gb
 	// let's mmap it and then drop the unneeded part on delivery from reader builder
 	if (evbuffer_add_file(PipeTx(), fd, 0, stbuf.st_size))

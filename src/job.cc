@@ -820,7 +820,8 @@ inline void job::CookResponseHeader()
 		return quickResponse(ltos(status.code) + " " + status.msg);
 	}
 
-	if (m_ifMoSince.isSet() && fi->m_responseModDate.isSet() && m_ifMoSince >= fi->m_responseModDate)
+	const auto& trueDate = fi->GetLastModified(true);
+	if (m_ifMoSince.isSet() && trueDate.isSet() && m_ifMoSince >= trueDate)
 	{
 		return quickResponse("304 Not Modified"sv, true);
 	}
@@ -847,8 +848,7 @@ inline void job::CookResponseHeader()
 		m_nReqRangeFrom = 0;
 		addStatusLineFromItem();
 		SB << "Content-Type: "sv << fi->m_contentType << svRN;
-		if (fi->m_responseModDate.isSet())
-			SB << "Last-Modified: "sv << fi->m_responseModDate.view() << svRN;
+		SB << "Last-Modified: "sv << fi->GetLastModified().view() << svRN;
 		SB << "Transfer-Encoding: chunked\r\n"sv << src;
 		AppendMetaHeaders();
 		return;
@@ -865,7 +865,7 @@ inline void job::CookResponseHeader()
 		PrependHttpVariant();
 		SB << "206 Partial Content"sv << svRN
 		   << "Content-Type: "sv << fi->m_contentType << svRN
-		   << "Last-Modified: "sv << fi->m_responseModDate.view() << svRN
+		   << "Last-Modified: "sv << fi->GetLastModified().view() << svRN
 		   << "Content-Range: bytes "sv << m_nReqRangeFrom << "-"sv << last << "/"sv << contLen << svRN
 		   << "Content-Length: "sv << cl << svRN
 		   << src;
@@ -879,7 +879,7 @@ inline void job::CookResponseHeader()
 	auto msg = fi->m_responseStatus.msg.empty() ? "Unknown"sv : fi->m_responseStatus.msg;
 	SB << fi->m_responseStatus.code << " " << msg << svRN
 	   << "Content-Type: "sv << fi->m_contentType << svRN
-	   << "Last-Modified: "sv << fi->m_responseModDate.view() << svRN
+	   << "Last-Modified: "sv << fi->GetLastModified().view() << svRN
 	   << "Content-Length: "sv << contLen << svRN
 	   << src;
 	AppendMetaHeaders();

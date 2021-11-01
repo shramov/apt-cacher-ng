@@ -136,6 +136,7 @@ struct ACNG_API tRemoteStatus
 bool ACNG_API ParseHeadFromStorage(cmstring &path, off_t *contLen, tHttpDate *lastModified, mstring *origSrc);
 bool ACNG_API StoreHeadToStorage(cmstring &path, off_t contLen, tHttpDate *lastModified, mstring *origSrc);
 
+extern tHttpDate g_serverStartDate;
 }
 
 #endif // THTTPDATE_H

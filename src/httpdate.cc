@@ -253,4 +253,6 @@ tRemoteStatus::tRemoteStatus(string_view s, int errorCode, bool stripHttpPrefix)
 	}
 }
 
+ACNG_API tHttpDate g_serverStartDate = tHttpDate(GetTime());
+
 }

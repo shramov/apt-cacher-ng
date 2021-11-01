@@ -125,6 +125,18 @@ public:
 	bool IsHeadOnly() { return m_spattr.bHeadOnly; }
 	bool IsLocallyGenerated() { return m_bLocallyGenerated; }
 	off_t GetRangeLimit() { return m_spattr.nRangeLimit; }
+	/**
+	 * @brief GetLastModified returns a sensible modification date if possible
+	 * This is the actual value from remote if known and valid or a replacement otherwise
+	 * @param unchecked Pass the raw reference even if it's invalid
+	 * @return Modification timestamp
+	 */
+	const tHttpDate& GetLastModified(bool unchecked = false)
+	{
+		if (m_responseModDate.isSet() || unchecked)
+			return m_responseModDate;
+		return g_serverStartDate;
+	}
 
 	off_t m_nIncommingCount = 0;
 
@@ -136,12 +148,13 @@ public:
 	tRemoteStatus m_responseStatus;
 	/** This member has multiple uses; for 302/304 codes, it contains the Location value */
 	mstring m_responseOrigin;
-	// trade-off between unneccessary parsing and on-the-heap storage
-	tHttpDate m_responseModDate;
 
 	mstring m_contentType = "octet/stream";
 
 protected:
+
+	// trade-off between unneccessary parsing and on-the-heap storage
+	tHttpDate m_responseModDate;
 
 	bool m_bPreallocated = false;
 
@@ -215,7 +228,7 @@ public:
 	 * @param originOrRedirect
 	 * @param contLen
 	 */
-	void ManualStart(int statusCode, mstring statusMessage, mstring mimetype = "octet/stream", mstring originOrRedirect = "", off_t contLen = -1);
+	void ManualStart(int statusCode, mstring statusMessage, mstring mimetype = "octet/stream", mstring originOrRedirect = "", off_t contLen = -1, time_t modTime = -1);
 
 protected:
 	// flag for shared objects and a self-reference for fast and exact deletion, together with m_globRef

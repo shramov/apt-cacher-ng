@@ -594,10 +594,10 @@ void fileitem::DlSetError(const tRemoteStatus& errState, fileitem::EDestroyMode 
 		m_eDestroy = kmode;
 }
 
-void fileitem::ManualStart(int statusCode, mstring statusMessage, mstring mimetype, mstring originOrRedirect, off_t contLen)
+void fileitem::ManualStart(int statusCode, mstring statusMessage, mstring mimetype, mstring originOrRedirect, off_t contLen, time_t modTime)
 {
 	LOGSTARTFUNCs;
-	auto q = [pin = as_lptr(this), statusCode, statusMessage, mimetype, originOrRedirect, contLen]()
+	auto q = [pin = as_lptr(this), statusCode, statusMessage, mimetype, originOrRedirect, contLen, modTime]()
 	{
 		LOGSTARTFUNCs
 		ASSERT(!statusMessage.empty());
@@ -614,6 +614,7 @@ void fileitem::ManualStart(int statusCode, mstring statusMessage, mstring mimety
 		pin->m_responseOrigin = originOrRedirect;
 		if (contLen >= 0)
 			pin->m_nContentLength = contLen;
+		pin->m_responseModDate = tHttpDate(modTime != -1 ? modTime : GetTime());
 		if (pin->m_status < FIST_DLGOTHEAD)
 			pin->m_status = FIST_DLGOTHEAD;
 	};
