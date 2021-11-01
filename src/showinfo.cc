@@ -16,13 +16,6 @@
 
 using namespace std;
 
-#warning stop abusing this, use more regular pattern, and use better lookup for prop names.
-#ifdef SendFmt
-// just be sure about that, its buffer is used here directly, tFmtSendObj helper must not interfere
-#undef SendFmt
-#undef SendFmtRemote
-#endif
-
 #define SCALEFAC 250
 
 namespace acng
@@ -43,11 +36,8 @@ tMarkupFileSend::tMarkupFileSend(tSpecialRequestHandler::tRunParms&& parms,
 	tSpecialRequestHandler(move(parms)),
 	m_sFileName(s), m_sMimeType(m), m_httpStatus(st)
 {
-#warning test me
 	m_bNeedsBgThread = false;
 }
-
-static auto errstring = "Information about APT configuration not available, please contact the system administrator."sv;
 
 void tMarkupFileSend::Run()
 {
@@ -65,9 +55,6 @@ void tMarkupFileSend::Run()
 		auto msg = "<html><h1>500 Template not found</h1>Please contact the system administrator.</html>"sv;
 		m_parms.output.ManualStart(500, "Template Not Found", "text/html", se, msg.size());
 		SendChunkRemoteOnly(msg);
-#warning print this?
-//		SendChunkRemoteOnly(errstring);
-//		SendFmt << "</html>";
 		return;
 	}
     auto sv = fr.getView();
@@ -115,17 +102,15 @@ void tMarkupFileSend::Run()
 void tDeleter::SendProp(cmstring &key)
 {
 	if(key=="count")
-		return SendChunkRemoteOnly(m_fmtHelper.clear()<<files.size());
+		SendFmtRemote << files.size();
 	else if(key=="countNZs")
-	{
-		if(files.size()!=1)
-			return SendChunkRemoteOnly(m_fmtHelper.clear()<<"s");
-	}
+		return SendChunkRemoteOnly((files.size()>1) ? "s" : "");
 	else if(key == "stuff")
 		return SendChunkRemoteOnly(sHidParms);
 	else if(key=="vmode")
 		return SendChunkRemoteOnly(sVisualMode.data(), sVisualMode.size());
-	return tMarkupFileSend::SendProp(key);
+	else
+		return tMarkupFileSend::SendProp(key);
 }
 
 // and deserialize it from GET parameter into m_delCboxFilter
@@ -374,15 +359,15 @@ void tMaintPage::SendProp(cmstring &key)
 	if(key == "aOeDefaultChecked")
 		return SendChunkRemoteOnly(cfg::exfailabort ? defStringChecked : se);
 
-#warning restoreme
-#if 0
 	if(key == "curPatTraceCol")
 	{
-		m_fmtHelper.clear();
+		tFmtSendObj endPrinter(this, true);
 
-		auto& tr(tTraceData::getInstance());
-		lockguard g(tr);
+#warning restoreme
 		int bcount=0;
+#if 0
+		auto& tr(tTraceData::getInstance());
+		lguard g(tr);
 		for(cmstring& x: tr)
 		{
 			if(x.find_first_of(BADCHARS) not_eq stmiss)
@@ -392,13 +377,12 @@ void tMaintPage::SendProp(cmstring &key)
 			}
 			m_fmtHelper<<x;
 			if(&x != &(*tr.rbegin()))
-				m_fmtHelper.append(WITHLEN("<br>"));
+				m_fmtHelper << "<br>"sv;
 		}
-		if(bcount)
-			m_fmtHelper.append(WITHLEN("<br>some strings not considered due to security restrictions<br>"));
-		return SendChunkRemoteOnly(m_fmtHelper);
-	}
 #endif
+		if(bcount)
+			m_fmtHelper << "<br>some strings not considered due to security restrictions<br>"sv;
+	}
 	return tMarkupFileSend::SendProp(key);
 }
 /*
@@ -425,7 +409,7 @@ void tMarkupFileSend::SendProp(cmstring &key)
 			return SendChunkRemoteOnly(*ps);
 		auto pi(cfg::GetIntPtr(ckey));
 		if(pi)
-			return SendChunkRemoteOnly(m_fmtHelper.clear() << *pi);
+			SendFmt << *pi;
 		return;
 	}
 
@@ -444,55 +428,54 @@ void tMarkupFileSend::SendProp(cmstring &key)
 		return SendChunkRemoteOnly(buf);
 	}
 	if(key=="random")
-		return SendChunkRemoteOnly(m_fmtHelper.clear() << rand());
-	if(key=="dataInHuman")
+		SendFmtRemote << rand();
+	else if(key=="dataInHuman")
 	{
 		auto stats = log::GetCurrentCountersInOut();
 		return SendChunkRemoteOnly(offttosH(stats.first));
 	}
-	if(key=="dataOutHuman")
+	else if(key=="dataOutHuman")
 	{
 		auto stats = log::GetCurrentCountersInOut();
 		return SendChunkRemoteOnly(offttosH(stats.second));
 	}
-	if(key=="dataIn")
+	else if(key=="dataIn")
 	{
 		auto stats = log::GetCurrentCountersInOut();
 		auto statsMax = std::max(stats.first, stats.second);
 		auto pixels = statsMax ? (stats.first * SCALEFAC / statsMax) : 0;
-		return SendChunkRemoteOnly(m_fmtHelper.clear() << pixels);
+		SendFmtRemote << pixels;
 	}
-	if(key=="dataOut")
+	else if(key=="dataOut")
 	{
 		auto stats = log::GetCurrentCountersInOut();
 		auto statsMax = std::max(stats.second, stats.first);
 		auto pixels = statsMax ? (SCALEFAC * stats.second / statsMax) : 0;
-		return SendChunkRemoteOnly(m_fmtHelper.clear() << pixels);
+		SendFmtRemote << pixels;
 	}
-
-	if (key == "dataHistInHuman")
+	else if (key == "dataHistInHuman")
 	{
 		auto stats = pairSum(log::GetCurrentCountersInOut(), log::GetOldCountersInOut());
 		return SendChunkRemoteOnly(offttosH(stats.first));
 	}
-	if (key == "dataHistOutHuman")
+	else if (key == "dataHistOutHuman")
 	{
 		auto stats = pairSum(log::GetCurrentCountersInOut(), log::GetOldCountersInOut());
 		return SendChunkRemoteOnly(offttosH(stats.second));
 	}
-	if (key == "dataHistIn")
+	else if (key == "dataHistIn")
 	{
 		auto stats = pairSum(log::GetCurrentCountersInOut(), log::GetOldCountersInOut());
 		auto statsMax = std::max(stats.second, stats.first);
 		auto pixels = statsMax ? (stats.first * SCALEFAC / statsMax) : 0;
-		return SendChunkRemoteOnly(m_fmtHelper.clear() << pixels);
+		SendFmtRemote << pixels;
 	}
-	if (key == "dataHistOut")
+	else if (key == "dataHistOut")
 	{
 		auto stats = pairSum(log::GetCurrentCountersInOut(), log::GetOldCountersInOut());
 		auto statsMax = std::max(stats.second, stats.first);
 		auto pixels = statsMax ? (SCALEFAC * stats.second/statsMax) : 0;
-		return SendChunkRemoteOnly(m_fmtHelper.clear() << pixels);
+		SendFmtRemote << pixels;
 	}
 }
 
