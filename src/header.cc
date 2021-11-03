@@ -25,7 +25,7 @@ using namespace std;
 namespace acng
 {
 
-constexpr size_t TYPICAL_HEADER_SIZE = 700;
+constexpr size_t TYPICAL_HEADER_SIZE = 900;
 
 // Order matches the enum order!
 constexpr string_view mapId2Headname[] =
@@ -240,13 +240,17 @@ int header::Load(evbuffer *buf, std::vector<std::pair<string_view, string_view> 
 	// cut somewhere at 32..64kB
 	auto limit = std::min(ilen, MAX_IN_BUF);
 	unsigned clen = std::min(limit, TYPICAL_HEADER_SIZE);
-	for(; clen <= limit; clen *= 2)
+	for(; clen <= limit;)
 	{
 		auto mem = (char*) evbuffer_pullup(buf, clen);
 		auto rc = Load(string_view(mem, clen), unkHeaderMap);
-		if (rc == 0)
-			continue;
-		return rc;
+		if (rc)
+			return rc;
+		if (clen == limit)
+			return 0;
+		clen *= 2;
+		if (clen > limit)
+			clen = limit; // maybe skip in the next iteration
 	}
 	return 0; // cannot find full header in that much data?
 }
