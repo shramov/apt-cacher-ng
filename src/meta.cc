@@ -396,7 +396,7 @@ inline bool is_safe_url_char(char c)
 	}
 }
 
-void UrlEscapeAppend(cmstring &s, mstring &sTarget)
+void UrlEscapeAppend(string_view s, mstring &sTarget)
 {
 	for(const auto& c: s)
 	{
@@ -410,7 +410,7 @@ void UrlEscapeAppend(cmstring &s, mstring &sTarget)
 	}
 }
 
-mstring UrlEscape(cmstring &s)
+mstring UrlEscape(string_view s)
 {
 	mstring ret;
 	ret.reserve(s.size());

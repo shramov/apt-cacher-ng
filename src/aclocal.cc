@@ -110,6 +110,10 @@ void aclocal::Run()
 				if (0 != ::stat(mstring(absPath+SZPATHSEP+pdp->d_name).c_str(), &stbuf))
 					continue;
 
+				string_view nam(pdp->d_name);
+				if (nam.empty())
+					continue;
+
 				bool bDir=S_ISDIR(stbuf.st_mode);
 				tHttpDate date;
 				auto *buf = evbuffer_new();
@@ -118,18 +122,18 @@ void aclocal::Run()
 				ebstream line(buf);
 				if(bDir)
 					line << "[DIR]"sv;
-				else if(startsWithSz(cfg::GetMimeType(pdp->d_name), "audio/"))
+				else if(startsWithSz(cfg::GetMimeType(nam), "audio/"))
 					line << "[AUD]"sv;
-				else if(startsWithSz(cfg::GetMimeType(pdp->d_name), "video/"))
+				else if(startsWithSz(cfg::GetMimeType(nam), "video/"))
 					line << "[VID]"sv;
-				else if(startsWithSz(cfg::GetMimeType(pdp->d_name), "image/"))
+				else if(startsWithSz(cfg::GetMimeType(nam), "image/"))
 					line << "[IMG]"sv;
 				else
 					line << "[&nbsp;&nbsp;&nbsp;]"sv;
 				line << "</td><td><a href=\""sv
-							<< UrlEscape(pdp->d_name)
+							<< UrlEscape(nam)
 						<< (bDir? "/\">"sv : "\">"sv )
-						<< pdp->d_name
+						<< nam
 						<< "</a></td><td>"sv
 						<< date.Set(stbuf.st_mtime).view()
 						<< "</td><td align=\"right\">"sv;
@@ -137,7 +141,10 @@ void aclocal::Run()
 					line << "-"sv;
 				else
 					line << offttosH(stbuf.st_size);
-				sortHeap.push(make_pair(string(bDir?"a":"b") + pdp->d_name, buf));
+				string key(bDir?"a":"b");
+				key += char(nam[0] == '.' ? 0x0 : MAX_VAL(char));
+				key += nam;
+				sortHeap.push(make_pair(move(key), buf));
 				//dbgprint((mstring)line);
 			}
 			closedir(dir);

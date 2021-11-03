@@ -74,7 +74,7 @@ ACNG_API const struct timeval * GetFirstConTimeout();
 ACNG_API const struct timeval * GetFurtherConTimeout();
 
 extern std::map<mstring,mstring> localdirs;
-cmstring & GetMimeType(cmstring &path);
+cmstring & GetMimeType(string_view path);
 #define TCP_PORT_MAX 65536
 extern std::bitset<TCP_PORT_MAX> *pUserPorts;
 

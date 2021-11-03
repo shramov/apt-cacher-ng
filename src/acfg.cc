@@ -543,7 +543,7 @@ inline void _ParseLocalDirs(cmstring &value)
 
 std::once_flag mimeLoadFlag;
 
-cmstring & GetMimeType(cmstring &path)
+cmstring & GetMimeType(string_view path)
 {
 	std::call_once(mimeLoadFlag, []()
 	{
@@ -573,14 +573,14 @@ cmstring & GetMimeType(cmstring &path)
 	tStrPos dpos = path.find_last_of('.');
 	if (dpos != stmiss)
 	{
-        auto it = cfg::mimemap.find(path.substr(dpos + 1));
+		auto it = cfg::mimemap.find(to_string(path.substr(dpos + 1)));
 		if (it != cfg::mimemap.end())
 			return it->second;
 	}
 	// try some educated guess... assume binary if we are sure, text if we are almost sure
 	static cmstring os("application/octet-stream"), tp("text/plain");
 	filereader f;
-	if (f.OpenFile(path, true))
+	if (f.OpenFile(to_string(path), true))
 	{
         auto sv = f.getView().substr(0, 255);
         for(char c: sv)

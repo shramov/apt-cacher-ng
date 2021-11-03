@@ -154,8 +154,8 @@ tStrDeq ExpandFilePattern(cmstring& pattern, bool bSorted=false, bool bQuiet=fal
 
 //void MakeAbsolutePath(mstring &dirToFix, const mstring &reldir);
 
-mstring UrlEscape(cmstring &s);
-void UrlEscapeAppend(cmstring &s, mstring &sTarget);
+mstring UrlEscape(string_view s);
+void UrlEscapeAppend(string_view s, mstring &sTarget);
 bool UrlUnescapeAppend(cmstring &from, mstring & to);
 // Decode with result as return value, no error reporting
 mstring UrlUnescape(cmstring &from);
