@@ -88,10 +88,10 @@ public:
     void AddPtHeader(cmstring& remoteHead);
 	void SetEarlySimpleResponse(string_view message, bool nobody = false);
 
-    bool ParseRange(const header& h);
+	bool ParseRangeAndIfMo(const header& h);
 	/**
 	 * @brief HandleSuddenError sets the state to handle the errors
-	 * @return True to continue in this job, false to disconnect
+	 * @return True to continue on this job, false to disconnect ASAP
 	 */
 	bool HandleSuddenError();
     void AppendMetaHeaders();

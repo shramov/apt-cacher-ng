@@ -49,7 +49,7 @@ aclocal::aclocal(tSpecialRequestHandler::tRunParms&& parms)
 
 void aclocal::SetEarlySimpleResponse(int code, string_view msg)
 {
-	m_parms.output.ManualStart(code, to_string(msg));
+	m_parms.output.ManualStart(code, to_string(msg), "text/plain");
 }
 
 void aclocal::Run()

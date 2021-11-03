@@ -144,7 +144,7 @@ job::~job()
 
 
 
-inline bool job::ParseRange(const header& h)
+inline bool job::ParseRangeAndIfMo(const header& h)
 {
 
 	/*
@@ -153,6 +153,8 @@ inline bool job::ParseRange(const header& h)
 	 * Content-Length: 7271829
 	 * Content-Range: bytes 453291-7725119/7725120
 	 */
+
+	m_ifMoSince = tHttpDate(h.h[header::IF_MODIFIED_SINCE]);
 
 	const char *pRange = h.h[header::RANGE];
 	// working around a bug in old curl versions
@@ -315,7 +317,7 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 			auto it = cfg::localdirs.find(theUrl.sHost);
 			if (it != cfg::localdirs.end())
 			{
-				ParseRange(h);
+				ParseRangeAndIfMo(h);
 				aclocal::TParms serveParms;
 				serveParms.visPath = sReqPath;
 				serveParms.fsBase = it->second;
@@ -412,9 +414,7 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 					""
         };
 
-		m_ifMoSince = tHttpDate(h.h[header::IF_MODIFIED_SINCE]);
-
-		ParseRange(h);
+		ParseRangeAndIfMo(h);
 
 		m_pItem = m_parent.GetItemRegistry()->Create(m_sFileLoc,
 														 attr.bVolatile ?
@@ -588,14 +588,12 @@ job::eJobResult job::Resume(bool canSend, bufferevent* be)
 		return return_discon(); // shouldn't be here
 	}
 
-#define HANDLE_OR_DISCON { if (HandleSuddenError()) continue ; return R_DISCON; }
-#define ENSURE_NOT_ITEM_ERROR if (fi->GetStatus() > fileitem::FIST_COMPLETE) HANDLE_OR_DISCON;
-#define ENSURE_SENDER_SET if (!m_dataSender) m_dataSender = fi->GetCacheSender(); if (!m_dataSender) HANDLE_OR_DISCON;
-
 	auto fi = m_pItem.get();
-	if (m_activity != STATE_SEND_BUF_NOT_FITEM && m_activity != STATE_DONE)
+	if (m_activity != STATE_SEND_BUF_NOT_FITEM
+			&& m_activity != STATE_DONE
+			&& !fi)
 	{
-		if (!fi && HandleSuddenError())
+		if (!HandleSuddenError())
 			return R_DISCON;
 	}
 
@@ -603,6 +601,10 @@ job::eJobResult job::Resume(bool canSend, bufferevent* be)
 
 	do
 	{
+
+#define HANDLE_OR_DISCON { if (HandleSuddenError()) continue ; return R_DISCON; }
+#define ENSURE_SENDER_SET if (!m_dataSender) m_dataSender = fi->GetCacheSender(); if (!m_dataSender) HANDLE_OR_DISCON;
+
 		LOG(int(m_activity));
 
 		// shouldn't be here.
@@ -613,19 +615,22 @@ job::eJobResult job::Resume(bool canSend, bufferevent* be)
 		if (m_preHeadBuf.valid())
 		{
 			ldbg("prebuf sending: " << *m_preHeadBuf);
+			auto len = evbuffer_get_length(*m_preHeadBuf);
 			if (0 != evbuffer_add_buffer(besender(be), *m_preHeadBuf))
 				return R_DISCON;
 
 			// never used again, even chunk-head-builder writes to stream
 			m_preHeadBuf.reset();
+			m_nAllDataCount += len;
+
 			// that's a wildcard for special operation with just the prebuf and no file item in placex^
 			if (m_activity == STATE_SEND_BUF_NOT_FITEM)
 				return fin_stream_good();
 		}
 
-		if (m_pItem)
+		if (fi)
 		{
-			fist = m_pItem->GetStatus();
+			fist = fi->GetStatus();
 			if (fist > fileitem::FIST_COMPLETE)
 				HANDLE_OR_DISCON;
 		}
@@ -640,9 +645,12 @@ job::eJobResult job::Resume(bool canSend, bufferevent* be)
 		{
 			if (fist < fileitem::FIST_DLGOTHEAD)
 				return subscribeAndExit();
-			auto have = m_pItem->GetCheckedSize();
-			if (have < (m_nReqRangeFrom != -1 ? m_nReqRangeFrom : 0))
-				return subscribeAndExit();
+			if (fist < fileitem::FIST_COMPLETE)
+			{
+				auto have = fi->GetCheckedSize();
+				if (have < (m_nReqRangeFrom != -1 ? m_nReqRangeFrom : 0))
+					return subscribeAndExit();
+			}
 
 			CookResponseHeader();
 			ASSERT(m_activity != STATE_NOT_STARTED);
@@ -790,6 +798,8 @@ inline void job::CookResponseHeader()
 	// the default continuation unless changed
 	m_activity = STATE_SEND_DATA;
 
+	m_nAllDataCount++; // must not stay zero as a guard, and adding just 1 byte to count is negligible
+
 	auto quickResponse = [this] (string_view msg, bool nobody = false, decltype(m_activity) nextActivity = STATE_SEND_BUF_NOT_FITEM)
 	{
 		SetEarlySimpleResponse(msg, nobody);
@@ -799,7 +809,7 @@ inline void job::CookResponseHeader()
 	if (!fi)
 		return quickResponse("500 Invalid cache object"sv, false, STATE_DISCO_ASAP);
 
-	auto& remoteHead = fi->GetRawResponseHeader();
+	const auto& remoteHead = fi->GetRawResponseHeader();
 	if(!remoteHead.empty())
 		return AddPtHeader(remoteHead);
 
@@ -810,7 +820,6 @@ inline void job::CookResponseHeader()
 	// we might need to massage this before responding
 	auto status = fi->m_responseStatus;
 	auto ds = fi->GetCheckedSize();
-	auto fist = fi->GetStatus();
 
 	auto addStatusLineFromItem = [&] ()
 	{
@@ -833,41 +842,62 @@ inline void job::CookResponseHeader()
 		return quickResponse(ltos(status.code) + " " + status.msg);
 	}
 
-	const auto& trueDate = fi->GetLastModified(true);
-	if (m_ifMoSince.isSet() && trueDate.isSet() && m_ifMoSince >= trueDate)
-	{
-		return quickResponse("304 Not Modified"sv, true);
-	}
-	auto src = fi->m_responseOrigin.empty() ? "" : (string("X-Original-Source: ") + fi->m_responseOrigin + "\r\n");
-
 	// detect special condition where we need chunked transfer - no optimizations
 	// possible or considered here (because too nasty to track later errors,
 	// better just resend it, this is a rare case anyway)
 	auto contLen = fi->m_nContentLength;
 	bool goChunked = false;
-	bool withRange = m_nReqRangeFrom >= 0;
+	const auto& reSt = fi->m_responseStatus;
+	bool withRange = reSt.code == 200 && m_nReqRangeFrom >= 0;
 
-	// check whether it's a sane range (if set)
+	const auto& targetDate = fi->GetLastModified(true);
+	if (m_ifMoSince.isSet() && targetDate.isSet() && targetDate <= m_ifMoSince)
+	{
+		return quickResponse("304 Not Modified"sv, true);
+	}
+
 	if (contLen >= 0)
 	{
-		if (m_nReqRangeFrom >= contLen || m_nReqRangeTo + 1 > contLen)
-			return quickResponse("416 Requested Range Not Satisfiable"sv);
+		if (reSt.code == 200)
+		{
+			// check whether it's a sane range
+			if (m_nReqRangeFrom >= contLen || m_nReqRangeTo + 1 > contLen)
+				return quickResponse("416 Requested Range Not Satisfiable"sv);
+		}
 	}
 	else // unknown body length, what are the options?
 	{
 		goChunked = true;
-		// have enough body range here?
-		if (m_nReqRangeTo >= 0 && m_nReqRangeTo < ds)
-			goChunked = false;
+
+		if (reSt.code == 200)
+		{
+			// have enough body range here?
+			if (m_nReqRangeTo >= 0 && m_nReqRangeTo < ds)
+				goChunked = false;
+		}
 	}
+#if 0
+#warning sending as chunked, no matter what
+	goChunked = true;
+#endif
+
 	m_activity = goChunked ? STATE_SEND_CHUNK_HEADER : STATE_SEND_DATA;
 
+	if (withRange)
+		m_nSendPos = m_nReqRangeFrom;
+
 	PrependHttpVariant();
-	SB << (withRange ? "206 Partial Content"sv : "200 OK"sv) << svRN
-	   << "Content-Type: "sv << fi->m_contentType << svRN
-	   << "Last-Modified: "sv << fi->GetLastModified().view() << svRN;
+	if (withRange)
+		SB << "206 Partial Content"sv << svRN;
+	else
+		SB << reSt.code << " " << reSt.msg << svRN;
+	if (!fi->m_contentType.empty())
+		SB << "Content-Type: "sv << fi->m_contentType << svRN;
+	SB << "Last-Modified: "sv << fi->GetLastModified().view() << svRN;
+	if (!fi->m_responseOrigin.empty())
+		SB << "X-Original-Source: "sv << fi->m_responseOrigin << svRN;
 	if (goChunked)
-	   SB << "Transfer-Encoding: chunked\r\n"sv << src;
+		SB << "Transfer-Encoding: chunked"sv << svRN;
 	if (withRange)
 	{
 		SB << "Content-Range: bytes "sv << m_nReqRangeFrom << "-"sv ;
