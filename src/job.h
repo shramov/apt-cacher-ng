@@ -32,6 +32,8 @@ public:
 	eJobResult Resume(bool canSend, bufferevent* be);
 
 	uint_fast32_t GetId() { return IFDEBUGELSE(m_id, 0); }
+	/** Send a keepalive header if we are still in preparation state */
+	bool KeepAlive(bufferevent *bev);
 
     SUTPRIVATE:
 

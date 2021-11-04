@@ -72,6 +72,23 @@ public:
 	}
 };
 
+#ifdef DEBUG
+class sleeper : public tSpecialRequestHandler
+{
+public:
+	sleeper(tRunParms&& parms) : tSpecialRequestHandler(move(parms))
+	{
+		m_bNeedsBgThread = true;
+	}
+	void Run() override
+	{
+		auto dpos = m_parms.cmd.find_first_of("0123456789");
+		sleep(dpos == stmiss ? 100 : atoi(m_parms.cmd.data()+dpos));
+		m_parms.output.ManualStart(500, "DBG", "text/plain");
+	}
+};
+#endif
+
 static tSpecialRequestHandler* MakeMaintWorker(tSpecialRequestHandler::tRunParms&& parms)
 {
 	if (cfg::DegradedMode() && parms.type != EWorkType::STYLESHEET)
@@ -114,6 +131,10 @@ static tSpecialRequestHandler* MakeMaintWorker(tSpecialRequestHandler::tRunParms
 		return new tDeleter(move(parms), "Truncat");
 	case EWorkType::STYLESHEET:
 		return new tStyleCss(move(parms));
+#ifdef DEBUG
+	case EWorkType::DBG_SLEEPER:
+		return new sleeper(move(parms));
+#endif
 #if 0
 	case workJStats:
 		return new jsonstats(parms);
@@ -345,6 +366,9 @@ string_view GetTaskName(EWorkType type)
 	case EWorkType::TRUNCATE_CONFIRM: return "Manual File Truncation (Confirmed)"sv;
 	case EWorkType::COUNT_STATS: return "Status Report With Statistics"sv;
 	case EWorkType::STYLESHEET: return "CSS"sv;
+#ifdef DEBUG
+		case EWorkType::DBG_SLEEPER: return "SLEEPER"sv;
+#endif
 	// case ESpecialWorkType::workJStats: return "Stats";
 	}
 	return "UnknownTask"sv;
@@ -415,6 +439,9 @@ EWorkType DetectWorkType(const tHttpUrl& reqUrl, string_view rawCmd, const char*
 			{"doCount="sv, EWorkType::COUNT_STATS},
 			{"doTraceStart="sv, EWorkType::TRACE_START},
 			{"doTraceEnd="sv, EWorkType::TRACE_END},
+		#ifdef DEBUG
+			{"sleeper="sv, EWorkType::DBG_SLEEPER},
+		#endif
 //			{"doJStats", workJStats}
 	};
 

@@ -15,6 +15,7 @@
 #include "aconnect.h"
 #include "tcpconnect.h"
 #include "astrop.h"
+#include "ackeepalive.h"
 
 #include <iostream>
 #include <thread>
@@ -40,6 +41,8 @@ class connImpl : public IConnBase
 	unique_bufferevent_flushclosing m_be;
 	header m_h;
 	size_t m_hSize = 0;
+	aobservable::subscription m_keepalive;
+
 	enum ETeardownMode
 	{
 		ACTIVE,
@@ -67,9 +70,9 @@ public:
 	connImpl(header&& he, size_t hRawSize, mstring clientName, lint_ptr<IFileItemRegistry> ireg) :
 		m_h(move(he)),
 		m_hSize(hRawSize),
+		m_keepalive(ackeepalive::GetInstance().AddListener([this] () mutable { KeepAlive(); })),
 		m_sClientHost(move(clientName)),
 		m_itemRegistry(move(ireg))
-
 	{
 		LOGSTARTFUNCx(m_sClientHost);
 	};
@@ -121,6 +124,13 @@ public:
 		bufferevent_setcb(*m_be, cbRead, cbCanWrite, cbStatus, this);
 		if (m_hSize > 0)
 			addOneJob();
+	}
+
+	void KeepAlive()
+	{
+		if (m_jobs.empty())
+			return;
+		m_jobs.front().KeepAlive(m_be.get());
 	}
 
 	static void go(bufferevent* pBE, header&& h, size_t hRawSize, string clientName)

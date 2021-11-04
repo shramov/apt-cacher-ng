@@ -48,18 +48,22 @@ public:
 			*this = std::move(src);
 		}
 		bool valid() const { return observable.get(); }
-		void clear() { if(valid()) observable->unsubscribe(what); observable.reset(); }
+		void clear()
+		{
+			if(valid()) observable->unsubscribe(what); observable.reset();
+		}
 	};
 
 	aobservable() =default;
 	virtual ~aobservable() =default;
 	using TNotifier = tAction;
 	subscription subscribe(const TNotifier& newSubscriber) WARN_UNUSED;
-	void notify()
+	bool notify()
 	{
 		if (m_observers.empty() || m_bNotifyPending)
-			return;
-		return doSchedule();
+			return false;
+		doSchedule();
+		return true;
 	}
 
 	bool hasObservers() { return !m_observers.empty();}

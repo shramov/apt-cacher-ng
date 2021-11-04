@@ -743,6 +743,17 @@ job::eJobResult job::Resume(bool canSend, bufferevent* be)
 	return return_discon();
 }
 
+bool job::KeepAlive(bufferevent *bev)
+{
+	if (m_activity > STATE_NOT_STARTED)
+		return true;
+
+	return 0 == bufferevent_write(bev,
+								  (m_bIsHttp11
+								   ? "HTTP/1.1 102 Processing\r\n\r\n"sv
+								   : "HTTP/1.0 102 Processing\r\n\r\n"sv));
+}
+
 inline void job::AddPtHeader(cmstring& remoteHead)
 {
 	const static std::string dummyTE("\nX-No-Trans-Encode:"), badTE("\nTransfer-Encoding:");

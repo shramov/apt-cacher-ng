@@ -34,7 +34,9 @@ enum class EWorkType : int8_t
 	TRACE_END,
 	TRUNCATE,
 	TRUNCATE_CONFIRM
-	//,workBGTEST,
+#ifdef DEBUG
+	,DBG_SLEEPER
+#endif
 };
 
 EWorkType DetectWorkType(const tHttpUrl& reqUrl, string_view rawCmd, const char* auth);

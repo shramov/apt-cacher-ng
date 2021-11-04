@@ -542,6 +542,7 @@ inline void _ParseLocalDirs(cmstring &value)
 }
 
 std::once_flag mimeLoadFlag;
+static cmstring os("application/octet-stream"), tp("text/plain");
 
 cmstring & GetMimeType(string_view path)
 {
@@ -578,7 +579,6 @@ cmstring & GetMimeType(string_view path)
 			return it->second;
 	}
 	// try some educated guess... assume binary if we are sure, text if we are almost sure
-	static cmstring os("application/octet-stream"), tp("text/plain");
 	filereader f;
 	if (f.OpenFile(to_string(path), true))
 	{
