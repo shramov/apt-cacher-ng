@@ -31,7 +31,7 @@ public:
 	};
 	using tCallBack = std::function<void(tResult)>;
 
-	enum class EProxyType
+	enum class EProxyType : int8_t
 	{
 		AUTO, // force use proxy if known
 		AUTO_TIMEOUT_FALLBACK, // try proxy, stop using it after timeout
@@ -44,9 +44,9 @@ public:
 		bool noCache = false; // always build a new connection
 		bool directConnection = false; // establish a direct stream even through proxy
 		bool noTlsOnTarget = false; // (even for HTTPS urls), don't do the final switch to TLS layer
-		int timeoutSeconds = -1; // timeout value, -1 for config default, 0 to disable timeout
 		EProxyType proxyStrategy = EProxyType::AUTO;
-		TConnectParms& setTimeout(int n) { timeoutSeconds = n; return *this;}
+		int timeoutSeconds = -1; // timeout value, -1 for config default, 0 to disable timeout
+		TConnectParms& setTimeout(int n) { timeoutSeconds = n; return *this; }
 		mstring AddFingerprint(mstring&& prefix) const;
 		TConnectParms() {}
 	};

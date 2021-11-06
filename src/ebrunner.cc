@@ -20,7 +20,8 @@ public:
 	Impl(bool withDownloader)
 		:m_eb(new evabase)
 	{
-		SetupCleaner();
+#warning why was cleaner needed?
+//		SetupCleaner();
 		if (withDownloader)
 			dl = dlcontroller::CreateRegular();
 		evthr = std::thread([&]() { m_eb->MainLoop(); });

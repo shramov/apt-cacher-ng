@@ -15,12 +15,17 @@
 
 using namespace std;
 
-namespace acng {
+//#define REUSE_TARGET_CONN
+
+namespace acng
+{
 
 class atcpstreamImpl;
-multimap<string, lint_ptr<atcpstreamImpl>> g_con_cache;
+#ifdef REUSE_TARGET_CONN
+//multimap<string, lint_ptr<atcpstreamImpl>> g_con_cache;
 #define CACHE_SIZE_MAX 42
 void cbCachedKill(struct bufferevent *bev, short what, void *ctx);
+#endif
 
 time_t g_proxyBackOffUntil = 0;
 
@@ -30,8 +35,9 @@ class atcpstreamImpl : public atransport
 	mstring sHost;
 	uint16_t nPort;
 	bool m_bPeerIsProxy;
-
+#ifdef REUSE_TARGET_CONN
 	decltype (g_con_cache)::iterator m_cleanIt;
+#endif
 
 public:
 	atcpstreamImpl(string host, uint16_t port, bool isProxy) :
@@ -45,6 +51,7 @@ public:
 		if (m_buf)
 			bufferevent_free(m_buf);
 	}
+#ifdef REUSE_TARGET_CONN
 	// mooth-ball operations for storing in the cache
 	void Hibernate(decltype (m_cleanIt) cacheRef)
 	{
@@ -62,7 +69,7 @@ public:
 		bufferevent_setcb(m_buf, nullptr, nullptr, nullptr, this);
 		m_cleanIt = g_con_cache.end();
 	}
-
+#endif
 	void SetEvent(bufferevent *be) { m_buf = be; }
 
 	// atcpstream interface
@@ -99,7 +106,7 @@ struct tConnContext : public tLintRefcounted
 		checkforceclose(m_fd);
 	}
 };
-
+#ifdef REUSE_TARGET_CONN
 void cbCachedKill(struct bufferevent *, short , void *ctx)
 {
 	auto pin = as_lptr((atcpstreamImpl*) ctx);
@@ -115,6 +122,7 @@ void cbCachedKill(struct bufferevent *, short , void *ctx)
 		}
 	}
 }
+#endif
 
 mstring atransport::TConnectParms::AddFingerprint(mstring &&prefix) const
 {
@@ -129,8 +137,8 @@ mstring atransport::TConnectParms::AddFingerprint(mstring &&prefix) const
 
 void atransport::Create(const tHttpUrl &url, const tCallBack &cback, const TConnectParms &extHints)
 {
+#ifdef REUSE_TARGET_CONN
 	auto cacheKey = extHints.AddFingerprint(url.GetHostPortKey());
-
 	if (!extHints.noCache)
 	{
 		auto anyIt = g_con_cache.find(cacheKey);
@@ -142,17 +150,20 @@ void atransport::Create(const tHttpUrl &url, const tCallBack &cback, const TConn
 			return cback({static_lptr_cast<atransport>(ret), se, false});
 		}
 	}
+#endif
 	(new tConnContext(url, cback, extHints))->Step(0);
 }
 
 void atransport::Return(lint_ptr<atransport> &stream)
 {
+#ifdef REUSE_TARGET_CONN
 	if (g_con_cache.size() < CACHE_SIZE_MAX)
 	{
 		auto ptr = static_lptr_cast<atcpstreamImpl>(stream);
 		auto it = g_con_cache.insert(make_pair(makeHostPortKey(ptr->GetHost(), ptr->GetPort()), ptr));
 		ptr->Hibernate(it);
 	}
+#endif
 	stream.reset();
 }
 

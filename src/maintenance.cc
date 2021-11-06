@@ -394,6 +394,11 @@ EWorkType DetectWorkType(const tHttpUrl& reqUrl, string_view rawCmd, const char*
 	if (reqUrl.sHost == cfg::reportpage && reqUrl.sPath == "/")
 		return EWorkType::REPORT;
 
+	// others are passed through the report page extra functions
+
+	if (cfg::reportpage.empty())
+		return EWorkType::UNKNOWN;
+
 	trimBack(rawCmd);
 	trimFront(rawCmd, "/");
 

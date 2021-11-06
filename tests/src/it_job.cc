@@ -4,6 +4,8 @@
 #include "httpdate.h"
 #include "header.h"
 #include "job.h"
+#include "ebrunner.h"
+#include "event2/bufferevent.h"
 
 #include <conn.h>
 
@@ -25,32 +27,32 @@ public:
 
 	// IConnBase interface
 public:
-	bool poke(uint_fast32_t jobId) override
+	void poke(uint_fast32_t) override
 	{
-		return true;
 	};
 	cmstring &getClientName() override
 	{
-		return sEmptyString;
+		static cmstring nix;
+		return nix;
 	};
 } conn_dummy;
 
-#warning restore me
-#if 0
 TEST(job, create)
 {
-    job j(conn_dummy);
+	job j(conn_dummy);
     header h;
-	j.Prepare(h, ""sv, "127.0.0.1");
-    ASSERT_TRUE(j.m_sendbuf.view().find("403 Invalid path") != stmiss);
-	auto hdata = "GET /na/asdfasdfsadf HTTP/1.1\r\n\r\n";
+	evabaseFreeRunner ioApp(false);
+	auto bev = bufferevent_socket_new(evabase::base, 0, 0);
+	// void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& callerHostname)
+	j.Prepare(h, bev, 0, "127.0.0.1");
+	ASSERT_EQ(j.m_activity, job::STATE_SEND_BUF_NOT_FITEM);
+	//beconsum bc(besender(bev));
+	beconsum bc(j.m_preHeadBuf.get());
+	auto omem = bc.linear();
+	ASSERT_TRUE(omem.find("403 Invalid path") != stmiss);
+	auto hdata = "GET /na/asdfasdfsadf HTTP/1.1\r\n\r\n"sv;
 	auto res = h.Load(hdata);
     ASSERT_GT(res, 0);
-	j.Prepare(h, hdata, "127.0.0.1");
-    ASSERT_TRUE(j.m_sendbuf.view().find("HTTP/1.1 403 Forbidden file type or location") != stmiss);
-
-#ifdef DEBUG
-	j.Dispose();
-#endif
+	j.Prepare(h, bev, hdata.size(), "127.0.0.1");
+	ASSERT_TRUE(bc.linear().find("HTTP/1.1 403 Forbidden file type or location") != stmiss);
 }
-#endif

@@ -50,6 +50,7 @@ add_executable(it_job
         src/it_job.cc
         src/main.cc
         ../src/job.cc
+        ../src/ebrunner.cc
         )
 target_link_libraries(it_job ${TEST_LIB_SET})
 
