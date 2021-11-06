@@ -291,5 +291,15 @@ public:
 	std::unique_ptr<ICacheDataSender> GetCacheSender() override;
 };
 
+class TResFileItem : public fileitem
+{
+public:
+	TResFileItem(string_view fileName, string_view mimetype);
+	// fileitem interface
+	std::unique_ptr<ICacheDataSender> m_sender;
+public:
+	std::unique_ptr<ICacheDataSender> GetCacheSender() override { return std::move(m_sender); }
+};
+
 }
 #endif

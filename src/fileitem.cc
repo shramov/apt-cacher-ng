@@ -264,21 +264,32 @@ ssize_t TFileitemWithStorage::DlAddData(evbuffer* src, size_t maxTake)
 	return ret;
 }
 
+
 class TSimpleSender : public fileitem::ICacheDataSender
 {
 	// ICacheDataSender interface
 	unique_eb m_buf = unique_eb(evbuffer_new());
 	off_t m_nCursor = 0;
-	int m_error = 0;
 public:
+	/**
+	 * @brief TSimpleSender takes ownershop of this file descriptor
+	 * @param fd
+	 * @param fileSize
+	 */
 	TSimpleSender(int fd, off_t fileSize)
 	{
 		CHECK_ALLOCATED(*m_buf);
-		m_error = evbuffer_add_file(*m_buf, fd, 0, fileSize);
+		ASSERT(fileSize > 0);
+		ASSERT(fd != -1);
+		if (evbuffer_add_file(*m_buf, fd, 0, fileSize))
+		{
+			justforceclose(fd);
+			m_buf.reset();
+		}
 	}
 	ssize_t SendData(bufferevent *target, off_t& callerSendPos, size_t maxTake) override
 	{
-		if (m_error)
+		if (!m_buf.valid())
 			return -1;
 
 		// whole file is mapped -> drain whatever is needed
@@ -607,10 +618,10 @@ void fileitem::ManualStart(int statusCode, mstring statusMessage, mstring mimety
 		if (pin->m_status > FIST_COMPLETE)
 			return; // error-out already
 		ASSERT(pin->m_status < FIST_DLGOTHEAD);
-		pin->m_responseStatus = {statusCode, string(statusMessage)};
+		pin->m_responseStatus = {statusCode, std::move(statusMessage)};
 		ldbg(statusCode << " " << statusMessage)
 		if (!mimetype.empty())
-			pin->m_contentType = mimetype;
+			pin->m_contentType = std::move(mimetype);
 		pin->m_responseOrigin = originOrRedirect;
 		if (contLen >= 0)
 			pin->m_nContentLength = contLen;
@@ -628,6 +639,34 @@ void fileitem::ManualStart(int statusCode, mstring statusMessage, mstring mimety
 		dbgline;
 		evabase::Post(q);
 	}
+}
+
+TResFileItem::TResFileItem(string_view fileName, string_view mimetype)
+	: fileitem("_internal_resource"sv)
+{
+	m_bLocallyGenerated = true;
+	auto fd = open((cfg::confdir + SZPATHSEP).append(fileName).c_str(), O_RDONLY);
+	if (fd == -1 && !cfg::suppdir.empty())
+		fd = open((cfg::suppdir + SZPATHSEP).append(fileName).c_str(), O_RDONLY);
+	if (fd == -1)
+	{
+		m_contentType = se;
+		m_nContentLength = m_nSizeChecked = 0;
+		m_status = FIST_COMPLETE;
+		m_responseStatus = {404, string("Not Found"sv)};
+		return;
+	}
+	Cstat st(fd);
+	m_status = FIST_COMPLETE;
+	m_contentType = string(mimetype);
+	m_nContentLength = m_nSizeChecked = st.st_size;
+	m_responseModDate = tHttpDate(st.st_mtim.tv_sec);
+	m_status = FIST_COMPLETE;
+	m_responseStatus = {200, "OK"};
+	if (st.st_size > 0)
+		m_sender = make_unique<TSimpleSender>(fd, st.st_size);
+	else
+		justforceclose(fd);
 }
 
 }

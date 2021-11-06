@@ -35,12 +35,6 @@ private:
 	void SendIfElse(LPCSTR pszBeginSep, LPCSTR pszEnd);
 };
 
-struct tStyleCss : public tMarkupFileSend
-{
-	inline tStyleCss(tRunParms&& parms) :
-	tMarkupFileSend(std::move(parms), "style.css", "text/css", {200, "OK"}) {};
-};
-
 class tDeleter : public tMarkupFileSend
 {
 	std::set<unsigned> files;

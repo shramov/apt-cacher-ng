@@ -59,6 +59,7 @@ class Cstat : public stat
 public:
 	Cstat() : bResult(false) {};
     Cstat(cmstring &s) : bResult(false) { update(s.c_str()); }
+	Cstat(int fd) { bResult = ! fstat(fd, static_cast<struct stat*>(this)); }
     Cstat(const char *sz) : bResult(false) { update(sz); }
 	operator bool() const { return bResult; }
     bool update(const char *sz) { return (bResult = !::stat(sz, static_cast<struct stat*>(this))); }

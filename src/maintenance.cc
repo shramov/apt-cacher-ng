@@ -98,6 +98,8 @@ static tSpecialRequestHandler* MakeMaintWorker(tSpecialRequestHandler::tRunParms
 	{
 	case EWorkType::UNKNOWN:
 	case EWorkType::REGULAR:
+	case EWorkType::STYLESHEET:
+	case EWorkType::FAVICON:
 		return nullptr;
 	case EWorkType::LOCALITEM:
 		return new aclocal(move(parms));
@@ -129,8 +131,7 @@ static tSpecialRequestHandler* MakeMaintWorker(tSpecialRequestHandler::tRunParms
 	case EWorkType::TRUNCATE:
 	case EWorkType::TRUNCATE_CONFIRM:
 		return new tDeleter(move(parms), "Truncat");
-	case EWorkType::STYLESHEET:
-		return new tStyleCss(move(parms));
+
 #ifdef DEBUG
 	case EWorkType::DBG_SLEEPER:
 		return new sleeper(move(parms));
@@ -365,11 +366,13 @@ string_view GetTaskName(EWorkType type)
 	case EWorkType::TRUNCATE: return "Manual File Truncation"sv;
 	case EWorkType::TRUNCATE_CONFIRM: return "Manual File Truncation (Confirmed)"sv;
 	case EWorkType::COUNT_STATS: return "Status Report With Statistics"sv;
-	case EWorkType::STYLESHEET: return "CSS"sv;
 #ifdef DEBUG
 		case EWorkType::DBG_SLEEPER: return "SLEEPER"sv;
 #endif
 	// case ESpecialWorkType::workJStats: return "Stats";
+	case EWorkType::STYLESHEET:
+	case EWorkType::FAVICON:
+		break;
 	}
 	return "UnknownTask"sv;
 }
@@ -390,6 +393,9 @@ EWorkType DetectWorkType(const tHttpUrl& reqUrl, string_view rawCmd, const char*
 
 	if (reqUrl.sHost == "style.css")
 		return EWorkType::STYLESHEET;
+
+	if (reqUrl.sHost == "favicon.ico")
+		return EWorkType::FAVICON;
 
 	if (reqUrl.sHost == cfg::reportpage && reqUrl.sPath == "/")
 		return EWorkType::REPORT;
@@ -467,6 +473,12 @@ tFileItemPtr Create(EWorkType jobType, bufferevent *bev, const tHttpUrl& url, So
 	{
 		if (jobType == EWorkType::UNKNOWN)
 			return tFileItemPtr(); // not for us?
+
+		if (jobType == EWorkType::STYLESHEET)
+			return tFileItemPtr(new TResFileItem("style.css", "text/css"));
+
+		if (jobType == EWorkType::FAVICON)
+			return tFileItemPtr(new TResFileItem("favicon.ico", "image/x-icon"));
 
 		auto item = new BufferedPtItem(jobType, url.sPath, bev, arg);
 		auto ret = as_lptr<fileitem>(item);
