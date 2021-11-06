@@ -12,10 +12,10 @@ namespace acng
  */
 class ACNG_API tStartStop
 {
-	tStartStop* g_instance;
+	static tStartStop* g_instance;
 
 public:
-	tStartStop* getInstance() { return g_instance; }
+	static tStartStop* getInstance() { return g_instance; }
 	tStartStop() { g_instance = this; }
 	~tStartStop();
 	/**

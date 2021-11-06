@@ -1,5 +1,6 @@
 #include "ackeepalive.h"
 #include "aevutil.h"
+#include "acstartstop.h"
 
 namespace acng
 {
@@ -46,11 +47,15 @@ public:
 	}
 };
 
-ackeepaliveImpl acimpl;
+std::unique_ptr<ackeepaliveImpl> acimpl;
 
 ackeepalive & ackeepalive::GetInstance()
 {
-	return acimpl;
+	if (acimpl)
+		return * acimpl.get();
+	acimpl = std::make_unique<ackeepaliveImpl>();
+	tStartStop::getInstance()->atexit([&](){acimpl.reset();});
+	return * acimpl.get();
 }
 
 void cbKaPing(evutil_socket_t, short, void *arg)

@@ -6,6 +6,7 @@ namespace acng
 {
 
 std::deque<tAction> g_teardownlist;
+tStartStop* tStartStop::g_instance = nullptr;
 
 tStartStop::~tStartStop()
 {
@@ -14,6 +15,7 @@ tStartStop::~tStartStop()
 		g_teardownlist.back()();
 		g_teardownlist.pop_back();
 	}
+	g_instance = nullptr;
 }
 
 void tStartStop::atexit(tAction act)
