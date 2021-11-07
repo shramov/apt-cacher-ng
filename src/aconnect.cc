@@ -22,9 +22,16 @@ namespace acng
 string dnsError("Unknown DNS error");
 
 
-void aconnector::Connect(cmstring& target, uint16_t port, unsigned timeout, tCallback cbReport)
+void aconnector::Connect(cmstring& target, uint16_t port, tCallback cbReport, int timeout)
 {
-	auto exTime = GetTime() + timeout;
+	time_t exTime;
+	if (timeout < 0)
+		exTime = GetTime() + cfg::GetNetworkTimeout()->tv_sec;
+	else if (timeout == 0)
+		exTime = MAX_VAL(time_t);
+	else
+		exTime = GetTime() + timeout;
+
 	evabase::Post([exTime, target, port, cbReport](bool canceled)
 	{
 		if (canceled)
@@ -40,13 +47,13 @@ void aconnector::Connect(cmstring& target, uint16_t port, unsigned timeout, tCal
 	});
 }
 
-aconnector::tConnResult aconnector::Connect(cmstring &target, uint16_t port, unsigned timeout)
+aconnector::tConnResult aconnector::Connect(cmstring &target, uint16_t port, int timeout)
 {
 	std::promise<aconnector::tConnResult> reppro;
-	Connect(target, port, timeout, [&](aconnector::tConnResult res)
+	Connect(target, port, [&](aconnector::tConnResult res)
 	{
 		reppro.set_value(move(res));
-	});
+	}, timeout);
 	return reppro.get_future().get();
 }
 

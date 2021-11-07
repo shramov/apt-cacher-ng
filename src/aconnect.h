@@ -37,7 +37,7 @@ public:
          *
          * Thread context: ST, IO thread
          */
-	static void Connect(cmstring& target, uint16_t port, unsigned timeout, tCallback cbReport);
+	static void Connect(cmstring& target, uint16_t port, tCallback cbReport, int timeout = -1);
     /**
          * @brief Connect to a target in synchronous fashion
          * @param target
@@ -46,7 +46,7 @@ public:
          *
          * Thread context: not IO thread, reentrant, blocking!
          */
-	static tConnResult Connect(cmstring& target, uint16_t port, unsigned timeout);
+	static tConnResult Connect(cmstring& target, uint16_t port, int timeout = -1);
 
 private:
     // forbid copy operations
