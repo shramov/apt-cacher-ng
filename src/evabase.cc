@@ -243,9 +243,12 @@ ACNG_API int evabase::MainLoop()
 
 	in_shutdown = true;
 
-	// try to shutdown DNS stuff with a nicer error message
-	cachedDnsBase->shutdown();
-	cachedDnsBase.reset();
+	if (cachedDnsBase)
+	{
+		// try to shutdown DNS stuff with a nicer error message
+		cachedDnsBase->shutdown();
+		cachedDnsBase.reset();
+	}
 	// make sure that there are no actions from abandoned DNS bases blocking the futures
 	RejectPendingDnsRequests();
 	push_loop();
@@ -272,6 +275,8 @@ ACNG_API int evabase::MainLoop()
 
 void evabase::SignalStop()
 {
+	// actually set this ASAP since it's atomic
+	in_shutdown = true;
 	Post([]()
 	{
 		if(evabase::base)

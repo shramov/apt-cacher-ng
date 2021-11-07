@@ -90,7 +90,7 @@ struct beconsum
     }
 	// make the whole thing contiguous
 	const string_view linear() { auto n = size(); return string_view(
-					(const char*) evbuffer_pullup(m_eb, n)); }
+					(const char*) evbuffer_pullup(m_eb, n), n); }
 };
 
 }

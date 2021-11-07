@@ -11,6 +11,9 @@
 #include "filereader.h"
 #include "csmapping.h"
 #include "tpool.h"
+#include "ac3rdparty.h"
+#include "tpool.h"
+#include "conn.h"
 
 #ifdef DEBUG
 #include <regex.h>
@@ -264,7 +267,7 @@ void daemon_init()
 	//DelTree(cfg::cacheDirSlash + sReplDir);
 	SetupServerItemRegistry();
 
-	auto nSockets = conserver::Setup();
+	auto nSockets = conserver::Setup([](unique_fd&& fd, std::string name) { StartServing(move(fd), name); });
 
 	if (nSockets <= 0)
 	{
@@ -273,6 +276,8 @@ void daemon_init()
 				   "Check the network, check or unset the BindAddress directive.\n";
 		exit(EXIT_FAILURE);
 	}
+
+	g_tpool = tpool::Create(300, 30);
 
 	if (!cfg::foreground && !fork_away())
 	{
@@ -298,15 +303,13 @@ void daemon_deinit()
 	evabase::in_shutdown = true;
 	if (!cfg::pidfile.empty())
 		unlink(cfg::pidfile.c_str());
+	g_tpool->stop();
 	conserver::Shutdown();
 	//		CloseAllCachedConnections();
 #warning bring all users of itemregistry down!
 	TeardownServerItemRegistry();
 	log::close(false);
 }
-
-void ac3rdparty_init();
-void ac3rdparty_deinit();
 
 }
 
@@ -318,6 +321,7 @@ int main(int argc, const char **argv)
 	parse_options(argc, argv);
 	tStartStop g;
 	g.atexit([](){ ac3rdparty_deinit(); });
+
 	daemon_init();
 	g.atexit([](){ daemon_deinit(); });
 

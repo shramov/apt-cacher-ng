@@ -45,14 +45,25 @@ add_executable(ut_http
 	)
 target_link_libraries(ut_http ${TEST_LIB_SET})
 
+add_executable(ut_dns
+        src/ut_dns.cc
+        src/main.cc
+        )
+target_link_libraries(ut_dns ${TEST_LIB_SET})
 
 add_executable(it_job
         src/it_job.cc
         src/main.cc
         ../src/job.cc
-        ../src/ebrunner.cc
         )
 target_link_libraries(it_job ${TEST_LIB_SET})
+
+
+add_executable(it_transport
+        src/main.cc
+        src/it_transport.cc
+        )
+target_link_libraries(it_transport ${TEST_LIB_SET})
 
 gtest_discover_tests(ut_http)
 gtest_discover_tests(ut_algos)

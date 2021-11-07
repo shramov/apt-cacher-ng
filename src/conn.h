@@ -33,7 +33,7 @@ public:
  * @param fd File descriptor, call of this method takes responsibility for it
  * @param clientName
  */
-void StartServing(unique_fd&& fd, std::string clientName);
+void ACNG_API StartServing(unique_fd&& fd, std::string clientName);
 
 #if 0
 class conn

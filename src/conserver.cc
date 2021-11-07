@@ -1,5 +1,4 @@
 #include <memory>
-#include "conn.h"
 #include "conserver.h"
 #include "meta.h"
 #include "acfg.h"
@@ -10,7 +9,6 @@
 #include "evabase.h"
 #include "acregistry.h"
 #include "portutils.h"
-#include "tpool.h"
 
 #include <signal.h>
 #include <arpa/inet.h>
@@ -45,6 +43,8 @@ namespace conserver
 
 int yes(1);
 
+TAcceptor g_connCreator;
+
 const struct timeval g_resumeTimeout { 2, 11 };
 
 void SetupConAndGo(unique_fd&& man_fd, string clientName, LPCSTR clientPort)
@@ -52,7 +52,7 @@ void SetupConAndGo(unique_fd&& man_fd, string clientName, LPCSTR clientPort)
 	USRDBG("Client name: " << clientName << ":" << clientPort);
 	try
 	{
-		StartServing(move(man_fd), move(clientName));
+		g_connCreator(move(man_fd), move(clientName));
 	}
 	catch (const std::bad_alloc&)
 	{
@@ -243,17 +243,17 @@ unsigned setup_tcp_listeners(LPCSTR addi, uint16_t port)
 	return res;
 };
 
-int ACNG_API Setup()
+int ACNG_API Setup(TAcceptor connCreator)
 {
 	LOGSTARTFUNCs;
+
+	g_connCreator = connCreator;
 	
 	if (cfg::udspath.empty() && (!cfg::port && cfg::bindaddr.empty()))
 	{
 		cerr << "Neither TCP nor UNIX interface configured, cannot proceed.\n";
 		exit(EXIT_FAILURE);
 	}
-
-	g_tpool = tpool::Create(300, 30);
 
 	unsigned nCreated = 0;
 
@@ -335,7 +335,6 @@ int ACNG_API Setup()
 
 void Shutdown()
 {
-	g_tpool->stop();
 }
 
 void FinishConnection(int fd)

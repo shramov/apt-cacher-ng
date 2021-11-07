@@ -9,6 +9,9 @@ namespace acng
 {
 void SetupCleaner();
 
+void ac3rdparty_init();
+void ac3rdparty_deinit();
+
 #warning FIXME, implement the abort timeout or maybe not, depending on the redesign
 class evabaseFreeRunner::Impl
 {
@@ -18,8 +21,9 @@ public:
 	unique_ptr<evabase> m_eb;
 
 	Impl(bool withDownloader)
-		:m_eb(new evabase)
 	{
+		ac3rdparty_init();
+		m_eb.reset(new evabase);
 #warning why was cleaner needed?
 //		SetupCleaner();
 		if (withDownloader)
@@ -33,6 +37,7 @@ public:
 			dl->Dispose();
 		m_eb->SignalStop();
 		evthr.join();
+		ac3rdparty_deinit();
 	}
 
 };
