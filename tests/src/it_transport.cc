@@ -13,6 +13,8 @@
 #include <atomic>
 #include <list>
 
+#include <chrono>
+
 #define TESTPORT 3141
 
 using namespace acng;
@@ -45,5 +47,11 @@ TEST_F(TransportTest, server_started)
 
 TEST_F(TransportTest, just_connect)
 {
+	/*
+	auto msTimeout = std::chrono::seconds(2) + std::chrono::milliseconds(300);
+	auto result = msTimeout.count();
+	auto secs = std::chrono::duration_cast<std::chrono::seconds>(msTimeout);
+	auto usecs = std::chrono::duration_cast<std::chrono::nanoseconds>(msTimeout - std::chrono::seconds(secs));
+	*/
 	//aconnector::Connect("localhost", TESTPORT, cfg::GetNetworkTimeout()->tv_sec, );
 }

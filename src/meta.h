@@ -330,6 +330,15 @@ static constexpr string_view svEmpty = "";
 size_t strlcpy(char *tgt, const char *src, size_t tgtSize);
 #endif
 
+struct DurationTimeValAdapter : public timeval
+{
+	DurationTimeValAdapter(std::chrono::milliseconds ms)
+	{
+		tv_sec = std::chrono::duration<std::chrono::seconds>(ms);
+		tv_usec = std::chrono::duration<std::chrono::microseconds>(ms - std::chrono::seconds(tv_sec));
+	}
+};
+
 }
 
 #endif // _META_H
