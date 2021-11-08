@@ -1697,7 +1697,7 @@ bool cacheman::ParseAndProcessMetaFile(std::function<void(const tRemoteFileInfo&
 
 	unsigned progHint=0;
 #define STEP 2048
-	tDtorEx postNewline([this, &progHint](){if(progHint>=STEP) SendChunk("<br>\n");});
+	TFinalAction postNewline([this, &progHint](){if(progHint>=STEP) SendChunk("<br>\n");});
 
 	switch(idxType)
 	{

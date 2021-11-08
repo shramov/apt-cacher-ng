@@ -8,13 +8,6 @@ namespace acng {
 using tAction = std::function<void()>;
 using tCancelableAction = std::function<void(bool)>;
 
-// dirty little RAII helper
-struct tDtorEx {
-        std::function<void(void)> _action;
-        inline tDtorEx(decltype(_action) action) : _action(action) {}
-        inline ~tDtorEx() { _action(); }
-};
-
 // unique_ptr semantics (almost) on a non-pointer type
 template<typename T, void TFreeFunc(T), T inval_default>
 struct auto_raii
@@ -76,6 +69,55 @@ struct auto_raii
 		m_p = inval_default;
 	}
 	bool valid() const { return inval_default != m_p;}
+};
+
+/**
+ * @brief Single-owner function carrier.
+ *
+ * Runs the action when the last carrier is eventually destroyed.
+ */
+struct TFinalAction
+{
+	tAction m_p;
+	TFinalAction() =default;
+	explicit TFinalAction(tAction xp) : m_p(xp) {}
+	~TFinalAction() { if (m_p) m_p(); }
+	TFinalAction(const TFinalAction&) = delete;
+	TFinalAction(TFinalAction&& other)
+	{
+		if (& m_p == & other.m_p)
+			return;
+		m_p = other.m_p;
+		other.m_p = tAction();
+	}
+	TFinalAction& reset(TFinalAction &&other)
+	{
+		if (&other == this)
+			return *this;
+		reset();
+		m_p.swap(other.m_p);
+		return *this;
+	}
+	TFinalAction& operator=(TFinalAction &&other) { return reset(std::move(other)); }
+	TFinalAction& reset(tAction rawNew)
+	{
+		if(m_p)
+			m_p();
+		m_p = rawNew;
+		return *this;
+	}
+	void swap(TFinalAction &other)
+	{
+		auto p = m_p;
+		m_p = other.m_p;
+		other.m_p = p;
+	}
+	void reset()
+	{
+		if (m_p)
+			m_p();
+		m_p = tAction();
+	}
 };
 
 #if 0

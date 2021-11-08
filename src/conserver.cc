@@ -204,7 +204,11 @@ unsigned setup_tcp_listeners(LPCSTR addi, uint16_t port)
 		perror("Error resolving address for binding");
 		return 0;
 	}
-	tDtorEx dnsclean([dnsret]() {if(dnsret) freeaddrinfo(dnsret);});
+	TFinalAction dnsclean([dnsret]()
+	{
+		if(dnsret)
+			freeaddrinfo(dnsret);
+	});
 	std::unordered_set<std::string> dedup;
 	unsigned res(0);
 	for(auto p = dnsret; p; p = p->ai_next)

@@ -29,15 +29,6 @@ namespace acng
  */
 ssize_t eb_dump_atmost(evbuffer* inbuf, int out_fd, size_t nMax2SendNow);
 
-struct TEbUniqueLock : public auto_raii<evbuffer*, evbuffer_unlock, nullptr>
-{
-        TEbUniqueLock(evbuffer* eb)
-                : auto_raii<evbuffer*, evbuffer_unlock, nullptr>(eb)
-        {
-                evbuffer_lock(eb);
-        }
-};
-
 inline evbuffer* besender(bufferevent* be) { return bufferevent_get_output(be); }
 inline evbuffer* bereceiver(bufferevent* be) { return bufferevent_get_input(be); }
 inline void send(evbuffer *dest, string_view sv) { if (evbuffer_add(dest, sv.data(), sv.length())) throw std::bad_alloc();}

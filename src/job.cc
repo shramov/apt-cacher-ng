@@ -532,7 +532,7 @@ void job::PrepareFatalError(const header &h, const string_view errorStatus)
 
 job::eJobResult job::subscribeAndExit()
 {
-	if (m_subKey.valid())
+	if (m_subKey.m_p)
 		return R_WILLNOTIFY;
 
 	try

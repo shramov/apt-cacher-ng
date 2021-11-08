@@ -199,7 +199,12 @@ void tExclusiveUserAction::Run()
 			 *****************************************************/
 			ulock g(g_bgTaskMx);
 			g_sigTaskAbort=false;
-			tDtorEx cleaner([&](){g.lock(); nBgTimestamp = 0; g_bgTaskCondVar.notify_all();});
+			TFinalAction cleaner([&]()
+			{
+				g.lock();
+				nBgTimestamp = 0;
+				g_bgTaskCondVar.notify_all();
+			});
 			g.unlock();
 
 			SendFmt << "Maintenance task <b>" << GetTaskName(m_parms.type)

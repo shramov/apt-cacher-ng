@@ -287,7 +287,7 @@ tDnsResContext::~tDnsResContext()
 	try
 	{
 		auto ret = std::shared_ptr<CAddrInfo>(new CAddrInfo); // ctor is private
-		tDtorEx invoke_cbs([&ret, this]() mutable
+		TFinalAction invoke_cbs([&ret, this]() mutable
 		{
 			runCallbacks(ret);
 			// ASAP, before releasing resolver

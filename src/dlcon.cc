@@ -711,7 +711,7 @@ struct tDlJob
 			{
 				ldbg("STATE_FINISHJOB");
 				storage()->DlFinish(false);
-				m_parent->m_blockingItemSubscription.clear();
+				m_parent->m_blockingItemSubscription.reset();
 				m_DlState = STATE_GETHEADER;
 				return HINT_DONE;
 			}

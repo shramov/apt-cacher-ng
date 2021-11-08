@@ -25,39 +25,7 @@ class aobservable : public tLintRefcounted
 {
 public:
 	// move-only semantics
-	class subscription
-	{
-		mutable lint_ptr<aobservable> observable;
-		mutable TActionList::iterator what;
-		subscription(const subscription&) =delete;
-		friend class aobservable;
-	public:
-		subscription() =default;
-		~subscription() { clear(); }
-		subscription(decltype(observable) _us, decltype (what) _what) : observable(_us), what(_what) {}
-		subscription& operator=(subscription&& src)
-		{
-			if (this != &src)
-			{
-				observable.swap(src.observable);
-				what = src.what;
-			}
-			return *this;
-		}
-		subscription(subscription&& src)
-		{
-			*this = std::move(src);
-		}
-		bool valid() const { return observable.get(); }
-		void clear()
-		{
-			if(valid())
-			{
-				observable->unsubscribe(what);
-				observable.reset();
-			}
-		}
-	};
+	using subscription = TFinalAction;
 
 	aobservable() =default;
 	virtual ~aobservable() =default;
@@ -73,9 +41,7 @@ public:
 
 	bool hasObservers() { return !m_observers.empty();}
 
-	protected:
-
-	friend class subscription;
+	friend struct TFinalAction;
 	void unsubscribe(TActionList::iterator what);
 
 private:

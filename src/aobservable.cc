@@ -13,7 +13,9 @@ aobservable::subscription aobservable::subscribe(const aobservable::TNotifier &n
 	if (!newSubscriber) // XXX: not accepting invalid subscribers to avoid later checks, but what then?
 		return subscription();
 	m_observers.emplace_back(newSubscriber);
-	return subscription(as_lptr(this), m_observers.rend().base());
+	return TFinalAction([pin = as_lptr(this), iter = m_observers.rend().base()]() {
+		pin->unsubscribe(iter);
+	});
 }
 
 void aobservable::unsubscribe(TActionList::iterator what)
