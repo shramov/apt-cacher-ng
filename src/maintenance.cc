@@ -555,7 +555,10 @@ public:
 			if (callerSendPos != source->m_nCursor)
 				return 0;
 		}
-		auto ret = evbuffer_remove_buffer(eb, besender(target), maxTake);
+#warning add a stress test with randomly inserted negative responses here and running under valgrind
+		auto ret = evbuffer_remove_buffer(eb,
+										  besender(target),
+										  min(size_t(INT_MAX), maxTake));
 		INCPOS(callerSendPos, ret);
 		INCPOS(source->m_nCursor, ret);
 		return ret;

@@ -34,7 +34,8 @@ void aobservable::doSchedule()
 	ASSERT_HAVE_MAIN_THREAD;
 
 	m_bNotifyPending = true;
-	evabase::Post([me = as_lptr(this)] () mutable {
+	evabase::Post([me = as_lptr(this)] () mutable
+	{
 		me->doNotify();
 	});
 }

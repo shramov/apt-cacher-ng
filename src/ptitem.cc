@@ -65,7 +65,7 @@ ssize_t tPassThroughFitem::DlAddData(evbuffer *chunk, size_t maxTake)
             m_nSizeChecked = 0;
         }
 
-		auto ret = evbuffer_remove_buffer(chunk, m_q, maxTake);
+		auto ret = evbuffer_remove_buffer(chunk, m_q, min(size_t(INT_MAX), maxTake));
 		if (ret < 0)
 			return ret;
 		m_nIncommingCount += ret;
@@ -110,7 +110,8 @@ public:
 	ssize_t SendData(bufferevent* target, off_t& callerSendPos, size_t maxTake) override
 	{
 		auto tocopy = std::min(evbuffer_get_length(parent->m_q), maxTake);
-		auto howmuch = evbuffer_remove_buffer(parent->m_q, besender(target), tocopy);
+		auto howmuch = evbuffer_remove_buffer(parent->m_q, besender(target),
+											  min(size_t(INT_MAX), tocopy));
 		parent->NotifyObservers();
 		callerSendPos += howmuch;
 		return howmuch;

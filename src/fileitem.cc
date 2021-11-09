@@ -299,7 +299,7 @@ public:
 				return -1;
 		}
 #warning this still sucks, retval is int which is a potential 2gb limit. Add a better wrapper which runs this multiple times and replace evbuffer_remove_buffer everywhere!
-		auto n = evbuffer_remove_buffer(*m_buf, besender(target), maxTake);
+		auto n = evbuffer_remove_buffer(*m_buf, besender(target), min(size_t(INT_MAX), maxTake));
 		INCPOS(callerSendPos, n);
 		return n;
 	}

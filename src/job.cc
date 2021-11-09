@@ -740,6 +740,7 @@ job::eJobResult job::Resume(bool canSend, bufferevent* be)
 		}
 		}
 	} while(true);
+
 	return return_discon();
 }
 
