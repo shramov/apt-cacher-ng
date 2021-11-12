@@ -14,6 +14,7 @@
 #include "ac3rdparty.h"
 #include "tpool.h"
 #include "conn.h"
+#include "ackeepalive.h"
 
 #ifdef DEBUG
 #include <regex.h>
@@ -316,11 +317,14 @@ void daemon_deinit()
 int main(int argc, const char **argv)
 {
 	using namespace acng;
+	tStartStop g;
+
 	ac3rdparty_init();
+	g.atexit([](){ ac3rdparty_deinit(); });
+
 	evabase dabase;
 	parse_options(argc, argv);
-	tStartStop g;
-	g.atexit([](){ ac3rdparty_deinit(); });
+	auto ka = ackeepalive::SetupGlobalInstance();
 
 	daemon_init();
 	g.atexit([](){ daemon_deinit(); });

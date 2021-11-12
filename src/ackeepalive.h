@@ -13,6 +13,7 @@ class ackeepalive
 public:
 	static ackeepalive& GetInstance();
 	virtual aobservable::subscription AddListener(const tAction&) =0;
+	static std::unique_ptr<ackeepalive> SetupGlobalInstance(const struct timeval* interval = nullptr);
 };
 
 }

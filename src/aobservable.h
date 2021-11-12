@@ -28,7 +28,10 @@ public:
 	using subscription = TFinalAction;
 
 	aobservable() =default;
-	virtual ~aobservable() =default;
+	virtual ~aobservable()
+	{
+
+	};
 	using TNotifier = tAction;
 	subscription subscribe(const TNotifier& newSubscriber) WARN_UNUSED;
 	bool notify()

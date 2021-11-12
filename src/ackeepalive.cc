@@ -6,10 +6,11 @@ namespace acng
 {
 
 void cbKaPing(evutil_socket_t, short, void *);
-const struct timeval keepAliveTimeout { 10, 0 };
+const struct timeval defaultKeepAliveTimeout { 10, 0 };
 
 class ackeepaliveImpl : public ackeepalive
 {
+	const struct timeval m_interval;
 public:
 	lint_ptr<aobservable> m_notifier;
 	unique_event m_event;
@@ -43,19 +44,28 @@ public:
 			return;
 		m_active = true;
 
-		event_add(m_event.get(), &keepAliveTimeout);
+		event_add(m_event.get(), &m_interval);
 	}
+	ackeepaliveImpl(const struct timeval& interval);
 };
 
-std::unique_ptr<ackeepaliveImpl> acimpl;
+ackeepaliveImpl* acimpl;
+
+ackeepaliveImpl::ackeepaliveImpl(const timeval &interval)
+	: m_interval(interval)
+{
+	acimpl = this;
+}
 
 ackeepalive & ackeepalive::GetInstance()
 {
-	if (acimpl)
-		return * acimpl.get();
-	acimpl = std::make_unique<ackeepaliveImpl>();
-	tStartStop::getInstance()->atexit([&](){acimpl.reset();});
-	return * acimpl.get();
+	return *acimpl;
+}
+
+std::unique_ptr<ackeepalive> ackeepalive::SetupGlobalInstance(const timeval *interval)
+{
+	return std::make_unique<ackeepaliveImpl>(interval ? *interval : defaultKeepAliveTimeout);
+//	tStartStop::getInstance()->atexit([&](){acimpl.reset();});
 }
 
 void cbKaPing(evutil_socket_t, short, void *arg)

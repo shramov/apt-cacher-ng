@@ -70,15 +70,19 @@ public:
 	connImpl(header&& he, size_t hRawSize, mstring clientName, lint_ptr<IFileItemRegistry> ireg) :
 		m_h(move(he)),
 		m_hSize(hRawSize),
-		m_keepalive(ackeepalive::GetInstance().AddListener([this] () mutable { KeepAlive(); })),
 		m_sClientHost(move(clientName)),
 		m_itemRegistry(move(ireg))
 	{
 		LOGSTARTFUNCx(m_sClientHost);
+		m_keepalive = ackeepalive::GetInstance().AddListener([this] () mutable
+		{
+			//DBGQLOG("ka: "sv << (long) this);
+			KeepAlive();
+		});
 	};
 	virtual ~connImpl()
 	{
-		LOGSTART("con::~con (Destroying connection...)");
+		LOGSTARTFUNC;
 		// our user's connection is released but the downloader task created here may still be serving others
 		// tell it to stop when it gets the chance and delete it then
 		if(m_pDlClient)
@@ -138,7 +142,6 @@ public:
 		lint_ptr<connImpl> worker;
 		try
 		{
-			//connImpl(header&& he, size_t hRawSize, mstring clientName, std::shared_ptr<IFileItemRegistry> ireg)
 			worker.reset(new connImpl(move(h), hRawSize, move(clientName), SetupServerItemRegistry()));
 			worker->m_be.m_p = pBE;
 			pBE = nullptr;
