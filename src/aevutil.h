@@ -84,5 +84,39 @@ struct beconsum
 					(const char*) evbuffer_pullup(m_eb, n), n); }
 };
 
+inline ssize_t eb_move_atmost(evbuffer* src, evbuffer *tgt, size_t maxTake)
+{
+	auto have = evbuffer_get_length(src);
+	if (maxTake > have)
+		maxTake = have;
+	do {
+		auto limited = maxTake > INT_MAX;
+		int limit = limited ? INT_MAX : maxTake;
+		auto n = evbuffer_remove_buffer(src, tgt, limit);
+		// if error or not augmented -> pass through
+		if (!limited || n <= limit)
+			return n;
+		maxTake -= limit;
+	}
+	while (maxTake > 0);
+	return -1;
+}
+/**
+ * @brief eb_move_atmost little helper wrapper to increment one tracking position when needed
+ * @param src
+ * @param tgt
+ * @param maxTake
+ * @param updatePos
+ * @return
+ */
+inline ssize_t eb_move_atmost(evbuffer* src, evbuffer *tgt, size_t maxTake, off_t& updatePos)
+{
+	auto n = eb_move_atmost(src, tgt, maxTake);
+	if (n > 0)
+		updatePos += n;
+	return n;
+}
+
+
 }
 #endif // AEVUTIL_H

@@ -2,6 +2,7 @@
 #include "fileio.h"
 #include "debug.h"
 #include "aevutil.h"
+#include "meta.h"
 
 using namespace std;
 
@@ -65,11 +66,9 @@ ssize_t tPassThroughFitem::DlAddData(evbuffer *chunk, size_t maxTake)
             m_nSizeChecked = 0;
         }
 
-		auto ret = evbuffer_remove_buffer(chunk, m_q, min(size_t(INT_MAX), maxTake));
-		if (ret < 0)
-			return ret;
-		m_nIncommingCount += ret;
-		m_nSizeChecked += ret;
+		auto ret = eb_move_atmost(chunk, m_q, min(size_t(INT_MAX), maxTake));
+		INCPOS(m_nIncommingCount, ret);
+		INCPOS(m_nSizeChecked, ret);
 		return ret;
     }
     catch (...)
@@ -102,6 +101,7 @@ bool tPassThroughFitem::DlStarted(evbuffer *rawData, size_t headerLen, const tHt
 	return true;
 }
 
+
 class tPassThroughFitem::TSender : public fileitem::ICacheDataSender
 {
 	lint_ptr<tPassThroughFitem> parent;
@@ -109,12 +109,8 @@ public:
 	TSender(tPassThroughFitem* p) : parent(p) {}
 	ssize_t SendData(bufferevent* target, off_t& callerSendPos, size_t maxTake) override
 	{
-		auto tocopy = std::min(evbuffer_get_length(parent->m_q), maxTake);
-		auto howmuch = evbuffer_remove_buffer(parent->m_q, besender(target),
-											  min(size_t(INT_MAX), tocopy));
 		parent->NotifyObservers();
-		callerSendPos += howmuch;
-		return howmuch;
+		return eb_move_atmost(parent->m_q, besender(target), maxTake, callerSendPos);
 	}
 };
 
