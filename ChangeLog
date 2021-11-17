@@ -7,6 +7,7 @@ apt-cacher-ng (4.0) 4-ELIZA; urgency=low
     + combination of request ranges and chunked transfers possible
     + more special responses possible without closing connection
     + various fixes in local file serving code
+    + more correct replies in CONNECT requests
 
  -- 
 

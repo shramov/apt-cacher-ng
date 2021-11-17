@@ -89,6 +89,7 @@ public:
 	bool isAnswer() const { return m_status.code >= 0; }
 	void setStatus(int cod, string_view msg) { m_status = {cod, std::string(msg)}; }
 	void clear();
+	string_view GetProtoView() const;
 
 	tSS ToString() const;
 

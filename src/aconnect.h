@@ -1,26 +1,18 @@
 #ifndef ACONNECT_H
 #define ACONNECT_H
 
-#include "caddrinfo.h"
 #include "fileio.h"
-#include <list>
 
-namespace acng {
-
+namespace acng
+{
 /**
  * @brief Short living object used to establish TCP connection to a target
  *
  * The object is self-destructing after execution.
  */
-class aconnector
+struct ACNG_API aconnector
 {
-public:
-    /**
-     * Thread context: ST, IO thread
-     */
-	~aconnector() =default;
-
-	struct tConnResult
+	struct ACNG_API tConnResult
 	{
 		unique_fd fd;
 		std::string sError;
@@ -37,7 +29,7 @@ public:
          *
          * Thread context: ST, IO thread
          */
-	static void Connect(cmstring& target, uint16_t port, tCallback cbReport, int timeout = -1);
+	static TFinalAction Connect(cmstring& target, uint16_t port, tCallback cbReport, int timeout = -1);
     /**
          * @brief Connect to a target in synchronous fashion
          * @param target
@@ -47,38 +39,6 @@ public:
          * Thread context: not IO thread, reentrant, blocking!
          */
 	static tConnResult Connect(cmstring& target, uint16_t port, int timeout = -1);
-
-private:
-    // forbid copy operations
-    aconnector(const aconnector&) = delete;
-    /**
-     * Thread context: ST, IO thread
-     */
-    aconnector() =default;
-
-    tCallback m_cback;
-	std::deque<acng_addrinfo> m_targets;
-    // linear search is sufficient for this amount of elements
-	struct tProbeInfo
-	{
-		unique_fd fd;
-		unique_event ev;
-	};
-	std::list<tProbeInfo> m_eventFds;
-    unsigned m_pending = 0;
-    time_t m_tmoutTotal, m_timeNextCand;
-    mstring m_error2report;
-
-	decltype (m_targets)::iterator m_cursor;
-
-    void processDnsResult(std::shared_ptr<CAddrInfo>);
-
-    static void cbStep(int fd, short what, void* arg);
-    void step(int fd, short what);
-    void retError(mstring);
-    void retSuccess(int fd);
-    void disable(int fd, int ec);
 };
-
 }
 #endif // ACONNECT_H

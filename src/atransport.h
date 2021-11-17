@@ -2,18 +2,15 @@
 #define ATCPSTREAM_H
 
 #include "acsmartptr.h"
-
-#include <functional>
-
-extern "C"
-{
-struct bufferevent;
-}
+#include "actemplates.h"
+#include "aevutil.h"
+#include "ahttpurl.h"
 
 namespace acng
 {
 
 class tHttpUrl;
+struct tConnContext;
 
 /**
   * This implement second level connection establishment, which serves
@@ -21,6 +18,11 @@ class tHttpUrl;
   */
 class ACNG_API atransport : public acng::tLintRefcounted
 {
+	unique_bufferevent m_buf;
+	bool m_bPeerIsProxy = false;
+	tHttpUrl m_url;
+	friend struct tConnContext;
+
 public:
 	atransport() =default;
 	struct tResult
@@ -31,24 +33,19 @@ public:
 	};
 	using tCallBack = std::function<void(tResult)>;
 
-	enum class EProxyType : int8_t
-	{
-		AUTO, // force use proxy if known
-		AUTO_TIMEOUT_FALLBACK, // try proxy, stop using it after timeout
-		AUTO_TIMEOUT_FALLBACK_STICKY, // like AUTO_TIMEOUT_FALLBACK but remember that proxy is faulty for a certain interval
-		NONE // not using proxy, even if configured
-	};
-
 	struct TConnectParms
 	{
 		bool noCache = false; // always build a new connection
 		bool directConnection = false; // establish a direct stream even through proxy
 		bool noTlsOnTarget = false; // (even for HTTPS urls), don't do the final switch to TLS layer
-		EProxyType proxyStrategy = EProxyType::AUTO;
 		int timeoutSeconds = -1; // timeout value, -1 for config default, 0 to disable timeout
-		TConnectParms& setTimeout(int n) { timeoutSeconds = n; return *this; }
-		mstring AddFingerprint(mstring&& prefix) const;
-		TConnectParms() {}
+
+		TConnectParms& SetTimeout(int n) { timeoutSeconds = n; return *this; }
+		TConnectParms& SetDirectConnection(bool val) { directConnection = val ; return *this; }
+		TConnectParms& SetNoTlsOnTarget(bool val) { noTlsOnTarget = val ; return *this; }
+
+		TConnectParms() {};
+		void AppendFingerprint(mstring& prefix) const;
 	};
 
 	/**
@@ -59,19 +56,23 @@ public:
 	 * @param sslUpgrade Overlay the stream with TLS stream after connecting
 	 * @param cback
 	 */
-	static void Create(const tHttpUrl&, const tCallBack& cback, const TConnectParms& extHints = TConnectParms());
-	//static void Create(mstring host, uint16_t port, const tCallBack& cback);
+	static TFinalAction Create(tHttpUrl, const tCallBack&, TConnectParms extHints = TConnectParms());
+	/**
+	 * @brief whenConnected Run this callback (deferred) when connection is established
+	 * @param cback
+	 */
 	static void Return(lint_ptr<atransport>& stream);
-	virtual bufferevent* GetBufferEvent() =0;
-	virtual const std::string& GetHost() =0;
-	virtual uint16_t GetPort() =0;
-	virtual bool PeerIsProxy() =0;
+
+	bufferevent *GetBufferEvent() { return *m_buf; }
+	cmstring& GetHost() { return m_url.sHost; }
+	uint16_t GetPort() { return m_url.GetPort(); }
+	bool PeerIsProxy() { return m_bPeerIsProxy; }
+
 	/**
 	 * @brief GetConnKey creates an identifier which describes the connection.
 	 * @return
 	 */
-	virtual std::string GetConnKey() =0;
-
+	std::string GetConnKey();
 };
 }
 

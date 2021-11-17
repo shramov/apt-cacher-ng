@@ -6,8 +6,11 @@
 #include "debug.h"
 #include "portutils.h"
 #include "aevutil.h"
+#include "acsmartptr.h"
+#include "caddrinfo.h"
 
 #include <future>
+#include <list>
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -18,48 +21,84 @@ using namespace std;
 
 namespace acng
 {
-
 string dnsError("Unknown DNS error");
 
-
-void aconnector::Connect(cmstring& target, uint16_t port, tCallback cbReport, int timeout)
+struct tConnRqData : public tLintRefcounted
 {
 	time_t exTime;
-	if (timeout < 0)
-		exTime = GetTime() + cfg::GetNetworkTimeout()->tv_sec;
-	else if (timeout == 0)
-		exTime = MAX_VAL(time_t);
-	else
-		exTime = GetTime() + timeout;
-
-	evabase::Post([exTime, target, port, cbReport](bool canceled)
+	mstring target;
+	uint16_t port;
+	aconnector::tCallback cbReport;
+	std::deque<acng_addrinfo> m_targets;
+	// linear search is sufficient for this amount of elements
+	struct tProbeInfo
 	{
-		if (canceled)
-			return cbReport({ unique_fd(), "Canceled" });
-		auto o = new aconnector;
-		o->m_tmoutTotal = exTime;
-		o->m_cback = move(cbReport);
-		// capture the object there
-		CAddrInfo::Resolve(target, port, [o](std::shared_ptr<CAddrInfo> res)
-		{
-			o->processDnsResult(move(res));
-		});
+		unique_fd fd;
+		unique_event ev;
+	};
+	std::list<tProbeInfo> m_eventFds;
+	unsigned m_pending = 0;
+	time_t m_timeNextCand;
+	mstring m_error2report;
+	decltype (m_targets)::iterator m_cursor;
+	void processDnsResult(std::shared_ptr<CAddrInfo>);
+	void step(int fd, short what);
+	static void cbStep(int fd, short what, void* arg)
+	{
+		((tConnRqData*)arg)->step(fd, what);
+	}
+	void retError(mstring);
+	void retSuccess(int fd);
+	void disable(int fd, int ec);
+	void abort()
+	{
+		// stop all event interaction ASAP and (maybe) self-destruct
+		cbReport = aconnector::tCallback();
+		m_eventFds.clear();
+		__dec_ref();
+	}
+};
+
+TFinalAction aconnector::Connect(cmstring& target, uint16_t port, tCallback cbReport, int timeout)
+{
+	auto ctx = make_lptr<tConnRqData>();
+	if (timeout < 0)
+		ctx->exTime = GetTime() + cfg::GetNetworkTimeout()->tv_sec;
+	else if (timeout == 0)
+		ctx->exTime = MAX_VAL(time_t);
+	else
+		ctx->exTime = GetTime() + timeout;
+
+	ctx->target = target;
+	ctx->port = port;
+	ctx->cbReport = move(cbReport);
+	ctx->__inc_ref(); // freed in the result or cancelation reporting
+
+	CAddrInfo::Resolve(ctx->target, ctx->port, [ctx](std::shared_ptr<CAddrInfo> res)
+	{
+		ctx->processDnsResult(move(res));
 	});
+	return TFinalAction([ctx](){ ctx->abort(); });
 }
 
 aconnector::tConnResult aconnector::Connect(cmstring &target, uint16_t port, int timeout)
 {
 	std::promise<aconnector::tConnResult> reppro;
-	Connect(target, port, [&](aconnector::tConnResult res)
+	evabase::Post([&]()
 	{
-		reppro.set_value(move(res));
-	}, timeout);
+		Connect(target, port, [&](aconnector::tConnResult res)
+		{
+			reppro.set_value(move(res));
+		}, timeout);
+	});
 	return reppro.get_future().get();
 }
 
-void aconnector::processDnsResult(std::shared_ptr<CAddrInfo> res)
+void tConnRqData::processDnsResult(std::shared_ptr<CAddrInfo> res)
 {
 	LOGSTARTFUNCs;
+	if (!cbReport)
+		return; // this was cancelled by the caller already!
 	if (!res)
 		return retError(dnsError);
 	auto errDns = res->getError();
@@ -69,17 +108,14 @@ void aconnector::processDnsResult(std::shared_ptr<CAddrInfo> res)
 	m_targets = res->getTargets();
 	if (m_targets.empty())
 		return retError(dnsError);
-
 	step(-1, 0);
 }
 
-void aconnector::cbStep(int fd, short what, void *arg) {
-	((aconnector*)arg)->step(fd, what);
-}
-
-void aconnector::step(int fd, short what)
+void tConnRqData::step(int fd, short what)
 {
 	LOGSTARTFUNCx(fd, what);
+	if (!cbReport)
+		return; // this was cancelled by the caller already!
 	if (what & EV_WRITE)
 	{
 		// ok, some real socket became ready on connecting, let's doublecheck it
@@ -89,7 +125,6 @@ void aconnector::step(int fd, short what)
 		{
 			if (!err)
 				return retSuccess(fd);
-
 			disable(fd, err);
 		}
 		else
@@ -99,7 +134,7 @@ void aconnector::step(int fd, short what)
 	}
 	// okay, socket not usable, create next candicate connection?
 	time_t now = GetTime();
-	if (now > m_tmoutTotal)
+	if (now > exTime)
 		return retError("Connection timeout");
 
 	auto isFirst = fd == -1;
@@ -130,9 +165,7 @@ void aconnector::step(int fd, short what)
 				m_error2report = tErrnoFmter();
 			continue;
 		}
-
 		set_connect_sock_flags(nextFd.get());
-
 		for (unsigned i=0; i < 50; ++i)
 		{
 			auto res = connect(nextFd.get(), (sockaddr*) & m_cursor->ai_addr, m_cursor->ai_addrlen);
@@ -161,37 +194,37 @@ void aconnector::step(int fd, short what)
 	}
 	// not success if got here, any active connection pending?
 	if (m_pending == 0)
-	{
 		return retError(m_error2report.empty() ? tErrnoFmter(EAFNOSUPPORT) : m_error2report);
-	}
-	else
-	{
-		LOG("pending connections: " << m_pending);
-	}
+	LOG("pending connections: " << m_pending);
 }
 
-void aconnector::retError(mstring msg)
+void tConnRqData::retError(mstring msg)
 {
 	LOGSTARTFUNCx(msg);
-	m_cback({unique_fd(), move(msg)});
-	delete this;
+	if (cbReport)
+		cbReport({unique_fd(), move(msg)});
+	return abort();
 }
 
-void aconnector::retSuccess(int fd)
+void tConnRqData::retSuccess(int fd)
 {
 	// doing destructors work already since we need to visit nodes anyway to find and extract the winner
 	auto it = find_if(m_eventFds.begin(), m_eventFds.end(), [fd](auto& el){return el.fd.get() == fd;});
 	if (it == m_eventFds.end())
-		m_cback({unique_fd(), "Internal error"});
+	{
+		if (cbReport)
+			cbReport({unique_fd(), "Internal error"});
+	}
 	else
 	{
 		it->ev.reset();
-		m_cback({move(it->fd), se});
+		if (cbReport)
+			cbReport({move(it->fd), se});
 	}
-	delete this;
+	return abort();
 }
 
-void aconnector::disable(int fd, int ec)
+void tConnRqData::disable(int fd, int ec)
 {
 	LOGSTARTFUNCx(fd);
 	ASSERT(fd != -1);
@@ -206,5 +239,4 @@ void aconnector::disable(int fd, int ec)
 		m_pending--;
 	m_eventFds.erase(it);
 }
-
 }

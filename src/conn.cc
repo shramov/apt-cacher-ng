@@ -270,60 +270,72 @@ public:
  * @brief Vending point for CONNECT processing
  * Flushes and releases bufferevent in the end.
  */
-struct TDirectConnector : public tLintRefcounted
+struct TDirectConnector
 {
 	tHttpUrl url;
-	unique_bufferevent_flushclosing be;
+	unique_bufferevent_flushclosing m_be;
 	lint_ptr<atransport> outStream;
+	TFinalAction m_connBuilder;
+	string_view m_httpProto;
 
-	static void PassThrough(bufferevent* be, cmstring& uri)
+	static void PassThrough(bufferevent* be, cmstring& uri, const header& reqHead)
 	{
-		auto pin = make_lptr<TDirectConnector>();
-		pin->be.m_p = be;
+		TDirectConnector *hndlr = nullptr;
+		// to be terminated here, in one way or another
+		unique_bufferevent_flushclosing xbe(be);
 
-		if(!rex::Match(uri, rex::PASSTHROUGH) || !pin->url.SetHttpUrl(uri))
+		try
 		{
-			bufferevent_write(be, "HTTP/1.0 403 CONNECT denied (ask the admin to allow HTTPS tunnels)\r\n\r\n"sv);
-			return;
+			hndlr = new TDirectConnector;
+			xbe.swap(hndlr->m_be);
+			hndlr->m_httpProto = reqHead.GetProtoView();
 		}
-		atransport::TConnectParms parms;
-		parms.directConnection = true;
-		parms.noTlsOnTarget = true;
-
-		atransport::Create(pin->url,
-						   [pin] (atransport::tResult res) mutable
+		catch (const std::bad_alloc&)
 		{
-			if (!res.err.empty())
-				return ebstream(*pin->be) << "HTTP/1.0 502 CONNECT error: "sv << res.err << "\r\n\r\n"sv, void();
-
-			auto targetCon = res.strm->GetBufferEvent();
-			ebstream(*pin->be) << "HTTP/1.0 200 Connection established\r\n\r\n"sv;
-			bufferevent_setcb(pin->be.get(), cbClientReadable, cbClientWriteable, cbEvent, pin.get());
-			bufferevent_setcb(targetCon, cbClientWriteable, cbClientReadable, cbEvent, pin.get());
-			pin->outStream = move(res.strm);
-			setup_be_bidirectional(pin->be.get());
-			setup_be_bidirectional(targetCon);
-			ignore_ptr(pin.release()); // cbEvent will care
-		},
-		parms
-		);
+			unique_bufferevent_fdclosing closer(be);
+		}
+		if(rex::Match(uri, rex::PASSTHROUGH) && hndlr->url.SetHttpUrl(uri))
+			return hndlr->Go();
+		ebstream(be) << hndlr->m_httpProto << " 403 CONNECT denied (ask the admin to allow HTTPS tunnels)\r\n\r\n"sv;
+		return delete hndlr;
 	}
-	static void cbClientReadable(struct bufferevent *bev, void *ctx)
+	void Go()
+	{
+		auto act = [this] (atransport::tResult&& rep)
+		{
+			if (!rep.err.empty())
+			{
+				ebstream(*m_be) << m_httpProto << " 502 CONNECT error: "sv << rep.err << "\r\n\r\n"sv;
+				return delete this;
+			}
+			outStream = rep.strm;
+			auto targetCon = outStream->GetBufferEvent();
+			ebstream(*m_be) << m_httpProto << " 200 Connection established\r\n\r\n"sv;
+			bufferevent_setcb(*m_be, cbClientReadable, cbClientWriteable, cbEvent, this);
+			bufferevent_setcb(targetCon, cbClientWriteable, cbClientReadable, cbEvent, this);
+			setup_be_bidirectional(*m_be);
+			setup_be_bidirectional(targetCon);
+			m_connBuilder.reset();
+		};
+		m_connBuilder = atransport::Create(url, move(act),
+										   atransport::TConnectParms()
+										   .SetDirectConnection(true)
+										   .SetNoTlsOnTarget(true));
+	}
+	static void cbClientReadable(struct bufferevent*, void *ctx)
 	{
 		auto me = (TDirectConnector*)ctx;
-		bufferevent_write_buffer(me->outStream->GetBufferEvent(), bereceiver(me->be.m_p));
+		bufferevent_write_buffer(me->outStream->GetBufferEvent(), bereceiver(*me->m_be));
 	};
-	static void cbClientWriteable(struct bufferevent *bev, void *ctx)
+	static void cbClientWriteable(struct bufferevent*, void *ctx)
 	{
-		auto me = (TDirectConnector*)ctx;
-		bufferevent_write_buffer(me->be.m_p, bereceiver(me->outStream->GetBufferEvent()));
+		auto me = ((TDirectConnector*)ctx);
+		bufferevent_write_buffer(*me->m_be, bereceiver(me->outStream->GetBufferEvent()));
 	}
 	static void cbEvent(struct bufferevent *, short what, void *ctx)
 	{
-		auto pin = as_lptr((TDirectConnector*)ctx);
 		if (what & (BEV_EVENT_EOF | BEV_EVENT_ERROR | BEV_EVENT_TIMEOUT))
-			return; // destroying the handler via pin
-		ignore_ptr(pin.release());
+			return delete ((TDirectConnector*)ctx);
 	}
 };
 
@@ -384,7 +396,7 @@ struct Dispatcher
 		else if (h.type == header::CONNECT)
 		{
 			evbuffer_drain(rbuf, hlen);
-			TDirectConnector::PassThrough(me->m_be.release(), tgt);
+			TDirectConnector::PassThrough(me->m_be.release(), tgt, h);
 		}
 		// is this something we support?
 		else if (h.type == header::POST)

@@ -102,15 +102,28 @@ void header::clear()
 	type=INVALID;
 }
 
+string_view header::GetProtoView() const
+{
+	switch (proto)
+	{
+	case HTTP_10:
+		return "HTTP/1.0"sv;
+	case HTTP_11:
+		return "HTTP/1.1"sv;
+	default:
+		return "HTTP/2000"sv;
+	}
+}
+
 void header::del(eHeadPos i)
 {
 	free(h[i]);
-    h[i] = nullptr;
+	h[i] = nullptr;
 }
 
 int header::Load(string_view input, std::vector<std::pair<string_view,string_view> > *unkHeaderMap)
 {
-    auto pStart = input.data();
+	auto pStart = input.data();
 
     if(input.length() < 9)
 		return 0;

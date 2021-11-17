@@ -7,6 +7,8 @@
 #include "aconnect.h"
 #include "fileio.h"
 #include "meta.h"
+#include "debug.h"
+#include "aevutil.h"
 
 #include <map>
 
@@ -20,7 +22,8 @@ using namespace std;
 namespace acng
 {
 
-class atcpstreamImpl;
+cmstring siErr("Internal Error"sv);
+
 #ifdef REUSE_TARGET_CONN
 //multimap<string, lint_ptr<atcpstreamImpl>> g_con_cache;
 #define CACHE_SIZE_MAX 42
@@ -29,81 +32,99 @@ void cbCachedKill(struct bufferevent *bev, short what, void *ctx);
 
 time_t g_proxyBackOffUntil = 0;
 
-class atcpstreamImpl : public atransport
+class atransportEx : public atransport
 {
-	bufferevent* m_buf = nullptr;
-	mstring sHost;
-	uint16_t nPort;
-	bool m_bPeerIsProxy;
+public:
 #ifdef REUSE_TARGET_CONN
 	decltype (g_con_cache)::iterator m_cleanIt;
 #endif
-
-public:
-	atcpstreamImpl(string host, uint16_t port, bool isProxy) :
-		sHost(move(host)),
-		nPort(port),
-		m_bPeerIsProxy(isProxy)
-	{
-	}
-	~atcpstreamImpl()
-	{
-		if (m_buf)
-			bufferevent_free(m_buf);
-	}
-#ifdef REUSE_TARGET_CONN
-	// mooth-ball operations for storing in the cache
-	void Hibernate(decltype (m_cleanIt) cacheRef)
-	{
-		if (!m_buf)
-			return;
-		m_cleanIt = cacheRef;
-		bufferevent_setcb(m_buf, nullptr, nullptr, cbCachedKill, this);
-		bufferevent_set_timeouts(m_buf, cfg::GetNetworkTimeout(), nullptr);
-		bufferevent_enable(m_buf, EV_READ);
-	}
-	// restore operation after hibernation
-	void Reuse()
-	{
-		bufferevent_disable(m_buf, EV_READ | EV_WRITE);
-		bufferevent_setcb(m_buf, nullptr, nullptr, nullptr, this);
-		m_cleanIt = g_con_cache.end();
-	}
-#endif
-	void SetEvent(bufferevent *be) { m_buf = be; }
-
-	// atcpstream interface
-        bufferevent *GetBufferEvent() override { return m_buf; }
-	const string &GetHost() override { return sHost; }
-	uint16_t GetPort() override { return nPort; }
-	bool PeerIsProxy() override { return m_bPeerIsProxy; }
 };
 
+time_t g_proxyDeadUntil = 0;
 
 struct tConnContext : public tLintRefcounted
 {
 	atransport::TConnectParms m_hints;
 	atransport::tCallBack m_reporter;
-	tHttpUrl m_target;
+#warning use a derived class with iterator selfref
+	lint_ptr<atransportEx> m_result;
+	TFinalAction m_connBuilder;
+/*
 	enum class eState
 	{
-		NEW,
-		NEW_CON_PROXY
-	} m_state = eState::NEW;
-	int m_fd = -1;
-
-	void Step(short what)
+		ABORTED,
+		PLAINCON,
+		PLAINCON_PROXY
+	} m_state = eState::PLAINCON;
+*/
+	void Abort()
 	{
-
+//		m_state = eState::ABORTED;
+		m_result.reset();
 	}
 
-	tConnContext(const tHttpUrl &url, const atransport::tCallBack &cback, const atransport::TConnectParms &extHints)
-		: m_hints(extHints), m_reporter(cback), m_target(url)
+	void Start()
 	{
+		const auto* tgt = &m_result->m_url;
+
+		auto prInfo = cfg::GetProxyInfo();
+		if (prInfo)
+		{
+			if (cfg::optproxytimeout > 0)
+			{
+				if (GetTime() < g_proxyDeadUntil)
+					prInfo = nullptr; // unusable for now
+			}
+			if (prInfo)
+				tgt = prInfo;
+		}
+
+		m_connBuilder = aconnector::Connect(tgt->sHost, tgt->GetPort(),
+											[pin = as_lptr(this), this, prInfo, tgt](aconnector::tConnResult res)
+		{
+			if (!m_result || !m_reporter)
+				return;
+
+#define ASTRANSPORT static_lptr_cast<atransport>(m_result)
+			if (!res.sError.empty())
+			{
+#warning if AUTO_TIMEOUT_FALLBACK_STICKY then setup condition and restart
+				return m_reporter({lint_ptr<atransport>(), res.sError, true});
+			}
+
+			m_result->m_buf.reset(bufferevent_socket_new(evabase::base, res.fd.release(), BEV_OPT_CLOSE_ON_FREE));
+			m_result->m_bPeerIsProxy = prInfo;
+
+			if (AC_UNLIKELY(!m_result->m_buf.get()))
+				return m_reporter({lint_ptr<atransport>(), "Internal Error w/o message", true});
+
+			bool doAskConnect = prInfo && ( m_hints.directConnection || m_result->m_url.m_schema == tHttpUrl::EProtoType::HTTPS);
+
+			if (doAskConnect)
+			{
+				ASSERT(!"implementme");
+				// return DoConnectNegotiation();
+			}
+
+			// switch to SSL, either for the proxy or for the target?
+			bool doSslUpgrade = tgt->m_schema == tHttpUrl::EProtoType::HTTPS;
+
+			if (doSslUpgrade)
+			{
+				ASSERT(!"implementme");
+				//return DoTlsSwitch(isProxy);
+			}
+
+			return m_reporter({ASTRANSPORT, se, true});
+		}
+		, m_hints.timeoutSeconds);
 	}
-	~tConnContext()
+
+	tConnContext(tHttpUrl &&url, const atransport::tCallBack &cback, atransport::TConnectParms&& extHints)
+		: m_hints(extHints), m_reporter(cback)
 	{
-		checkforceclose(m_fd);
+		m_result = make_lptr<atransportEx>();
+		m_result->m_url = move(url);
 	}
 };
 #ifdef REUSE_TARGET_CONN
@@ -124,19 +145,37 @@ void cbCachedKill(struct bufferevent *, short , void *ctx)
 }
 #endif
 
-mstring atransport::TConnectParms::AddFingerprint(mstring &&prefix) const
+void atransport::TConnectParms::AppendFingerprint(mstring &prefix) const
 {
 	prefix += '/';
 	prefix += char(directConnection);
 	prefix += char(noTlsOnTarget);
-	prefix += char(proxyStrategy);
-	return move(prefix);
 }
 
+#ifdef REUSE_TARGET_CONN
+	// mooth-ball operations for storing in the cache
+	void atransportEx::Moothball(decltype (m_cleanIt) cacheRef)
+	{
+		if (!m_buf)
+			return;
+		m_cleanIt = cacheRef;
+		bufferevent_setcb(m_buf, nullptr, nullptr, cbCachedKill, this);
+		bufferevent_set_timeouts(m_buf, cfg::GetNetworkTimeout(), nullptr);
+		bufferevent_enable(m_buf, EV_READ);
+	}
+	// restore operation after hibernation
+	void atransportEx::Reuse()
+	{
+		bufferevent_disable(m_buf, EV_READ | EV_WRITE);
+		bufferevent_setcb(m_buf, nullptr, nullptr, nullptr, this);
+		m_cleanIt = g_con_cache.end();
+	}
+#endif
 
-
-void atransport::Create(const tHttpUrl &url, const tCallBack &cback, const TConnectParms &extHints)
+TFinalAction atransport::Create(tHttpUrl url, const tCallBack &cback, TConnectParms extHints)
 {
+	ASSERT(cback);
+
 #ifdef REUSE_TARGET_CONN
 	auto cacheKey = extHints.AddFingerprint(url.GetHostPortKey());
 	if (!extHints.noCache)
@@ -147,11 +186,23 @@ void atransport::Create(const tHttpUrl &url, const tCallBack &cback, const TConn
 			auto ret = anyIt->second;
 			g_con_cache.erase(anyIt);
 			ret->Reuse();
+#error nope, run through post queue
 			return cback({static_lptr_cast<atransport>(ret), se, false});
 		}
 	}
 #endif
-	(new tConnContext(url, cback, extHints))->Step(0);
+
+	try
+	{
+		lint_ptr<tConnContext> tr;
+		tr.reset(new tConnContext(move(url), cback, move(extHints)));
+		tr->Start();
+		return TFinalAction([tr](){ tr->Abort(); });
+	}
+	catch (...)
+	{
+		return TFinalAction();
+	}
 }
 
 void atransport::Return(lint_ptr<atransport> &stream)

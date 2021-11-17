@@ -20,16 +20,17 @@ private:
 		uint16_t nPort = 0;
 
 public:
-        bool SetHttpUrl(cmstring &uri, bool unescape = true);
-		bool SetUnixUrl(cmstring &uri);
-		mstring ToURI(bool bEscaped, bool hostOnly = false) const;
-        mstring sHost, sPath, sUserPass;
-		enum class EProtoType : char
+		enum class EProtoType : decltype (nPort)
 		{
 			HTTP,
 			HTTPS,
 			UDS
 		} m_schema = EProtoType::HTTP;
+
+		bool SetHttpUrl(cmstring &uri, bool unescape = true);
+		bool SetUnixUrl(cmstring &uri);
+		mstring ToURI(bool bEscaped, bool hostOnly = false) const;
+        mstring sHost, sPath, sUserPass;
 
 		inline cmstring & GetProtoPrefix() const
 		{

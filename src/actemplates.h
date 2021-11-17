@@ -74,7 +74,7 @@ struct auto_raii
 /**
  * @brief Single-owner function carrier.
  *
- * Runs the action when the last carrier is eventually destroyed.
+ * Runs the action ONCE when the last carrier is eventually destroyed.
  */
 struct TFinalAction
 {
@@ -121,6 +121,10 @@ struct TFinalAction
 	{
 		if (m_p)
 			m_p();
+		m_p = tAction();
+	}
+	void release()
+	{
 		m_p = tAction();
 	}
 };
