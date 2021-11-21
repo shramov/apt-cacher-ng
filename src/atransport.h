@@ -18,6 +18,7 @@ struct tConnContext;
   */
 class ACNG_API atransport : public acng::tLintRefcounted
 {
+protected:
 	unique_bufferevent m_buf;
 	bool m_bPeerIsProxy = false;
 	tHttpUrl m_url;
@@ -45,7 +46,7 @@ public:
 		TConnectParms& SetNoTlsOnTarget(bool val) { noTlsOnTarget = val ; return *this; }
 
 		TConnectParms() {};
-		void AppendFingerprint(mstring& prefix) const;
+		//void AppendFingerprint(mstring& prefix) const;
 	};
 
 	/**
@@ -58,8 +59,8 @@ public:
 	 */
 	static TFinalAction Create(tHttpUrl, const tCallBack&, TConnectParms extHints = TConnectParms());
 	/**
-	 * @brief whenConnected Run this callback (deferred) when connection is established
-	 * @param cback
+	 * @brief Return an item to cache for reuse by others, or destroy if not cacheable
+	 * @param stream
 	 */
 	static void Return(lint_ptr<atransport>& stream);
 
@@ -74,6 +75,7 @@ public:
 	 */
 	std::string GetConnKey();
 };
+
 }
 
 #endif // ATCPSTREAM_H

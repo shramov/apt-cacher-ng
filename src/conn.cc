@@ -345,13 +345,7 @@ struct Dispatcher
 	unique_bufferevent_fdclosing m_be;
 	string clientName;
 
-	Dispatcher(string name) : clientName(name)
-	{
-	}
-	~Dispatcher()
-	{
-
-	}
+	Dispatcher(string name) : clientName(name) {}
 	bool Go() noexcept
 	{
 		// dispatcher only fetches the relevant type header
