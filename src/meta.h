@@ -330,6 +330,36 @@ static constexpr string_view svEmpty = "";
 size_t strlcpy(char *tgt, const char *src, size_t tgtSize);
 #endif
 
+/**
+ * Easy iteration over an array with separately defined length
+ */
+template<typename T>
+struct RangeLoopAdapter
+{
+	RangeLoopAdapter(unsigned count, T * elements[])
+		: m_start(elements), m_count(count)
+	{
+	}
+	char **begin() const { return m_start; }
+	char **end() const { return m_start + m_count; }
+private:
+	T **m_start;
+	unsigned m_count;
+};
+
+/**
+ * Reversed iterable adapter for range loops
+ */
+template <typename T>
+struct reversion_wrapper { T& iterable; };
+template <typename T>
+auto begin (reversion_wrapper<T> w) { return std::rbegin(w.iterable); }
+template <typename T>
+auto end (reversion_wrapper<T> w) { return std::rend(w.iterable); }
+template <typename T>
+reversion_wrapper<T> reverse (T&& iterable) { return { iterable }; }
+// end reversed iterable adapter
+
 /*
 struct DurationTimeValAdapter : public timeval
 {
