@@ -29,7 +29,7 @@ public:
 
         void DlFinish(bool) override;
 
-        ssize_t DlAddData(evbuffer* chunk, size_t maxTake) override;
+		ssize_t DlConsumeData(evbuffer* chunk, size_t maxTake) override;
 
         // fileitem interface
 protected:

@@ -38,7 +38,7 @@ void tPassThroughFitem::DlFinish(bool)
     m_status = FIST_COMPLETE;
 }
 
-ssize_t tPassThroughFitem::DlAddData(evbuffer *chunk, size_t maxTake)
+ssize_t tPassThroughFitem::DlConsumeData(evbuffer *chunk, size_t maxTake)
 {
     try
     {

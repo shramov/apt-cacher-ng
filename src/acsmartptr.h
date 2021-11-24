@@ -288,20 +288,16 @@ inline lint_ptr<C> static_lptr_cast(lint_ptr<Torig> a)
 	return lint_ptr<C>(static_cast<C*>(a.get()));
 };
 
-
-/*
-template<typename C>
-inline lint_strong_ptr<C> as_lptr_strong(C* a)
-{
-	return lint_strong_ptr<C>(a);
-};
-*/
-
-
 template<class C>
 lint_ptr<C> make_lptr()
 {
 	return lint_ptr<C>(new C());
+};
+
+template<class C, class Cx>
+lint_ptr<Cx> make_lptr()
+{
+	return lint_ptr<Cx>(static_cast<Cx*>(new C()));
 };
 
 
@@ -335,49 +331,6 @@ lint_ptr<C> make_lptr(Ta& a, Tb& b, Tc& c, Td& d, Te &e)
 {
 	return lint_ptr<C>(new C(a, b, c, d, e));
 }
-
-#if 0 // meh, actually architecturally insane
-/**
- * Special extension to intrusive pointer, introducing a special counter for "the inner party".
- * This partly mimics the behaviour of IDisposable pattern from .NET by adding two-step destruction.
- */
-template<class U>
-class spec_use_counted_ptr
-{
-	lint_ptr<U> p;
-public:
-	spec_use_counted_ptr() = default;
-	spec_use_counted_ptr(U* ptr) : p(ptr) { p->m_nUseCount++; }
-	//user_ptr(const user_ptr<U> &p) : m_ptr(p) { p->m_nUseCount++; }
-	~spec_use_counted_ptr() { reset(); }
-	void reset()
-	{
-		if(!p) return;
-		if(-- p->m_nUseCount == 0)
-			p->Dispose();
-		p.reset();
-	}
-
-	// pointer-like access options
-	explicit inline operator bool() const noexcept
-	{
-		return p;
-	}
-	inline U& operator*() const noexcept
-	{
-		return p;
-	}
-	inline U* operator->() const noexcept
-	{
-		return p.m_ptr;
-	}
-};
-// sample base class, expected by user_ptr
-struct tUseCounted
-{
-    size_t m_nUseCount = 0;
-};
-#endif
 
 } // namespace acng
 

@@ -1,13 +1,9 @@
 #ifndef _FILEITEM_H
 #define _FILEITEM_H
 
-#include <string>
-#include <atomic>
-
 #include "actypes.h"
 #include "aobservable.h"
 #include "header.h"
-#include "fileio.h"
 #include "httpdate.h"
 #include <map>
 
@@ -205,7 +201,7 @@ protected:
 	*
 	* @return Number of bytes consumed, -1 on error
 	*/
-	virtual ssize_t DlAddData(evbuffer*, size_t maxTake) { (void) maxTake; return false; }
+	virtual ssize_t DlConsumeData(evbuffer*, size_t maxTake) { (void) maxTake; return false; }
 	/**
 	 * @brief Mark the download as finished, and verify that sizeChecked as sane at that moment or move to error state.
 	 */
@@ -245,8 +241,8 @@ public:
 	virtual const std::string& GetRawResponseHeader() { return se; }
 	virtual const std::string& GetExtraResponseHeaders() { return se; }
 
-	virtual void DlRefCountAdd();
-	virtual void DlRefCountDec(const tRemoteStatus& reason);
+	void DlRefCountAdd();
+	void DlRefCountDec(int code, string_view reason);
 
 	// tLintRefcountedIndexable interface
 	void Abandon() override;
@@ -284,7 +280,7 @@ private:
 
 	// fileitem interface
 protected:
-	ssize_t DlAddData(evbuffer*, size_t maxTake) override;
+	ssize_t DlConsumeData(evbuffer*, size_t maxTake) override;
 
 	// fileitem interface
 public:

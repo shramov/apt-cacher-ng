@@ -27,7 +27,8 @@ namespace acng
  * @brief evbuffer_dumpall - store all or limited range from the front to a file descriptor
  * This is actually evbuffer_write_atmost replacement without its sporadic abortion bug.
  */
-ssize_t eb_dump_atmost(evbuffer* inbuf, int out_fd, size_t nMax2SendNow);
+ssize_t eb_dump_chunks(evbuffer* inbuf, int out_fd, size_t nMax2SendNow);
+ssize_t eb_dump_chunks(evbuffer* inbuf, std::function<void(string_view)>, size_t nMax2SendNow);
 
 inline evbuffer* besender(bufferevent* be) { return bufferevent_get_output(be); }
 inline evbuffer* bereceiver(bufferevent* be) { return bufferevent_get_input(be); }
@@ -79,9 +80,10 @@ struct beconsum
 				len = limit;
             return string_view((const char*) evbuffer_pullup(m_eb, len), len);
     }
+	const string_view linear(size_t len) { return string_view(
+					(const char*) evbuffer_pullup(m_eb, len), len); }
 	// make the whole thing contiguous
-	const string_view linear() { auto n = size(); return string_view(
-					(const char*) evbuffer_pullup(m_eb, n), n); }
+	const string_view linear() { return linear(size()); }
 };
 
 inline ssize_t eb_move_atmost(evbuffer* src, evbuffer *tgt, size_t maxTake)

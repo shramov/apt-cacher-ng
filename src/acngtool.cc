@@ -15,6 +15,7 @@
 #include "acstartstop.h"
 #include "filereader.h"
 #include "csmapping.h"
+#include "aevutil.h"
 #include "ebrunner.h"
 
 #include <functional>
@@ -50,7 +51,6 @@ bool g_bVerbose = false;
 #define SUICIDE_TIMEOUT 600
 
 namespace acng {
-extern std::shared_ptr<cleaner> g_victor;
 namespace log
 {
 	extern mstring g_szLogPrefix;
@@ -64,58 +64,39 @@ bool isUdsAccessible(cmstring& path)
 	return s && S_ISSOCK(s.st_mode) && 0 == access(path.c_str(), W_OK);
 }
 
-struct ACNG_API IFitemFactory
+class tPrintItem: public fileitem
 {
-	virtual SHARED_PTR<fileitem> Create() =0;
-	virtual ~IFitemFactory() =default;
-};
-struct ACNG_API CPrintItemFactory : public IFitemFactory
-{
-	virtual SHARED_PTR<fileitem> Create()
+public:
+	tPrintItem() : fileitem("<STREAM>")
 	{
-		class tPrintItem: public fileitem
-			{
-			public:
-				tPrintItem() : fileitem("<STREAM>")
-				{
-				}
-                virtual FiStatus Setup() override
-				{
-					return m_status = FIST_INITED;
-				}
-				virtual unique_fd GetFileFd() override
-				{
-					return unique_fd();
-				}
-				ssize_t SendData(int, int, off_t&, size_t) override
-				{
-					return 0;
-				}
-
-			protected:
-                bool DlStarted(string_view raw, const tHttpDate& dat, cmstring& orig, tRemoteStatus status, off_t nseek, off_t ntotal) override
-                {
-					static auto opt_dbg = getenv("ACNGTOOL_DEBUG_DOWNLOAD");
-					if (opt_dbg && *opt_dbg)
-                        std::cerr << raw << std::endl;
-                    return fileitem::DlStarted(raw, dat, orig, status, nseek, ntotal);
-				}
-				void DlFinish(bool) override
-				{
-					m_status = FIST_COMPLETE;
-				}
-				bool DlAddData(acng::string_view chunk, lockuniq&) override
-				{
-					return (chunk.size() == fwrite(chunk.data(), sizeof(char), chunk.size(), stdout));
-				}
-			};
-		return make_shared<tPrintItem>();
+	}
+	virtual FiStatus Setup() override
+	{
+		return m_status = FIST_INITED;
+	}
+	std::unique_ptr<ICacheDataSender> GetCacheSender() override
+	{
+		return std::unique_ptr<ICacheDataSender>();
+	}
+protected:
+	ssize_t DlConsumeData(evbuffer *eb, size_t maxTake) override
+	{
+		return eb_dump_chunks(eb, fileno(stdout), maxTake);
 	}
 };
+
 
 // That is relevant to push the download agent logics correctly and are shown in logs;
 // not relevant for the actual connection since it's rerouted through TUdsFactory
 #define FAKE_UDS_HOSTNAME "UNIX-DOMAIN-SOCKET"
+
+unique_ptr<acng::tMinComStack> g_comStack;
+acng::tMinComStack& GetComStack()
+{
+	if (!g_comStack)
+		g_comStack.reset(new acng::tMinComStack);
+	return *g_comStack;
+}
 
 /**
  * Create a special processor which looks for error markers in the download stream and
@@ -124,7 +105,7 @@ struct ACNG_API CPrintItemFactory : public IFitemFactory
 
 class tRepItem: public fileitem
 {
-	mstring m_prevRest;
+	mstring m_buf;
 	string m_key = maark;
 	tStrDeq m_warningCollector;
 
@@ -148,18 +129,12 @@ protected:
 -->
 <br><b>End of log output. Please reload to run again.</b>
 */
-	bool DlAddData(acng::string_view chunk, lockuniq&) override
+	ssize_t DlConsumeData(evbuffer *eb, size_t maxTake) override
 	{
 		// glue with the old prefix if needed, later move remainder back the rest buffer if needed
-		string_view input;
-		if (!m_prevRest.empty())
-		{
-			m_prevRest += chunk;
-			input = m_prevRest;
-		}
-		else
-			input = chunk;
 
+		auto consumed = eb_dump_chunks(eb, [&](string_view chunk){ m_buf.append(chunk); }, maxTake);
+		string_view input(m_buf);
 		while (true)
 		{
 			auto pos = input.find(m_key);
@@ -168,20 +143,14 @@ protected:
 				// drop all remaining input except for the unfinished line
 				pos = input.rfind('\n');
 				if (pos != stmiss)
-				{
 					input.remove_prefix(pos + 1);
-					m_prevRest = mstring(input);
-				}
-				return true;
+				return consumed;
 			}
 			input.remove_prefix(pos);
 			auto nEnd = input.find('\n');
+			// our message but unfinished?
 			if (nEnd == stmiss)
-			{
-				// our message but unfinished
-				m_prevRest = mstring(input);
-				return true;
-			}
+				return consumed;
 			// decode header and get a plain message view
 			auto msgType = ControLineType(input[m_key.size()]);
 			string_view msg(input.data() + m_key.size() + 1, nEnd - m_key.size() - 1);
@@ -199,21 +168,39 @@ protected:
 					cerr << msg << endl;
 			}
 		}
-		return true;
+		return consumed;
+	}
+
+	// fileitem interface
+public:
+	unique_ptr<ICacheDataSender> GetCacheSender() override
+	{
+		return unique_ptr<ICacheDataSender>();
 	}
 };
 
-bool DownloadItem(tHttpUrl url, dlcontroller &dlConnector, const SHARED_PTR<fileitem> &fi)
+tAction GetLoopBreaker(lint_ptr<fileitem> fi)
 {
-	dlConnector.AddJob(fi, move(url));
+	return [&]()
+	{
+		if (fi->GetStatus() < fileitem::FIST_COMPLETE)
+			return;
+		event_base_loopbreak(evabase::base);
+	};
+};
 
-    auto fistatus = fi->WaitForFinish();
-    return fistatus.first == fileitem::FIST_COMPLETE && fistatus.second.code == 200;
-	// just be sure to set a proper error code
-//	if(fistatus.first != fileitem::FIST_COMPLETE && fistatus.second.code < 400)
-//		fi->GetHeader().frontLine = "909 Incomplete download";
+bool DownloadItem(tHttpUrl url, lint_ptr<fileitem> fi)
+{
+	if (!GetComStack().getBase())
+		return false;
+
+	auto subscrpt = fi->Subscribe(GetLoopBreaker(fi));
+	GetComStack().getDownloader().AddJob(fi, &url, nullptr);
+	event_base_loop(evabase::base, EVLOOP_NO_EXIT_ON_EMPTY);
+	return fi->GetStatus() == fileitem::FIST_COMPLETE && fi->m_responseStatus.code == 200;
 }
-int wcat(LPCSTR url, LPCSTR proxy, IFitemFactory*, const IDlConFactory &pdlconfa);
+
+int wcat(LPCSTR url, LPCSTR proxy);
 
 static void usage(int retCode = 0, LPCSTR cmd = nullptr)
 {
@@ -491,6 +478,9 @@ inline bool patchChunk(tPatchSequence& idx, LPCSTR pline, tPatchSequence diffPay
 	return true;
 }
 
+#warning extract relevant bits into atransport class
+#if 0
+
 /**
  * Helper which implements a custom connection class that runs through a specified Unix Domain
  * Socket (see base class for the name).
@@ -550,6 +540,8 @@ struct TUdsFactory : public ::acng::IDlConFactory
 	}
 };
 
+#endif
+
 int maint_job()
 {
 	if (cfg::reportpage.empty())
@@ -597,15 +589,13 @@ int maint_job()
 	bool response_ok = false;
 	if(have_uds && uds_ok)
 	{
-		DBGQLOG("Trying UDS path")
-				auto fi = make_shared<tRepItem>();
+		DBGQLOG("Trying UDS path");
 
+		auto fi = make_lptr<tRepItem, fileitem>();
 		url.sHost = FAKE_UDS_HOSTNAME;
+		url.m_schema = tHttpUrl::EProtoType::UDS;
 		url.SetPort(0);
-
-		TUdsFactory udsFac;
-		evabaseFreeRunner eb(udsFac, true, SUICIDE_TIMEOUT);
-		response_ok = DownloadItem(url, eb.getDownloader(), fi);
+		response_ok = DownloadItem(url, fi);
 		DBGQLOG("UDS result: " << response_ok)
 	}
 	if(!response_ok && try_tcp)
@@ -621,11 +611,10 @@ int maint_job()
 		for (const auto &tgt : hostips)
 		{
 			url.sHost = tgt;
+			url.m_schema = tHttpUrl::EProtoType::HTTP;
 			url.SetPort(cfg::port);
-
-			evabaseFreeRunner eb(g_tcp_con_factory, true, SUICIDE_TIMEOUT);
-			auto fi = make_shared<tRepItem>();
-			response_ok = DownloadItem(url, eb.getDownloader(), fi);
+			auto fi = make_lptr<tRepItem, fileitem>();
+			response_ok = DownloadItem(url, fi);
 			if (response_ok)
 				break;
 		}
@@ -670,6 +659,7 @@ int patch_file(string sBase, string sPatch, string sResult)
 	size_t patchCmdLen = 0;
 	for (auto p = pbuf; p < pbuf + psize;)
 	{
+#warning analyze null warning
 		// accumulate lines until chunk is consumed
 		LPCSTR crNext = strchr(p, '\n');
 		size_t len = 0;
@@ -913,9 +903,7 @@ std::unordered_map<string, parm> parms = {
 				{
 					if(!p)
 						return;
-
-					CPrintItemFactory fac;
-					auto ret=wcat(p, getenv("http_proxy"), &fac, g_tcp_con_factory);
+					auto ret=wcat(p, getenv("http_proxy"));
 					if(!g_exitCode)
 						g_exitCode = ret;
 
@@ -1004,8 +992,8 @@ std::unordered_map<string, parm> parms = {
 int main(int argc, const char **argv)
 {
 	using namespace acng;
-	ac3rdparty libInit;
-	//g_victor.reset(new cleaner(false, SHARED_PTR<IFileItemRegistry>()));
+
+	TFinalAction cleanr([](){ g_comStack.reset(); });
 
 	string exe(argv[0]);
 	unsigned aOffset=1;
@@ -1055,7 +1043,7 @@ int main(int argc, const char **argv)
 	return g_exitCode;
 }
 
-int wcat(LPCSTR surl, LPCSTR proxy, IFitemFactory* fac, const IDlConFactory &pDlconFac)
+int wcat(LPCSTR surl, LPCSTR proxy)
 {
 	cfg::dnscachetime=0;
 	cfg::persistoutgoing=0;
@@ -1063,8 +1051,10 @@ int wcat(LPCSTR surl, LPCSTR proxy, IFitemFactory* fac, const IDlConFactory &pDl
 	cfg::redirmax=10;
 
 	if(proxy)
+	{
 		if(cfg::SetOption(string("proxy:")+proxy, nullptr))
 			return -1;
+	}
 	tHttpUrl url;
 	if(!surl)
 		return 2;
@@ -1072,24 +1062,19 @@ int wcat(LPCSTR surl, LPCSTR proxy, IFitemFactory* fac, const IDlConFactory &pDl
 	if(!url.SetHttpUrl(xurl, false))
 		return -2;
 
-	evabaseFreeRunner eb(pDlconFac, true);
-
-	auto fi=fac->Create();
-	eb.getDownloader().AddJob(fi, move(url));
-    auto fistatus = fi->WaitForFinish();
-    if(fistatus.first == fileitem::FIST_COMPLETE && fistatus.second.code == 200)
+	auto fi = make_lptr<tPrintItem, fileitem>();
+	if (DownloadItem(url, fi))
 		return EXIT_SUCCESS;
 
 	// don't reveal passwords
 	auto xpos=xurl.find('@');
 	if(xpos!=stmiss)
 		xurl.erase(0, xpos+1);
-    cerr << "Error: cannot fetch " << xurl <<" : "  << fistatus.second.msg << endl;
-    if (fistatus.second.code >= 500)
+	cerr << "Error: cannot fetch " << xurl <<" : "  << fi->m_responseStatus.msg << endl;
+	if (fi->m_responseStatus.code >= 500)
 		return EIO;
-    if (fistatus.second.code >= 400)
+	if (fi->m_responseStatus.code >= 400)
 		return EACCES;
-
 	return EXIT_FAILURE;
 }
 

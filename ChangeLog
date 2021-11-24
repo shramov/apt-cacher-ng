@@ -5,6 +5,7 @@ apt-cacher-ng (4.0) 4-ELIZA; urgency=low
     asynchronous IO style
   * Revised response processing code, unifying header creation
     + combination of request ranges and chunked transfers possible
+    + fixing potentially bad handling of chunked transfer trailers
     + more special responses possible without closing connection
     + various fixes in local file serving code
     + more correct replies in CONNECT requests

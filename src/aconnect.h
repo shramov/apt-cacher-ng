@@ -16,6 +16,7 @@ struct ACNG_API aconnector
 	{
 		unique_fd fd;
 		std::string sError;
+		bool isDnsError;
 	};
 
 	// file descriptor, error message, forcedSsl flag

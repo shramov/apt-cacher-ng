@@ -455,7 +455,7 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 		if( fistate < fileitem::FIST_DLASSIGNED) // we should assign a downloader then
 		{
 			dbgline;
-			if(!m_parent.SetupDownloader())
+			if(!m_parent.GetDownloader())
 			{
 				USRDBG( "Error creating download handler for "<<m_sFileLoc);
 				return report_overload(__LINE__);
@@ -476,10 +476,7 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 								false) + repoSrc.sRestPath :
 							theUrl.ToURI(false);
 				if (rex::MatchUncacheable(testUri, rex::NOCACHE_TGT))
-				{
 					m_pItem.reset(new tPassThroughFitem(m_sFileLoc));
-					fistate = fileitem::FIST_DLPENDING;
-				}
 			}
 			// if backend config not valid, download straight from the specified source
 
@@ -501,9 +498,10 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 				extraHeaders += header::ExtractCustomHeaders(beconsum(be).front().data(), bPtMode);
 			}
 
-			if (bHaveBackends
-					? m_parent.SetupDownloader()->AddJob(as_lptr(m_pItem.get()), move(repoSrc), bPtMode, move(extraHeaders))
-					: m_parent.SetupDownloader()->AddJob(as_lptr(m_pItem.get()), move(theUrl), bPtMode, move(extraHeaders)))
+			if (m_parent.GetDownloader()->AddJob(as_lptr(m_pItem.get()),
+												   bHaveBackends ? nullptr : &theUrl,
+												   bHaveBackends ? &repoSrc : nullptr,
+												   bPtMode, move(extraHeaders)))
 			{
 				ldbg("Download job enqueued for " << m_sFileLoc);
 			}
@@ -532,7 +530,7 @@ void job::PrepareFatalError(const header &h, const string_view errorStatus)
 
 job::eJobResult job::subscribeAndExit()
 {
-	if (m_subKey.m_p)
+	if (m_subKey)
 		return R_WILLNOTIFY;
 
 	try

@@ -30,7 +30,7 @@ protected:
 	{
 		acng::cfg::port = TESTPORT;
 		nSockets = conserver::Setup([&](unique_fd&&ufd, std::string) { parkedFds.emplace_back(move(ufd)); });
-		evabase::CheckDnsChange();
+		evabase::InitDnsOrCheckCfgChange();
 	}
 	void TearDown() override
 	{

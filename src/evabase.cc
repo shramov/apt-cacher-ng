@@ -169,7 +169,7 @@ std::shared_ptr<CDnsBase> evabase::GetDnsBase()
 	return cachedDnsBase;
 }
 
-void evabase::CheckDnsChange()
+void evabase::InitDnsOrCheckCfgChange()
 {
 	Cstat info(cfg::dnsresconf);
 	if (!info) // file is missing anyway?
@@ -221,25 +221,13 @@ ACNG_API int evabase::MainLoop()
 {
 	LOGSTARTFUNCs;
 
-	CheckDnsChange(); // init DNS base
+	InitDnsOrCheckCfgChange(); // init DNS base
 
 #ifdef HAVE_SD_NOTIFY
 	sd_notify(0, "READY=1");
 #endif
 
 	int r = event_base_loop(evabase::base, EVLOOP_NO_EXIT_ON_EMPTY);
-
-	auto push_loop = [eb = evabase::base]()
-	{
-		// push the loop a few times to make sure that the state change
-		// is propagated to the background threads
-		for (int i = 10; i >= 0; --i)
-		{
-			// if error or nothing more to do...
-			if (0 != event_base_loop(eb, EVLOOP_NONBLOCK))
-				break;
-		}
-	};
 
 	in_shutdown = true;
 
@@ -251,7 +239,7 @@ ACNG_API int evabase::MainLoop()
 	}
 	// make sure that there are no actions from abandoned DNS bases blocking the futures
 	RejectPendingDnsRequests();
-	push_loop();
+	PushLoop();
 
 	// send teardown hint to all event callbacks
 	deque<t_event_desctor> todo;
@@ -265,7 +253,7 @@ ACNG_API int evabase::MainLoop()
 		}
 	}
 
-	push_loop();
+	PushLoop();
 
 #ifdef HAVE_SD_NOTIFY
 	sd_notify(0, "READY=0");
@@ -377,6 +365,18 @@ evabase::~evabase()
 	{
 		event_base_free(evabase::base);
 		evabase::base = nullptr;
+	}
+}
+
+void evabase::PushLoop()
+{
+	// push the loop a few times to make sure that the state change
+	// is propagated to the background threads
+	for (int i = 10; i >= 0; --i)
+	{
+		// if error or nothing more to do...
+		if (0 != event_base_loop(base, EVLOOP_NONBLOCK))
+			break;
 	}
 }
 

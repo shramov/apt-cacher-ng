@@ -47,7 +47,7 @@ struct tConnRqData : public tLintRefcounted
 	{
 		((tConnRqData*)arg)->step(fd, what);
 	}
-	void retError(mstring);
+	void retError(mstring, bool fromDns);
 	void retSuccess(int fd);
 	void disable(int fd, int ec);
 	void abort()
@@ -100,14 +100,14 @@ void tConnRqData::processDnsResult(std::shared_ptr<CAddrInfo> res)
 	if (!cbReport)
 		return; // this was cancelled by the caller already!
 	if (!res)
-		return retError(dnsError);
+		return retError(dnsError, true);
 	auto errDns = res->getError();
 	if (!errDns.empty())
-		return retError(errDns);
+		return retError(errDns, true);
 	dbgline;
 	m_targets = res->getTargets();
 	if (m_targets.empty())
-		return retError(dnsError);
+		return retError(dnsError, true);
 	step(-1, 0);
 }
 
@@ -135,7 +135,7 @@ void tConnRqData::step(int fd, short what)
 	// okay, socket not usable, create next candicate connection?
 	time_t now = GetTime();
 	if (now > exTime)
-		return retError("Connection timeout");
+		return retError("Connection timeout", false);
 
 	auto isFirst = fd == -1;
 
@@ -194,15 +194,15 @@ void tConnRqData::step(int fd, short what)
 	}
 	// not success if got here, any active connection pending?
 	if (m_pending == 0)
-		return retError(m_error2report.empty() ? tErrnoFmter(EAFNOSUPPORT) : m_error2report);
+		return retError(m_error2report.empty() ? tErrnoFmter(EAFNOSUPPORT) : m_error2report, false);
 	LOG("pending connections: " << m_pending);
 }
 
-void tConnRqData::retError(mstring msg)
+void tConnRqData::retError(mstring msg, bool isDnsError)
 {
 	LOGSTARTFUNCx(msg);
 	if (cbReport)
-		cbReport({unique_fd(), move(msg)});
+		cbReport({unique_fd(), move(msg), isDnsError});
 	return abort();
 }
 
@@ -213,13 +213,13 @@ void tConnRqData::retSuccess(int fd)
 	if (it == m_eventFds.end())
 	{
 		if (cbReport)
-			cbReport({unique_fd(), "Internal error"});
+			cbReport({unique_fd(), "Internal error", false});
 	}
 	else
 	{
 		it->ev.reset();
 		if (cbReport)
-			cbReport({move(it->fd), se});
+			cbReport({move(it->fd), se, false});
 	}
 	return abort();
 }

@@ -130,14 +130,14 @@ struct tConnContext : public tLintRefcounted
 			if (!res.sError.empty())
 			{
 #warning if AUTO_TIMEOUT_FALLBACK_STICKY then setup condition and restart
-				return m_reporter({lint_ptr<atransport>(), res.sError, true});
+				return m_reporter({lint_ptr<atransport>(), res.sError, true, res.isDnsError});
 			}
 
 			m_result->m_buf.reset(bufferevent_socket_new(evabase::base, res.fd.release(), BEV_OPT_CLOSE_ON_FREE));
 			m_result->m_bPeerIsProxy = prInfo;
 
 			if (!m_result->m_buf.get())
-				return m_reporter({lint_ptr<atransport>(), "Internal Error w/o message", true});
+				return m_reporter({lint_ptr<atransport>(), "Internal Error w/o message", true, res.isDnsError});
 
 			bool doAskConnect = prInfo && ( m_hints.directConnection || m_result->m_url.m_schema == tHttpUrl::EProtoType::HTTPS);
 
@@ -156,7 +156,7 @@ struct tConnContext : public tLintRefcounted
 				//return DoTlsSwitch(isProxy);
 			}
 
-			return m_reporter({static_lptr_cast<atransport>(m_result), se, true});
+			return m_reporter({static_lptr_cast<atransport>(m_result), se, true, res.isDnsError});
 		}
 		, m_hints.timeoutSeconds);
 	}
@@ -185,7 +185,7 @@ TFinalAction atransport::Create(tHttpUrl url, const tCallBack &cback, TConnectPa
 			{
 				g_con_cache.erase(anyIt);
 				static_lptr_cast<atransportEx>(ret)->Reused();
-				evabase::Post([ret, cback](){ if (ret->m_buf.valid()) cback({ret, se, false});});
+				evabase::Post([ret, cback](){ if (ret->m_buf.valid()) cback({ret, se, false, false});});
 				return TFinalAction([ret](){ ret->m_buf.reset(); });
 			}
 		}

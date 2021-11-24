@@ -4,6 +4,9 @@
 #include "remotedbtypes.h"
 #include "ahttpurl.h"
 #include "acsmartptr.h"
+#include "acres.h"
+
+#include <functional>
 
 namespace acng
 {
@@ -23,22 +26,23 @@ class fileitem;
 struct dlrequest;
 struct tDlJob;
 
-class ACNG_API dlcontroller : public tLintRefcounted
+
+class ACNG_API dlcontroller : public tLintRefcounted, public tExtRefExpirer
 {
 public:
-	static lint_ptr<dlcontroller> CreateRegular();
+	static lint_user_ptr<dlcontroller> CreateRegular(acres& res);
 	virtual ~dlcontroller() =default;
-	virtual void Dispose() =0;
+
 	/**
 	 * @brief AddJob
 	 * @param fi
-	 * @param src
+	 * @param src Either this or repoSrc must be set
+	 * @param repoSrc Either this or src must be set
 	 * @param isPT this influences Connection/Accept-Encoding fields, rely on what the requester gives us, XXX: is Connection not filtered?
 	 * @param extraHeaders
 	 * @return
 	 */
-	virtual bool AddJob(lint_ptr<fileitem> fi, tHttpUrl src, bool isPT = false, mstring extraHeaders = "") =0;
-	virtual bool AddJob(lint_ptr<fileitem> fi, tRepoResolvResult repoSrc, bool isPT = false, mstring extraHeaders = "") =0;
+	virtual bool AddJob(lint_ptr<fileitem> fi, tHttpUrl* src, tRepoResolvResult* repoSrc, bool isPT = false, mstring extraHeaders = "") =0;
 };
 
 }

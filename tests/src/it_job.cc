@@ -16,7 +16,7 @@ class t_conn_dummy : public IConnBase
 {
     // ISharedConnectionResources interface
 public:
-    dlcontroller *SetupDownloader() override
+    dlcontroller *GetDownloader() override
     {
         return nullptr;
     }

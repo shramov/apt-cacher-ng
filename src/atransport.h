@@ -31,6 +31,7 @@ public:
 		lint_ptr<atransport> strm;
 		mstring err;
 		bool isFresh;
+		bool isFatal;
 	};
 	using tCallBack = std::function<void(tResult)>;
 

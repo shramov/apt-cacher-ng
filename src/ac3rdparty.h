@@ -3,7 +3,8 @@
 
 #include "config.h"
 
-namespace acng {
+namespace acng
+{
 
 void ACNG_API globalSslInit();
 void ACNG_API globalSslDeInit();

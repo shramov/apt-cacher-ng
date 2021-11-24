@@ -8,12 +8,13 @@ namespace acng
 /**
  * @brief Little helper which runs callbacks periodically, with an interval which fits a keepalive beat.
  */
-class ackeepalive
+class tClock
 {
 public:
-	static ackeepalive& GetInstance();
+	virtual ~tClock() =default;
 	virtual aobservable::subscription AddListener(const tAction&) =0;
-	static std::unique_ptr<ackeepalive> SetupGlobalInstance(const struct timeval* interval = nullptr);
+	static std::unique_ptr<tClock> Create(const struct timeval&);
+	//virtual void Modify(const struct timeval&) =0;
 };
 
 }

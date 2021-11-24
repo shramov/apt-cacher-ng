@@ -1,4 +1,4 @@
-//#include <netinet/in.h>
+﻿//#include <netinet/in.h>
 //#include <netdb.h>
 
 #include "dlcon.h"
@@ -16,15 +16,19 @@
 #include "fileio.h"
 #include "sockio.h"
 #include "evabase.h"
+#include "aclock.h"
 
 #include <algorithm>
 #include <list>
 #include <map>
 #include <regex>
 #include <unordered_map>
+#include <stdexcept>
+#include <queue>
 
 #include <unistd.h>
 #include <sys/time.h>
+#include <event2/bufferevent.h>
 
 using namespace std;
 
@@ -33,78 +37,308 @@ using namespace std;
 
 #define MAX_RETRY cfg::dlretriesmax
 
+#warning fixme, control via config
+#define REQUEST_LIMIT 5
+#define MAX_STREAMS_PER_USER 8
+
 namespace acng
 {
 
 static cmstring sGenericError("502 Bad Gateway");
 static const fileitem::tSpecialPurposeAttr g_dummy_attributes;
+
 class CDlConn;
 struct tDlJob;
+struct tDlStream;
+using tDlStreamPool = multimap<string, tDlStream>;
+#define MOVE_FRONT_THERE_TO_BACK_HERE(there, here) here.splice(here.end(), there, there.begin())
+static const struct timeval timeout_asap{0,0};
 
-static uint64_t g_ivDlJobId = 0;
-
-using TDlJobQueue = std::list<tDlJob>;
-
-struct TDlStream : public tLintRefcounted
+enum eSourceState
 {
-	TDlJobQueue m_backlog, m_requested;
+	NO_ERROR = -1, // shall identify the first usable source
+	FROM_RECOVERABLE_ERROR = -2, // came from a disconnect, shall retry but only a few times on that source
+	FROM_FATAL_ERROR = -3, // remote source is completely flawed, no more retries there
+//	FROM_LOCAL_ERROR = -4
+};
 
-	enum class EAddResult
+enum class eJobResult
+{
+	HINT_MORE=0
+	,HINT_DONE=1
+	,HINT_RECONNECT=2
+	,JOB_BROKEN=4
+	,MIRROR_BROKEN=8
+	,MIRROR_BROKEN_KILL_LAST_FILE=16
+};
+
+/**
+ * @brief Shared helper to validate source quality and correct if possible
+ * For checks whether the remote source was validated (and is still valid) or was reported as broken, and how broken (and if needed, remembers the remote quality in the internal stats).
+ */
+
+struct tRemoteValidator
+{
+	struct tState
 	{
-		ERROR = -1,
-		CONSUMED_OR_NO_FIT,
-		TARGET_CHANGED
+		int errCount = 0;
+		mstring reason;
 	};
 
-	/**
-	 * @brief addJobs transfers new jobs from the input to here, if possible.
-	 * Shall take more jobs for the same target, if they fit. In case the target
-	 * key changes, write the changed key back to changedKey parameter and report
-	 * TARGET_CHANGED.
-	 */
-	EAddResult takeNewJobs(TDlJobQueue& input, mstring& changedKey, bool hostFitWasChecked);
+	map<string,tState> m_problemCounters;
+	int changeStamp = 1;
+};
 
-	void shallRequestMore();
+// custom priority queue which is transparent for special uses and also returns the popped element directly
+struct tDlJobPrioQ
+{
+	using T = tDlJob*;
+	struct tCompJobPtrById
+	{
+		bool operator() (const T &a, const T &b) const;
+	} m_comparator;
+	std::deque<T> m_data;
 
+	inline void push(T element)
+	{
+		m_data.push_back(move(element));
+		push_heap(m_data.begin(), m_data.end(), m_comparator);
+	}
+	inline T pop()
+	{
+		std::pop_heap(m_data.begin(), m_data.end(), m_comparator);
+		auto ret = move(m_data.back());
+		m_data.pop_back();
+		return move(ret);
+	}
+	inline T top() { return m_data.at(0); }
+	inline bool empty() { return m_data.empty(); }
+	inline bool size() { return m_data.size(); }
+};
+
+struct tDlStream : public tLintRefcounted
+{
+	deque<tDlJob*> m_requested;
+	tDlJobPrioQ m_waiting;
+	lint_ptr<atransport> m_transport;
+	tFileItemPtr m_memberLastItem;
+
+	TFinalAction m_connectionToken;
 	aobservable::subscription m_blockingItemSubscription;
+	/**
+	 * @brief m_dirty adds additional layer of safety, extra flag to mark a tainted state of the transport
+	 */
+	bool m_dirty = false;
+	bool m_sacrificied = false;
+	bool m_bWasRecycled = false;
+
+	tDlStream(const tHttpUrl& targetInfo) : m_targetInfo(targetInfo) {}
+
+	tStrMap& GetBlackList();
+
+	void Start(CDlConn* parent, tDlStreamPool::iterator meRef)
+	{
+		m_parent = parent;
+		m_meRef = meRef;
+	}
+
+	void Connect();
+
+	static void cbStatus(bufferevent* pBE, short what, void* ctx)  { ((tDlStream*)ctx)->OnStatus(pBE, what); }
+	static void cbRead(bufferevent* pBE, void* ctx) { ((tDlStream*)ctx)->OnRead(pBE); }
+	void OnRead(bufferevent* pBE);
+	void OnStatus(bufferevent* pBE, short what);
+	/**
+	 * @brief TakeJob accepts a job but only if that doesn't overtake an already requested one
+	 * @return
+	 */
+	bool TakeJob(tDlJob*);
+	const tHttpUrl& GetPeerHost() { return m_targetInfo; }
+	void DropBacklog();
+
+	void Subscribe2BlockingItem(tFileItemPtr fi)
+	{
+		m_blockingItemSubscription = fi->Subscribe([this]()
+		{
+			if (m_transport->GetBufferEvent() && !m_requested.empty())
+				OnRead(m_transport->GetBufferEvent());
+		});
+	}
+
+
+	~tDlStream();
+	/**
+	 * @brief GetRemainingBodyBytes returns expected remaining length of the currently active item.
+	 * @return
+	 */
+	off_t GetRemainingBodyBytes();
+
+	/**
+	 *  TODO:
+	 *  mark dirty
+	 *  move all backlog stuff to parent backlog
+	 *  decrease the retry count of the item since we sabotage it explicitly
+	 *  set a timer to wait a couple of seconds, if not finished then, send a shutdown() on the socket. XXX: needs to track lifetime. Also parent needs to know which stream is being sabotaged. I.e. parent shall handle the timing. In the dtor, check whether we were sabotaged and do not send error to the item.
+	 * @brief Sacrifice
+	 */
+	void Sacrifice();
+
+private:
+	CDlConn* m_parent;
+	tDlStreamPool::iterator m_meRef;
+	tHttpUrl m_targetInfo;
+
+	/**
+	 * @brief Send more remote requests if possible, and if not, make sure that continuation of the request will happen.
+	 */
+	void tryRequestMore();
+	void wireTransport(lint_ptr<atransport>&& result);
+
+	void handleDisconnect(string_view why, eSourceState cause);
+
+	//unsigned m_requestLimit = DEFAULT_REQUEST_LIMIT;
+	// shutdown condition where further request data is dropped and connection is closed ASAP
+	//bool m_bShutdownLosingData = false;
+};
+
+struct tCompStreamIterators
+{
+	bool operator() (const tDlStreamPool::iterator &a, const tDlStreamPool::iterator &b)
+	const
+	{
+		return & a->second < & b->second;
+	}
 };
 
 class CDlConn : public dlcontroller
 {
+	acres& res;
+
+	unsigned m_nJobIdgen = 0;
+	bool m_bInShutdown = false;
+	// self-reference which is set when the shutdown phase starts and there are external users of some of the served items
+	lint_ptr<dlcontroller> m_shutdownLock;
+	tRemoteValidator m_validator;
+
 	friend struct tDlJob;
-	// keeping the jobs which cannot be added yet because of restrictions
-	TDlJobQueue m_backlog;
+	// queue for jobs which are blocked until a new stream can handle them
+	tDlJobPrioQ m_backlog;
+	deque<tDlJob*> m_dispatchQ;
+	unique_event m_dispatchNotifier;
 
-	unordered_multimap<string, lint_ptr<TDlStream>> m_streams;
+	tDlStreamPool m_streams;
+	tDlStreamPool::iterator m_lastUsedStream = m_streams.end();
+	set<tDlStreamPool::iterator, tCompStreamIterators> m_idleStreams;
+	aobservable::subscription m_idleBeat;
 
-	/**
-	 * @brief InstallJobs scatters jobs on the available download streams or creates new streams as needed.
-	 * @param jobs
-	 * @return
-	 */
-	bool InstallJobs(TDlJobQueue& jobs);
-
-	// dlcontroller interface
 public:
-	void Dispose() override;
-	bool AddJob(lint_ptr<fileitem> fi, tHttpUrl src, bool isPT, mstring extraHeaders) override;
-	bool AddJob(lint_ptr<fileitem> fi, tRepoResolvResult repoSrc, bool isPT, mstring extraHeaders) override;
-	CDlConn() =default;
+	tRemoteValidator& GetValidator() { return m_validator; }
+	void DeleteStream(tDlStreamPool::iterator what)
+	{
+		m_idleStreams.erase(what);
+		if (m_idleStreams.empty())
+			m_idleBeat.reset();
+		if (m_lastUsedStream == what)
+			m_lastUsedStream = m_streams.end();
+		m_streams.erase(what);
+	}
+	void DropIdleStreams()
+	{
+		for(auto& it: m_idleStreams)
+		{
+			if (it == m_lastUsedStream)
+				m_lastUsedStream = m_streams.end();
+			m_streams.erase(it);
+		}
+		m_idleStreams.clear();
+		m_idleBeat.reset();
+		TerminateAsNeeded();
+	}
+	bool TerminateAsNeeded()
+	{
+		if (!m_bInShutdown)
+			return false;
+		if (!m_streams.empty() || !m_dispatchQ.empty())
+			return false;
+		// potentially destroyting *this
+		m_shutdownLock.reset();
+		return true;
+	}
+
+	void ReportStreamIdle(tDlStreamPool::iterator where)
+	{
+		// if no time for idling, move it!
+		if (m_bInShutdown || !m_backlog.empty())
+			DeleteStream(where);
+
+		while (!m_backlog.empty())
+		{
+			auto item = m_backlog.pop();
+			Dispatch(item);
+		}
+
+		if (TerminateAsNeeded())
+			return;
+
+		if (!m_bInShutdown)
+		{
+			m_idleStreams.insert(where);
+			// keep them idle for a dynamic hold-off period, 0..3s
+			if (!m_idleBeat)
+			{
+				m_idleBeat = res.GetIdleCheckBeat().AddListener([pin = as_lptr(this)]()
+				{
+					pin->DropIdleStreams();
+				}
+				);
+			}
+		}
+	}
+	/**
+	 * @brief Initiate a graceful shutdown, preparing for destruction but collaborating with potential external users.
+	 */
+	void Abandon() override
+	{
+		m_bInShutdown = true;
+		m_backlog.m_data.clear();
+		for(auto& kv : m_streams)
+			kv.second.DropBacklog();
+
+		if(!TerminateAsNeeded())
+			m_shutdownLock.reset(this);
+	};
+
+	void DispatchDfrd(tDlJob* what);
+	static void cbDispatchTheQueue(evutil_socket_t, short, void *);
+
+public:
+	CDlConn(acres& res_) : res(res_)
+	{
+		m_dispatchNotifier.reset(evtimer_new(evabase::base, cbDispatchTheQueue, this));
+	}
+
+	bool AddJob(lint_ptr<fileitem> fi, tHttpUrl* src, tRepoResolvResult* repoSrc, bool isPT, mstring extraHeaders) override;
+	void Dispatch(tDlJob* what);
+	void StraightToBacklog(tDlJob* j);
 };
+
+lint_user_ptr<dlcontroller> dlcontroller::CreateRegular(acres& res)
+{
+	return lint_user_ptr<dlcontroller>(new CDlConn(res));
+}
 
 struct tDlJob
 {
 	tFileItemPtr m_pStorageRef;
-	fileitem* storage() { return m_pStorageRef.get(); }
-	mstring sErrorMsg;
-	TDlStream* m_parent = nullptr;
+	mstring m_sError;
 
 	string m_extraHeaders;
 
-	tHttpUrl m_remoteUri;
+#warning memory waste, use a union
+	tHttpUrl m_remoteUri;	
+	const tRepoData *m_pRepoDesc = nullptr;
 	const tHttpUrl *m_pCurBackend = nullptr;
 
-	bool m_bBackendMode = false;
 	// input parameters
 	bool m_bIsPassThroughRequest = false;
 	bool m_bAllowStoreData = true;
@@ -112,7 +346,8 @@ struct tDlJob
 
 	int m_nRedirRemaining = cfg::redirmax;
 
-	const fileitem::tSpecialPurposeAttr& GetFiAttributes() { return storage() ? storage()->m_spattr : g_dummy_attributes; }
+	const fileitem::tSpecialPurposeAttr& GetFiAttributes() { return m_pStorageRef ? m_pStorageRef->m_spattr : g_dummy_attributes; }
+	unsigned GetId() { return m_orderId;}
 
 	// state attribute
 	off_t m_nRest = 0;
@@ -121,33 +356,26 @@ struct tDlJob
 	off_t m_nUsedRangeStartPos = -1;
 	off_t m_nUsedRangeLimit = -1;
 
-	const uint_fast32_t m_orderId;
-
-#define HINT_MORE 0
-#define HINT_DONE 1
-#define HINT_RECONNECT_NOW 2
-#define EFLAG_JOB_BROKEN 4
-#define EFLAG_MIRROR_BROKEN 8
-#define EFLAG_STORE_COLLISION 16
-#define HINT_SWITCH 32
-#define EFLAG_LOST_CON 64
-#define HINT_KILL_LAST_FILE 128
-#define HINT_TGTCHANGE 256
-#define HINT_RECONNECT_SOON 512
-
-	const tRepoData *m_pRepoDesc = nullptr;
+	const unsigned m_orderId;
 
 	enum EStreamState : uint8_t
 	{
 		STATE_GETHEADER,
-		//STATE_REGETHEADER,
 		STATE_PROCESS_DATA,
 		STATE_GETCHUNKHEAD,
 		STATE_PROCESS_CHUNKDATA,
-		STATE_GET_CHUNKTRAILER,
+		STATE_GET_CHUNKEND,
+		STATE_GET_CHUNKEND_LAST,
 		STATE_FINISHJOB
 	}
 	m_DlState = EStreamState::STATE_GETHEADER;
+
+	/**
+	 * @brief m_sourceState remembers the quality of source information
+	 * If negative, requires update and/or validation.
+	 * If positive, declares the state of dlcon's validation context which was used last time.
+	 */
+	int m_sourceState = eSourceState::NO_ERROR;
 
 	enum class EResponseEval
 	{
@@ -156,7 +384,7 @@ struct tDlJob
 
 	inline bool HasBrokenStorage()
 	{
-		return (!storage() || storage()->GetStatus() > fileitem::FIST_COMPLETE);
+		return (!m_pStorageRef || m_pStorageRef->GetStatus() > fileitem::FIST_COMPLETE);
 	}
 
 	/*!
@@ -173,57 +401,69 @@ struct tDlJob
 		return m_pRepoDesc ? m_pRepoDesc->m_pHooks : nullptr;
 	}
 
-	inline void SetSource(tHttpUrl &&src)
-	{
-		LOGSTARTFUNC;
-		ldbg("uri: " << src.ToURI(false));
-		m_remoteUri = move(src);
-	}
-
-	inline void SetSource(tRepoResolvResult &&repoSrc)
-	{
-		LOGSTARTFUNC;
-		ldbg("repo: " << uintptr_t(repoSrc.repodata) << ", restpath: " << repoSrc.sRestPath);
-		m_remoteUri.sPath = move(repoSrc.sRestPath);
-		m_pRepoDesc = move(repoSrc.repodata);
-		m_bBackendMode = true;
-	}
-
-	inline tDlJob(uint_fast32_t id, const tFileItemPtr& pFi, bool isPT, mstring extraHeaders) :
+	inline tDlJob(uint_fast32_t id, const tFileItemPtr& pFi, tHttpUrl* src, tRepoResolvResult* repoSrc, bool isPT, mstring extraHeaders) :
+		m_pStorageRef(pFi),
 		m_extraHeaders(move(extraHeaders)),
 		m_bIsPassThroughRequest(isPT),
 		m_orderId(id)
 	{
 		ASSERT_HAVE_MAIN_THREAD;
-		if (pFi)
-		{
-			m_pStorageRef = pFi;
-			pFi->DlRefCountAdd();
-		}
-	}
 
-#warning fixme: unsubscribe properly if needed, change the parent then
-	void reparent(TDlStream *p);
+		ASSERT(m_pStorageRef);
+		m_pStorageRef->DlRefCountAdd();
+
+		if (src)
+			m_remoteUri = move(*src);
+		else if (repoSrc && repoSrc->psRepoName)
+		{
+			m_remoteUri.sPath = move(repoSrc->sRestPath);
+			m_pRepoDesc = move(repoSrc->repodata);
+			m_pCurBackend = & m_pRepoDesc->m_backends.front();
+		}
+		else
+			throw std::invalid_argument(to_string("Exactly one source needs to be valid"sv));
+	}
 
 	// Default move ctor is ok despite of pointers, we only need it in the beginning, list-splice operations should not move the object around
 	tDlJob(tDlJob &&other) = default;
 
+	enum class eResponsibility : int8_t
+	{
+		IRRELEVANT = -1,
+		UNDECIDED, // maybe we start and end it, maybe someone else
+		US,
+		NOT_US
+	};
+	/**
+	 * @brief WhoIsResponsible
+	 * Which agent takes care about the final processing of that item?
+	 * @return
+	 */
+	eResponsibility WhoIsResponsible()
+	{
+		if (AC_UNLIKELY(!m_pStorageRef))
+			return eResponsibility::UNDECIDED;
+		auto fist = m_pStorageRef->GetStatus();
+		if (fist < fileitem::FIST_DLASSIGNED)
+			return eResponsibility::UNDECIDED;
+		if (fist >= fileitem::FIST_COMPLETE)
+			return eResponsibility::IRRELEVANT;
+		return m_bFileItemAssigned ? eResponsibility::US : eResponsibility::NOT_US;
+	}
+
 	~tDlJob()
 	{
 		LOGSTART("tDlJob::~tDlJob");
-		if (storage())
+		if (m_pStorageRef)
+			m_pStorageRef->DlRefCountDec(503, m_sError.empty() ? "DL aborted"sv : m_sError);
+		/*
+		if (WhoIsResponsible() == eResponsibility::US)
 		{
-			dbgline;
-			storage()->DlRefCountDec({503, sErrorMsg.empty() ?
-                    "Download Expired" : move(sErrorMsg)});
+			m_pStorageRef->DlSetError({503,
+									   m_sError.empty() ? to_string("Download Expired"sv) : move(m_sError)},
+									  fileitem::EDestroyMode::KEEP);
 		}
-	}
-
-	void ResetStreamState()
-	{
-		m_nRest = 0;
-		m_DlState = STATE_GETHEADER;
-		m_nUsedRangeStartPos = -1;
+		*/
 	}
 
 	inline string RemoteUri(bool bUrlEncoded)
@@ -242,20 +482,20 @@ struct tDlJob
 		LOGSTART("tDlJob::RewriteSource");
 		if (--m_nRedirRemaining <= 0)
 		{
-            sErrorMsg = "Redirection loop";
+			m_sError = "Redirection loop";
 			return false;
 		}
 
 		if (!pNewUrl || !*pNewUrl)
 		{
-            sErrorMsg = "Bad redirection";
+			m_sError = "Bad redirection";
 			return false;
 		}
 
 		// start modifying the target URL, point of no return
 		m_pCurBackend = nullptr;
-		bool bWasBeMode = m_bBackendMode;
-		m_bBackendMode = false;
+		bool bWasBeMode = m_pRepoDesc;
+		m_pRepoDesc = nullptr;
 
 		auto sLocationDecoded = UrlUnescape(pNewUrl);
 
@@ -279,7 +519,7 @@ struct tDlJob
 		{
 			if (!m_pCurBackend)
 			{
-                sErrorMsg = "Bad redirection target";
+				m_sError = "Bad redirection target";
 				return false;
 			}
 			auto sPathBackup = m_remoteUri.sPath;
@@ -297,59 +537,68 @@ struct tDlJob
 		return true;
 	}
 
-	bool SetupJobConfig(mstring &sReasonMsg,
-			tStrMap &blacklist)
+	bool SetupSource(tRemoteValidator& validator)
 	{
 		LOGSTART("CDlConn::SetupJobConfig");
 
-		// using backends? Find one which is not blacklisted
-		if (m_bBackendMode)
+		if (m_sourceState == validator.changeStamp)
+			return true;
+
+		tRemoteValidator::tState* pKnownIssues = nullptr;
+		auto hopok = GetPeerHost().GetHostPortProtoKey();
+
+		switch (m_sourceState)
 		{
-			// keep the existing one if possible
-			if (m_pCurBackend)
-			{
-				LOG(
-						"Checking [" << m_pCurBackend->sHost << "]:" << m_pCurBackend->GetPort());
-				const auto bliter = blacklist.find(m_pCurBackend->GetHostPortKey());
-				if (bliter == blacklist.end())
-					LOGRET(true);
-			}
-
-			// look in the constant list, either it's usable or it was blacklisted before
-			for (const auto &bend : m_pRepoDesc->m_backends)
-			{
-				const auto bliter = blacklist.find(bend.GetHostPortKey());
-				if (bliter == blacklist.end())
-				{
-					m_pCurBackend = &bend;
-					LOGRET(true);
-				}
-
-				// uh, blacklisted, remember the last reason
-				if (sReasonMsg.empty())
-				{
-					sReasonMsg = bliter->second;
-					LOG(sReasonMsg);
-				}
-			}
-			if (sReasonMsg.empty())
-				sReasonMsg = "Mirror blocked due to repeated errors";
-			LOGRET(false);
+		case eSourceState::FROM_FATAL_ERROR:
+		case eSourceState::FROM_RECOVERABLE_ERROR:
+			pKnownIssues = & validator.m_problemCounters[hopok];
+			setIfNotEmpty(pKnownIssues->reason, m_sError);
+			pKnownIssues->errCount += 1 + MAX_RETRY * (m_sourceState == eSourceState::FROM_FATAL_ERROR);
+			validator.changeStamp++;
+			break;
+		default: // also if validation mark has changed, does it affect us?
+		case eSourceState::NO_ERROR:
+		{
+			auto it = validator.m_problemCounters.find(hopok);
+			if (it != validator.m_problemCounters.end())
+				pKnownIssues = & it->second;
+			break;
+		}
 		}
 
-		// ok, not backend mode. Check the mirror data (vs. blacklist)
-		auto bliter = blacklist.find(GetPeerHost().GetHostPortKey());
-		if (bliter == blacklist.end())
-			LOGRET(true);
+		m_sourceState = validator.changeStamp;
 
-		sReasonMsg = bliter->second;
-		LOGRET(false);
+		// try alternative backends?
+		if (m_pRepoDesc)
+		{
+			while (pKnownIssues && pKnownIssues->errCount >= MAX_RETRY)
+			{
+				if (++m_pCurBackend > &m_pRepoDesc->m_backends.back())
+				{
+					setIfNotEmpty(m_sError, pKnownIssues->reason);
+					LOGRET(false);
+				}
+				hopok = GetPeerHost().GetHostPortProtoKey();
+				auto it = validator.m_problemCounters.find(hopok);
+				pKnownIssues = it != validator.m_problemCounters.end()
+						? & it->second
+						: nullptr;
+			}
+		}
+		else if(pKnownIssues && pKnownIssues->errCount >= MAX_RETRY)
+		{
+			setIfNotEmpty(m_sError, pKnownIssues->reason);
+			LOGRET(false);
+		}
+		LOGRET(true);
 	}
 
 	// needs connectedHost, blacklist, output buffer from the parent, proxy mode?
-	inline void AppendRequest(tSS &head, const tHttpUrl *proxy)
+	inline void AppendRequest(evbuffer* outBuf, const tHttpUrl *proxy)
 	{
 		LOGSTARTFUNC;
+
+		ebstream head(outBuf);
 
 #define CRLF "\r\n"
 
@@ -406,8 +655,8 @@ struct tDlJob
 
 		m_nUsedRangeStartPos = -1;
 
-		m_nUsedRangeStartPos = storage()->m_nSizeChecked >= 0 ?
-				storage()->m_nSizeChecked : storage()->m_nSizeCachedInitial;
+		m_nUsedRangeStartPos = m_pStorageRef->m_nSizeChecked >= 0 ?
+				m_pStorageRef->m_nSizeChecked : m_pStorageRef->m_nSizeCachedInitial;
 
 		if (AC_UNLIKELY(m_nUsedRangeStartPos < -1))
 			m_nUsedRangeStartPos = -1;
@@ -423,13 +672,13 @@ struct tDlJob
 			{
 				m_nUsedRangeStartPos = -1;
 			}
-			else if (m_nUsedRangeStartPos == storage()->m_nContentLength
+			else if (m_nUsedRangeStartPos == m_pStorageRef->m_nContentLength
 					&& m_nUsedRangeStartPos > 1)
 			{
 				m_nUsedRangeStartPos--; // the probe trick
 			}
 
-			if (!storage()->m_responseModDate.isSet()) // date unusable but needed for volatile files?
+			if (!m_pStorageRef->m_responseModDate.isSet()) // date unusable but needed for volatile files?
 				m_nUsedRangeStartPos = -1;
 		}
 
@@ -450,15 +699,15 @@ struct tDlJob
 
 		if (m_nUsedRangeStartPos > 0)
 		{
-			if (storage()->m_responseModDate.isSet())
-				head << "If-Range: " << storage()->m_responseModDate.view() << CRLF;
+			if (m_pStorageRef->m_responseModDate.isSet())
+				head << "If-Range: " << m_pStorageRef->m_responseModDate.view() << CRLF;
 			head << "Range: bytes=" << m_nUsedRangeStartPos << "-";
 			if (m_nUsedRangeLimit > 0)
 				head << m_nUsedRangeLimit;
 			head << CRLF;
 		}
 
-		if (storage()->IsVolatile())
+		if (m_pStorageRef->IsVolatile())
 		{
 			head << "Cache-Control: " /*no-store,no-cache,*/ "max-age=0" CRLF;
 		}
@@ -478,71 +727,35 @@ struct tDlJob
 #endif
 	}
 
-	inline uint_fast8_t NewDataHandler(evbuffer* pBuf)
-	{
-		LOGSTART("tDlJob::NewDataHandler");
-		beconsum inBuf(pBuf);
-		off_t nToStore = min((off_t) inBuf.size(), m_nRest);
-		ASSERT(nToStore >= 0);
-
-		if (m_bAllowStoreData && nToStore > 0)
-		{
-			ldbg("To store: " <<nToStore);
-			auto n = storage()->DlAddData(pBuf, nToStore);
-			if (n < 0)
-			{
-				sErrorMsg = "Cannot store";
-				return HINT_RECONNECT_NOW | EFLAG_JOB_BROKEN;
-			}
-			m_nRest -= n;
-			inBuf.drop(n);
-			if (n != nToStore)
-			{
-#warning implement me. Shall subscribe to notify on some poke method, and stop acting here until the poke method reports storabe availability
-				//m_parent->Subscribe2BlockingItem(m_pStorageRef);
-				return HINT_MORE;
-			}
-		}
-		else
-		{
-			m_nRest -= nToStore;
-			inBuf.drop(nToStore);
-		}
-
-		ldbg("Rest: " << m_nRest);
-		if (m_nRest != 0)
-			return HINT_MORE; // will come back
-
-		m_DlState = (STATE_PROCESS_DATA == m_DlState) ?
-						STATE_FINISHJOB : STATE_GETCHUNKHEAD;
-		return HINT_SWITCH;
-	}
+#warning move it
+	bool m_bConnectionClose = false;
 
 	/*!
 	 *
 	 * Process new incoming data and write it down to disk or other receivers.
 	 */
-	unsigned ProcessIncomming(evbuffer* pBuf, bool bOnlyRedirectionActivity)
+	eJobResult ProcessIncomming(evbuffer* pBuf, tDlStream& parent)
 	{
 		LOGSTARTFUNC;
 		ASSERT_HAVE_MAIN_THREAD;
-		if (AC_UNLIKELY(!storage() || !pBuf))
+		if (AC_UNLIKELY(!m_pStorageRef || !pBuf))
 		{
-            sErrorMsg = "Bad cache item";
-			return HINT_RECONNECT_NOW | EFLAG_JOB_BROKEN;
+			m_sError = "Bad cache item";
+			return eJobResult::JOB_BROKEN;
 		}
 		beconsum inBuf(pBuf);
 
 		for (;;) // returned by explicit error (or get-more) return
 		{
 			ldbg("switch: " << (int)m_DlState);
-
-			if (STATE_GETHEADER == m_DlState)
+			switch(m_DlState)
+			{
+			case STATE_GETHEADER:
 			{
 				ldbg("STATE_GETHEADER");
 				header h;
 				if (inBuf.size() == 0)
-					return HINT_MORE;
+					return eJobResult::HINT_MORE;
 
 				dbgline;
 
@@ -551,28 +764,51 @@ struct tDlJob
 				// download the contents now and store the reported file as XORIG for future
 				// https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Location
 				if (0 == hDataLen)
-					return HINT_MORE;
+					return eJobResult::HINT_MORE;
 				if (hDataLen < 0)
 				{
-					sErrorMsg = "Invalid header";
-					LOG(sErrorMsg);
-					// can be followed by any junk... drop that mirror, previous file could also contain bad data
-					return EFLAG_MIRROR_BROKEN | HINT_RECONNECT_NOW
-							| HINT_KILL_LAST_FILE;
-				}
+					/*
+					 * The previous message in the stream might be a chunked one, and might have trailer fields,
+					 * and since the trailer fields don't have a final termination mark, they might appear fused
+					 * with the start of a new response. Therefore: drop them, we don't use them.
+					 */
+					while (true)
+					{
+						auto sres = evbuffer_search_eol(pBuf, nullptr, nullptr, evbuffer_eol_style::EVBUFFER_EOL_CRLF_STRICT);
+						if (sres.pos < 0) // no lines?
+							return eJobResult::HINT_MORE;
+						if (sres.pos == 0) // at start?
+							break; // bad data
+						auto view = inBuf.linear(sres.pos);
+						if (view.starts_with("HTTP/"sv))
+						{
+							// reparse the header!
+							hDataLen = h.Load(pBuf);
+							if (0 == hDataLen)
+								return eJobResult::HINT_MORE;
+							// okay, situation resolved
+							goto TRAILER_JUNK_SKIPPED;
+						}
+						else
+							inBuf.drop(sres.pos + 2);
+					}
 
+					m_sError = "Invalid header";
+					LOG(m_sError);
+					// can be followed by any junk... drop that mirror, previous file could also contain bad data
+					return eJobResult::MIRROR_BROKEN_KILL_LAST_FILE;
+				}
+TRAILER_JUNK_SKIPPED:
 				ldbg("header: " << pBuf);
 
 				if (h.type != header::ANSWER)
 				{
 					dbgline;
-                    sErrorMsg = "Unexpected response type";
+					m_sError = "Unexpected response type";
 					// smells fatal...
-					return EFLAG_MIRROR_BROKEN | EFLAG_LOST_CON | HINT_RECONNECT_NOW;
+					return eJobResult::MIRROR_BROKEN;
 				}
 				dbgline;
-
-				unsigned ret = 0;
 
 				auto pCon = h.h[header::CONNECTION];
 				if (!pCon)
@@ -581,37 +817,29 @@ struct tDlJob
 				if (pCon && 0 == strcasecmp(pCon, "close"))
 				{
 					ldbg("Peer wants to close connection after request");
-					ret |= HINT_RECONNECT_SOON;
+					m_bConnectionClose = true;
 				}
 
 				// processing hint 102, or something like 103 which we can ignore
 				if (h.getStatusCode() < 200)
 				{
 					inBuf.drop(size_t(hDataLen));
-					return ret | HINT_MORE;
+					return eJobResult::HINT_MORE;
 				}
 
-				if (cfg::redirmax) // internal redirection might be disabled
+				// internal redirection might be disabled
+				if (cfg::redirmax && h.getStatus().isRedirect())
 				{
-					if (h.getStatus().isRedirect())
-					{
-						if (!RewriteSource(h.h[header::LOCATION]))
-							return ret | EFLAG_JOB_BROKEN;
+					if (!RewriteSource(h.h[header::LOCATION]))
+						return eJobResult::JOB_BROKEN;
 
-						// drop the redirect page contents if possible so the outer loop
-						// can scan other headers
-						off_t contLen = atoofft(h.h[header::CONTENT_LENGTH], 0);
-						if (contLen <= (off_t) inBuf.size())
-							inBuf.drop(contLen);
-						return ret | HINT_TGTCHANGE; // no other flags, caller will evaluate the state
-					}
-
-					// for non-redirection responses process as usual
-
-					// unless it's a probe run from the outer loop, in this case we
-					// should go no further
-					if (bOnlyRedirectionActivity)
-						return ret | EFLAG_LOST_CON | HINT_RECONNECT_NOW;
+					// drop the redirect page contents if possible so the outer loop
+					// can scan other headers
+					off_t contLen = atoofft(h.h[header::CONTENT_LENGTH], 0);
+					if (contLen <= (off_t) inBuf.size())
+						inBuf.drop(contLen);
+#warning FIXME, check better error handling
+					return eJobResult::HINT_RECONNECT; // no other flags, caller will evaluate the state
 				}
 
 				// explicitly blacklist mirror if key file is missing
@@ -621,8 +849,8 @@ struct tDlJob
 					{
 						if (endsWith(m_remoteUri.sPath, kfile))
 						{
-                            sErrorMsg = "Keyfile N/A, mirror blacklisted";
-							return ret | HINT_RECONNECT_NOW | EFLAG_MIRROR_BROKEN;
+							m_sError = "Keyfile N/A, mirror blacklisted";
+							return eJobResult::MIRROR_BROKEN;
 						}
 					}
 				}
@@ -635,10 +863,10 @@ struct tDlJob
 					m_DlState = STATE_FINISHJOB;
 				}
 				else if (h.h[header::TRANSFER_ENCODING]
-						&& 0
-								== strcasecmp(
-										h.h[header::TRANSFER_ENCODING],
-										"chunked"))
+						 && 0
+						 == strcasecmp(
+							 h.h[header::TRANSFER_ENCODING],
+							 "chunked"))
 				{
 					dbgline;
 					m_DlState = STATE_GETCHUNKHEAD;
@@ -647,8 +875,8 @@ struct tDlJob
 				else if (contentLength < 0)
 				{
 					dbgline;
-                    sErrorMsg = "Missing Content-Length";
-					return ret | HINT_RECONNECT_NOW | EFLAG_JOB_BROKEN;
+					m_sError = "Missing Content-Length";
+					return eJobResult::JOB_BROKEN;
 				}
 				else
 				{
@@ -663,10 +891,10 @@ struct tDlJob
 						&& cfg::redirmax != m_nRedirRemaining
 						&& h.h[header::CONTENT_TYPE]
 						&& strstr(h.h[header::CONTENT_TYPE],
-								cfg::badredmime.c_str())
+								  cfg::badredmime.c_str())
 						&& h.getStatusCode() < 300) // contains the final data/response
 				{
-					if (storage()->IsVolatile())
+					if (m_pStorageRef->IsVolatile())
 					{
 						// volatile... this is still ok, just make sure time check works next time
 						h.set(header::LAST_MODIFIED, FAKEDATEMARK);
@@ -680,91 +908,114 @@ struct tDlJob
 
 				// ok, can pass the data to the file handler
 				auto storeResult = CheckAndSaveHeader(move(h),
-						pBuf, hDataLen, contentLength);
+													  pBuf, hDataLen, contentLength);
 				inBuf.drop(size_t(hDataLen));
 
-				if (storage() && storage()->m_spattr.bHeadOnly)
+				if (m_pStorageRef && m_pStorageRef->m_spattr.bHeadOnly)
 					m_nRest = 0;
 
 				if (storeResult == EResponseEval::RESTART_NEEDED)
-					return ret | EFLAG_LOST_CON | HINT_RECONNECT_NOW; // recoverable
+					return eJobResult::HINT_RECONNECT; // recoverable
 
 				if (storeResult == EResponseEval::BUSY_OR_ERROR)
 				{
-					ldbg("Item dl'ed by others or in error state --> drop it, reconnect");
-					m_DlState = STATE_PROCESS_DATA;
-                    sErrorMsg = "Busy Cache Item";
-					return ret | HINT_RECONNECT_NOW | EFLAG_JOB_BROKEN
-							| EFLAG_STORE_COLLISION;
+					ldbg("Item dl'ed by others or in error state --> drop it");
+					m_sError = "Busy Cache Item";
+					return eJobResult::JOB_BROKEN;
 				}
+				break;
 			}
-			else if (m_DlState == STATE_PROCESS_CHUNKDATA
-					|| m_DlState == STATE_PROCESS_DATA)
+			case STATE_PROCESS_CHUNKDATA:
+			case STATE_PROCESS_DATA:
 			{
 				// similar states, just handled differently afterwards
 				ldbg("STATE_GETDATA");
-				auto res = NewDataHandler(pBuf);
-				if (HINT_SWITCH != res)
-					return res;
+
+
+				beconsum inBuf(pBuf);
+				off_t nToStore = min((off_t) inBuf.size(), m_nRest);
+				ASSERT(nToStore >= 0);
+
+				if (m_bAllowStoreData && nToStore > 0)
+				{
+					ldbg("To store: " <<nToStore);
+					auto n = m_pStorageRef->DlConsumeData(pBuf, nToStore);
+					if (n < 0)
+					{
+						m_sError = "Cannot store";
+						return eJobResult::JOB_BROKEN;
+					}
+					m_nRest -= n;
+					if (n != nToStore)
+					{
+						parent.Subscribe2BlockingItem(m_pStorageRef);
+						return eJobResult::HINT_MORE;
+					}
+				}
+				else
+				{
+					m_nRest -= nToStore;
+					inBuf.drop(nToStore);
+				}
+
+				ldbg("Rest: " << m_nRest);
+				if (m_nRest != 0)
+					return eJobResult::HINT_MORE; // will come back
+
+				m_DlState = (STATE_PROCESS_DATA == m_DlState) ?
+							STATE_FINISHJOB : STATE_GET_CHUNKEND;
+
+				break;
 			}
-			else if (m_DlState == STATE_FINISHJOB)
+			case STATE_FINISHJOB:
 			{
 				ldbg("STATE_FINISHJOB");
-				storage()->DlFinish(false);
-				m_parent->m_blockingItemSubscription.reset();
+				m_pStorageRef->DlFinish(false);
+				parent.m_blockingItemSubscription.reset();
+
+				if (m_bConnectionClose)
+					return eJobResult::HINT_RECONNECT;
+
 				m_DlState = STATE_GETHEADER;
-				return HINT_DONE;
+				return eJobResult::HINT_DONE;
 			}
-			else if (m_DlState == STATE_GETCHUNKHEAD)
+			case STATE_GETCHUNKHEAD:
 			{
 				ldbg("STATE_GETCHUNKHEAD");
 				// came back from reading, drop remaining newlines?
 				auto sres = evbuffer_search_eol(pBuf, nullptr, nullptr, evbuffer_eol_style::EVBUFFER_EOL_CRLF_STRICT);
-				while (sres.pos == 0) // weed out newline(s) from previous chunk
-				{
-					inBuf.drop(2);
-					sres = evbuffer_search_eol(pBuf, nullptr, nullptr, evbuffer_eol_style::EVBUFFER_EOL_CRLF_STRICT);
-				}
 				if (sres.pos < 0)
-					return HINT_MORE;
-				auto pStart = (LPCSTR) evbuffer_pullup(pBuf, sres.pos + 2);
+					return eJobResult::HINT_MORE;
+				auto line = inBuf.linear(sres.pos + 2);
 				unsigned len(0);
-				if (1 != sscanf(pStart, "%x", &len))
+				if (1 != sscanf(line.data(), "%x", &len))
 				{
-                    sErrorMsg = "Invalid stream";
-					return EFLAG_JOB_BROKEN; // hm...?
+					m_sError = "Invalid chunked stream";
+					return eJobResult::JOB_BROKEN; // hm...?
 				}
-				inBuf.drop(sres.pos + 2);
-				if (len > 0)
-				{
-					m_nRest = len;
-					m_DlState = STATE_PROCESS_CHUNKDATA;
-				}
-				else
-					m_DlState = STATE_GET_CHUNKTRAILER;
+				inBuf.drop(line.size());
+				m_nRest = len;
+				m_DlState = len > 0 ? STATE_PROCESS_CHUNKDATA : STATE_GET_CHUNKEND_LAST;
+				break;
 			}
-			else if (m_DlState == STATE_GET_CHUNKTRAILER)
+			case STATE_GET_CHUNKEND:
+			case STATE_GET_CHUNKEND_LAST:
 			{
-				while (m_DlState != STATE_FINISHJOB)
-				{
-					auto sres = evbuffer_search_eol(pBuf, nullptr, nullptr, evbuffer_eol_style::EVBUFFER_EOL_CRLF_STRICT);
-					switch (sres.pos)
-					{
-					case -1: return HINT_MORE;
-					case 0:
-						inBuf.drop(2);
-						m_DlState = STATE_FINISHJOB;
-						break;
-					default:
-						inBuf.drop(sres.pos + 2);
-						continue;
-					}
-				}
+				// drop two bytes of the newline
+				auto sres = evbuffer_search_eol(pBuf, nullptr, nullptr, evbuffer_eol_style::EVBUFFER_EOL_CRLF_STRICT);
+				if (sres.pos < 0)
+					return eJobResult::HINT_MORE;
+				ASSERT(sres.pos == 0);
+				inBuf.drop(2);
+				m_DlState = m_DlState == STATE_GET_CHUNKEND_LAST ?
+							STATE_FINISHJOB : STATE_GETCHUNKHEAD;
+				continue;
+			}
 			}
 		}
 		ASSERT(!"unreachable");
-        sErrorMsg = "Bad state";
-		return EFLAG_JOB_BROKEN;
+		m_sError = "Bad state";
+		return eJobResult::JOB_BROKEN;
 	}
 
 	EResponseEval CheckAndSaveHeader(header&& h, evbuffer* pBuf, size_t headerLen, off_t contLen)
@@ -772,27 +1023,28 @@ struct tDlJob
 		LOGSTARTFUNC;
 
 		auto& remoteStatus = h.getStatus();
-		auto& sPathRel = storage()->m_sPathRel;
-		auto& fiStatus = storage()->m_status;
+		auto& sPathRel = m_pStorageRef->m_sPathRel;
+		auto& fiStatus = m_pStorageRef->m_status;
 
 		auto mark_assigned = [&]()
 		{
 			m_bFileItemAssigned = true;
-			storage()->m_nTimeDlStarted = GetTime();
+			m_pStorageRef->m_nTimeDlStarted = GetTime();
 		};
 
         auto withError = [&](string_view message,
-                fileitem::EDestroyMode destruction = fileitem::EDestroyMode::KEEP) {
+				fileitem::EDestroyMode destruction = fileitem::EDestroyMode::KEEP)
+		{
             m_bAllowStoreData = false;
 			mark_assigned();
 			USRERR(sPathRel << " response or storage error [" << message << "], last errno: " << tErrnoFmter());
-			storage()->DlSetError({503, mstring(message)}, destruction);
+			m_pStorageRef->DlSetError({503, mstring(message)}, destruction);
             return EResponseEval::BUSY_OR_ERROR;
         };
 
 		USRDBG( "Download started, storeHeader for " << sPathRel << ", current status: " << (int) fiStatus);
 
-		storage()->m_nIncommingCount += headerLen;
+		m_pStorageRef->m_nIncommingCount += headerLen;
 
 		if(fiStatus >= fileitem::FIST_COMPLETE)
 		{
@@ -855,22 +1107,22 @@ struct tDlJob
 			auto startPos = atoofft(reRes[2].first, -1);
 
 			// identify the special probe request which reports what we already knew
-			if (storage()->IsVolatile() &&
-				storage()->m_nSizeCachedInitial > 0 &&
-				contLen == storage()->m_nSizeCachedInitial &&
-				storage()->m_nSizeCachedInitial - 1 == startPos &&
-				storage()->m_responseModDate == h.h[header::LAST_MODIFIED])
+			if (m_pStorageRef->IsVolatile() &&
+				m_pStorageRef->m_nSizeCachedInitial > 0 &&
+				contLen == m_pStorageRef->m_nSizeCachedInitial &&
+				m_pStorageRef->m_nSizeCachedInitial - 1 == startPos &&
+				m_pStorageRef->m_responseModDate == h.h[header::LAST_MODIFIED])
 			{
 				m_bAllowStoreData = false;
 				mark_assigned();
-				storage()->m_nSizeChecked = storage()->m_nContentLength = storage()->m_nSizeCachedInitial;
-				storage()->DlFinish(true);
+				m_pStorageRef->m_nSizeChecked = m_pStorageRef->m_nContentLength = m_pStorageRef->m_nSizeCachedInitial;
+				m_pStorageRef->DlFinish(true);
 				return EResponseEval::GOOD;
 			}
 			// in other cases should resume and the expected position, or else!
 			if (startPos == -1 ||
 					m_nUsedRangeStartPos != startPos ||
-					startPos < storage()->m_nSizeCachedInitial)
+					startPos < m_pStorageRef->m_nSizeCachedInitial)
 			{
                 return withError("Server reports unexpected range");
             }
@@ -880,11 +1132,11 @@ struct tDlJob
 			// that's bad; it cannot have been completed before (the -1 trick)
 			// however, proxy servers with v3r4 cl3v3r caching strategy can cause that
 			// if if-mo-since is used and they don't like it, so attempt a retry in this case
-			if(storage()->m_nSizeChecked < 0)
+			if(m_pStorageRef->m_nSizeChecked < 0)
 			{
 				USRDBG( "Peer denied to resume previous download (transient error) " << sPathRel );
-				storage()->m_nSizeCachedInitial = 0; // XXX: this is ok as hint to request cooking but maybe add dedicated flag
-				storage()->m_bWriterMustReplaceFile = true;
+				m_pStorageRef->m_nSizeCachedInitial = 0; // XXX: this is ok as hint to request cooking but maybe add dedicated flag
+				m_pStorageRef->m_bWriterMustReplaceFile = true;
 				return EResponseEval::RESTART_NEEDED;
 			}
 			else
@@ -919,7 +1171,7 @@ struct tDlJob
 
 		mark_assigned();
 
-		if (!storage()->DlStarted(pBuf, headerLen, tHttpDate(h.h[header::LAST_MODIFIED]),
+		if (!m_pStorageRef->DlStarted(pBuf, headerLen, tHttpDate(h.h[header::LAST_MODIFIED]),
                                    sLocation.empty() ? RemoteUri(false) : sLocation,
                                    remoteStatus,
                                    m_nUsedRangeStartPos, contLen))
@@ -930,7 +1182,7 @@ struct tDlJob
         if (!m_bAllowStoreData)
         {
 			// XXX: better ensure that it's processed from outside loop and use custom return code?
-			storage()->DlFinish(true);
+			m_pStorageRef->DlFinish(true);
 		}
 		return EResponseEval::GOOD;
 	}
@@ -941,141 +1193,354 @@ private:
 	tDlJob& operator=(const tDlJob&);
 };
 
-bool CDlConn::InstallJobs(TDlJobQueue &jobs)
+void tDlStream::Connect()
 {
-	LOGSTARTFUNC;
-	if (jobs.empty())
-		return false;
-
-	auto key = jobs.front().GetPeerHost().GetHostPortProtoKey();
-
-	while(!jobs.empty())
+	ASSERT(m_waiting.size());
+	auto* el = m_waiting.top();
+	auto onConnect = [this](atransport::tResult result)
 	{
-		auto cand = m_streams.equal_range(key);
-		for(auto it = cand.first; it != cand.second ; it++)
+		if (result.err.empty())
 		{
-			switch (it->second->takeNewJobs(jobs, key, it == cand.first))
-			{
-			case TDlStream::EAddResult::ERROR:
-				return false;
-			case TDlStream::EAddResult::CONSUMED_OR_NO_FIT:
-				continue;
-			case TDlStream::EAddResult::TARGET_CHANGED:
-				goto continue_key_changed;
-			}
-		}
-
-		{
-			// this is not exactly as above :-(
-			auto it = m_streams.insert(make_pair(key, as_lptr(new TDlStream)));
-			switch (it->second->takeNewJobs(jobs, key, true))
-			{
-			case TDlStream::EAddResult::ERROR:
-				return false;
-			case TDlStream::EAddResult::CONSUMED_OR_NO_FIT:
-				continue;
-			case TDlStream::EAddResult::TARGET_CHANGED:
-				dbgline;
-				return false;
-			}
-		}
-
-continue_key_changed:;
-	}
-	return jobs.empty();
-}
-
-void CDlConn::Dispose()
-{
-	ASSERT(!"implementme");
-}
-
-TDlStream::EAddResult TDlStream::takeNewJobs(TDlJobQueue &input, mstring &changedKey, bool hostFitWasChecked)
-{
-	auto posHint = m_backlog.end();
-	auto blsize = m_backlog.size();
-
-	while (!input.empty())
-	{
-		const auto& target = input.front().GetPeerHost();
-		if (hostFitWasChecked)
-		{
-			auto keyNow = target.GetHostPortProtoKey();
-			if (keyNow != changedKey)
-			{
-				changedKey.swap(keyNow);
-				return EAddResult::TARGET_CHANGED;
-			}
-		}
-		auto id = input.front().m_orderId;
-		if (!m_requested.empty())
-		{
-			if (id < m_requested.back().m_orderId)
-				return EAddResult::CONSUMED_OR_NO_FIT;
-		}
-
-		// ok, can add to backlog? search only if needed
-		if (m_backlog.empty() || id > m_backlog.back().m_orderId)
-		{
-			m_backlog.splice(m_backlog.end(), input, input.begin());
-		}
-		else if (id < m_backlog.front().m_orderId)
-		{
-			m_backlog.splice(m_backlog.begin(), input, input.begin());
+			wireTransport(move(result.strm));
+			tryRequestMore();
 		}
 		else
 		{
-			auto opAfter = [&](const tDlJob& it) {
-				return it.m_orderId >= id;
-			};
-
-			if (posHint != m_backlog.end())
-			{
-				if (id > posHint->m_orderId)
-					posHint = find_if(posHint, m_backlog.end(), opAfter);
-				else
-					posHint = find_if(m_backlog.begin(), posHint, opAfter);
-#warning optimize this: judging by the index distance, searching backwards might make more sense in the last case
-			}
-			m_backlog.splice(posHint, input, input.begin());
-			posHint--;
+			auto severity = result.isFatal ? eSourceState::FROM_FATAL_ERROR : eSourceState::FROM_RECOVERABLE_ERROR;
+			handleDisconnect(move(result.err), severity);
 		}
-#warning Add this, needed in the new design?
-/*
-					&& tgt.GetPort() == con->GetPort());
-							  // or don't care port
-							  || !con->GetPort())
-						  );
-						  */
-	}
-	if (blsize != m_backlog.size())
+	};
+	m_connectionToken = atransport::Create(el->GetPeerHost(), move(onConnect));
+}
+
+void tDlStream::OnRead(bufferevent *pBE)
+{
+	if (m_requested.empty())
+		return handleDisconnect("Unexpected Data", eSourceState::FROM_RECOVERABLE_ERROR);
+	while (!m_requested.empty())
 	{
-		ASSERT(!"implementme");
-		//shallRequestMore();
+		auto j = m_requested.front();
+		auto res = j->ProcessIncomming(bereceiver(pBE), *this);
+
+		switch (res)
+		{
+		case eJobResult::HINT_MORE:
+			return;
+		case eJobResult::JOB_BROKEN:
+			m_dirty = true;
+			delete j;
+			return handleDisconnect(se, eSourceState::NO_ERROR);
+		case eJobResult::HINT_RECONNECT: // uplink fscked, not sure why, should have the reason inside already
+			return handleDisconnect(se, eSourceState::FROM_RECOVERABLE_ERROR);
+		case eJobResult::MIRROR_BROKEN_KILL_LAST_FILE:
+			if (m_memberLastItem)
+				m_memberLastItem->DlSetError({500, "Damaged Stream"}, fileitem::EDestroyMode::TRUNCATE);
+			__just_fall_through;
+		case eJobResult::MIRROR_BROKEN:
+			m_dirty = true;
+			return handleDisconnect(se, eSourceState::FROM_FATAL_ERROR);
+		case eJobResult::HINT_DONE:
+		{
+			auto close = j->m_bConnectionClose;
+			m_requested.pop_front();
+			m_memberLastItem = j->m_pStorageRef;
+			delete j;
+
+			if (close)
+				return handleDisconnect(se, eSourceState::NO_ERROR);
+
+			tryRequestMore();
+			continue;
+		}
+		}
 	}
-	return EAddResult::CONSUMED_OR_NO_FIT;
-	//return input.empty() ? EAddResult::CONSUMED_OR_NO_FIT : EAddResult::ERROR;
+
+	if (m_waiting.empty() && m_requested.empty())
+		m_parent->ReportStreamIdle(m_meRef);
 }
 
-bool CDlConn::AddJob(lint_ptr<fileitem> fi, tHttpUrl src, bool isPT, mstring extraHeaders)
+void tDlStream::OnStatus(bufferevent *, short what)
 {
-	TDlJobQueue q;
-	q.emplace_back(g_ivDlJobId++, fi, isPT, move(extraHeaders));
-	q.back().SetSource(move(src));
-	return InstallJobs(q);
+	if (what & (BEV_EVENT_EOF | BEV_EVENT_ERROR | BEV_EVENT_TIMEOUT))
+		handleDisconnect("Remote disconnect"sv, eSourceState::FROM_RECOVERABLE_ERROR);
 }
 
-bool CDlConn::AddJob(lint_ptr<fileitem> fi, tRepoResolvResult repoSrc, bool isPT, mstring extraHeaders)
+bool tDlStream::TakeJob(tDlJob *pJob)
 {
-	TDlJobQueue q;
-	q.emplace_back(g_ivDlJobId++, fi, isPT, move(extraHeaders));
-	q.back().SetSource(move(repoSrc));
-	return InstallJobs(q);
+	if (!pJob)
+		return false;
+	if (!m_requested.empty() && pJob->GetId() < m_requested.back()->GetId())
+		return false;
+
+	// otherwise, yeah, we can do request this
+	m_waiting.push(pJob);
+	pJob->m_DlState = tDlJob::STATE_GETHEADER;
+
+	if (!m_transport && !m_connectionToken)
+		Connect();
+	else
+		tryRequestMore();
+	return true;
 }
 
-lint_ptr<dlcontroller> dlcontroller::CreateRegular()
+void tDlStream::DropBacklog()
 {
-	return static_lptr_cast<dlcontroller>(make_lptr<CDlConn>());
+	for(auto p: m_waiting.m_data)
+		delete p;
+	m_waiting.m_data.clear();
+}
+
+tDlStream::~tDlStream()
+{
+	ASSERT(m_waiting.empty() && m_requested.empty());
+	if (m_transport && !m_dirty && m_requested.empty())
+		atransport::Return(m_transport);
+
+	DropBacklog();
+	for (auto el: m_requested)
+		delete el;
+	m_requested.clear();
+}
+
+off_t tDlStream::GetRemainingBodyBytes()
+{
+	auto p = m_requested.empty()
+			? (m_waiting.empty() ? nullptr : m_waiting.top())
+			: m_requested.front();
+	if (!p)
+		return 0;
+	if (p->WhoIsResponsible() != tDlJob::eResponsibility::US)
+		return 0;
+	return std::abs(p->m_pStorageRef->m_nContentLength - p->m_pStorageRef->GetCheckedSize());
+}
+
+void tDlStream::Sacrifice()
+{
+	m_sacrificied = true;
+#warning if this is set, the item which got interrupted in the end must get an additional retry
+
+	for(auto el: m_waiting.m_data)
+		m_parent->StraightToBacklog(el);
+	m_waiting.m_data.clear();
+	if (m_transport && m_transport->GetBufferEvent())
+	{
+		auto fd = bufferevent_getfd(m_transport->GetBufferEvent());
+		shutdown(fd, SHUT_WR);
+	}
+}
+
+void tDlStream::tryRequestMore()
+{
+	while (!m_waiting.empty() && m_requested.size() < REQUEST_LIMIT)
+	{
+		auto p = m_waiting.pop();
+		p->AppendRequest(besender(m_transport->GetBufferEvent()),
+									   m_transport->PeerIsProxy() ? cfg::GetProxyInfo() : nullptr);
+		m_requested.emplace_back(p);
+	}
+}
+
+void tDlStream::wireTransport(lint_ptr<atransport>&& result)
+{
+	ASSERT(result);
+	m_transport = move(result);
+	bufferevent_setcb(m_transport->GetBufferEvent(), cbRead, nullptr, cbStatus, this);
+	bufferevent_enable(m_transport->GetBufferEvent(), EV_READ|EV_WRITE);
+}
+
+void tDlStream::handleDisconnect(string_view why, eSourceState cause)
+{
+	ASSERT(m_requested.empty() + m_waiting.empty());
+
+	m_blockingItemSubscription.reset();
+
+	if (m_requested.empty() && m_waiting.empty())
+		return m_parent->DeleteStream(m_meRef);
+
+	// hardcopy, no matter where it came from
+	auto rsn(to_string(why));
+
+	auto putBack = [&](tDlJob* what)
+	{
+		// expected disconnect?
+		if (what->m_DlState == tDlJob::STATE_FINISHJOB)
+			return delete what;
+
+		what->m_sourceState = cause;
+		// only report first item as the cause
+		if (cause < eSourceState::NO_ERROR)
+			cause = eSourceState::NO_ERROR;
+
+		setIfNotEmpty(what->m_sError, rsn);
+
+		// dispatch would also do it but can make a quick check here ASAP, the result is cached anyway
+		if (!what->SetupSource(m_parent->GetValidator()))
+			delete what;
+		else
+		{
+			evabase::Post([what, pin = as_lptr(m_parent)]()
+			{
+				pin->Dispatch(what);}
+			);
+		}
+	};
+	for (auto el: m_requested)
+		putBack(el);
+	m_requested.clear();
+	for (auto el: m_waiting.m_data)
+		putBack(el);
+	m_waiting.m_data.clear();
+
+	m_connectionToken.reset();
+	m_transport.reset();
+	m_parent->ReportStreamIdle(m_meRef);
+}
+
+void CDlConn::StraightToBacklog(tDlJob *j)
+{
+	try
+	{
+		m_backlog.push(j);
+	}
+	catch (const std::bad_alloc&)
+	{
+		delete j;
+	}
+}
+
+bool CDlConn::AddJob(lint_ptr<fileitem> fi, tHttpUrl *src, tRepoResolvResult *repoSrc, bool isPT, mstring extraHeaders)
+{
+	tDlJob *j = nullptr;
+	try
+	{
+		j = new tDlJob(m_nJobIdgen++, fi, src, repoSrc, isPT, move(extraHeaders));
+		Dispatch(j);
+		return true;
+	}
+	catch (...)
+	{
+		return false;
+	}
+	if (j)
+		delete j;
+}
+
+void CDlConn::Dispatch(tDlJob *what)
+{
+	m_dispatchQ.emplace_back(what);
+	if (m_dispatchQ.size() == 1)
+		evtimer_add(m_dispatchNotifier.get(), &timeout_asap);
+}
+
+deque<tDlJob*> g_localQ;
+
+void CDlConn::cbDispatchTheQueue(int, short, void *ctx)
+{
+	auto me((CDlConn*)ctx);
+	g_localQ.clear();
+	g_localQ.swap(me->m_dispatchQ);
+	for(auto p: g_localQ)
+		me->DispatchDfrd(p);
+	g_localQ.clear();
+}
+
+void CDlConn::DispatchDfrd(tDlJob *what)
+{
+	if (AC_UNLIKELY(!what))
+		return;
+
+	// drop broken or assigned to others, and check configuration
+	auto st = what->WhoIsResponsible();
+	if(st == tDlJob::eResponsibility::NOT_US
+			|| st == tDlJob::eResponsibility::IRRELEVANT
+			|| !what->SetupSource(m_validator))
+	{
+		return delete what;
+	}
+
+	const auto& tgt = what->GetPeerHost();
+
+	auto accept = [&](tDlStreamPool::iterator it)
+	{
+		if (!it->second.TakeJob(what))
+			return false;
+		m_idleStreams.erase(it);
+		m_lastUsedStream = it;
+		return true;
+	};
+
+	// try fast path?
+	if (m_lastUsedStream != m_streams.end()
+		&& tgt == m_lastUsedStream->second.GetPeerHost()
+		&& accept(m_lastUsedStream)) return;
+
+	auto skey = tgt.GetHostPortProtoKey();
+	auto range = m_streams.equal_range(skey);
+	// XXX: subject to optimization! There no preferrence of taking idle or busy streams first yet.
+	for (auto it = range.first; it != range.second; ++it)
+	{
+		if (m_lastUsedStream == it)
+			continue;
+		if (accept(it))
+			return;
+	}
+	// okay, not accepted by any existing stream, create a new one if allowed
+	if (m_streams.size() <= MAX_STREAMS_PER_USER)
+	{
+		auto it = m_streams.emplace(skey, tgt);
+		it->second.Start(this, it);
+		return accept(it) ? void() : delete what;
+	}
+
+	m_backlog.push(what);
+
+	tDlStream* sacrifice = nullptr;
+	off_t remBytesMin = 0;
+	for(auto& el: m_streams)
+	{
+		off_t rb = el.second.GetRemainingBodyBytes();
+		if (rb > remBytesMin)
+			continue;
+		sacrifice = &el.second;
+		remBytesMin = rb;
+	}
+	ASSERT(sacrifice);
+	sacrifice->Sacrifice();
+
+	// XXX: smarter guessing of the best sacrifice, probably pointless
+#if 0
+	// now check whether this item is a high-prio task and if needed, terminate some lesser-prio stream
+	decltype (m_nJobIdgen) idMin = 0, idMax = 0;
+	auto executorMin = m_streams.end(), executorMax = m_streams.end();
+	for(auto it = m_streams.begin(); it != m_streams.end(); ++it)
+	{
+		if (it->second.m_requested.empty())
+			continue;
+		auto id = it->second.m_requested.front()->GetId();
+		if (id < idMin)
+		{
+
+			executorMin = it;
+			idMin = id;
+		}
+		else if (id > idMax)
+		{
+			executorMax = it;
+			idMax = id;
+		}
+	}
+	if (executorMax == m_streams.end()) // they are all more urgent, wait to become available
+		return;
+	executorMax->second.StartSoftDisconnect();
+#endif
+}
+
+bool tDlJobPrioQ::tCompJobPtrById::operator()(const T &a, const T &b) const
+{
+auto idA = a->m_orderId;
+auto idB = b->m_orderId;
+// we actually want a min_heap
+return idB < idA;
 }
 
 }

@@ -167,29 +167,54 @@ void set_block(int fd) {
  * @brief evbuffer_dumpall - store all or limited range from the front to a file descriptor
  * This is actually evbuffer_write_atmost replacement without its random aborting bug.
  */
-ssize_t eb_dump_atmost(evbuffer *m_q, int out_fd, size_t nMax2SendNow)
+ssize_t eb_dump_chunks(evbuffer *inbuf, int out_fd, size_t nMax2SendNow)
 {
 	evbuffer_iovec ivs[64];
-	auto nbufs = evbuffer_peek(m_q, nMax2SendNow, nullptr, ivs, _countof(ivs));
-	long got = 0;
-	// find the actual transfer length OR make the last vector fit
-	for (int i = 0; i < nbufs; ++i)
+	size_t consumed = 0;
+	nMax2SendNow = std::min(nMax2SendNow, evbuffer_get_length(inbuf));
+	while (nMax2SendNow > 0)
 	{
-		got += ivs[i].iov_len;
-		if (got > (long) nMax2SendNow)
+		auto nbufs = evbuffer_peek(inbuf, nMax2SendNow, nullptr, ivs, _countof(ivs));
+		long got = 0;
+		// find the actual transfer length OR make the last vector fit
+		for (int i = 0; i < nbufs; ++i)
 		{
-			ivs[i].iov_len -= (got - nMax2SendNow);
-			got = nMax2SendNow;
-			nbufs = i + 1;
-			break;
+			got += ivs[i].iov_len;
+			if (got > (long) nMax2SendNow)
+			{
+				ivs[i].iov_len -= (got - nMax2SendNow);
+				got = nMax2SendNow;
+				nbufs = i + 1;
+				break;
+			}
 		}
+		auto r = writev(out_fd, ivs, nbufs);
+		if (r > 0)
+		{
+			evbuffer_drain(inbuf, got);
+			consumed += r;
+			nMax2SendNow -= r;
+		}
+		if (r < 0)
+			return r;
 	}
-	auto r = writev(out_fd, ivs, nbufs);
-	if (r > 0)
-	{
-		evbuffer_drain(m_q, got);
-	}
-	return r;
+	return consumed;
 }
 
+ssize_t ACNG_API eb_dump_chunks(evbuffer* inbuf, std::function<void(string_view)> cb, size_t nMax2SendNow)
+{
+	size_t consumed(0);
+	nMax2SendNow = std::min(nMax2SendNow, evbuffer_get_length(inbuf));
+	while (nMax2SendNow > 0)
+	{
+		auto clen = evbuffer_get_contiguous_space(inbuf);
+		if (clen > nMax2SendNow)
+			clen = nMax2SendNow;
+		auto p = evbuffer_pullup(inbuf, clen);
+		cb(string_view((const char*) p, clen));
+		nMax2SendNow -= clen;
+		consumed += clen;
+	}
+	return consumed;
+};
 }

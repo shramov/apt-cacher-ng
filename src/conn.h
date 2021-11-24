@@ -6,19 +6,21 @@
 #include "actypes.h"
 #include "actemplates.h"
 #include "fileitem.h"
+#include "fileio.h"
 
 namespace acng
 {
 
+class acres;
 class dlcontroller;
 
 /**
- * @brief Common functionality needed by the jobs.
+ * @brief Common functionality needed by the own jobs.
  */
 class IConnBase : public tLintRefcounted
 {
 public:
-	virtual dlcontroller* SetupDownloader() =0;
+	virtual dlcontroller* GetDownloader() =0;
 	virtual lint_ptr<IFileItemRegistry> GetItemRegistry() =0;
 	/**
 	 * @brief Push the internal processing which is waiting for some notification
@@ -33,7 +35,7 @@ public:
  * @param fd File descriptor, call of this method takes responsibility for it
  * @param clientName
  */
-void ACNG_API StartServing(unique_fd&& fd, std::string clientName);
+void ACNG_API StartServing(unique_fd&& fd, std::string clientName, acres&);
 
 #if 0
 class conn

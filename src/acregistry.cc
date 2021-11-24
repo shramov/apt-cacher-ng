@@ -89,7 +89,7 @@ void fileitem::Abandon()
 		}
 	}
 
-	// nothing, let's put the item into shutdown state
+	// nothing, let's mark it as abandoned then
 	if (m_status < fileitem::FIST_COMPLETE)
 		m_status = fileitem::FIST_DLSTOP;
 	m_responseStatus.msg = "Cache file item expired";

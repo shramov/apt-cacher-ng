@@ -370,6 +370,15 @@ struct DurationTimeValAdapter : public timeval
 	}
 };
 */
+
+template<typename T>
+T take_front(std::deque<T>& container)
+{
+	auto ret = move(container.front());
+	container.pop_front();
+	return ret;
+}
+
 }
 
 #endif // _META_H

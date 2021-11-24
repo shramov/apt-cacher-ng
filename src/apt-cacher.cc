@@ -14,7 +14,7 @@
 #include "ac3rdparty.h"
 #include "tpool.h"
 #include "conn.h"
-#include "ackeepalive.h"
+#include "acres.h"
 
 #ifdef DEBUG
 #include <regex.h>
@@ -246,6 +246,8 @@ void term_handler(evutil_socket_t signum, short, void*)
 
 void CloseAllCachedConnections();
 
+std::unique_ptr<acres> sharedResources;
+
 void daemon_init()
 {
 	auto lerr = log::open();
@@ -267,8 +269,9 @@ void daemon_init()
 
 	//DelTree(cfg::cacheDirSlash + sReplDir);
 	SetupServerItemRegistry();
+	sharedResources.reset(acres::Create());
 
-	auto nSockets = conserver::Setup([](unique_fd&& fd, std::string name) { StartServing(move(fd), name); });
+	auto nSockets = conserver::Setup([](unique_fd&& fd, std::string name) { StartServing(move(fd), name, *sharedResources); });
 
 	if (nSockets <= 0)
 	{
@@ -306,6 +309,7 @@ void daemon_deinit()
 		unlink(cfg::pidfile.c_str());
 	g_tpool->stop();
 	conserver::Shutdown();
+	sharedResources.reset();
 	//		CloseAllCachedConnections();
 #warning bring all users of itemregistry down!
 	TeardownServerItemRegistry();
@@ -324,7 +328,6 @@ int main(int argc, const char **argv)
 
 	evabase dabase;
 	parse_options(argc, argv);
-	auto ka = ackeepalive::SetupGlobalInstance();
 
 	daemon_init();
 	g.atexit([](){ daemon_deinit(); });

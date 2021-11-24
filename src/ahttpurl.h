@@ -92,7 +92,7 @@ public:
 		void SetPort(uint16_t nPort) { this->nPort = nPort; }
 
 		inline tHttpUrl(cmstring &host, uint16_t port, EProtoType schema) :
-						nPort(port), sHost(host), m_schema(schema)
+			m_schema(schema), nPort(port), sHost(host)
 		{
 		}
 		inline tHttpUrl(cmstring &host, uint16_t port, bool ssl) :

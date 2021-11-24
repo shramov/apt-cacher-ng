@@ -78,7 +78,7 @@ void do_accept(evutil_socket_t server_fd, short, void* arg)
 		return;
 	}
 
-	evabase::CheckDnsChange();
+	evabase::InitDnsOrCheckCfgChange();
 
 	struct sockaddr_storage addr;
 	socklen_t addrlen = sizeof(addr);

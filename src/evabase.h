@@ -60,7 +60,7 @@ static event_base *base;
 static std::atomic<bool> in_shutdown;
 
 static std::shared_ptr<CDnsBase> GetDnsBase();
-static void CheckDnsChange();
+static void InitDnsOrCheckCfgChange();
 
 static std::thread::id GetMainThreadId();
 
@@ -96,6 +96,8 @@ static void addTeardownAction(event_callback_fn matchedCback, std::function<void
 
 evabase();
 ~evabase();
+
+void PushLoop();
 };
 
 }

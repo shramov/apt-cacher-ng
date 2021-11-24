@@ -15,7 +15,7 @@
 #include "aconnect.h"
 #include "tcpconnect.h"
 #include "astrop.h"
-#include "ackeepalive.h"
+#include "aclock.h"
 
 #include <iostream>
 #include <thread>
@@ -33,11 +33,13 @@ namespace acng
 {
 
 class connImpl;
+class acres;
 
-void StartServingBE(unique_bufferevent_fdclosing&& be, string clientName);
+void ACNG_API StartServingBE(unique_bufferevent_fdclosing&& be, string clientName, acres&);
 
 class connImpl : public IConnBase
 {
+	acres& m_res;
 	unique_bufferevent_flushclosing m_be;
 	header m_h;
 	size_t m_hSize = 0;
@@ -51,14 +53,14 @@ class connImpl : public IConnBase
 	} m_opMode = ACTIVE;
 
 	deque<job> m_jobs;
-	lint_ptr<dlcontroller> m_pDlClient;
+	lint_user_ptr<dlcontroller> m_pDlClient;
 	mstring m_sClientHost;
 
 public:
-	dlcontroller* SetupDownloader() override
+	dlcontroller* GetDownloader() override
 	{
 		if(!m_pDlClient)
-			m_pDlClient = dlcontroller::CreateRegular();
+			m_pDlClient = dlcontroller::CreateRegular(m_res);
 		return m_pDlClient.get();
 	}
 
@@ -67,14 +69,15 @@ public:
 	void writeAnotherLogRecord(const mstring &pNewFile,
 			const mstring &pNewClient);
 
-	connImpl(header&& he, size_t hRawSize, mstring clientName, lint_ptr<IFileItemRegistry> ireg) :
+	connImpl(header&& he, size_t hRawSize, mstring clientName, lint_ptr<IFileItemRegistry> ireg, acres& res) :
+		m_res(res),
 		m_h(move(he)),
 		m_hSize(hRawSize),
 		m_sClientHost(move(clientName)),
 		m_itemRegistry(move(ireg))
 	{
 		LOGSTARTFUNCx(m_sClientHost);
-		m_keepalive = ackeepalive::GetInstance().AddListener([this] () mutable
+		m_keepalive = res.GetKeepAliveBeat().AddListener([this] () mutable
 		{
 			//DBGQLOG("ka: "sv << (long) this);
 			KeepAlive();
@@ -83,11 +86,12 @@ public:
 	virtual ~connImpl()
 	{
 		LOGSTARTFUNC;
+		// in that order!
+		m_jobs.clear();
 		// our user's connection is released but the downloader task created here may still be serving others
 		// tell it to stop when it gets the chance and delete it then
-		if(m_pDlClient)
-			m_pDlClient->Dispose();
-		m_jobs.clear();
+		m_pDlClient.reset();
+
 	}
 
 	/**
@@ -137,12 +141,12 @@ public:
 		m_jobs.front().KeepAlive(m_be.get());
 	}
 
-	static void go(bufferevent* pBE, header&& h, size_t hRawSize, string clientName)
+	static void go(bufferevent* pBE, header&& h, size_t hRawSize, string clientName, acres& res)
 	{
 		lint_ptr<connImpl> worker;
 		try
 		{
-			worker.reset(new connImpl(move(h), hRawSize, move(clientName), SetupServerItemRegistry()));
+			worker.reset(new connImpl(move(h), hRawSize, move(clientName), SetupServerItemRegistry(), res));
 			worker->m_be.m_p = pBE;
 			pBE = nullptr;
 			worker->setup();
@@ -250,7 +254,7 @@ public:
 			auto destroyer(as_lptr(this));
 			bufferevent_disable(*m_be, EV_READ|EV_WRITE);
 			bufferevent_setcb(*m_be, nullptr, nullptr, nullptr, nullptr);
-			return StartServingBE(unique_bufferevent_fdclosing(m_be.release()), m_sClientHost);
+			return StartServingBE(unique_bufferevent_fdclosing(m_be.release()), m_sClientHost, m_res);
 		}
 		case PREP_SHUTDOWN:
 			auto destroyer = as_lptr(this);
@@ -344,8 +348,9 @@ struct Dispatcher
 	// simplify the reliable releasing whenver this object is deleted
 	unique_bufferevent_fdclosing m_be;
 	string clientName;
+	acres& m_res;
 
-	Dispatcher(string name) : clientName(name) {}
+	Dispatcher(string name, acres& res) : clientName(name), m_res(res) {}
 	bool Go() noexcept
 	{
 		// dispatcher only fetches the relevant type header
@@ -385,7 +390,7 @@ struct Dispatcher
 		else if(h.type == header::GET)
 		{
 			evbuffer_drain(rbuf, hlen);
-			connImpl::go(me->m_be.release(), move(h), hlen, move(me->clientName));
+			connImpl::go(me->m_be.release(), move(h), hlen, move(me->clientName), me->m_res);
 		}
 		else if (h.type == header::CONNECT)
 		{
@@ -432,11 +437,11 @@ struct Dispatcher
 	}
 };
 
-void StartServingBE(unique_bufferevent_fdclosing&& be, string clientName)
+void StartServingBE(unique_bufferevent_fdclosing&& be, string clientName, acres& res)
 {
 	if (!be.valid())
 		return; // force-close everything
-	auto* dispatcha = new Dispatcher {move(clientName)};
+	auto* dispatcha = new Dispatcher {move(clientName), res};
 	// excpt.safe
 	dispatcha->m_be.reset(be.release());
 	if (!dispatcha->Go())
@@ -444,13 +449,13 @@ void StartServingBE(unique_bufferevent_fdclosing&& be, string clientName)
 }
 
 
-void StartServing(unique_fd&& fd, string clientName)
+void StartServing(unique_fd&& fd, string clientName, acres& res)
 {
 	evutil_make_socket_nonblocking(fd.get());
 	evutil_make_socket_closeonexec(fd.get());
 	// fd ownership moves to bufferevent closer
 	unique_bufferevent_fdclosing be(bufferevent_socket_new(evabase::base, fd.release(), BEV_OPT_DEFER_CALLBACKS));
 #warning tune watermarks! set timeout!
-	return StartServingBE(move(be), move(clientName));
+	return StartServingBE(move(be), move(clientName), res);
 }
 }

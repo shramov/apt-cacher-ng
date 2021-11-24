@@ -1,4 +1,4 @@
-#include "ackeepalive.h"
+#include "aclock.h"
 #include "aevutil.h"
 #include "acstartstop.h"
 
@@ -6,9 +6,8 @@ namespace acng
 {
 
 void cbKaPing(evutil_socket_t, short, void *);
-const struct timeval defaultKeepAliveTimeout { 10, 0 };
 
-class ackeepaliveImpl : public ackeepalive
+class ackeepaliveImpl : public tClock
 {
 	const struct timeval m_interval;
 public:
@@ -49,23 +48,9 @@ public:
 	ackeepaliveImpl(const struct timeval& interval);
 };
 
-ackeepaliveImpl* acimpl;
-
 ackeepaliveImpl::ackeepaliveImpl(const timeval &interval)
 	: m_interval(interval)
 {
-	acimpl = this;
-}
-
-ackeepalive & ackeepalive::GetInstance()
-{
-	return *acimpl;
-}
-
-std::unique_ptr<ackeepalive> ackeepalive::SetupGlobalInstance(const timeval *interval)
-{
-	return std::make_unique<ackeepaliveImpl>(interval ? *interval : defaultKeepAliveTimeout);
-//	tStartStop::getInstance()->atexit([&](){acimpl.reset();});
 }
 
 void cbKaPing(evutil_socket_t, short, void *arg)
@@ -74,6 +59,11 @@ void cbKaPing(evutil_socket_t, short, void *arg)
 	if (me->m_notifier->notify())
 		return;
 	me->Disable();
+}
+
+std::unique_ptr<tClock> tClock::Create(const timeval &val)
+{
+	return std::unique_ptr<tClock>(new ackeepaliveImpl(val));
 }
 
 }

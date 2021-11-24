@@ -52,10 +52,10 @@ void fileitem::DlRefCountAdd()
 	m_nDlRefsCount++;
 }
 
-void fileitem::DlRefCountDec(const tRemoteStatus& reason)
+void fileitem::DlRefCountDec(int code, string_view reason)
 {
 	setLockGuard;
-	LOGSTARTFUNC
+	LOGSTARTFUNC;
 
 	m_nDlRefsCount--;
 	if (m_nDlRefsCount > 0)
@@ -65,7 +65,7 @@ void fileitem::DlRefCountDec(const tRemoteStatus& reason)
 	NotifyObservers();
 	if (m_status < FIST_COMPLETE)
 	{
-		DlSetError(reason, m_eDestroy);
+		DlSetError({code, to_string(reason)}, m_eDestroy);
 		USRDBG("Download of " << m_sPathRel << " aborted");
 	}
 }
@@ -238,7 +238,7 @@ bool fileitem::DlStarted(evbuffer*, size_t, const tHttpDate& modDate, cmstring& 
 	return true;
 }
 
-ssize_t TFileitemWithStorage::DlAddData(evbuffer* src, size_t maxTake)
+ssize_t TFileitemWithStorage::DlConsumeData(evbuffer* src, size_t maxTake)
 {
 	LOGSTARTFUNC;
 	ASSERT_HAVE_MAIN_THREAD;
@@ -258,7 +258,7 @@ ssize_t TFileitemWithStorage::DlAddData(evbuffer* src, size_t maxTake)
 	if (m_status > FIST_COMPLETE) // DLSTOP, DLERROR
 		return RX_ERROR;
 
-	auto ret = eb_dump_atmost(src, m_filefd, maxTake);
+	auto ret = eb_dump_chunks(src, m_filefd, maxTake);
 	if (ret > 0)
 		m_nIncommingCount += ret;
 	return ret;

@@ -8,27 +8,27 @@
 #ifndef INCLUDE_EBRUNNER_H_
 #define INCLUDE_EBRUNNER_H_
 
-#include "config.h"
-
-extern "C"
-{
-struct event_base;
-}
+#include "evabase.h"
+#include "dlcon.h"
 
 namespace acng
 {
 class dlcontroller;
+class ebase;
 
 // tool helper class for acngtool and httpfs, runs event and download threads
-class ACNG_API evabaseFreeRunner
+class ACNG_API tMinComStack
 {
-	class Impl;
+	acres* sharedResources;
+	evabase* ebase;
+	lint_user_ptr<dlcontroller> dler;
 public:
-	evabaseFreeRunner(bool withDownloader);
-	~evabaseFreeRunner();
+	tMinComStack();
+	~tMinComStack();
 	dlcontroller& getDownloader();
 	event_base* getBase();
 private:
+	class Impl;
 	Impl *m_pImpl;
 };
 

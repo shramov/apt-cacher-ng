@@ -78,12 +78,13 @@ struct auto_raii
  */
 struct TFinalAction
 {
+private:
 	tAction m_p = tAction();
+public:
 	TFinalAction() =default;
 	explicit TFinalAction(tAction xp)
 		: m_p(xp)
 	{
-
 	}
 	~TFinalAction() { if (m_p) m_p(); m_p = tAction(); }
 	TFinalAction(const TFinalAction&) = delete;
@@ -127,6 +128,7 @@ struct TFinalAction
 	{
 		m_p = tAction();
 	}
+	operator bool() const { return m_p.operator bool(); }
 };
 
 #if 0
