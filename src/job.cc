@@ -1100,11 +1100,14 @@ inline void job::CookResponseHeader()
 		auto cl = m_nReqRangeTo < 0 ? contLen - m_nReqRangeFrom : m_nReqRangeTo + 1 - m_nReqRangeFrom;
 		auto last = m_nReqRangeTo > 0 ? m_nReqRangeTo : contLen - 1;
 		PrependHttpVariant() << "206 Partial Content"sv << svRN
-							 << "Content-Type: "sv << fi->m_contentType << svRN
-							 << "Last-Modified: "sv << fi->m_responseModDate.view() << svRN
-							 << "Content-Range: bytes "sv << m_nReqRangeFrom << "-" << last << "/" << contLen << svRN
-							 << "Content-Length: "sv << cl << svRN
-							 << src;
+							 << "Content-Type: "sv << fi->m_contentType << svRN;
+		if (fi->m_responseModDate.isSet())
+		{
+			m_sendbuf << "Last-Modified: "sv << fi->m_responseModDate.view() << svRN;
+		}
+		m_sendbuf << "Content-Range: bytes "sv << m_nReqRangeFrom << "-" << last << "/" << contLen << svRN
+				  << "Content-Length: "sv << cl << svRN
+				  << src;
 		AppendMetaHeaders();
 		return;
 	}
