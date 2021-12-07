@@ -1,6 +1,12 @@
 apt-cacher-ng (3.7.4) NANOTUBES-ARE-FOREVER; urgency=low
 
+  [ BUGFIXES]
+
   * Fixing garbled Last-Modified header in certain responses
+
+  [ MISCELLANEOUS]
+
+  * Database update
 
  -- Eduard Bloch <blade@debian.org>  Sat, 09 Oct 2021 12:39:30 +0200
 
