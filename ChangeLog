@@ -12,6 +12,18 @@ apt-cacher-ng (4.0) 4-ELIZA; urgency=low
 
  -- 
 
+apt-cacher-ng (3.7.4) NANOTUBES-ARE-FOREVER; urgency=low
+
+  [ BUGFIXES]
+
+  * Fixing garbled Last-Modified header in certain responses
+
+  [ MISCELLANEOUS]
+
+  * Database update
+
+ -- Eduard Bloch <blade@debian.org>  Sat, 09 Oct 2021 12:39:30 +0200
+
 apt-cacher-ng (3.7.3) THERE-IS-NO-KNIVE; urgency=low
 
   [ IMPROVEMENTS ]

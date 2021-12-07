@@ -903,7 +903,8 @@ inline void job::CookResponseHeader()
 		SB << reSt.code << " " << reSt.msg << svRN;
 	if (!fi->m_contentType.empty())
 		SB << "Content-Type: "sv << fi->m_contentType << svRN;
-	SB << "Last-Modified: "sv << fi->GetLastModified().view() << svRN;
+	if (fi->GetLastModified().isSet() && ! fi->GetLastModified().view().empty())
+		SB << "Last-Modified: "sv << fi->GetLastModified().view() << svRN;
 	if (!fi->m_responseOrigin.empty())
 		SB << "X-Original-Source: "sv << fi->m_responseOrigin << svRN;
 	if (goChunked)
