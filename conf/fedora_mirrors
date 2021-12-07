@@ -6,7 +6,6 @@ http://espejito.fder.edu.uy/fedora/fedora/linux/
 http://fedora-mirror02.rbc.ru/pub/fedora/linux/
 http://fedora.cu.be/linux/
 http://fedora.ipacct.com/fedora/linux/
-http://fedora.ipserverone.com/fedora/linux/
 http://fedora.is.co.za/linux/
 http://fedora.mirror.angkasa.id/pub/fedora/linux/
 http://fedora.mirror.digitalpacific.com.au/linux/
@@ -57,11 +56,8 @@ http://mirror.datacenter.by/pub/fedoraproject.org/linux/
 http://mirror.de.leaseweb.net/fedora/linux/
 http://mirror.dogado.de/fedora/linux/
 http://mirror.easyspeedy.com/fedora/
-http://mirror.epn.edu.ec/fedora/linux/
-http://mirror.erickochen.nl/fedora/linux/
 http://mirror.facebook.net/fedora/linux/
 http://mirror.genesisadaptive.com/fedora/linux/
-http://mirror.globo.com/fedora/linux/
 http://mirror.hoster.kz/fedora/fedora/linux/
 http://mirror.i3d.net/pub/fedora/linux/
 http://mirror.in2p3.fr/pub/fedora/linux/
@@ -69,10 +65,11 @@ http://mirror.infonline.de/fedora/linux/
 http://mirror.init7.net/fedora/fedora/linux/
 http://mirror.its.dal.ca/pub/fedora/linux/
 http://mirror.karneval.cz/pub/linux/fedora/linux/
-http://mirror.lax.genesisadaptive.com/fedora/linux/
 http://mirror.linux-ia64.org/fedora/linux/
 http://mirror.metrocast.net/fedora/linux/
 http://mirror.netsite.dk/fedora/linux/
+http://mirror.netzwerge.de/fedora/linux/
+http://mirror.nexcess.net/fedora/
 http://mirror.nl.leaseweb.net/fedora/linux/
 http://mirror.nonstop.co.il/fedora/linux/
 http://mirror.optus.net/fedora/linux/
@@ -89,15 +86,14 @@ http://mirror.steadfast.net/fedora/
 http://mirror.steadfastnet.com/epel/
 http://mirror.szerverem.hu/fedora/linux/
 http://mirror.umd.edu/fedora/linux/
-http://mirror.uta.edu.ec/fedora/linux/
 http://mirror.uv.es/mirror/fedora/linux/
-http://mirror.veriteknik.net.tr/fedora/linux/
 http://mirror.vpsnet.com/fedora/linux/
 http://mirror.yandex.ru/fedora/linux/
 http://mirror2.totbb.net/fedora/linux/
 http://mirrors.chroot.ro/fedora/linux/
 http://mirrors.dotsrc.org/fedora-buffet/fedora/linux/
 http://mirrors.eze.sysarmy.com/fedora/linux/
+http://mirrors.ipserverone.com/fedora/fedora/linux/
 http://mirrors.ircam.fr/pub/fedora/linux/
 http://mirrors.kernel.org/fedora/
 http://mirrors.lug.mtu.edu/fedora/linux/
@@ -106,6 +102,7 @@ http://mirrors.n-ix.net/fedora/linux/
 http://mirrors.nav.ro/fedora/linux/
 http://mirrors.piconets.webwerks.in/fedora-mirror/fedora/linux/
 http://mirrors.syringanetworks.net/fedora/linux/
+http://mirrors.tscak.com/Fedora/fedora/linux/
 http://mirrors.xmission.com/fedora/linux/
 http://muug.ca/mirror/fedora/linux/
 http://opensource.nchc.org.tw/fedora/linux/
