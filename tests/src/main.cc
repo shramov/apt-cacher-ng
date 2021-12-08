@@ -1,5 +1,5 @@
 #include "gtest/gtest.h"
-#include "ac3rdparty.h"
+#include "acres.h"
 #include "evabase.h"
 
 using namespace acng;
@@ -16,10 +16,11 @@ void pushEvents(int secTimeout, bool* abortVar)
 	}
 }
 
+acres* g_res;
 
 int main(int argc, char **argv)
 {
-	acng::ac3rdparty_init();
+	g_res = acres::Create();
 	auto p = std::make_unique<acng::evabase>();
 
     ::testing::InitGoogleTest(&argc, argv);

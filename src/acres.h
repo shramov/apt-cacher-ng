@@ -11,6 +11,7 @@ struct timeval;
 namespace acng
 {
 class tClock;
+class tSslConfig;
 
 /**
  * @brief The acres class provides access to certain shared resources
@@ -31,6 +32,7 @@ public:
 	 * @return
 	 */
 	virtual tClock& GetCustomBeat(int id, const struct timeval& interval) =0;
+	virtual tSslConfig &GetSslConfig() =0;
 };
 
 }

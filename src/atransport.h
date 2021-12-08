@@ -11,6 +11,7 @@ namespace acng
 
 class tHttpUrl;
 struct tConnContext;
+class acres;
 
 /**
   * This implement second level connection establishment, which serves
@@ -21,11 +22,13 @@ class ACNG_API atransport : public acng::tLintRefcounted
 protected:
 	unique_bufferevent m_buf;
 	bool m_bPeerIsProxy = false;
+	bool m_bIsSslStream = false;
 	tHttpUrl m_url;
 	friend struct tConnContext;
 
 public:
 	atransport() =default;
+	virtual ~atransport() =default;
 	struct tResult
 	{
 		lint_ptr<atransport> strm;
@@ -58,7 +61,7 @@ public:
 	 * @param sslUpgrade Overlay the stream with TLS stream after connecting
 	 * @param cback
 	 */
-	static TFinalAction Create(tHttpUrl, const tCallBack&, TConnectParms extHints = TConnectParms());
+	static TFinalAction Create(tHttpUrl, const tCallBack&, acres& res, TConnectParms extHints = TConnectParms());
 	/**
 	 * @brief Return an item to cache for reuse by others, or destroy if not cacheable
 	 * @param stream

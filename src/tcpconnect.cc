@@ -331,7 +331,7 @@ bool tcpconnect::SSLinit(mstring &sErr)
 	// cleaned up in the destructor on EOL
 	if(!m_ctx)
 	{
-		m_ctx = SSL_CTX_new(SSLv23_client_method());
+        m_ctx = SSL_CTX_new(SSLv23_client_method());
 		if (!m_ctx) return withLastSslError();
 
 		SSL_CTX_load_verify_locations(m_ctx,

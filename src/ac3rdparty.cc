@@ -1,4 +1,6 @@
 #include "config.h"
+#include "ac3rdparty.h"
+#include "acfg.h"
 
 #include <mutex>
 #include <deque>
@@ -18,40 +20,58 @@
 namespace acng {
 
 #ifdef HAVE_SSL
-std::deque<std::mutex> g_ssl_locks;
-void thread_lock_cb(int mode, int which, const char *, int)
+
+tSslConfig::tSslConfig()
 {
-		if (which >= int(g_ssl_locks.size()))
-				return; // weird
-		if (mode & CRYPTO_LOCK)
-				g_ssl_locks[which].lock();
-		else
-				g_ssl_locks[which].unlock();
+	static bool inited=false;
+	if(inited)
+		return;
+	inited = true;
+	SSL_load_error_strings();
+	ERR_load_BIO_strings();
+	ERR_load_crypto_strings();
+	ERR_load_SSL_strings();
+	OpenSSL_add_all_algorithms();
+	SSL_library_init();
 }
 
-//! Global init helper (might be non-reentrant)
-void ACNG_API globalSslInit()
+tSslConfig::~tSslConfig()
 {
-		static bool inited=false;
-		if(inited)
-				return;
-		inited = true;
-		SSL_load_error_strings();
-		ERR_load_BIO_strings();
-		ERR_load_crypto_strings();
-		ERR_load_SSL_strings();
-		OpenSSL_add_all_algorithms();
-		SSL_library_init();
+	if (m_ctx)
+		SSL_CTX_free(m_ctx);
+}
 
-		g_ssl_locks.resize(CRYPTO_num_locks());
-	CRYPTO_set_id_callback(get_thread_id_cb);
-	CRYPTO_set_locking_callback(thread_lock_cb);
-}
-void ACNG_API globalSslDeInit()
+SSL_CTX *tSslConfig::GetContext()
 {
-		g_ssl_locks.clear();
+	if (!m_ctx_init_error.empty())
+		return nullptr;
+
+	if (!m_ctx)
+	{
+		m_ctx = SSL_CTX_new(TLS_client_method());
+		if (!m_ctx)
+		{
+			auto msg = ERR_reason_error_string(ERR_get_error());
+			m_ctx_init_error = msg ? msg : "SSL context initialization failed";
+			return nullptr;
+		}
+
+		if (! SSL_CTX_load_verify_locations(m_ctx,
+				cfg::cafile.empty() ? nullptr : cfg::cafile.c_str(),
+			cfg::capath.empty() ? nullptr : cfg::capath.c_str()))
+		{
+			auto msg = ERR_reason_error_string(ERR_get_error());
+			m_ctx_init_error = msg ? msg : "Error loading local root certificates";
+			SSL_CTX_free(m_ctx);
+			m_ctx = nullptr;
+		}
+
+	}
+	return m_ctx;
 }
+
 #else
+#error Fix non-TLS build, this probably should setup a dummy of tSslConfig
 void ACNG_API globalSslInit() {}
 void ACNG_API globalSslDeInit() {}
 #endif
@@ -60,14 +80,13 @@ void ACNG_API ac3rdparty_init()
 {
 	evthread_use_pthreads();
 	ares_library_init(ARES_LIB_INIT_ALL);
-	globalSslInit();
 }
 
 void ACNG_API ac3rdparty_deinit()
 {
-	globalSslDeInit();
 	libevent_global_shutdown();
 	ares_library_cleanup();
 }
+
 
 }

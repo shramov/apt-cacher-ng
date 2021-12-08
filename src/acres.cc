@@ -1,6 +1,11 @@
 #include "acres.h"
 #include "aclock.h"
+#include "ac3rdparty.h"
+
 #include <map>
+
+
+
 #warning implement all extra functionality and migrage from the creepy global singletons into it
 
 namespace acng
@@ -14,6 +19,7 @@ class acresImpl : public acres
 
 	std::unique_ptr<tClock> kaClock, idleClock;
 	std::map<int, std::unique_ptr<tClock>> customClocks;
+	tSslConfig m_ssl_setup;
 
 public:
 	acresImpl()
@@ -37,6 +43,12 @@ public:
 		if (!ret)
 			ret = tClock::Create(interval);
 		return *ret;
+	}
+
+public:
+	tSslConfig &GetSslConfig() override
+	{
+		return m_ssl_setup;
 	}
 };
 

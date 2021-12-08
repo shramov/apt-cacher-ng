@@ -212,7 +212,7 @@ struct tCompStreamIterators
 
 class CDlConn : public dlcontroller
 {
-	acres& res;
+	acres& m_res;
 
 	unsigned m_nJobIdgen = 0;
 	bool m_bInShutdown = false;
@@ -233,6 +233,8 @@ class CDlConn : public dlcontroller
 
 public:
 	tRemoteValidator& GetValidator() { return m_validator; }
+	acres& GetAppRes() { return m_res; }
+
 	void DeleteStream(tDlStreamPool::iterator what)
 	{
 		m_idleStreams.erase(what);
@@ -286,7 +288,7 @@ public:
 			// keep them idle for a dynamic hold-off period, 0..3s
 			if (!m_idleBeat)
 			{
-				m_idleBeat = res.GetIdleCheckBeat().AddListener([pin = as_lptr(this)]()
+				m_idleBeat = m_res.GetIdleCheckBeat().AddListener([pin = as_lptr(this)]()
 				{
 					pin->DropIdleStreams();
 				}
@@ -312,7 +314,7 @@ public:
 	static void cbDispatchTheQueue(evutil_socket_t, short, void *);
 
 public:
-	CDlConn(acres& res_) : res(res_)
+	CDlConn(acres& res_) : m_res(res_)
 	{
 		m_dispatchNotifier.reset(evtimer_new(evabase::base, cbDispatchTheQueue, this));
 	}
@@ -1210,7 +1212,7 @@ void tDlStream::Connect()
 			handleDisconnect(move(result.err), severity);
 		}
 	};
-	m_connectionToken = atransport::Create(el->GetPeerHost(), move(onConnect));
+	m_connectionToken = atransport::Create(el->GetPeerHost(), move(onConnect), m_parent->GetAppRes());
 }
 
 void tDlStream::OnRead(bufferevent *pBE)

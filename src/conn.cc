@@ -281,8 +281,11 @@ struct TDirectConnector
 	lint_ptr<atransport> outStream;
 	TFinalAction m_connBuilder;
 	string_view m_httpProto;
+	acres& m_res;
 
-	static void PassThrough(bufferevent* be, cmstring& uri, const header& reqHead)
+	TDirectConnector(acres& res) : m_res(res) {}
+
+	static void PassThrough(bufferevent* be, cmstring& uri, const header& reqHead, acres& res)
 	{
 		TDirectConnector *hndlr = nullptr;
 		// to be terminated here, in one way or another
@@ -290,7 +293,7 @@ struct TDirectConnector
 
 		try
 		{
-			hndlr = new TDirectConnector;
+			hndlr = new TDirectConnector(res);
 			xbe.swap(hndlr->m_be);
 			hndlr->m_httpProto = reqHead.GetProtoView();
 		}
@@ -321,7 +324,7 @@ struct TDirectConnector
 			setup_be_bidirectional(targetCon);
 			m_connBuilder.reset();
 		};
-		m_connBuilder = atransport::Create(url, move(act),
+		m_connBuilder = atransport::Create(url, move(act), m_res,
 										   atransport::TConnectParms()
 										   .SetDirectConnection(true)
 										   .SetNoTlsOnTarget(true));
@@ -395,7 +398,7 @@ struct Dispatcher
 		else if (h.type == header::CONNECT)
 		{
 			evbuffer_drain(rbuf, hlen);
-			TDirectConnector::PassThrough(me->m_be.release(), tgt, h);
+			TDirectConnector::PassThrough(me->m_be.release(), tgt, h, me->m_res);
 		}
 		// is this something we support?
 		else if (h.type == header::POST)

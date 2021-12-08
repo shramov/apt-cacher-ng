@@ -2,6 +2,11 @@
 #define AC3RDPARTY_H
 
 #include "config.h"
+#include "actypes.h"
+
+#ifdef HAVE_SSL
+#include <openssl/ossl_typ.h>
+#endif
 
 namespace acng
 {
@@ -9,8 +14,21 @@ namespace acng
 void ACNG_API globalSslInit();
 void ACNG_API globalSslDeInit();
 
-void ACNG_API ac3rdparty_init();
-void ACNG_API ac3rdparty_deinit();
+class ACNG_API tSslConfig
+{
+public:
+
+	tSslConfig();
+	~tSslConfig();
+	SSL_CTX* GetContext();
+	cmstring& GetContextError() { return m_ctx_init_error; }
+
+private:
+
+	mstring m_ctx_init_error;
+	SSL_CTX* m_ctx = nullptr;
+};
+
 }
 
 #endif // AC3RDPARTY_H

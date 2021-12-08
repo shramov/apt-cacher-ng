@@ -7,26 +7,44 @@
 #include "aconnect.h"
 #include "fileio.h"
 #include "meta.h"
+#include "acres.h"
 #include "debug.h"
 #include "aevutil.h"
+#include "ac3rdparty.h"
 
 #include <map>
 
 #include <event.h>
 #include <event2/bufferevent.h>
 
+#ifdef HAVE_SSL
+#include <openssl/ssl.h>
+#include <openssl/err.h>
+#include <openssl/x509_vfy.h>
+#include <openssl/x509v3.h>
+
+#include <event2/bufferevent_ssl.h>
+#endif
+
 using namespace std;
 
 #define REUSE_TARGET_CONN
 
+#warning Do we need BEV_OPT_DEFER_CALLBACKS?
+
 namespace acng
 {
+
+const mstring pfxSslError("Fatal TLS error: "sv);
 
 cmstring siErr("Internal Error"sv);
 time_t g_proxyBackOffUntil = 0;
 
+using unique_ssl = auto_raii<SSL*,SSL_free,nullptr>;
+
 #ifdef REUSE_TARGET_CONN
 multimap<string, lint_ptr<atransport>> g_con_cache;
+
 #define CACHE_SIZE_MAX 42
 #define REUSE_TIMEOUT_LIMIT 31
 static timeval expirationTimeout;
@@ -62,6 +80,7 @@ static const timeval* GetKeepTimeout()
 class atransportEx : public atransport
 {
 public:
+
 #ifdef REUSE_TARGET_CONN
 	decltype (g_con_cache)::iterator m_cleanIt;
 
@@ -88,6 +107,18 @@ public:
 		g_con_cache.erase(delIfLast->m_cleanIt);
 	}
 #endif
+	~atransportEx()
+	{
+		if (GetBufferEvent() && m_bIsSslStream)
+		{
+			auto ssl = bufferevent_openssl_get_ssl(GetBufferEvent());
+			if (ssl)
+			{
+				SSL_set_shutdown(ssl, SSL_RECEIVED_SHUTDOWN);
+				SSL_shutdown(ssl);
+			}
+		}
+	}
 };
 
 time_t g_proxyDeadUntil = 0;
@@ -99,6 +130,22 @@ struct tConnContext : public tLintRefcounted
 #warning use a derived class with iterator selfref
 	lint_ptr<atransportEx> m_result;
 	TFinalAction m_connBuilder;
+	acres& m_res;
+#warning reenable
+
+	bool m_disableNameValidation = cfg::nsafriendly == 1;// || (bGuessedTls * cfg::nsafriendly == 2);
+	bool m_disableAllValidation = cfg::nsafriendly == 1; // || (bGuessedTls * (cfg::nsafriendly == 2 || cfg::nsafriendly == 3));
+
+	// temp vars to keep the lambda object small enough for optimization
+	const tHttpUrl *m_currentTarget, *m_prInfo;
+
+	tConnContext(tHttpUrl &&url, const atransport::tCallBack &cback,
+				 atransport::TConnectParms&& extHints, acres& res)
+		: m_hints(extHints), m_reporter(cback), m_res(res)
+	{
+		m_result = make_lptr<atransportEx>();
+		m_result->m_url = move(url);
+	}
 
 	void Abort()
 	{
@@ -107,69 +154,154 @@ struct tConnContext : public tLintRefcounted
 
 	void Start()
 	{
-		const auto* tgt = &m_result->m_url;
-
-		auto prInfo = cfg::GetProxyInfo();
-		if (prInfo)
+		m_currentTarget = &m_result->m_url;
+		m_prInfo = cfg::GetProxyInfo();
+		if (m_prInfo)
 		{
-			if (cfg::optproxytimeout > 0)
+			if (cfg::optproxytimeout > 0 && GetTime() < g_proxyDeadUntil)
+				m_prInfo = nullptr; // unusable for now
+			if (m_prInfo)
 			{
-				if (GetTime() < g_proxyDeadUntil)
-					prInfo = nullptr; // unusable for now
+				m_result->m_bPeerIsProxy = true;
+				m_currentTarget = m_prInfo;
 			}
-			if (prInfo)
-				tgt = prInfo;
 		}
-
-		m_connBuilder = aconnector::Connect(tgt->sHost, tgt->GetPort(),
-											[pin = as_lptr(this), this, prInfo, tgt](aconnector::tConnResult res)
+		m_connBuilder = aconnector::Connect(m_currentTarget->sHost, m_currentTarget->GetPort(),
+											[pin = as_lptr(this)](auto res)
 		{
-			if (!m_result || !m_reporter)
-				return;
-
-			if (!res.sError.empty())
-			{
-#warning if AUTO_TIMEOUT_FALLBACK_STICKY then setup condition and restart
-				return m_reporter({lint_ptr<atransport>(), res.sError, true, res.isDnsError});
-			}
-
-			m_result->m_buf.reset(bufferevent_socket_new(evabase::base, res.fd.release(), BEV_OPT_CLOSE_ON_FREE));
-			m_result->m_bPeerIsProxy = prInfo;
-
-			if (!m_result->m_buf.get())
-				return m_reporter({lint_ptr<atransport>(), "Internal Error w/o message", true, res.isDnsError});
-
-			bool doAskConnect = prInfo && ( m_hints.directConnection || m_result->m_url.m_schema == tHttpUrl::EProtoType::HTTPS);
-
-			if (doAskConnect)
-			{
-				ASSERT(!"implementme");
-				// return DoConnectNegotiation();
-			}
-
-			// switch to SSL, either for the proxy or for the target?
-			bool doSslUpgrade = tgt->m_schema == tHttpUrl::EProtoType::HTTPS;
-
-			if (doSslUpgrade)
-			{
-				ASSERT(!"implementme");
-				//return DoTlsSwitch(isProxy);
-			}
-
-			return m_reporter({static_lptr_cast<atransport>(m_result), se, true, res.isDnsError});
-		}
-		, m_hints.timeoutSeconds);
+			pin->OnFirstConnect(move(res));
+		}, m_hints.timeoutSeconds);
 	}
 
-	tConnContext(tHttpUrl &&url, const atransport::tCallBack &cback, atransport::TConnectParms&& extHints)
-		: m_hints(extHints), m_reporter(cback)
+	void OnFirstConnect(aconnector::tConnResult &&res)
 	{
-		m_result = make_lptr<atransportEx>();
-		m_result->m_url = move(url);
+		if (!m_result || !m_reporter)
+			return;
+
+		if (!res.sError.empty())
+		{
+#warning if AUTO_TIMEOUT_FALLBACK_STICKY then setup condition and restart
+			return m_reporter({lint_ptr<atransport>(), res.sError, true, res.isDnsError});
+		}
+
+		// switch to SSL, either for the proxy or for the target?
+		bool doSslUpgrade = m_currentTarget->m_schema == tHttpUrl::EProtoType::HTTPS;
+
+		if (doSslUpgrade)
+			return DoTlsSwitch(move(res.fd));
+
+		m_result->m_buf.reset(bufferevent_socket_new(evabase::base, res.fd.get(), BEV_OPT_CLOSE_ON_FREE));
+		if (!m_result->m_buf.get())
+			return m_reporter({lint_ptr<atransport>(), "Internal Error w/o message", true, res.isDnsError});
+
+		// freed by BEV_OPT_CLOSE_ON_FREE, not by us
+		res.fd.release();
+
+		bool doAskConnect = m_prInfo && ( m_hints.directConnection || m_result->m_url.m_schema == tHttpUrl::EProtoType::HTTPS);
+
+		if (doAskConnect)
+		{
+			ASSERT(!"implementme");
+			// return DoConnectNegotiation();
+		}
+
+		return m_reporter({static_lptr_cast<atransport>(m_result), se, true, res.isDnsError});
+	}
+
+	void DoTlsSwitch(unique_fd ufd)
+	{
+		mstring sErr;
+
+		auto withLastSslError = [&]() ->mstring
+		{
+			auto nErr = ERR_get_error();
+			auto serr = ERR_reason_error_string(nErr);
+			if (!serr)
+				serr = "Internal error";
+			return pfxSslError + serr;
+		};
+		auto ctx = m_res.GetSslConfig().GetContext();
+		if (!ctx)
+			return m_reporter({lint_ptr<atransport>(), pfxSslError + m_res.GetSslConfig().GetContextError(), true, true});
+		unique_ssl ssl(SSL_new(ctx));
+		if (! *ssl)
+			return m_reporter({lint_ptr<atransport>(), withLastSslError(), true, true});
+
+		// for SNI
+		SSL_set_tlsext_host_name(*ssl, m_currentTarget->sHost.c_str());
+
+		if (!m_disableNameValidation)
+		{
+			auto param = SSL_get0_param(*ssl);
+			/* Enable automatic hostname checks */
+			X509_VERIFY_PARAM_set_hostflags(param, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
+			X509_VERIFY_PARAM_set1_host(param, m_currentTarget->sHost.c_str(), 0);
+			/* Configure a non-zero callback if desired */
+			SSL_set_verify(*ssl, SSL_VERIFY_PEER, 0);
+		}
+
+		m_result->m_buf.reset(bufferevent_openssl_socket_new(evabase::base,
+			ufd.get(),
+			*ssl,
+			BUFFEREVENT_SSL_CONNECTING,
+			BEV_OPT_CLOSE_ON_FREE));
+
+		if (m_result->m_buf.valid())
+		{
+			// those will eventually freed by BEV_OPT_CLOSE_ON_FREE
+			m_result->m_bIsSslStream = true;
+			ssl.release();
+			ufd.release();
+		}
+		else
+			return m_reporter({lint_ptr<atransport>(), withLastSslError(), true, true});
+
+		if (m_disableAllValidation && m_disableNameValidation)
+			return m_reporter({static_lptr_cast<atransport>(m_result), se, true, false});
+
+		// okay, let's verify the SSL state in the status callback
+		bufferevent_setcb(m_result->GetBufferEvent(), nullptr, nullptr, cbStatusSslCheck, this);
+		__inc_ref();
+	}
+
+	static void cbStatusSslCheck(struct bufferevent *bev, short what, void *ctx)
+	{
+		lint_ptr<tConnContext> me((tConnContext*) ctx); // get ownership back, with type
+
+		if (what & (BEV_EVENT_EOF | BEV_EVENT_ERROR | BEV_EVENT_TIMEOUT))
+		{
+			return me->m_reporter({lint_ptr<atransport>(), pfxSslError + "Handshake aborted", true, false});
+		}
+
+		if (what & BEV_EVENT_CONNECTED)
+		{
+			auto hret = SSL_get_verify_result(bufferevent_openssl_get_ssl(bev));
+			if( hret != X509_V_OK)
+			{
+				auto err = X509_verify_cert_error_string(hret);
+				if (!err) err = "Handshake failed";
+				return me->m_reporter({lint_ptr<atransport>(), pfxSslError + err, true, false});
+			}
+			auto remote_cert = SSL_get_peer_certificate(bufferevent_openssl_get_ssl(bev));
+			if(remote_cert)
+			{
+				// XXX: maybe extract the real name to a buffer and report it in the log?
+				// X509_NAME_oneline(X509_get_subject_name (server_cert), cert_str, sizeof (cert_str));
+				X509_free(remote_cert);
+			}
+			else // The handshake was successful although the server did not provide a certificate
+				return me->m_reporter({lint_ptr<atransport>(), pfxSslError + "Incompatible remote certificate", true, false});
+
+			bufferevent_disable(bev, EV_READ | EV_WRITE);
+			bufferevent_setcb(bev, nullptr, nullptr, nullptr, nullptr);
+			return me->m_reporter({static_lptr_cast<atransport>(me->m_result), se, true, false});
+		}
+		ASSERT(!"unknown event?");
 	}
 };
 
-TFinalAction atransport::Create(tHttpUrl url, const tCallBack &cback, TConnectParms extHints)
+
+TFinalAction atransport::Create(tHttpUrl url, const tCallBack &cback, acres& res, TConnectParms extHints)
 {
 	ASSERT(cback);
 
@@ -195,7 +327,7 @@ TFinalAction atransport::Create(tHttpUrl url, const tCallBack &cback, TConnectPa
 	try
 	{
 		lint_ptr<tConnContext> tr;
-		tr.reset(new tConnContext(move(url), cback, move(extHints)));
+		tr.reset(new tConnContext(move(url), cback, move(extHints), res));
 		tr->Start();
 		return TFinalAction([tr](){ tr->Abort(); });
 	}
