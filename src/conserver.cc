@@ -78,7 +78,8 @@ void do_accept(evutil_socket_t server_fd, short, void* arg)
 		return;
 	}
 
-	evabase::InitDnsOrCheckCfgChange();
+	// lazy trigger of DNS configuration change check
+	evabase::GetGlobal().GetDnsBase();
 
 	struct sockaddr_storage addr;
 	socklen_t addrlen = sizeof(addr);

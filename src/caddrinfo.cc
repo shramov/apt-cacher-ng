@@ -86,7 +86,7 @@ struct tDnsResContext : public tLintRefcounted
 {
 	string sHost;
 	uint16_t nPort;
-	std::shared_ptr<CDnsBase> resolver;
+	CDnsBase* resolver;
 	list<CAddrInfo::tDnsResultReporter> cbs;
 	static map<string, tDnsResContext*> g_active_resolver_index;
 	// holds results of each task and refcounter
@@ -104,7 +104,7 @@ struct tDnsResContext : public tLintRefcounted
 	tDnsResContext(string sh, uint16_t np, CAddrInfo::tDnsResultReporter rep)
 		: sHost(sh),
 		  nPort(np),
-		  resolver(evabase::GetDnsBase()),
+		  resolver(evabase::GetGlobal().GetDnsBase()),
 		  cbs({move(rep)})
 	{
 		refMe = g_active_resolver_index.end();
@@ -118,7 +118,8 @@ struct tDnsResContext : public tLintRefcounted
 	{
 		ares_query(resolver->get(), (string("_http._tcp.") + sHost).c_str(),
 				   ns_c_in, ns_t_srv, tDnsResContext::cb_srv_query, this);
-		evabase::GetDnsBase()->sync();
+		if (resolver)
+			resolver->sync();
 	}
 
 	void runCallbacks(SHARED_PTR<CAddrInfo> &res)

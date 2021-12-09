@@ -15,13 +15,13 @@ tMinComStack::tMinComStack()
 {
 	ac3rdparty_init();
 	ebase = new evabase;
-	evabase::InitDnsOrCheckCfgChange();
 	sharedResources = acres::Create();
 	dler = dlcontroller::CreateRegular(*sharedResources);
 }
 
 tMinComStack::~tMinComStack()
 {
+	evabase::in_shutdown = true;
 	dler.reset();
 	delete sharedResources;
 	delete ebase;

@@ -28,7 +28,7 @@ namespace acng
 {
 
 event_base* evabase::base = nullptr;
-std::shared_ptr<CDnsBase> cachedDnsBase;
+
 struct tResolvConfStamp
 {
 	dev_t fsId;
@@ -164,9 +164,10 @@ void CDnsBase::shutdown()
 	m_channel = nullptr;
 }
 
-std::shared_ptr<CDnsBase> evabase::GetDnsBase()
+CDnsBase* evabase::GetDnsBase()
 {
-	return cachedDnsBase;
+	InitDnsOrCheckCfgChange();
+	return m_cachedDnsBase;
 }
 
 void evabase::InitDnsOrCheckCfgChange()
@@ -175,7 +176,8 @@ void evabase::InitDnsOrCheckCfgChange()
 	if (!info) // file is missing anyway?
 		return;
 
-	if (cachedDnsFingerprint.changeTime.tv_sec == info.st_mtim.tv_sec
+	if (m_cachedDnsBase &&
+			cachedDnsFingerprint.changeTime.tv_sec == info.st_mtim.tv_sec
 			&& cachedDnsFingerprint.changeTime.tv_nsec == info.st_mtim.tv_nsec
 			&& cachedDnsFingerprint.fsId == info.st_dev
 			&& cachedDnsFingerprint.fsInode == info.st_ino)
@@ -203,11 +205,18 @@ void evabase::InitDnsOrCheckCfgChange()
 		return;
 	}
 	// ok, found new configuration and it can be applied
-	if (cachedDnsBase)
-		cachedDnsBase->shutdown();
-	cachedDnsBase.reset(new CDnsBase(newDnsBase));
+	if (m_cachedDnsBase)
+		delete m_cachedDnsBase;
+	m_cachedDnsBase = new CDnsBase(newDnsBase);
 	cachedDnsFingerprint = tResolvConfStamp
-        { info.st_dev, info.st_ino, info.st_mtim };
+	{ info.st_dev, info.st_ino, info.st_mtim };
+}
+
+evabase* g_eventBase;
+
+evabase &evabase::GetGlobal()
+{
+	return *g_eventBase;
 }
 
 std::thread::id g_main_thread;
@@ -231,12 +240,6 @@ ACNG_API int evabase::MainLoop()
 
 	in_shutdown = true;
 
-	if (cachedDnsBase)
-	{
-		// try to shutdown DNS stuff with a nicer error message
-		cachedDnsBase->shutdown();
-		cachedDnsBase.reset();
-	}
 	// make sure that there are no actions from abandoned DNS bases blocking the futures
 	RejectPendingDnsRequests();
 	PushLoop();
@@ -357,10 +360,13 @@ evabase::evabase()
 	g_main_thread = std::this_thread::get_id();
 	evabase::base = event_base_new();
 	handover_wakeup = evtimer_new(base, cb_handover, nullptr);
+	g_eventBase = this;
 }
 
 evabase::~evabase()
 {
+	delete m_cachedDnsBase;
+
 	if(evabase::base)
 	{
 		event_base_free(evabase::base);

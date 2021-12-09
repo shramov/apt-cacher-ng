@@ -23,8 +23,6 @@ TEST(caddrinfo, test_query_not_inited)
 	pushEvents(3, &fin);
 	ASSERT_TRUE(result);
 	EXPECT_EQ(result->getError(), "503 Bad DNS configuration");
-
-	evabase::InitDnsOrCheckCfgChange();
 	result.reset();
 	fin = false;
 	CAddrInfo::Resolve(TESTTARGET, 443, rep);
@@ -40,8 +38,6 @@ TEST(caddrinfo, test_query_inited)
 	CAddrInfoPtr result;
 	bool fin(false);
 	auto rep = [&](CAddrInfoPtr res) { fin = true; result = res; };
-
-	evabase::InitDnsOrCheckCfgChange();
 	result.reset();
 	fin = false;
 	CAddrInfo::Resolve(TESTTARGET, 443, rep);
@@ -55,7 +51,6 @@ TEST(caddrinfo, blocking_query)
 {
 	CAddrInfoPtr result;
 	std::atomic_bool fin(false);
-	evabase::InitDnsOrCheckCfgChange();
 
 	std::thread t([&]()
 	{
