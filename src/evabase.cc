@@ -151,11 +151,8 @@ void CDnsBase::shutdown()
 {
 	if (m_channel)
 	{
-		// Defer this action so it's not impacting the callback processing somewhere
-		evabase::Post([chan = m_channel]() {
-			// graceful DNS resolver shutdown
-			ares_destroy(chan);
-		});
+		// forceful DNS resolver shutdown
+		ares_destroy(m_channel);
 	}
 	dropEvents();
 	if (m_aresSyncEvent)

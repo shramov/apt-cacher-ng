@@ -28,7 +28,7 @@ struct tConnRqData : public tLintRefcounted
 	time_t exTime;
 	mstring target;
 	uint16_t port;
-	aconnector::tCallback cbReport;
+	aconnector::tCallback m_cbReport;
 	std::deque<acng_addrinfo> m_targets;
 	// linear search is sufficient for this amount of elements
 	struct tProbeInfo
@@ -53,9 +53,8 @@ struct tConnRqData : public tLintRefcounted
 	void abort()
 	{
 		// stop all event interaction ASAP and (maybe) self-destruct
-		cbReport = aconnector::tCallback();
+		m_cbReport = aconnector::tCallback();
 		m_eventFds.clear();
-		__dec_ref();
 	}
 };
 
@@ -71,8 +70,7 @@ TFinalAction aconnector::Connect(cmstring& target, uint16_t port, tCallback cbRe
 
 	ctx->target = target;
 	ctx->port = port;
-	ctx->cbReport = move(cbReport);
-	ctx->__inc_ref(); // freed in the result or cancelation reporting
+	ctx->m_cbReport = move(cbReport);
 
 	CAddrInfo::Resolve(ctx->target, ctx->port, [ctx](std::shared_ptr<CAddrInfo> res)
 	{
@@ -97,7 +95,7 @@ aconnector::tConnResult aconnector::Connect(cmstring &target, uint16_t port, int
 void tConnRqData::processDnsResult(std::shared_ptr<CAddrInfo> res)
 {
 	LOGSTARTFUNCs;
-	if (!cbReport)
+	if (!m_cbReport)
 		return; // this was cancelled by the caller already!
 	if (!res)
 		return retError(dnsError, true);
@@ -114,7 +112,7 @@ void tConnRqData::processDnsResult(std::shared_ptr<CAddrInfo> res)
 void tConnRqData::step(int fd, short what)
 {
 	LOGSTARTFUNCx(fd, what);
-	if (!cbReport)
+	if (!m_cbReport)
 		return; // this was cancelled by the caller already!
 	if (what & EV_WRITE)
 	{
@@ -201,8 +199,8 @@ void tConnRqData::step(int fd, short what)
 void tConnRqData::retError(mstring msg, bool isDnsError)
 {
 	LOGSTARTFUNCx(msg);
-	if (cbReport)
-		cbReport({unique_fd(), move(msg), isDnsError});
+	if (m_cbReport)
+		m_cbReport({unique_fd(), move(msg), isDnsError});
 	return abort();
 }
 
@@ -212,14 +210,14 @@ void tConnRqData::retSuccess(int fd)
 	auto it = find_if(m_eventFds.begin(), m_eventFds.end(), [fd](auto& el){return el.fd.get() == fd;});
 	if (it == m_eventFds.end())
 	{
-		if (cbReport)
-			cbReport({unique_fd(), "Internal error", false});
+		if (m_cbReport)
+			m_cbReport({unique_fd(), "Internal error", false});
 	}
 	else
 	{
 		it->ev.reset();
-		if (cbReport)
-			cbReport({move(it->fd), se, false});
+		if (m_cbReport)
+			m_cbReport({move(it->fd), se, false});
 	}
 	return abort();
 }

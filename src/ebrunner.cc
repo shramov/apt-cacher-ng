@@ -1,8 +1,7 @@
 #include "ebrunner.h"
 #include "evabase.h"
 #include "dlcon.h"
-#include <thread>
-
+#include "debug.h"
 
 using namespace std;
 
@@ -21,9 +20,12 @@ tMinComStack::tMinComStack()
 
 tMinComStack::~tMinComStack()
 {
-	evabase::in_shutdown = true;
+	evabase::GetGlobal().SignalStop();
+	ASSERT(1 == dler->__user_ref_cnt());
 	dler.reset();
 	delete sharedResources;
+	// run last-minute termination actions
+	evabase::GetGlobal().PushLoop();
 	delete ebase;
 	ac3rdparty_deinit();
 }

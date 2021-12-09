@@ -91,10 +91,14 @@ protected:
 #define FAKE_UDS_HOSTNAME "UNIX-DOMAIN-SOCKET"
 
 unique_ptr<acng::tMinComStack> g_comStack;
+void delComStack() { g_comStack.reset(); }
 acng::tMinComStack& GetComStack()
 {
 	if (!g_comStack)
+	{
 		g_comStack.reset(new acng::tMinComStack);
+		atexit(delComStack);
+	}
 	return *g_comStack;
 }
 
@@ -992,8 +996,6 @@ std::unordered_map<string, parm> parms = {
 int main(int argc, const char **argv)
 {
 	using namespace acng;
-
-	TFinalAction cleanr([](){ g_comStack.reset(); });
 
 	string exe(argv[0]);
 	unsigned aOffset=1;
