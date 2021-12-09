@@ -175,9 +175,7 @@ class lint_user_ptr
 {
 	T * m_ptr = nullptr;
 public:
-	explicit lint_user_ptr()
-	{
-	}
+	lint_user_ptr() =default;
 	explicit lint_user_ptr(T *rawPtr) :
 			m_ptr(rawPtr)
 	{
@@ -186,10 +184,11 @@ public:
 		m_ptr->__inc_user_ref();
 	}
 	explicit lint_user_ptr(lint_ptr<T> lp)
+		: m_ptr(lp.get())
 	{
 		if(!m_ptr)
 			return;
-		m_ptr = lp.release(); // pre-incremented by parameter
+		m_ptr->__inc_ref();
 		m_ptr->__inc_user_ref();
 	}
 	lint_user_ptr(const ::acng::lint_user_ptr<T> & orig) :

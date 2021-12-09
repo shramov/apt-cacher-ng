@@ -145,7 +145,7 @@ TFileItemHolder TFileItemRegistry::Create(cmstring &sPathUnescaped, ESharingHow 
 			auto res = mapItems.emplace(sPathRel, sp);
 			ASSERT(res.second);
 			sp->m_globRef = res.first;
-			return TFileItemHolder(sp);
+			return move(TFileItemHolder(move(sp)));
 		};
 
 		auto it = mapItems.find(sPathRel);
@@ -233,7 +233,7 @@ TFileItemHolder TFileItemRegistry::Create(cmstring &sPathUnescaped, ESharingHow 
 		else
 		{
 			if (ENOENT == errno) // XXX: replPathAbs doesn't exist but ignore for now
-				return abandon_replace();
+				return move(abandon_replace());
 
 			USRERR("Failure to move file "sv << pathAbs << " out of the way or cannot create "sv  << replPathAbs << " - errno: "sv << tErrnoFmter());
 		}
