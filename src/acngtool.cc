@@ -17,6 +17,7 @@
 #include "csmapping.h"
 #include "aevutil.h"
 #include "ebrunner.h"
+#include "rex.h"
 
 #include <functional>
 #include <thread>
@@ -262,9 +263,10 @@ int shrink(off_t wantedSize, bool dryrun, bool apply, bool verbose, bool incIfil
 	std::unordered_map<string, pair<time_t,off_t> > related;
 
 	blkcnt_t totalBlocks = 0;
+	rex matcher;
 
 	IFileHandler::FindFiles(cfg::cachedir,
-			[&delQ, &totalBlocks, &related, &incIfiles](cmstring & path, const struct stat& finfo) -> bool
+			[&](cmstring & path, const struct stat& finfo) -> bool
 			{
 		// reference date used in the prioqueue heap
 		auto dateLatest = max(finfo.st_ctim.tv_sec, finfo.st_mtim.tv_sec);
@@ -280,7 +282,7 @@ int shrink(off_t wantedSize, bool dryrun, bool apply, bool verbose, bool incIfil
 			pkgPath = path;
 			otherName = path + ".head";
 		}
-		auto ftype = rex::GetFiletype(pkgPath);
+		auto ftype = matcher.GetFiletype(pkgPath);
 		if((ftype==rex::FILE_SPECIAL_VOLATILE || ftype == rex::FILE_VOLATILE) && !incIfiles)
 			return true;
 		// anything else is considered junk
@@ -920,7 +922,8 @@ std::unordered_map<string, parm> parms = {
 				1, 1, [](LPCSTR p)
 				{
 					warn_cfgdir();
-					std::cout << ReTest(p) << std::endl;
+					static auto matcher = make_shared<rex>();
+					std::cout << ReTest(p, *matcher) << std::endl;
 				}
 			}
 		}

@@ -232,6 +232,16 @@ class CDlConn : public dlcontroller
 	aobservable::subscription m_idleBeat;
 
 public:
+
+	CDlConn(acres& res_) : m_res(res_)
+	{
+		LOGSTARTFUNC;
+		m_dispatchNotifier.reset(evtimer_new(evabase::base, cbDispatchTheQueue, this));
+	}
+	~CDlConn()
+	{
+		LOGSTARTFUNC;
+	}
 	tRemoteValidator& GetValidator() { return m_validator; }
 	acres& GetAppRes() { return m_res; }
 
@@ -303,6 +313,10 @@ public:
 	{
 		m_bInShutdown = true;
 		m_backlog.m_data.clear();
+
+		// they will probably not be needed, and their event's self-lock keeps references active
+		DropIdleStreams();
+
 		for(auto& kv : m_streams)
 			kv.second.DropBacklog();
 
@@ -310,14 +324,18 @@ public:
 			m_shutdownLock.reset(this);
 	};
 
+	void TeardownASAP() override
+	{
+		m_bInShutdown = true;
+		m_backlog.m_data.clear();
+		m_dispatchQ.clear();
+		DropIdleStreams();
+		m_lastUsedStream = m_streams.end();
+		m_streams.clear();
+	}
+
 	void DispatchDfrd(tDlJob* what);
 	static void cbDispatchTheQueue(evutil_socket_t, short, void *);
-
-public:
-	CDlConn(acres& res_) : m_res(res_)
-	{
-		m_dispatchNotifier.reset(evtimer_new(evabase::base, cbDispatchTheQueue, this));
-	}
 
 	bool AddJob(lint_ptr<fileitem> fi, tHttpUrl* src, tRepoResolvResult* repoSrc, bool isPT, mstring extraHeaders) override;
 	void Dispatch(tDlJob* what);

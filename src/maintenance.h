@@ -7,6 +7,7 @@
 
 namespace acng
 {
+class acres;
 
 enum class EWorkType : int8_t
 {
@@ -50,7 +51,7 @@ EWorkType DetectWorkType(const tHttpUrl& reqUrl, string_view rawCmd, const char*
  * @return New fileitem object pointer, nullptr if the request is not supposed to be served by us
  */
 
-tFileItemPtr Create(EWorkType jobType, bufferevent *bev, const tHttpUrl& url, SomeData* arg = nullptr);
+tFileItemPtr Create(EWorkType jobType, bufferevent *bev, const tHttpUrl& url, SomeData* arg, acres& reso);
 
 }
 

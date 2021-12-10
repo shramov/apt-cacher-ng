@@ -66,7 +66,7 @@ bool pkgimport::ProcessRegular(const mstring &sPath, const struct stat &stinfo)
 
 		AddIFileCandidate(sPath.substr(CACHE_BASE_LEN));
 	}
-	else if(rex::FILE_INVALID != rex::GetFiletype(sPath))
+	else if(rex::FILE_INVALID != m_parms.res.GetMatchers().GetFiletype(sPath))
 	{
 		// get a fingerprint by checksumming if not already there from the fpr cache
 

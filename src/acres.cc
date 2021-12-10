@@ -1,6 +1,7 @@
 #include "acres.h"
 #include "aclock.h"
 #include "ac3rdparty.h"
+#include "rex.h"
 
 #include <map>
 
@@ -20,6 +21,7 @@ class acresImpl : public acres
 	std::unique_ptr<tClock> kaClock, idleClock;
 	std::map<int, std::unique_ptr<tClock>> customClocks;
 	tSslConfig m_ssl_setup;
+	rex *rx = nullptr;
 
 public:
 	acresImpl()
@@ -27,7 +29,10 @@ public:
 		kaClock = tClock::Create(defaultKeepAliveTimeout);
 		idleClock = tClock::Create(idleTimeout);
 	}
-
+	~acresImpl()
+	{
+		delete rx;
+	}
 
 	tClock &GetKeepAliveBeat() override
 	{
@@ -49,6 +54,15 @@ public:
 	tSslConfig &GetSslConfig() override
 	{
 		return m_ssl_setup;
+	}
+
+	// acres interface
+public:
+	rex &GetMatchers() override
+	{
+		if (!rx)
+			rx = new rex;
+		return *rx;
 	}
 };
 

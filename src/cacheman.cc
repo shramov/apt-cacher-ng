@@ -141,7 +141,7 @@ bool cacheman::AddIFileCandidate(const string &sPathRel)
  		return false;
 
 	enumMetaType t;
-	if ( (rex::FILE_VOLATILE == rex::GetFiletype(sPathRel)
+	if ( (rex::FILE_VOLATILE == m_parms.res.GetMatchers().GetFiletype(sPathRel)
 	// SUSE stuff, not volatile but also contains file index data
 	|| endsWithSzAr(sPathRel, ".xml.gz") )
 	&& (t=GuessMetaTypeFromURL(sPathRel)))

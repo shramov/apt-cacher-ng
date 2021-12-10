@@ -15,6 +15,7 @@
 #include "evabase.h"
 #include "aevutil.h"
 #include "aclocal.h"
+#include "rex.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -179,7 +180,7 @@ inline bool job::ParseRangeAndIfMo(const header& h)
 	return false;
 }
 
-void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& callerHostname)
+void job::Prepare(const header &h, bufferevent* be, cmstring& callerHostname, acres& res)
 {
 	LOGSTARTFUNC;
 #ifdef DEBUGLOCAL
@@ -221,7 +222,7 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 		SetEarlySimpleResponse("403 Forbidden file type or location"sv);
 	};
 
-	if(h.type!=header::GET)
+	if (h.type != header::GET)
 	{
 		m_bIsHeadOnly = h.type == header::eHeadType::HEAD;
 		if(!m_bIsHeadOnly)
@@ -246,8 +247,10 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 
 	constexpr string_view fname = "/_actmp";
 
+	auto matcher = res.GetMatchers();
+
 	// "clever" file system browsing attempt?
-	if(rex::Match(sReqPath, rex::NASTY_PATH)
+	if(matcher.Match(sReqPath, rex::NASTY_PATH)
 	   || stmiss != sReqPath.find(fname.data(), 0, fname.size())
 	   || startsWithSz(sReqPath, "/_"))
 	{
@@ -266,10 +269,13 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 		if(!theUrl.SetHttpUrl(sReqPath, false))
 		{
 			LOG("work type: USERINFO");
-			m_pItem.reset(Create(EWorkType::USER_INFO, be, theUrl ));
+			m_pItem.reset(Create(EWorkType::USER_INFO, be, theUrl, nullptr, res));
 			return m_pItem ? void() : report_overload(__LINE__);;
 		}
 		LOG("refined path: " << theUrl.sPath << "\n on host: " << theUrl.sHost);
+
+		if (theUrl.m_schema != tHttpUrl::EProtoType::HTTP && theUrl.m_schema != tHttpUrl::EProtoType::HTTPS)
+			return report_invpath();
 
 		// extract the actual port from the URL
 		unsigned nPort = theUrl.GetPort();
@@ -286,7 +292,7 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 		for(tStrPos pos=0; stmiss != (pos = theUrl.sPath.find("//", pos, 2)); )
 			theUrl.sPath.erase(pos, 1);
 
-		bPtMode=rex::MatchUncacheable(theUrl.ToURI(false), rex::NOCACHE_REQ);
+		bPtMode=matcher.MatchUncacheable(theUrl.ToURI(false), rex::NOCACHE_REQ);
 
 		LOG("input uri: "<<theUrl.ToURI(false)<<" , dontcache-flag? " << bPtMode
 			<< ", admin-page: " << cfg::reportpage);
@@ -297,7 +303,7 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 			ldbg("type: " << (int) t);
 			if (t > EWorkType::REGULAR)
 			{
-				m_pItem.reset(Create(t, be, theUrl));
+				m_pItem.reset(Create(t, be, theUrl, nullptr, res));
 				return m_pItem ? void() : report_overload(__LINE__);
 			}
 		}
@@ -311,8 +317,6 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 			return report_overload(__LINE__);
 		}
 
-		using namespace rex;
-
 		{
 			auto it = cfg::localdirs.find(theUrl.sHost);
 			if (it != cfg::localdirs.end())
@@ -323,7 +327,7 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 				serveParms.fsBase = it->second;
 				serveParms.fsSubpath = theUrl.sPath;
 				serveParms.offset = m_nReqRangeFrom < 0 ? 0 : m_nReqRangeFrom;
-				m_pItem.reset(Create(EWorkType::LOCALITEM, be, theUrl, &serveParms));
+				m_pItem.reset(Create(EWorkType::LOCALITEM, be, theUrl, &serveParms, res));
 				return;
 			}
 		}
@@ -364,26 +368,26 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 				if(m_type == FILE_INVALID)
 					m_type = FILE_VOLATILE;
 #else
-				data_type = FILE_VOLATILE;
+				data_type = rex::FILE_VOLATILE;
 				bPtMode=true;
 #endif
 			}
-			if (data_type == FILE_INVALID)
+			if (data_type == rex::FILE_INVALID)
 			{
 				LOG("generic user information page for " << theUrl.sPath);
-				m_pItem.reset(Create(EWorkType::USER_INFO, be, theUrl));
+				m_pItem.reset(Create(EWorkType::USER_INFO, be, theUrl, nullptr, res));
 				return m_pItem ? void() : report_overload(__LINE__);;
 			}
 		}
 
 		// in PT mode we don't care about how to handle it, it's what user wants to do
-		if(data_type == FILE_INVALID && bPtMode)
-			data_type = FILE_SOLID;
+		if(data_type == rex::FILE_INVALID && bPtMode)
+			data_type = rex::FILE_SOLID;
 
-		if(data_type == FILE_INVALID)
-			data_type = GetFiletype(theUrl.sPath);
+		if(data_type == rex::FILE_INVALID)
+			data_type = matcher.GetFiletype(theUrl.sPath);
 
-		if ( data_type == FILE_INVALID )
+		if ( data_type == rex::FILE_INVALID )
 		{
 			if(!cfg::patrace)
 			{
@@ -393,7 +397,7 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 			}
 
 			// ok, collect some information helpful to the user
-			data_type = FILE_VOLATILE;
+			data_type = rex::FILE_VOLATILE;
 #warning XXX: restore tracer
 			//traceData.insert(theUrl.sPath);
 		}
@@ -407,7 +411,7 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 			m_sFileLoc=theUrl.sHost+theUrl.sPath;
 
 		fileitem::tSpecialPurposeAttr attr {
-			! cfg::offlinemode && data_type == FILE_VOLATILE,
+			! cfg::offlinemode && data_type == rex::FILE_VOLATILE,
 					m_bIsHeadOnly,
 					false,
 					m_nReqRangeTo,
@@ -475,7 +479,7 @@ void job::Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& ca
 							repoSrc.repodata->m_backends.front().ToURI(
 								false) + repoSrc.sRestPath :
 							theUrl.ToURI(false);
-				if (rex::MatchUncacheable(testUri, rex::NOCACHE_TGT))
+				if (matcher.MatchUncacheable(testUri, rex::NOCACHE_TGT))
 					m_pItem.reset(new tPassThroughFitem(m_sFileLoc));
 			}
 			// if backend config not valid, download straight from the specified source

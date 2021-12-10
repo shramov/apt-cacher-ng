@@ -20,7 +20,10 @@ struct tLintRefcounted
 private:
 	size_t m_nRefCount = 0;
 public:
-    inline void __inc_ref() noexcept { m_nRefCount++; }
+	inline void __inc_ref() noexcept
+	{
+		m_nRefCount++;
+	}
     inline void __dec_ref()
     {
         if(--m_nRefCount == 0)
@@ -155,8 +158,14 @@ private:
     size_t m_nObjectUsersCount = 0;
 
 public:
-	inline size_t __user_ref_cnt() { return m_nObjectUsersCount; }
-	inline void __inc_user_ref() noexcept { m_nObjectUsersCount++; }
+	inline size_t __user_ref_cnt() noexcept
+	{
+		return m_nObjectUsersCount;
+	}
+	inline void __inc_user_ref() noexcept
+	{
+		m_nObjectUsersCount++;
+	}
     inline void __dec_user_ref()
     {
         if(--m_nObjectUsersCount == 0)

@@ -15,6 +15,7 @@
 #include "tpool.h"
 #include "conn.h"
 #include "acres.h"
+#include "rex.h"
 
 #ifdef DEBUG
 #include <regex.h>
@@ -270,6 +271,13 @@ void daemon_init()
 	//DelTree(cfg::cacheDirSlash + sReplDir);
 	SetupServerItemRegistry();
 	sharedResources.reset(acres::Create());
+
+	if (sharedResources->GetMatchers().HasErrors())
+	{
+		cerr << "An error occurred while compiling file type regular expression!" << endl;
+		exit(EXIT_FAILURE);
+	}
+
 
 	auto nSockets = conserver::Setup([](unique_fd&& fd, std::string name) { StartServing(move(fd), name, *sharedResources); });
 

@@ -9,6 +9,7 @@
 #include "bgtask.h"
 #include "conn.h"
 #include "meta.h"
+#include "rex.h"
 
 #include <unordered_map>
 #include <unordered_set>

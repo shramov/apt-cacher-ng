@@ -12,6 +12,7 @@ namespace acng
 {
 class tClock;
 class tSslConfig;
+class rex;
 
 /**
  * @brief The acres class provides access to certain shared resources
@@ -33,6 +34,7 @@ public:
 	 */
 	virtual tClock& GetCustomBeat(int id, const struct timeval& interval) =0;
 	virtual tSslConfig &GetSslConfig() =0;
+	virtual rex& GetMatchers() =0;
 };
 
 }

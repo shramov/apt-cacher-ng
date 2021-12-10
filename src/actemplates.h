@@ -79,22 +79,27 @@ struct auto_raii
 struct TFinalAction
 {
 private:
-	tAction m_p = tAction();
+	tAction m_p;
 public:
 	TFinalAction() =default;
-	explicit TFinalAction(tAction xp)
-		: m_p(xp)
+	explicit TFinalAction(tAction&& xp)
+		: m_p(move(xp))
 	{
 	}
-	~TFinalAction() { if (m_p) m_p(); m_p = tAction(); }
+	~TFinalAction()
+	{
+		if (m_p)
+			m_p();
+	}
 	TFinalAction(const TFinalAction&) = delete;
 	TFinalAction(TFinalAction&& other)
 	{
-		if (& m_p == & other.m_p)
+		if (this == &other)
 			return;
+//		if (& m_p == & other.m_p)
+//			return;
 		reset();
-		m_p = other.m_p;
-		other.m_p = tAction();
+		m_p.swap(other.m_p);
 	}
 	TFinalAction& reset(TFinalAction &&other)
 	{

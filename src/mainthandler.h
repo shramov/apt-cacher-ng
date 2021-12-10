@@ -5,6 +5,7 @@
 #include "maintenance.h"
 #include "sockio.h"
 #include "acbuf.h"
+#include "acres.h"
 
 static const std::string sBRLF("<br>\n");
 
@@ -56,6 +57,9 @@ public:
 		// reference to the carrier item
 		BufferedPtItemBase& output;
 		SomeData* arg;
+
+		acres& res;
+
 		lint_ptr<fileitem> pin();
 	};
 

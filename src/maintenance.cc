@@ -165,7 +165,7 @@ public:
 		if (m_pipeInOut[1]) bufferevent_free(m_pipeInOut[1]);
 	}
 
-	BufferedPtItem(EWorkType jobType, mstring cmd, bufferevent *bev, SomeData* arg)
+	BufferedPtItem(EWorkType jobType, mstring cmd, bufferevent *bev, SomeData* arg, acres& reso)
 		: BufferedPtItemBase("_internal_task")
 		// XXX: resolve the name to task type for the logs? Or replace the name with something useful later? Although, not needed, and also w/ format not fitting the purpose.
 	{
@@ -175,7 +175,7 @@ public:
 
 		try
 		{
-			handler.reset(MakeMaintWorker({jobType, move(cmd), bufferevent_getfd(bev), *this, arg}));
+			handler.reset(MakeMaintWorker({jobType, move(cmd), bufferevent_getfd(bev), *this, arg, reso}));
 			if (handler)
 			{
 				auto flags =  (handler->m_bNeedsBgThread * BEV_OPT_THREADSAFE)
@@ -467,7 +467,7 @@ EWorkType DetectWorkType(const tHttpUrl& reqUrl, string_view rawCmd, const char*
 	return EWorkType::REPORT;
 }
 
-tFileItemPtr Create(EWorkType jobType, bufferevent *bev, const tHttpUrl& url, SomeData* arg)
+tFileItemPtr Create(EWorkType jobType, bufferevent *bev, const tHttpUrl& url, SomeData* arg, acres& reso)
 {
 	try
 	{
@@ -480,7 +480,7 @@ tFileItemPtr Create(EWorkType jobType, bufferevent *bev, const tHttpUrl& url, So
 		if (jobType == EWorkType::FAVICON)
 			return tFileItemPtr(new TResFileItem("favicon.ico", "image/x-icon"));
 
-		auto item = new BufferedPtItem(jobType, url.sPath, bev, arg);
+		auto item = new BufferedPtItem(jobType, url.sPath, bev, arg, reso);
 		auto ret = as_lptr<fileitem>(item);
 		if (! item->GetHandler())
 			return tFileItemPtr();

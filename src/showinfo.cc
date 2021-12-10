@@ -1,4 +1,3 @@
-
 #include "debug.h"
 #include "showinfo.h"
 #include "meta.h"
@@ -6,6 +5,7 @@
 #include "filereader.h"
 #include "fileio.h"
 #include "job.h"
+#include "rex.h"
 
 #include <iostream>
 #include "meta.h"
@@ -199,7 +199,7 @@ tDeleter::tDeleter(tRunParms&& parms, const mstring& vmode)
 	for(const auto& path : filePaths)
 	{
 		if(path.find_first_of(BADCHARS)!=stmiss  // what the f..., XSS attempt?
-		 || rex::Match(path, rex::NASTY_PATH))
+		 || m_parms.res.GetMatchers().Match(path, rex::NASTY_PATH))
 		{
 			m_bFatalError=true;
 			return;

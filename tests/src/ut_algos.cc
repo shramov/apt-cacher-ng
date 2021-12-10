@@ -5,6 +5,7 @@
 
 #include "ahttpurl.h"
 #include "astrop.h"
+#include "rex.h"
 
 #include "gmock/gmock.h"
 
@@ -205,15 +206,14 @@ TEST(strop,splitter)
     ASSERT_FALSE(yspliter.Next());
 }
 
-TEST(algorithms, rex)
+TEST(algorithms, rextest)
 {
 	using namespace acng;
-	using namespace acng::rex;
-	CompileExpressions();
-	auto type = GetFiletype("http://debug.mirrors.debian.org/debian-debug/dists/sid-debug/main/i18n/Translation-de.xz");
-	ASSERT_EQ(type, FILE_VOLATILE);
-	type = GetFiletype("debrep/dists/unstable/contrib/dep11/by-hash/SHA256/60fe36491abedad8471a0fb3c4fe0b5d73df8b260545ee4aba1a26efa79cdceb");
-	ASSERT_EQ(type, FILE_SOLID);
+	rex matcher;
+	auto type = matcher.GetFiletype("http://debug.mirrors.debian.org/debian-debug/dists/sid-debug/main/i18n/Translation-de.xz");
+	ASSERT_EQ(type, rex::FILE_VOLATILE);
+	type = matcher.GetFiletype("debrep/dists/unstable/contrib/dep11/by-hash/SHA256/60fe36491abedad8471a0fb3c4fe0b5d73df8b260545ee4aba1a26efa79cdceb");
+	ASSERT_EQ(type, rex::FILE_SOLID);
 	auto misc = R"END(
 http://ftp.ch.debian.org/debian/dists/unstable/InRelease
 http://ftp.ch.debian.org/debian/dists/unstable/main/binary-amd64/Packages.xz
@@ -258,7 +258,7 @@ http://ftp.ch.debian.org/debian/dists/unstable/contrib/Contents-all.xz
 )END";
 	for(tSplitWalk split(misc); split.Next();)
 	{
-		type = GetFiletype(split);
-		EXPECT_EQ(type, FILE_VOLATILE);
+		type = matcher.GetFiletype(split);
+		EXPECT_EQ(type, rex::FILE_VOLATILE);
 	}
 }

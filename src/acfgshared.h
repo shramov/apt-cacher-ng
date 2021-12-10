@@ -39,6 +39,8 @@ struct tCfgIter
 
 extern string sPopularPath;
 
+std::deque<std::string> ExpandFileTokens(cmstring &token);
+
 }
 
 }

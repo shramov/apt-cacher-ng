@@ -32,6 +32,10 @@ class ACNG_API dlcontroller : public tLintRefcounted, public tExtRefExpirer
 public:
 	static lint_user_ptr<dlcontroller> CreateRegular(acres& res);
 	virtual ~dlcontroller() =default;
+	/**
+	 * Forced Shutdown. Unlike the lazy shutdown, it will terminate all pending jobs immediatelly and stop all idle streams.
+	 * */
+	virtual void TeardownASAP() =0;
 
 	/**
 	 * @brief AddJob

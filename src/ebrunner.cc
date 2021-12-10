@@ -21,7 +21,11 @@ tMinComStack::tMinComStack()
 tMinComStack::~tMinComStack()
 {
 	evabase::GetGlobal().SignalStop();
+	dler->TeardownASAP();
+	// run last-minute termination actions
+	evabase::GetGlobal().PushLoop();
 	ASSERT(1 == dler->__user_ref_cnt());
+	ASSERT(1 == dler->__ref_cnt());
 	dler.reset();
 	delete sharedResources;
 	// run last-minute termination actions

@@ -14,6 +14,8 @@ namespace acng
 
 class IConnBase;
 class header;
+class acres;
+
 extern uint_fast32_t g_genJobId;
 class job
 {
@@ -27,7 +29,7 @@ public:
 
 	~job();
 
-	void Prepare(const header &h, bufferevent* be, size_t headLen, cmstring& callerHostname);
+	void Prepare(const header &h, bufferevent* be, cmstring& callerHostname, acres& res);
 	void PrepareFatalError(const header &h, string_view errorStatus);	
 	eJobResult Resume(bool canSend, bufferevent* be);
 

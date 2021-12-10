@@ -16,6 +16,7 @@
 #include "tcpconnect.h"
 #include "astrop.h"
 #include "aclock.h"
+#include "rex.h"
 
 #include <iostream>
 #include <thread>
@@ -195,7 +196,7 @@ public:
 			if (!errorStatus.empty())
 				m_jobs.back().PrepareFatalError(m_h, errorStatus);
 			else
-				m_jobs.back().Prepare(m_h, *m_be, m_hSize, m_sClientHost);
+				m_jobs.back().Prepare(m_h, *m_be, m_sClientHost, m_res);
 			evbuffer_drain(bereceiver(*m_be), m_hSize);
 		}
 		else
@@ -301,7 +302,7 @@ struct TDirectConnector
 		{
 			unique_bufferevent_fdclosing closer(be);
 		}
-		if(rex::Match(uri, rex::PASSTHROUGH) && hndlr->url.SetHttpUrl(uri))
+		if(res.GetMatchers().Match(uri, rex::PASSTHROUGH) && hndlr->url.SetHttpUrl(uri))
 			return hndlr->Go();
 		ebstream(be) << hndlr->m_httpProto << " 403 CONNECT denied (ask the admin to allow HTTPS tunnels)\r\n\r\n"sv;
 		return delete hndlr;

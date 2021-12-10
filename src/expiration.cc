@@ -220,7 +220,7 @@ void expiration::HandlePkgEntry(const tRemoteFileInfo &entry)
 			{
 				report_oversize:
 				// user shall find a resolution here
-				if(rex::GetFiletype(sPathRel) == rex::FILE_VOLATILE)
+				if(m_parms.res.GetMatchers().GetFiletype(sPathRel) == rex::FILE_VOLATILE)
 					return report_weird_volatile(lenFromStat);
 
 				SendFmt << ECLASS << "size mismatch on " << sPathRel;
@@ -287,7 +287,7 @@ void expiration::HandlePkgEntry(const tRemoteFileInfo &entry)
 	// and in general, all kinds of index files shall be checked at the particular location since
 	// there are too many identical names spread between different repositories
 	bool byPath = (m_bByPath || entry.sFileName == sIndex ||
-			rex::Match(entry.sDirectory + entry.sFileName, rex::FILE_VOLATILE));
+			m_parms.res.GetMatchers().Match(entry.sDirectory + entry.sFileName, rex::FILE_VOLATILE));
 	if(byPath)
 	{
 		// compare full paths (physical vs. remote) with their real paths
@@ -422,13 +422,12 @@ inline void expiration::RemoveAndStoreStatus(bool bPurgeNow)
 			string sPathRel = dir_props.first + fileGroup.first;
 			auto& desc = dir_props.second;
 			DBGQLOG("Checking " << sPathRel);
-			using namespace rex;
-
 			if (ContHas(m_forceKeepInTrash, sPathRel))
 			{
 				LOG("forcetrash flag set, whitelist does not apply, shall be removed");
 			}
-			else if (Match(fileGroup.first, FILE_WHITELIST) || Match(sPathRel, FILE_WHITELIST))
+			else if (m_parms.res.GetMatchers().Match(fileGroup.first, rex::FILE_WHITELIST)
+					 || m_parms.res.GetMatchers().Match(sPathRel, rex::FILE_WHITELIST))
 			{
 				// exception is stuff that should have some cover but doesn't
 				if(!ContHas(m_managedDirs, dir_props.first))
@@ -884,7 +883,7 @@ bool expiration::ProcessRegular(const string & sPathAbs, const struct stat &stin
 		attr.space += stinfo.st_size;
 		attr.forgiveDlErrors = endsWith(sPathRel, sslIndex);
 	}
-	else if (rex::Match(sPathRel, rex::FILE_VOLATILE))
+	else if (m_parms.res.GetMatchers().Match(sPathRel, rex::FILE_VOLATILE))
 		return true; // cannot check volatile files properly so don't care
 
 	// ok, split to dir/file and add to the list
