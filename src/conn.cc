@@ -129,7 +129,7 @@ public:
 	void setup()
 	{
 		LOGSTARTFUNC;
-		set_connect_sock_flags(bufferevent_getfd(*m_be));
+		set_serving_sock_flags(bufferevent_getfd(*m_be));
 		bufferevent_setcb(*m_be, cbRead, cbCanWrite, cbStatus, this);
 		if (m_hSize > 0)
 			addOneJob();

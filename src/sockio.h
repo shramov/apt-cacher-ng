@@ -77,6 +77,7 @@ struct select_set_t
 
 // common flags for a CONNECTING socket
 void set_connect_sock_flags(evutil_socket_t fd);
+void set_serving_sock_flags(evutil_socket_t fd);
 
 }
 
