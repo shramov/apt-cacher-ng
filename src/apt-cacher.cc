@@ -7,7 +7,6 @@
 #include "fileio.h"
 #include "conserver.h"
 #include "acregistry.h"
-#include "acstartstop.h"
 #include "filereader.h"
 #include "csmapping.h"
 #include "tpool.h"
@@ -324,21 +323,26 @@ void daemon_deinit()
 	log::close(false);
 }
 
+unique_ptr<evabase> g_cacherBase;
+void releaseCacherBase() { g_cacherBase.reset();}
+
 }
+
 
 int main(int argc, const char **argv)
 {
 	using namespace acng;
-	tStartStop g;
+
+	acng::g_cacherBase.reset(new evabase);
+	atexit(releaseCacherBase);
 
 	ac3rdparty_init();
-	g.atexit([](){ ac3rdparty_deinit(); });
+	atexit(ac3rdparty_deinit);
 
-	evabase dabase;
 	parse_options(argc, argv);
 
 	daemon_init();
-	g.atexit([](){ daemon_deinit(); });
+	atexit(daemon_deinit);
 
-	return dabase.MainLoop();
+	return acng::g_cacherBase->MainLoop();
 }

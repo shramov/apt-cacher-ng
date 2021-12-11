@@ -6,7 +6,7 @@ set(SHAREDSRCS astrop.cc sockio.cc acbuf.cc acfg.cc acfg_defaults.cc aclogger.cc
     fileitem.cc filereader.cc header.cc meta.cc ptitem.cc evabase.cc httpdate.cc
     csmapping.cc acerrno.cc aconnect.cc ac3rdparty.cc remotedb.cc tpool.cc ahttpurl.cc aobservable.cc
     atransport.cc aevutil.cc rex.cc
-    acstartstop.cc aclocal.cc acres.cc
+    aclocal.cc acres.cc
     aclock.cc
     cacheman.cc expiration.cc maintenance.cc mirror.cc pkgimport.cc showinfo.cc bgtask.cc
 

@@ -12,7 +12,6 @@
 #include "acregistry.h"
 #include "sockio.h"
 #include "bgtask.h"
-#include "acstartstop.h"
 #include "filereader.h"
 #include "csmapping.h"
 #include "aevutil.h"
