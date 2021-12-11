@@ -555,7 +555,7 @@ public:
 			if (callerSendPos != source->m_nCursor)
 				return 0;
 		}
-		auto ret = eb_move_atmost(eb, besender(target), maxTake);
+		auto ret = eb_move_range(eb, besender(target), maxTake);
 		INCPOS(callerSendPos, ret);
 		INCPOS(source->m_nCursor, ret);
 		return ret;

@@ -34,6 +34,9 @@ public:
 	//bool CompileUncExpressions(NOCACHE_PATTYPE type, cmstring& pat);
 
 private:
+	rex(const rex&) =delete; // shall not be simply copied
+	rex& operator= (const rex&) =delete; // shall not be simply copied
+
 	struct tImpl;
 	tImpl* m_pImpl;
 };

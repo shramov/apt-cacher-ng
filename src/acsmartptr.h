@@ -44,11 +44,16 @@ public:
 	explicit lint_ptr()
 	{
 	}
-        explicit lint_ptr(T *rawPtr, bool initialyTakeRef = true) :
-			m_ptr(rawPtr)
+	explicit lint_ptr(T *rawPtr, bool initialyTakeRef = true) :
+		m_ptr(rawPtr)
 	{
 		if(rawPtr && initialyTakeRef)
 			rawPtr->__inc_ref();
+	}
+	T* spawn()
+	{
+		reset(new T);
+		return m_ptr;
 	}
 	lint_ptr(const ::acng::lint_ptr<T> & orig) :
 			m_ptr(orig.m_ptr)

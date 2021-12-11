@@ -1249,6 +1249,7 @@ void tDlStream::OnRead(bufferevent *pBE)
 		case eJobResult::JOB_BROKEN:
 			m_dirty = true;
 			delete j;
+			m_requested.pop_front();
 			return handleDisconnect(se, eSourceState::NO_ERROR);
 		case eJobResult::HINT_RECONNECT: // uplink fscked, not sure why, should have the reason inside already
 			return handleDisconnect(se, eSourceState::FROM_RECOVERABLE_ERROR);
@@ -1370,8 +1371,6 @@ void tDlStream::wireTransport(lint_ptr<atransport>&& result)
 
 void tDlStream::handleDisconnect(string_view why, eSourceState cause)
 {
-	ASSERT(m_requested.empty() + m_waiting.empty());
-
 	m_blockingItemSubscription.reset();
 
 	if (m_requested.empty() && m_waiting.empty())

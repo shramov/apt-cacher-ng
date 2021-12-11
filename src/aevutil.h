@@ -86,21 +86,25 @@ struct beconsum
 	const string_view linear() { return linear(size()); }
 };
 
-inline ssize_t eb_move_atmost(evbuffer* src, evbuffer *tgt, size_t maxTake)
+inline ssize_t eb_move_range(evbuffer* src, evbuffer *tgt, size_t len)
 {
 	auto have = evbuffer_get_length(src);
-	if (maxTake > have)
-		maxTake = have;
+	if (have == 0)
+		return 0;
+
+	if (len > have)
+		len = have;
+
 	do {
-		auto limited = maxTake > INT_MAX;
-		int limit = limited ? INT_MAX : maxTake;
+		auto limited = len > INT_MAX;
+		int limit = limited ? INT_MAX : len;
 		auto n = evbuffer_remove_buffer(src, tgt, limit);
 		// if error or not augmented -> pass through
 		if (!limited || n <= limit)
 			return n;
-		maxTake -= limit;
+		len -= limit;
 	}
-	while (maxTake > 0);
+	while (len > 0);
 	return -1;
 }
 /**
@@ -111,9 +115,9 @@ inline ssize_t eb_move_atmost(evbuffer* src, evbuffer *tgt, size_t maxTake)
  * @param updatePos
  * @return
  */
-inline ssize_t eb_move_atmost(evbuffer* src, evbuffer *tgt, size_t maxTake, off_t& updatePos)
+inline ssize_t eb_move_range(evbuffer* src, evbuffer *tgt, size_t maxTake, off_t& updatePos)
 {
-	auto n = eb_move_atmost(src, tgt, maxTake);
+	auto n = eb_move_range(src, tgt, maxTake);
 	if (n > 0)
 		updatePos += n;
 	return n;

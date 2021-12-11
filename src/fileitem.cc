@@ -37,7 +37,7 @@ void fileitem::NotifyObservers()
 aobservable::subscription fileitem::Subscribe(const tAction &pokeAction)
 {
 	if (!m_notifier)
-		m_notifier = make_lptr<aobservable>();
+		m_notifier.spawn();
 	return m_notifier->subscribe(pokeAction);
 }
 
@@ -260,7 +260,10 @@ ssize_t TFileitemWithStorage::DlConsumeData(evbuffer* src, size_t maxTake)
 
 	auto ret = eb_dump_chunks(src, m_filefd, maxTake);
 	if (ret > 0)
+	{
+		m_nSizeChecked += ret;
 		m_nIncommingCount += ret;
+	}
 	return ret;
 }
 
@@ -292,21 +295,82 @@ public:
 		if (!m_buf.valid())
 			return -1;
 
-		// whole file is mapped -> drain whatever is needed
+		// requested range starts after current offset? drain whatever is needed
+		if (callerSendPos < m_nCursor)
+			return -1; // user's cursor jumped back?
 		if (callerSendPos > m_nCursor)
 		{
 			if (evbuffer_drain(*m_buf, (callerSendPos - m_nCursor)))
 				return -1;
+			m_nCursor = callerSendPos;
 		}
-		return eb_move_atmost(*m_buf, besender(target), maxTake, callerSendPos);
+
+		auto ret = eb_move_range(*m_buf, besender(target), maxTake, callerSendPos);
+		if (ret > 0)
+			m_nCursor += ret;
+		return ret;
+	}
+};
+
+/**
+ * @brief The tSharedFd struct helps to track the last use of the file in the file segments
+ * Since libevent destroys them voluntarily, we need to know when the last was gone.
+ */
+struct tSharedFd : public tLintRefcounted
+{
+	int fd = -1;
+	tSharedFd(int n) : fd(n) {}
+	~tSharedFd() { checkforceclose(fd); }
+	static void cbRelease(struct evbuffer_file_segment const *, int flags, void *arg)
+	{
+		ASSERT_HAVE_MAIN_THREAD;
+		((tSharedFd*)arg)->__dec_ref();
 	}
 };
 
 class ACNG_API TSegmentSender : public fileitem::ICacheDataSender
 {
+	lint_ptr<tSharedFd> m_fd;
+	using unique_segment = auto_raii<evbuffer_file_segment*, evbuffer_file_segment_free, nullptr>;
+	ev_off_t m_segPos;
+	ev_off_t m_segLen;
+	unique_segment m_seg;
+
 public:
-	TSegmentSender(int fd, off_t offset) {ASSERT(!"notimplemented");};
-	ssize_t SendData(bufferevent *target, off_t& callerSendPos, size_t maxTake) override {ASSERT(!"notimplemented");};
+	TSegmentSender(int fd) : m_fd(make_lptr<tSharedFd>(fd))
+	{
+	};
+
+	ssize_t SendData(bufferevent *target, off_t& callerSendPos, size_t len) override
+	{
+		// how much can we actually squeeze from the current segment?
+		if (m_seg.valid() && callerSendPos >= m_segPos && callerSendPos < m_segPos)
+		{
+			auto sendLen = len;
+			auto innerOffset = callerSendPos - m_segPos;
+			if (callerSendPos + off_t(len) > m_segPos + m_segLen)
+				sendLen = m_segPos + m_segLen - callerSendPos;
+			if (evbuffer_add_file_segment(besender(target), *m_seg, innerOffset, sendLen))
+				return -1;
+			len -= sendLen;
+			callerSendPos += sendLen;
+			// are we good here?
+			if (len == 0)
+				return len;
+		}
+		m_segPos = callerSendPos;
+		m_segLen = len;
+		m_seg.reset(evbuffer_file_segment_new(m_fd->fd, m_segPos, m_segLen, EVBUF_FS_DISABLE_LOCKING));
+		if (!m_seg.valid())
+			return -1;
+		// otherwise release the file when it's finished
+		m_fd->__inc_ref();
+		evbuffer_file_segment_add_cleanup_cb(*m_seg, tSharedFd::cbRelease, m_fd.get());
+		if (evbuffer_add_file_segment(besender(target), *m_seg, 0, len))
+			return -1;
+		callerSendPos += len;
+		return len;
+	};
 };
 
 std::unique_ptr<fileitem::ICacheDataSender> TFileitemWithStorage::GetCacheSender()
@@ -321,24 +385,11 @@ std::unique_ptr<fileitem::ICacheDataSender> TFileitemWithStorage::GetCacheSender
 	posix_fadvise(fd, 0, m_nSizeChecked, POSIX_FADV_SEQUENTIAL);
 #endif
 
-	if (m_nSizeChecked > 0 || m_status == FIST_COMPLETE)
+	if (m_nSizeChecked > 0 && m_status == FIST_COMPLETE)
 		return make_unique<TSimpleSender>(fd, m_nSizeChecked);
 
-	return make_unique<TSegmentSender>(fd, 0);
+	return make_unique<TSegmentSender>(fd);
 }
-
-/*
-void fileitem::ResetCacheState()
-{
-	setLockGuard;
-	m_nSizeSeen = 0;
-	m_nSizeChecked = 0;
-	m_status = FIST_FRESH;
-	m_bAllowStoreData = true;
-	m_head.clear();
-}
-*/
-
 
 bool TFileitemWithStorage::SafeOpenOutFile()
 {

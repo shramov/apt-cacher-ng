@@ -66,7 +66,7 @@ ssize_t tPassThroughFitem::DlConsumeData(evbuffer *chunk, size_t maxTake)
             m_nSizeChecked = 0;
         }
 
-		auto ret = eb_move_atmost(chunk, m_q, min(size_t(INT_MAX), maxTake));
+		auto ret = eb_move_range(chunk, m_q, min(size_t(INT_MAX), maxTake));
 		INCPOS(m_nIncommingCount, ret);
 		INCPOS(m_nSizeChecked, ret);
 		return ret;
@@ -110,7 +110,7 @@ public:
 	ssize_t SendData(bufferevent* target, off_t& callerSendPos, size_t maxTake) override
 	{
 		parent->NotifyObservers();
-		return eb_move_atmost(parent->m_q, besender(target), maxTake, callerSendPos);
+		return eb_move_range(parent->m_q, besender(target), maxTake, callerSendPos);
 	}
 };
 

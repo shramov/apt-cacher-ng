@@ -33,6 +33,7 @@ using namespace std;
 
 #define PT_BUF_MAX 64000
 
+
 // hunting Bug#955793: [Heisenbug] evbuffer_write_atmost returns -1 w/o updating errno
 //#define DBG_DISCONNECT //std::cerr << "DISCO? " << __LINE__ << std::endl;
 
@@ -40,12 +41,6 @@ namespace acng
 {
 
 uint_fast32_t g_genJobId = 0;
-namespace cfg
-{
-namespace rex {
-enum eMatchType : int8_t;
-}
-}
 string_view sHttp11("HTTP/1.1");
 #warning restoreme
 /*
@@ -61,50 +56,6 @@ tTraceData& tTraceData::getInstance()
 	return traceData;
 }
 */
-#if 0
-// base class for a fileitem replacement with custom storage for local data
-class tGeneratedFitemBase : public fileitem
-{
-public:
-	unique_fd GetFileFd() override { return unique_fd(); }; // something, don't care for now
-
-	tSS m_data;
-
-	tGeneratedFitemBase(const string &sFitemId, tRemoteStatus status, cmstring& origUrl = sEmptyString)
-		: fileitem(sFitemId), m_data(256)
-	{
-		m_status=FIST_DLRECEIVING;
-		m_responseOrigin = origUrl;
-		m_responseStatus = status;
-		m_contentType = "text/html";
-	}
-	ssize_t SendData(int out_fd, int, off_t &nSendPos, size_t nMax2SendNow)
-	override
-	{
-		if (AC_UNLIKELY(m_status > FIST_COMPLETE || out_fd < 0))
-		{
-			errno = EBADFD;
-			return -1;
-		}
-		if (AC_UNLIKELY(nMax2SendNow > m_data.size()))
-		{
-			errno = EOVERFLOW;
-			return -1;
-		}
-		auto ret = m_data.dumpall(out_fd, nMax2SendNow);
-		if (AC_LIKELY(ret > 0))
-			nSendPos += ret;
-		return ret;
-	}
-	inline void seal()
-	{
-		// finish the building and seal the item
-		m_nSizeChecked = m_data.size();
-		m_nContentLength = m_nSizeChecked;
-		m_status = FIST_COMPLETE;
-	}
-};
-#endif
 
 static const string miscError(" [HTTP error, code: ");
 
@@ -247,7 +198,7 @@ void job::Prepare(const header &h, bufferevent* be, cmstring& callerHostname, ac
 
 	constexpr string_view fname = "/_actmp";
 
-	auto matcher = res.GetMatchers();
+	auto& matcher = res.GetMatchers();
 
 	// "clever" file system browsing attempt?
 	if(matcher.Match(sReqPath, rex::NASTY_PATH)
@@ -689,6 +640,7 @@ job::eJobResult job::Resume(bool canSend, bufferevent* be)
 				return return_discon();
 			m_nAllDataCount += n;
 			if (n < limit)
+				// woot, a temporary glitch? let's try a few times
 				return subscribeAndExit();
 			//ldbg("~senddata: " << n << " new m_nSendPos: " << m_nSendPos);
 			if ((fi->GetStatus() == fileitem::FIST_COMPLETE && m_nSendPos == fi->GetCheckedSize())

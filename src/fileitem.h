@@ -97,7 +97,7 @@ public:
 	};
 	/**
 	 * @brief GetCacheSender prepares a cache helper object which tracks the progress of data creation
-	 * @param startPos
+	 * @param mtReady True if the resulting sender agent needs to deliver to another thread (NOTIMPLEMENTED, expected to pass all data through main thread)
 	 * @return Invalid pointer if the helper is not usable yet
 	 */
 	virtual std::unique_ptr<ICacheDataSender> GetCacheSender() =0;
