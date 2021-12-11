@@ -371,6 +371,7 @@ struct tDlJob
 
 	// state attribute
 	off_t m_nRest = 0;
+	off_t m_nWatermark = 0;
 
 	// flag to use ranges and also define start if >= 0
 	off_t m_nUsedRangeStartPos = -1;
@@ -754,16 +755,19 @@ struct tDlJob
 	 *
 	 * Process new incoming data and write it down to disk or other receivers.
 	 */
-	eJobResult ProcessIncomming(evbuffer* pBuf, tDlStream& parent)
+	eJobResult ProcessIncomming(bufferevent* peBuf, tDlStream& parent)
 	{
 		LOGSTARTFUNC;
 		ASSERT_HAVE_MAIN_THREAD;
-		if (AC_UNLIKELY(!m_pStorageRef || !pBuf))
+		if (AC_UNLIKELY(!m_pStorageRef || !peBuf))
 		{
 			m_sError = "Bad cache item";
 			return eJobResult::JOB_BROKEN;
 		}
-		beconsum inBuf(pBuf);
+
+		// various views depending on the purpose
+		beconsum inBuf(peBuf);
+		auto pBuf(bereceiver(peBuf));
 
 		for (;;) // returned by explicit error (or get-more) return
 		{
@@ -928,7 +932,7 @@ TRAILER_JUNK_SKIPPED:
 
 				// ok, can pass the data to the file handler
 				auto storeResult = CheckAndSaveHeader(move(h),
-													  pBuf, hDataLen, contentLength);
+													  peBuf, hDataLen, contentLength);
 				inBuf.drop(size_t(hDataLen));
 
 				if (m_pStorageRef && m_pStorageRef->m_spattr.bHeadOnly)
@@ -966,6 +970,11 @@ TRAILER_JUNK_SKIPPED:
 						return eJobResult::JOB_BROKEN;
 					}
 					m_nRest -= n;
+
+					// unset watermark to get the remainder in real time
+					if (m_nRest <= m_nWatermark)
+						bufferevent_setwatermark(peBuf, EV_READ, 0, 0);
+
 					if (n != nToStore)
 					{
 						parent.Subscribe2BlockingItem(m_pStorageRef);
@@ -1038,7 +1047,7 @@ TRAILER_JUNK_SKIPPED:
 		return eJobResult::JOB_BROKEN;
 	}
 
-	EResponseEval CheckAndSaveHeader(header&& h, evbuffer* pBuf, size_t headerLen, off_t contLen)
+	EResponseEval CheckAndSaveHeader(header&& h, bufferevent* peBuf, size_t headerLen, off_t contLen)
 	{
 		LOGSTARTFUNC;
 
@@ -1191,7 +1200,7 @@ TRAILER_JUNK_SKIPPED:
 
 		mark_assigned();
 
-		if (!m_pStorageRef->DlStarted(pBuf, headerLen, tHttpDate(h.h[header::LAST_MODIFIED]),
+		if (!m_pStorageRef->DlStarted(bereceiver(peBuf), headerLen, tHttpDate(h.h[header::LAST_MODIFIED]),
                                    sLocation.empty() ? RemoteUri(false) : sLocation,
                                    remoteStatus,
                                    m_nUsedRangeStartPos, contLen))
@@ -1204,6 +1213,16 @@ TRAILER_JUNK_SKIPPED:
 			// XXX: better ensure that it's processed from outside loop and use custom return code?
 			m_pStorageRef->DlFinish(true);
 		}
+
+		for (auto n: { 120000, 90000, 56000, 40000, 30000})
+		{
+			if (m_nRest > n)
+			{				m_nWatermark = n;
+				bufferevent_setwatermark(peBuf, EV_READ, m_nWatermark, 2*m_nWatermark);
+				break;
+			}
+		}
+
 		return EResponseEval::GOOD;
 	}
 
@@ -1240,7 +1259,11 @@ void tDlStream::OnRead(bufferevent *pBE)
 	while (!m_requested.empty())
 	{
 		auto j = m_requested.front();
-		auto res = j->ProcessIncomming(bereceiver(pBE), *this);
+		auto res = j->ProcessIncomming(pBE, *this);
+
+		// reset optimization in case of any trouble
+		if (res != eJobResult::HINT_MORE)
+			bufferevent_setwatermark(pBE, EV_READ, 0, 0);
 
 		switch (res)
 		{
