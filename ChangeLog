@@ -1,14 +1,28 @@
 apt-cacher-ng (4.0) 4-ELIZA; urgency=low
 
   * A new(er) generation of Apt-Cacher NG is emerging!
-  * Completely revamped item serving code, now mostly single-threaded
-    asynchronous IO style
-  * Revised response processing code, unifying header creation
+
+  [ NEW FEATURES AND IMPROVEMENTS ]
+
+FIXME: WIP
+   * HTTPS connections behind a HTTPS proxy possible
+
+  [ IMPROVEMENTS AND BUGFIXES ]
+
+  * Completely revamped file item serving code, now mostly single-threaded
+    and in asynchronous IO style:
+    + allows to serve a huge amount of client connections with low CPU load
+
+  * Revised response processing code:
+    + unifying header creation
     + combination of request ranges and chunked transfers possible
-    + fixing potentially bad handling of chunked transfer trailers
     + more special responses possible without closing connection
-    + various fixes in local file serving code
+
+  [ BUGFIXES]
     + more correct replies in CONNECT requests
+    + fixes potential ignorance of "uncached" definitions' request patterns
+    + various fixes in local file serving code
+    + fixing potentially bad handling of chunked transfer trailers
 
  -- 
 
