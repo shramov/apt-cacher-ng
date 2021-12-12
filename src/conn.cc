@@ -44,7 +44,7 @@ class connImpl : public IConnBase
 	unique_bufferevent_flushclosing m_be;
 	header m_h;
 	size_t m_hSize = 0;
-	aobservable::subscription m_keepalive;
+	//aobservable::subscription m_keepalive;
 
 	enum ETeardownMode
 	{
@@ -78,11 +78,12 @@ public:
 		m_itemRegistry(move(ireg))
 	{
 		LOGSTARTFUNCx(m_sClientHost);
-		m_keepalive = res.GetKeepAliveBeat().AddListener([this] () mutable
+		/*m_keepalive = res.GetKeepAliveBeat().AddListener([this] () mutable
 		{
 			//DBGQLOG("ka: "sv << (long) this);
 			KeepAlive();
 		});
+		*/
 	};
 	virtual ~connImpl()
 	{

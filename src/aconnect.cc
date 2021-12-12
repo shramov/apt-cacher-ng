@@ -133,7 +133,7 @@ void tConnRqData::step(int fd, short what)
 	// okay, socket not usable, create next candicate connection?
 	time_t now = GetTime();
 	if (now > exTime)
-		return retError("Connection timeout", false);
+		return retError("Connection timeout", true);
 
 	auto isFirst = fd == -1;
 
@@ -196,11 +196,11 @@ void tConnRqData::step(int fd, short what)
 	LOG("pending connections: " << m_pending);
 }
 
-void tConnRqData::retError(mstring msg, bool isDnsError)
+void tConnRqData::retError(mstring msg, bool isFatalError)
 {
 	LOGSTARTFUNCx(msg);
 	if (m_cbReport)
-		m_cbReport({unique_fd(), move(msg), isDnsError});
+		m_cbReport({unique_fd(), move(msg), isFatalError});
 	return abort();
 }
 

@@ -181,7 +181,7 @@ struct tConnContext : public tLintRefcounted
 		if (!res.sError.empty())
 		{
 #warning if AUTO_TIMEOUT_FALLBACK_STICKY then setup condition and restart
-			return m_reporter({lint_ptr<atransport>(), res.sError, true, res.isDnsError});
+			return m_reporter({lint_ptr<atransport>(), res.sError, true, res.isFatalError});
 		}
 
 		// switch to SSL, either for the proxy or for the target?
@@ -192,7 +192,7 @@ struct tConnContext : public tLintRefcounted
 
 		m_result->m_buf.reset(bufferevent_socket_new(evabase::base, res.fd.get(), BEV_OPT_CLOSE_ON_FREE));
 		if (!m_result->m_buf.get())
-			return m_reporter({lint_ptr<atransport>(), "Internal Error w/o message", true, res.isDnsError});
+			return m_reporter({lint_ptr<atransport>(), "Internal Error w/o message", true, res.isFatalError});
 
 		// freed by BEV_OPT_CLOSE_ON_FREE, not by us
 		res.fd.release();
@@ -205,7 +205,7 @@ struct tConnContext : public tLintRefcounted
 			// return DoConnectNegotiation();
 		}
 
-		return m_reporter({static_lptr_cast<atransport>(m_result), se, true, res.isDnsError});
+		return m_reporter({static_lptr_cast<atransport>(m_result), se, true, res.isFatalError});
 	}
 
 	void DoTlsSwitch(unique_fd ufd)
