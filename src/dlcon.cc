@@ -1245,7 +1245,7 @@ void tDlStream::Connect()
 		}
 		else
 		{
-			auto severity = result.isFatal ? eSourceState::FROM_FATAL_ERROR : eSourceState::FROM_RECOVERABLE_ERROR;
+			auto severity = TRANS_CODE_FATAL(result.flags) ? eSourceState::FROM_FATAL_ERROR : eSourceState::FROM_RECOVERABLE_ERROR;
 			handleDisconnect(move(result.err), severity);
 		}
 	};

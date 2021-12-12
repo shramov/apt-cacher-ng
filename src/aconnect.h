@@ -16,7 +16,7 @@ struct ACNG_API aconnector
 	{
 		unique_fd fd;
 		std::string sError;
-		bool isFatalError;
+		uint_fast16_t flags;
 	};
 
 	// file descriptor, error message, forcedSsl flag

@@ -8,6 +8,7 @@
 #include "aevutil.h"
 #include "acsmartptr.h"
 #include "caddrinfo.h"
+#include "atransport.h"
 
 #include <future>
 #include <list>
@@ -47,7 +48,7 @@ struct tConnRqData : public tLintRefcounted
 	{
 		((tConnRqData*)arg)->step(fd, what);
 	}
-	void retError(mstring, bool fromDns);
+	void retError(mstring, uint_fast16_t flags);
 	void retSuccess(int fd);
 	void disable(int fd, int ec);
 	void abort()
@@ -98,14 +99,14 @@ void tConnRqData::processDnsResult(std::shared_ptr<CAddrInfo> res)
 	if (!m_cbReport)
 		return; // this was cancelled by the caller already!
 	if (!res)
-		return retError(dnsError, true);
+		return retError(dnsError, TRANS_DNS_NOTFOUND);
 	auto errDns = res->getError();
 	if (!errDns.empty())
-		return retError(errDns, true);
+		return retError(errDns, TRANS_DNS_NOTFOUND);
 	dbgline;
 	m_targets = res->getTargets();
 	if (m_targets.empty())
-		return retError(dnsError, true);
+		return retError(dnsError, TRANS_DNS_NOTFOUND);
 	step(-1, 0);
 }
 
@@ -133,7 +134,7 @@ void tConnRqData::step(int fd, short what)
 	// okay, socket not usable, create next candicate connection?
 	time_t now = GetTime();
 	if (now > exTime)
-		return retError("Connection timeout", true);
+		return retError("Connection timeout", TRANS_TIMEOUT);
 
 	auto isFirst = fd == -1;
 
@@ -190,17 +191,17 @@ void tConnRqData::step(int fd, short what)
 		}
 		setIfNotEmpty(m_error2report, "Out of memory"sv);
 	}
-	// not success if got here, any active connection pending?
+	// not success if got here, any active connection pending? consider this a timeout?
 	if (m_pending == 0)
-		return retError(m_error2report.empty() ? tErrnoFmter(EAFNOSUPPORT) : m_error2report, false);
+		return retError(m_error2report.empty() ? tErrnoFmter(EAFNOSUPPORT) : m_error2report, TRANS_TIMEOUT);
 	LOG("pending connections: " << m_pending);
 }
 
-void tConnRqData::retError(mstring msg, bool isFatalError)
+void tConnRqData::retError(mstring msg, uint_fast16_t flags)
 {
 	LOGSTARTFUNCx(msg);
 	if (m_cbReport)
-		m_cbReport({unique_fd(), move(msg), isFatalError});
+		m_cbReport({unique_fd(), move(msg), flags});
 	return abort();
 }
 
@@ -211,13 +212,13 @@ void tConnRqData::retSuccess(int fd)
 	if (it == m_eventFds.end())
 	{
 		if (m_cbReport)
-			m_cbReport({unique_fd(), "Internal error", false});
+			m_cbReport({unique_fd(), "Internal error", TRANS_INTERNAL_ERROR});
 	}
 	else
 	{
 		it->ev.reset();
 		if (m_cbReport)
-			m_cbReport({move(it->fd), se, false});
+			m_cbReport({move(it->fd), se, 0});
 	}
 	return abort();
 }

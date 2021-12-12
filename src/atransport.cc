@@ -95,7 +95,7 @@ public:
 		m_cleanIt = g_con_cache.emplace(makeHostPortKey(GetHost(), GetPort()), lint_ptr<atransport>(this));
 	}
 	// restore operation after hibernation
-	void Reused()
+	void GotReused()
 	{
 		bufferevent_disable(*m_buf, EV_READ | EV_WRITE);
 		bufferevent_setcb(*m_buf, nullptr, nullptr, nullptr, this);
@@ -181,7 +181,7 @@ struct tConnContext : public tLintRefcounted
 		if (!res.sError.empty())
 		{
 #warning if AUTO_TIMEOUT_FALLBACK_STICKY then setup condition and restart
-			return m_reporter({lint_ptr<atransport>(), res.sError, true, res.isFatalError});
+			return m_reporter({res.flags, res.sError});
 		}
 
 		// switch to SSL, either for the proxy or for the target?
@@ -192,7 +192,7 @@ struct tConnContext : public tLintRefcounted
 
 		m_result->m_buf.reset(bufferevent_socket_new(evabase::base, res.fd.get(), BEV_OPT_CLOSE_ON_FREE));
 		if (!m_result->m_buf.get())
-			return m_reporter({lint_ptr<atransport>(), "Internal Error w/o message", true, res.isFatalError});
+			return m_reporter({TRANS_INTERNAL_ERROR, "Internal Error w/o message"sv});
 
 		// freed by BEV_OPT_CLOSE_ON_FREE, not by us
 		res.fd.release();
@@ -205,7 +205,7 @@ struct tConnContext : public tLintRefcounted
 			// return DoConnectNegotiation();
 		}
 
-		return m_reporter({static_lptr_cast<atransport>(m_result), se, true, res.isFatalError});
+		return m_reporter({0, static_lptr_cast<atransport>(m_result)});
 	}
 
 	void DoTlsSwitch(unique_fd ufd)
@@ -222,10 +222,10 @@ struct tConnContext : public tLintRefcounted
 		};
 		auto ctx = m_res.GetSslConfig().GetContext();
 		if (!ctx)
-			return m_reporter({lint_ptr<atransport>(), pfxSslError + m_res.GetSslConfig().GetContextError(), true, true});
+			return m_reporter({ TRANS_INTERNAL_ERROR, pfxSslError + m_res.GetSslConfig().GetContextError()});
 		unique_ssl ssl(SSL_new(ctx));
 		if (! *ssl)
-			return m_reporter({lint_ptr<atransport>(), withLastSslError(), true, true});
+			return m_reporter({ TRANS_INTERNAL_ERROR, withLastSslError() });
 
 		// for SNI
 		SSL_set_tlsext_host_name(*ssl, m_currentTarget->sHost.c_str());
@@ -246,7 +246,7 @@ struct tConnContext : public tLintRefcounted
 			BUFFEREVENT_SSL_CONNECTING,
 			BEV_OPT_CLOSE_ON_FREE));
 
-		if (m_result->m_buf.valid())
+		if (AC_LIKELY(m_result->m_buf.valid()))
 		{
 			// those will eventually freed by BEV_OPT_CLOSE_ON_FREE
 			m_result->m_bIsSslStream = true;
@@ -254,10 +254,10 @@ struct tConnContext : public tLintRefcounted
 			ufd.release();
 		}
 		else
-			return m_reporter({lint_ptr<atransport>(), withLastSslError(), true, true});
+			return m_reporter({TRANS_INTERNAL_ERROR, withLastSslError()});
 
 		if (m_disableAllValidation && m_disableNameValidation)
-			return m_reporter({static_lptr_cast<atransport>(m_result), se, true, false});
+			return m_reporter({0, static_lptr_cast<atransport>(m_result)});
 
 		// okay, let's verify the SSL state in the status callback
 		bufferevent_setcb(m_result->GetBufferEvent(), nullptr, nullptr, cbStatusSslCheck, this);
@@ -270,7 +270,7 @@ struct tConnContext : public tLintRefcounted
 
 		if (what & (BEV_EVENT_EOF | BEV_EVENT_ERROR | BEV_EVENT_TIMEOUT))
 		{
-			return me->m_reporter({lint_ptr<atransport>(), pfxSslError + "Handshake aborted", true, false});
+			return me->m_reporter({TRANS_FAULTY_SSL_PEER, pfxSslError + "Handshake aborted"});
 		}
 
 		if (what & BEV_EVENT_CONNECTED)
@@ -280,7 +280,7 @@ struct tConnContext : public tLintRefcounted
 			{
 				auto err = X509_verify_cert_error_string(hret);
 				if (!err) err = "Handshake failed";
-				return me->m_reporter({lint_ptr<atransport>(), pfxSslError + err, true, false});
+				return me->m_reporter({TRANS_FAULTY_SSL_PEER, pfxSslError + err});
 			}
 			auto remote_cert = SSL_get_peer_certificate(bufferevent_openssl_get_ssl(bev));
 			if(remote_cert)
@@ -290,11 +290,11 @@ struct tConnContext : public tLintRefcounted
 				X509_free(remote_cert);
 			}
 			else // The handshake was successful although the server did not provide a certificate
-				return me->m_reporter({lint_ptr<atransport>(), pfxSslError + "Incompatible remote certificate", true, false});
+				return me->m_reporter({TRANS_FAULTY_SSL_PEER, pfxSslError + "Incompatible remote certificate"});
 
 			bufferevent_disable(bev, EV_READ | EV_WRITE);
 			bufferevent_setcb(bev, nullptr, nullptr, nullptr, nullptr);
-			return me->m_reporter({static_lptr_cast<atransport>(me->m_result), se, true, false});
+			return me->m_reporter({ 0, static_lptr_cast<atransport>(me->m_result)});
 		}
 		ASSERT(!"unknown event?");
 	}
@@ -312,12 +312,16 @@ TFinalAction atransport::Create(tHttpUrl url, const tCallBack &cback, acres& res
 		auto anyIt = g_con_cache.find(cacheKey);
 		if (anyIt != g_con_cache.end())
 		{
-			auto ret = anyIt->second;
+			auto ret = move(anyIt->second);
+			g_con_cache.erase(anyIt);
 			if (AC_LIKELY(ret->m_buf.valid()))
 			{
-				g_con_cache.erase(anyIt);
-				static_lptr_cast<atransportEx>(ret)->Reused();
-				evabase::Post([ret, cback](){ if (ret->m_buf.valid()) cback({ret, se, false, false});});
+				static_lptr_cast<atransportEx>(ret)->GotReused();
+				evabase::Post([ret, cback]()
+				{
+					if (ret->m_buf.valid())
+						cback({TRANS_WAS_USED, move(ret)});
+				});
 				return TFinalAction([ret](){ ret->m_buf.reset(); });
 			}
 		}
@@ -343,6 +347,24 @@ void atransport::Return(lint_ptr<atransport> &stream)
 	static_lptr_cast<atransportEx>(stream)->Moothball();
 #endif
 	stream.reset();
+}
+
+inline atransport::tResult::tResult(uint_fast16_t flags, string_view errMsg)
+{
+	this->flags = flags;
+	this->err = to_string(errMsg);
+}
+
+atransport::tResult::tResult(uint_fast16_t flags, mstring &&errMsg)
+{
+	this->flags = flags;
+	this->err = move(errMsg);
+}
+
+inline atransport::tResult::tResult(uint_fast16_t flags, lint_ptr<atransport> result)
+{
+	this->strm = move(result);
+	this->flags = flags;
 }
 
 }
