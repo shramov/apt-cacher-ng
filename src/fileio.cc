@@ -8,6 +8,7 @@
 #include "acbuf.h"
 #include "acfg.h"
 #include "meta.h"
+#include "debug.h"
 #include "aevutil.h"
 
 #include <fcntl.h>
@@ -170,34 +171,43 @@ void set_block(int fd) {
 ssize_t eb_dump_chunks(evbuffer *inbuf, int out_fd, size_t nMax2SendNow)
 {
 	evbuffer_iovec ivs[64];
-	size_t consumed = 0;
+	off_t consumed = 0;
 	nMax2SendNow = std::min(nMax2SendNow, evbuffer_get_length(inbuf));
 	while (nMax2SendNow > 0)
 	{
 		auto nbufs = evbuffer_peek(inbuf, nMax2SendNow, nullptr, ivs, _countof(ivs));
-		long got = 0;
-		// find the actual transfer length OR make the last vector fit
+		ASSERT(nbufs > 0);
+    if (nbufs <= 0) return -1;
+
+		off_t bytesDeliverable = 0;
+		// find the actual transfer length which we can actually serve with ivs array at once
+		// OR make the last vector fit when we are at the end
 		for (int i = 0; i < nbufs; ++i)
 		{
-			got += ivs[i].iov_len;
-			if (got > (long) nMax2SendNow)
+			bytesDeliverable += ivs[i].iov_len;
+			if (bytesDeliverable > (off_t) nMax2SendNow)
 			{
-				ivs[i].iov_len -= (got - nMax2SendNow);
-				got = nMax2SendNow;
+				auto overshoot = bytesDeliverable - nMax2SendNow;
+				ivs[i].iov_len -= overshoot;
+				bytesDeliverable = nMax2SendNow;
 				nbufs = i + 1;
 				break;
 			}
 		}
-		auto r = writev(out_fd, ivs, nbufs);
-		if (r > 0)
-		{
-			evbuffer_drain(inbuf, got);
-			consumed += r;
-			nMax2SendNow -= r;
-		}
-		if (r < 0)
-			return r;
+		auto nWritten = writev(out_fd, ivs, nbufs);
+		if (nWritten < 0)
+			return nWritten;
+
+		auto nErrno = errno;
+
+		evbuffer_drain(inbuf, bytesDeliverable);
+		consumed += nWritten;
+		nMax2SendNow -= nWritten;
+
+		if (nErrno != EAGAIN && nErrno != EINTR && nErrno != EWOULDBLOCK) // that is also an error!
+			return consumed;
 	}
+
 	return consumed;
 }
 
