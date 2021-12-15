@@ -62,13 +62,13 @@ mkdir "$tmpdir/logB"
 echo Will use ports: $portA, $portB
 echo "List: $urllist"
 
-dld=$tmpdir/dld
-mkdir -p $dld
+DL_DIR=$tmpdir/DL_DIR
+mkdir -p $DL_DIR
 
 (
 cd $cachedir/foo
 md5sum *.deb > MD5SUMS
-cp MD5SUMS $dld
+cp MD5SUMS $DL_DIR
 )
 
 set -x
@@ -76,14 +76,13 @@ set -x
 ../builddir/apt-cacher-ng port=$portA "cachedir=$cachedir" "logdir=$tmpdir/logA" debug=$dbglevel socketpath= "pidfile=$tmpdir/pidA" foreground=1 allowuserports=0 &
 ../builddir/apt-cacher-ng port=$portB "cachedir=$cachedir/tempcache" "logdir=$tmpdir/logB" debug=$dbglevel socketpath= "pidfile=$tmpdir/pidB" foreground=1 allowuserports=0 "proxy=http://127.0.0.1:$portA" &
 sleep 5
-cd $dld
+cd $DL_DIR
 
 limit=10000
 while true; do
         wget -i $urllist || exit 1
         if ! md5sum -c MD5SUMS ; then echo ERROR ; exit 1; fi
-        rm *.deb
-        rm -rf "$cachedir/tempcache/foo"
+        rm -rf *.deb $cachedir/tempcache/foo/*.deb
         limit=$(( $limit - 1 ))
         if test $limit -lt 1 ; then exit 0; fi
 done
