@@ -349,19 +349,19 @@ void atransport::Return(lint_ptr<atransport> &stream)
 	stream.reset();
 }
 
-inline atransport::tResult::tResult(uint_fast16_t flags, string_view errMsg)
+inline atransport::tResult::tResult(tComError flags, string_view errMsg)
 {
 	this->flags = flags;
 	this->err = to_string(errMsg);
 }
 
-atransport::tResult::tResult(uint_fast16_t flags, mstring &&errMsg)
+atransport::tResult::tResult(tComError flags, mstring &&errMsg)
 {
 	this->flags = flags;
 	this->err = move(errMsg);
 }
 
-inline atransport::tResult::tResult(uint_fast16_t flags, lint_ptr<atransport> result)
+inline atransport::tResult::tResult(tComError flags, lint_ptr<atransport> result)
 {
 	this->strm = move(result);
 	this->flags = flags;

@@ -54,14 +54,6 @@ using tDlStreamPool = multimap<string, tDlStream>;
 #define MOVE_FRONT_THERE_TO_BACK_HERE(there, here) here.splice(here.end(), there, there.begin())
 static const struct timeval timeout_asap{0,0};
 
-enum eSourceState
-{
-	NO_ERROR = -1, // shall identify the first usable source
-	FROM_RECOVERABLE_ERROR = -2, // came from a disconnect, shall retry but only a few times on that source
-	FROM_FATAL_ERROR = -3, // remote source is completely flawed, no more retries there
-//	FROM_LOCAL_ERROR = -4
-};
-
 enum class eJobResult
 {
 	HINT_MORE=0
@@ -84,9 +76,28 @@ struct tRemoteValidator
 		int errCount = 0;
 		mstring reason;
 	};
+	int CurrentRevision() { return changeStamp; }
+	tState* RegisterError(const tHttpUrl& hoPoKey, cmstring& m_sError, bool fatal)
+	{
+		auto& pKnownIssues = m_problemCounters[hoPoKey.GetHostPortProtoKey()];
+		setIfNotEmpty(pKnownIssues.reason, m_sError);
+		pKnownIssues.errCount += 1 + MAX_RETRY * fatal;
+		changeStamp--;
+		return & pKnownIssues;
+	}
+  tState* GetEntry(const tHttpUrl& hoPo)
+  {
+          auto it = m_problemCounters.find(hoPo.GetHostPortProtoKey());
+          return it != m_problemCounters.end()
+                  ? & it->second
+                  : nullptr;
+  }
 
+	private:
 	map<string,tState> m_problemCounters;
-	int changeStamp = 1;
+  // megative numbers are validator revision, positive are errors, 0 is initial state
+	int changeStamp = -1;
+
 };
 
 // custom priority queue which is transparent for special uses and also returns the popped element directly
@@ -194,7 +205,7 @@ private:
 	void tryRequestMore();
 	void wireTransport(lint_ptr<atransport>&& result);
 
-	void handleDisconnect(string_view why, eSourceState cause);
+	void handleDisconnect(string_view why, tComError cause);
 
 	//unsigned m_requestLimit = DEFAULT_REQUEST_LIMIT;
 	// shutdown condition where further request data is dropped and connection is closed ASAP
@@ -392,11 +403,9 @@ struct tDlJob
 	m_DlState = EStreamState::STATE_GETHEADER;
 
 	/**
-	 * @brief m_sourceState remembers the quality of source information
-	 * If negative, requires update and/or validation.
-	 * If positive, declares the state of dlcon's validation context which was used last time.
+	 * @brief m_sourceState remembers the quality of source information or error if positive value
 	 */
-	int m_sourceState = eSourceState::NO_ERROR;
+	int m_sourceState = 0;
 
 	enum class EResponseEval
 	{
@@ -477,14 +486,6 @@ struct tDlJob
 		LOGSTART("tDlJob::~tDlJob");
 		if (m_pStorageRef)
 			m_pStorageRef->DlRefCountDec(503, m_sError.empty() ? "DL aborted"sv : m_sError);
-		/*
-		if (WhoIsResponsible() == eResponsibility::US)
-		{
-			m_pStorageRef->DlSetError({503,
-									   m_sError.empty() ? to_string("Download Expired"sv) : move(m_sError)},
-									  fileitem::EDestroyMode::KEEP);
-		}
-		*/
 	}
 
 	inline string RemoteUri(bool bUrlEncoded)
@@ -562,32 +563,14 @@ struct tDlJob
 	{
 		LOGSTART("CDlConn::SetupJobConfig");
 
-		if (m_sourceState == validator.changeStamp)
+		if (m_sourceState == validator.CurrentRevision())
 			return true;
 
-		tRemoteValidator::tState* pKnownIssues = nullptr;
-		auto hopok = GetPeerHost().GetHostPortProtoKey();
+		auto* pKnownIssues = m_sourceState > 0 
+            ? validator.RegisterError(GetPeerHost(), m_sError, TRANS_STREAM_FATAL(m_sourceState))
+            : validator.GetEntry(GetPeerHost());
 
-		switch (m_sourceState)
-		{
-		case eSourceState::FROM_FATAL_ERROR:
-		case eSourceState::FROM_RECOVERABLE_ERROR:
-			pKnownIssues = & validator.m_problemCounters[hopok];
-			setIfNotEmpty(pKnownIssues->reason, m_sError);
-			pKnownIssues->errCount += 1 + MAX_RETRY * (m_sourceState == eSourceState::FROM_FATAL_ERROR);
-			validator.changeStamp++;
-			break;
-		default: // also if validation mark has changed, does it affect us?
-		case eSourceState::NO_ERROR:
-		{
-			auto it = validator.m_problemCounters.find(hopok);
-			if (it != validator.m_problemCounters.end())
-				pKnownIssues = & it->second;
-			break;
-		}
-		}
-
-		m_sourceState = validator.changeStamp;
+		m_sourceState = validator.CurrentRevision();
 
 		// try alternative backends?
 		if (m_pRepoDesc)
@@ -599,11 +582,7 @@ struct tDlJob
 					setIfNotEmpty(m_sError, pKnownIssues->reason);
 					LOGRET(false);
 				}
-				hopok = GetPeerHost().GetHostPortProtoKey();
-				auto it = validator.m_problemCounters.find(hopok);
-				pKnownIssues = it != validator.m_problemCounters.end()
-						? & it->second
-						: nullptr;
+        pKnownIssues = validator.GetEntry(GetPeerHost());
 			}
 		}
 		else if(pKnownIssues && pKnownIssues->errCount >= MAX_RETRY)
@@ -1067,7 +1046,9 @@ TRAILER_JUNK_SKIPPED:
             m_bAllowStoreData = false;
 			mark_assigned();
 			USRERR(sPathRel << " response or storage error [" << message << "], last errno: " << tErrnoFmter());
-			m_pStorageRef->DlSetError({503, mstring(message)}, destruction);
+#warning Test that timeout is reported as 504
+			m_pStorageRef->DlSetError({ (m_sourceState & eTransErrors::TRANS_TIMEOUT) ? 504 : 503,
+										mstring(message)}, destruction);
             return EResponseEval::BUSY_OR_ERROR;
         };
 
@@ -1214,10 +1195,12 @@ TRAILER_JUNK_SKIPPED:
 			m_pStorageRef->DlFinish(true);
 		}
 
-		for (auto n: { 120000, 90000, 56000, 40000, 30000})
+#warning EVALUATE: in case of malicious attacker, maybe restrict this to 30k in the begining and adjust later?
+		for (auto n: { 120000, 90000, 56000, 40000, 30000 })
 		{
 			if (m_nRest > n)
-			{				m_nWatermark = n;
+			{
+				m_nWatermark = n;
 				bufferevent_setwatermark(peBuf, EV_READ, m_nWatermark, 2*m_nWatermark);
 				break;
 			}
@@ -1245,8 +1228,7 @@ void tDlStream::Connect()
 		}
 		else
 		{
-			auto severity = TRANS_CODE_FATAL(result.flags) ? eSourceState::FROM_FATAL_ERROR : eSourceState::FROM_RECOVERABLE_ERROR;
-			handleDisconnect(move(result.err), severity);
+			handleDisconnect(result.err, result.flags);
 		}
 	};
 	m_connectionToken = atransport::Create(el->GetPeerHost(), move(onConnect), m_parent->GetAppRes());
@@ -1255,7 +1237,7 @@ void tDlStream::Connect()
 void tDlStream::OnRead(bufferevent *pBE)
 {
 	if (m_requested.empty())
-		return handleDisconnect("Unexpected Data", eSourceState::FROM_RECOVERABLE_ERROR);
+		return handleDisconnect("Unexpected Data", TRANS_STREAM_ERR_FATAL);
 	while (!m_requested.empty())
 	{
 		auto j = m_requested.front();
@@ -1273,16 +1255,19 @@ void tDlStream::OnRead(bufferevent *pBE)
 			m_dirty = true;
 			delete j;
 			m_requested.pop_front();
-			return handleDisconnect(se, eSourceState::NO_ERROR);
+			// premature job termination means a broken stream
+#warning actually, should differentiate between stream and local cause (conflict, 304 optimization). For local breakdown, maybe keep the stream running if the remaining part is small enough
+			return handleDisconnect(se, TRANS_STREAM_ERR_FATAL);
 		case eJobResult::HINT_RECONNECT: // uplink fscked, not sure why, should have the reason inside already
-			return handleDisconnect(se, eSourceState::FROM_RECOVERABLE_ERROR);
+			return handleDisconnect(se, TRANS_STREAM_ERR_TRANSIENT);
 		case eJobResult::MIRROR_BROKEN_KILL_LAST_FILE:
+      ASSERT(!"something is wrong");
 			if (m_memberLastItem)
 				m_memberLastItem->DlSetError({500, "Damaged Stream"}, fileitem::EDestroyMode::TRUNCATE);
 			__just_fall_through;
 		case eJobResult::MIRROR_BROKEN:
 			m_dirty = true;
-			return handleDisconnect(se, eSourceState::FROM_FATAL_ERROR);
+			return handleDisconnect(se, TRANS_STREAM_ERR_FATAL);
 		case eJobResult::HINT_DONE:
 		{
 			auto close = j->m_bConnectionClose;
@@ -1291,7 +1276,7 @@ void tDlStream::OnRead(bufferevent *pBE)
 			delete j;
 
 			if (close)
-				return handleDisconnect(se, eSourceState::NO_ERROR);
+				return handleDisconnect(se, 0);
 
 			tryRequestMore();
 			continue;
@@ -1306,7 +1291,7 @@ void tDlStream::OnRead(bufferevent *pBE)
 void tDlStream::OnStatus(bufferevent *, short what)
 {
 	if (what & (BEV_EVENT_EOF | BEV_EVENT_ERROR | BEV_EVENT_TIMEOUT))
-		handleDisconnect("Remote disconnect"sv, eSourceState::FROM_RECOVERABLE_ERROR);
+		handleDisconnect("Remote disconnect"sv, TRANS_STREAM_ERR_TRANSIENT);
 }
 
 bool tDlStream::TakeJob(tDlJob *pJob)
@@ -1392,9 +1377,12 @@ void tDlStream::wireTransport(lint_ptr<atransport>&& result)
 	bufferevent_enable(m_transport->GetBufferEvent(), EV_READ|EV_WRITE);
 }
 
-void tDlStream::handleDisconnect(string_view why, eSourceState cause)
+void tDlStream::handleDisconnect(string_view why, tComError cause)
 {
 	m_blockingItemSubscription.reset();
+
+	if (!cause)
+		cause = TRANS_STREAM_ERR_TRANSIENT;
 
 	if (m_requested.empty() && m_waiting.empty())
 		return m_parent->DeleteStream(m_meRef);
@@ -1410,8 +1398,8 @@ void tDlStream::handleDisconnect(string_view why, eSourceState cause)
 
 		what->m_sourceState = cause;
 		// only report first item as the cause
-		if (cause < eSourceState::NO_ERROR)
-			cause = eSourceState::NO_ERROR;
+		if (cause)
+			cause = 0;
 
 		setIfNotEmpty(what->m_sError, rsn);
 
@@ -1586,3 +1574,5 @@ return idB < idA;
 }
 
 }
+
+// vim: set noet ts=4 sw=4

@@ -2,6 +2,7 @@
 #define ACONNECT_H
 
 #include "fileio.h"
+#include "acomcommon.h"
 
 namespace acng
 {
@@ -16,7 +17,7 @@ struct ACNG_API aconnector
 	{
 		unique_fd fd;
 		std::string sError;
-		uint_fast16_t flags;
+		tComError flags;
 	};
 
 	// file descriptor, error message, forcedSsl flag

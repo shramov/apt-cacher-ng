@@ -173,6 +173,8 @@ ssize_t eb_dump_chunks(evbuffer *inbuf, int out_fd, size_t nMax2SendNow)
 	evbuffer_iovec ivs[64];
 	off_t consumed = 0;
 	nMax2SendNow = std::min(nMax2SendNow, evbuffer_get_length(inbuf));
+	int nErrno = 0;
+
 	while (nMax2SendNow > 0)
 	{
 		auto nbufs = evbuffer_peek(inbuf, nMax2SendNow, nullptr, ivs, _countof(ivs));
@@ -198,7 +200,7 @@ ssize_t eb_dump_chunks(evbuffer *inbuf, int out_fd, size_t nMax2SendNow)
 		if (nWritten < 0)
 			return nWritten;
 
-		auto nErrno = errno;
+		nErrno = errno;
 
 		evbuffer_drain(inbuf, bytesDeliverable);
 		consumed += nWritten;
@@ -207,6 +209,8 @@ ssize_t eb_dump_chunks(evbuffer *inbuf, int out_fd, size_t nMax2SendNow)
 		if (nErrno != EAGAIN && nErrno != EINTR && nErrno != EWOULDBLOCK) // that is also an error!
 			return consumed;
 	}
+
+	errno = nErrno;
 
 	return consumed;
 }

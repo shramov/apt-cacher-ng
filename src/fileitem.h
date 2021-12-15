@@ -92,7 +92,7 @@ public:
 		 * @param maxTake Limits the data to be transfered
 		 * @return How much data was added to target, -1 on error
 		 */
-		virtual ssize_t SendData(bufferevent* target, off_t& sendPos, size_t maxTake) =0;
+		virtual ssize_t SendData(bufferevent* target, off_t& sendPos, size_t maxTake) { return -1; };
 		virtual ~ICacheDataSender() = default;
 	};
 	/**

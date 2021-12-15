@@ -356,11 +356,14 @@ struct Dispatcher
 	acres& m_res;
 
 	Dispatcher(string name, acres& res) : clientName(name), m_res(res) {}
+	// disable all callback activity to become harmless if removes early
+	~Dispatcher() { if (m_be.valid()) bufferevent_disable(*m_be, EV_READ|EV_WRITE); }
+
 	bool Go() noexcept
 	{
 		// dispatcher only fetches the relevant type header
 		bufferevent_setcb(*m_be, Dispatcher::cbRead, nullptr, Dispatcher::cbStatus, this);
-#warning tune me
+#warning tune me, might need an adaptive scheme, the reverse of receiving settings in dlcon
 //		bufferevent_setwatermark(*m_be, EV_READ, 0, MAX_IN_BUF);
 		return 0 == bufferevent_enable(*m_be, EV_READ);
 	}

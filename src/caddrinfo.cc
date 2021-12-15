@@ -443,7 +443,7 @@ void CAddrInfo::Resolve(cmstring & sHostname, uint16_t nPort, tDnsResultReporter
 			rep = decltype (rep)();
 			if (AC_UNLIKELY(!ctx || !ctx->resolver))
 			{
-				ctx->cbs.back()(make_shared<CAddrInfo>("503 Bad DNS configuration"));
+				ctx->cbs.back()(make_shared<CAddrInfo>("Bad DNS configuration"));
 				// and defuse the fallback caller
 				ctx->cbs.clear();
 				return;

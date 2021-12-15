@@ -264,6 +264,10 @@ ssize_t TFileitemWithStorage::DlConsumeData(evbuffer* src, size_t maxTake)
 		m_nSizeChecked += ret;
 		m_nIncommingCount += ret;
 	}
+	else
+	{
+		ldbg("Dump error?");
+	}
 	return ret;
 }
 
@@ -380,6 +384,9 @@ std::unique_ptr<fileitem::ICacheDataSender> TFileitemWithStorage::GetCacheSender
 
 	USRDBG("Opening " << m_sPathRel);
 	int fd = open(SZABSPATH(m_sPathRel), O_RDONLY);
+
+	if (fd == -1)
+		return make_unique<fileitem::ICacheDataSender>();
 
 #ifdef HAVE_FADVISE
 	posix_fadvise(fd, 0, m_nSizeChecked, POSIX_FADV_SEQUENTIAL);

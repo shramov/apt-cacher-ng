@@ -5,6 +5,7 @@
 #include "actemplates.h"
 #include "aevutil.h"
 #include "ahttpurl.h"
+#include "acomcommon.h"
 
 namespace acng
 {
@@ -33,10 +34,10 @@ public:
 	{
 		lint_ptr<atransport> strm;
 		mstring err;
-		uint_fast16_t flags;
-		tResult(uint_fast16_t flags, string_view errMsg);
-		tResult(uint_fast16_t flags, mstring&& errMsg);
-		tResult(uint_fast16_t flags, lint_ptr<atransport>);
+		tComError flags;
+		tResult(tComError flags, string_view errMsg);
+		tResult(tComError flags, mstring&& errMsg);
+		tResult(tComError flags, lint_ptr<atransport>);
 	};
 	using tCallBack = std::function<void(tResult)>;
 
@@ -81,14 +82,6 @@ public:
 	 */
 	std::string GetConnKey();
 };
-
-#define TRANS_DNS_NOTFOUND 0x1
-#define TRANS_TIMEOUT 0x2
-#define TRANS_WAS_USED 0x4
-#define TRANS_INTERNAL_ERROR 0x8
-#define TRANS_FAULTY_SSL_PEER 0x10
-// codes which mean that the connection shall not be retried for that peer
-#define TRANS_CODE_FATAL(n) (n & (TRANS_INTERNAL_ERROR|TRANS_DNS_NOTFOUND|TRANS_TIMEOUT))
 
 }
 
