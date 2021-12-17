@@ -79,10 +79,27 @@ sleep 5
 cd $DL_DIR
 
 limit=10000
+tasks=$(seq 20)
+
 while true; do
-        wget -i $urllist || exit 1
-        if ! md5sum -c MD5SUMS ; then echo ERROR ; exit 1; fi
-        rm -rf *.deb $cachedir/tempcache/foo/*.deb
+        KLIST=
+        for x in $tasks; do
+                mkdir $x
+                pushd $x
+                wget -i $urllist &
+                KLIST="$KLIST $!"
+                popd
+        done
+        wait $KLIST
+        for x in $tasks; do
+                pushd $x
+                cp ../MD5SUMS . || exit 2
+                md5sum -c MD5SUMS || exit 1
+                rm -rf *.deb
+                popd
+        done
+
+        rm -f $cachedir/tempcache/foo/*.deb
         limit=$(( $limit - 1 ))
         if test $limit -lt 1 ; then exit 0; fi
 done
