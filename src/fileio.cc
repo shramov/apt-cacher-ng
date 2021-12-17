@@ -179,7 +179,8 @@ ssize_t eb_dump_chunks(evbuffer *inbuf, int out_fd, size_t nMax2SendNow)
 	{
 		auto nbufs = evbuffer_peek(inbuf, nMax2SendNow, nullptr, ivs, _countof(ivs));
 		ASSERT(nbufs > 0);
-    if (nbufs <= 0) return -1;
+		if (nbufs <= 0)
+			return -1;
 
 		off_t bytesDeliverable = 0;
 		// find the actual transfer length which we can actually serve with ivs array at once
@@ -200,13 +201,15 @@ ssize_t eb_dump_chunks(evbuffer *inbuf, int out_fd, size_t nMax2SendNow)
 		if (nWritten < 0)
 			return nWritten;
 
+		auto incomplete = nWritten != bytesDeliverable;
 		nErrno = errno;
 
-		evbuffer_drain(inbuf, bytesDeliverable);
+		evbuffer_drain(inbuf, nWritten);
 		consumed += nWritten;
+
 		nMax2SendNow -= nWritten;
 
-		if (nErrno != EAGAIN && nErrno != EINTR && nErrno != EWOULDBLOCK) // that is also an error!
+		if (incomplete && nErrno != EAGAIN && nErrno != EINTR && nErrno != EWOULDBLOCK) // that is also an error!
 			return consumed;
 	}
 

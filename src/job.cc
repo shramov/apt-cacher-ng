@@ -488,9 +488,11 @@ job::eJobResult job::subscribeAndExit()
 	if (m_subKey)
 		return R_WILLNOTIFY;
 
+	LOGSTARTFUNC;
+
 	try
 	{
-#warning better function for range start -> compare right there and don't call parent. must also check dl-receiving state.
+#warning better function for range start -> compare right there at the source and don't call us until condition is satisfied. must also check dl-receiving state and other conditions, though
 		ASSERT(m_pItem); // very unlikely to fail
 		m_subKey = m_pItem->Subscribe([this]() {
 			return m_parent.poke(GetId());
@@ -499,6 +501,7 @@ job::eJobResult job::subscribeAndExit()
 	}
 	catch (...)
 	{
+		dbgline;
 		return R_DISCON;
 	}
 }
@@ -646,6 +649,7 @@ job::eJobResult job::Resume(bool canSend, bufferevent* be)
 			if ((fi->GetStatus() == fileitem::FIST_COMPLETE && m_nSendPos == fi->GetCheckedSize())
 				|| (m_nReqRangeTo >= 0 && m_nSendPos >= m_nReqRangeTo + 1))
 			{
+				dbgline;
 				return fin_stream_good();
 			}
 			continue;
