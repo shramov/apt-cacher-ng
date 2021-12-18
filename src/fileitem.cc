@@ -182,6 +182,7 @@ fileitem::WaitForFinish(unsigned timeout, const std::function<bool()> &waitInter
 
 void TFileitemWithStorage::LogSetError(string_view message, fileitem::EDestroyMode destruction)
 {
+	LOGSTARTFUNCx(message, (int) destruction);
 	USRERR(m_sPathRel << " storage error [" << message << "], check file AND directory permissions, last errno: " << tErrnoFmter());
 	DlSetError({500, "Cache Error, check apt-cacher.err"}, destruction);
 }
@@ -325,7 +326,7 @@ struct tSharedFd : public tLintRefcounted
 	int fd = -1;
 	tSharedFd(int n) : fd(n) {}
 	~tSharedFd() { checkforceclose(fd); }
-	static void cbRelease(struct evbuffer_file_segment const *, int flags, void *arg)
+	static void cbRelease(struct evbuffer_file_segment const *, int, void *arg)
 	{
 		ASSERT_HAVE_MAIN_THREAD;
 		((tSharedFd*)arg)->__dec_ref();
@@ -416,6 +417,7 @@ bool TFileitemWithStorage::SafeOpenOutFile()
 
 	auto replace_file = [&]()
 	{
+		dbgline;
 		checkforceclose(m_filefd);
 		// special case where the file needs be replaced in the most careful way
 		m_bWriterMustReplaceFile = false;
@@ -426,14 +428,14 @@ bool TFileitemWithStorage::SafeOpenOutFile()
 		unique_fd tmp(open(tname.c_str(), flags, cfg::fileperms));
 		if (tmp.m_p == -1)
 			return LogSetError("Cannot create cache files"), false;
+		dbgline;
 		fdatasync(tmp.m_p);
 		bool didNotExist = false;
 		if (0 != rename(sPathAbs.c_str(), tname2.c_str()))
 		{
-			if (errno == ENOENT)
-				didNotExist = true;
-			else
+			if (errno != ENOENT)
 				return LogSetError("Cannot move cache files"), false;
+			didNotExist = true;
 		}
 		if (0 != rename(tname.c_str(), sPathAbs.c_str()))
 			return LogSetError("Cannot rename cache files"), false;
@@ -448,6 +450,7 @@ bool TFileitemWithStorage::SafeOpenOutFile()
 	{
 		if (!replace_file())
 			return false;
+		dbgline;
 	}
 	if (m_filefd == -1)
 		m_filefd = open(sPathAbs.c_str(), flags, cfg::fileperms);
@@ -455,7 +458,7 @@ bool TFileitemWithStorage::SafeOpenOutFile()
 	if (m_filefd == -1 && ! replace_file())
 		return false;
 
-	ldbg("file opened?! returned: " << m_filefd);
+	ldbg(sPathAbs << " -- file opened?! returned: " << m_filefd);
 
 	auto sizeOnDisk = lseek(m_filefd, 0, SEEK_END);
 	if (sizeOnDisk == -1)
@@ -470,6 +473,8 @@ bool TFileitemWithStorage::SafeOpenOutFile()
 			return false;
 		sizeOnDisk = 0;
 	}
+
+	ldbg("seek to " << m_nSizeChecked);
 
 	// either confirm start at zero or verify the expected file state on disk
 	if (m_nSizeChecked < 0)
@@ -525,6 +530,8 @@ mstring TFileitemWithStorage::NormalizePath(cmstring &sPathRaw)
 
 TFileitemWithStorage::~TFileitemWithStorage()
 {
+	LOGSTARTFUNC;
+
 	if (AC_UNLIKELY(m_spattr.bNoStore))
 		return;
 
@@ -539,6 +546,8 @@ TFileitemWithStorage::~TFileitemWithStorage()
 		sPathAbs = SABSPATH(m_sPathRel);
 		sPathHead = SABSPATH(m_sPathRel) + ".head";
 	};
+
+	ldbg(int(m_eDestroy));
 
 	switch (m_eDestroy)
 	{
@@ -586,6 +595,7 @@ TFileitemWithStorage::~TFileitemWithStorage()
 // special file? When it's rewritten from start, save the old version aside
 void TFileitemWithStorage::MoveRelease2Sidestore()
 {
+	LOGSTARTFUNC
 	if(m_nSizeChecked)
 		return;
 	if(!endsWithSzAr(m_sPathRel, "/InRelease") && !endsWithSzAr(m_sPathRel, "/Release"))

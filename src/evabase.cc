@@ -6,6 +6,7 @@
 
 #include <mutex>
 #include <condition_variable>
+#include <future>
 
 #include <event2/util.h>
 
@@ -381,6 +382,34 @@ void evabase::PushLoop()
 		if (0 != event_base_loop(base, EVLOOP_NONBLOCK))
 			break;
 	}
+}
+
+uintptr_t evabase::SyncRunOnMainThread(std::function<uintptr_t ()> act, uintptr_t onRejection)
+{
+	ASSERT(std::this_thread::get_id() != evabase::GetMainThreadId());
+	std::promise<uintptr_t> pro;
+	auto fut = pro.get_future();
+	try
+	{
+		Post([&](bool cancled) -> void
+		{
+			if (cancled)
+				pro.set_value(onRejection);
+			try
+			{
+				pro.set_value(act());
+			}
+			catch (...)
+			{
+				pro.set_exception(std::current_exception());
+			}
+		});
+	}
+	catch (...)
+	{
+		return onRejection;
+	}
+	return fut.get();
 }
 
 

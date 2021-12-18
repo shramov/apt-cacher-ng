@@ -117,6 +117,7 @@ void cbRunRegClean(evutil_socket_t, short, void *p)
 
 void TFileItemRegistry::AddToProlongedQueue(TFileItemHolder&& p, time_t expTime)
 {
+	LOGSTARTFUNCs(p.get());
 	if (!regCleanEvent)
 		regCleanEvent = evtimer_new(evabase::base, cbRunRegClean, this);
 	// act like the item is still in use

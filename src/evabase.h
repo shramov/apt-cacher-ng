@@ -100,6 +100,9 @@ public:
 	~evabase();
 
 	void PushLoop();
+
+	// generic helper for BLOCKING method execution on the main thread
+	uintptr_t SyncRunOnMainThread(std::function<uintptr_t()>, uintptr_t onRejection = 0);
 };
 
 }
