@@ -191,7 +191,7 @@ static void SetupCacheDir()
 	struct timeval tv;
 	gettimeofday(&tv, nullptr);
 	tSS buf;
-	buf << cacheDirSlash << "testfile." << tv.tv_usec * tv.tv_sec * (LPCSTR(buf.wptr()) - LPCSTR(&tv));
+	buf << cacheDirSlash << "testfile." << (tv.tv_usec * tv.tv_sec) * (uintptr_t(buf.wptr()) - uintptr_t(&tv));
 	mkbasedir(buf.c_str()); // try or force its directory creation
 	int t=open( buf.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 00644);
 	if (t != -1)

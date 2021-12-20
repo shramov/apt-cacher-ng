@@ -221,7 +221,7 @@ ACNG_API int evabase::MainLoop()
 	// this might cause trouble with sloppy written tests
 #ifndef UNDER_TEST
 	// nothing but our owner should reference it now
-	ASSERT(__ref_cnt() == 1);
+//	ASSERT(__ref_cnt() == 1);
 #endif
 
 	return r;

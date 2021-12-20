@@ -13,6 +13,8 @@ set(SHAREDSRCS astrop.cc sockio.cc acbuf.cc acfg.cc acfg_defaults.cc aclogger.cc
     ${SERVER_SPECIFIC_SRCS}
     ${ALL_HEADERS})
 
+option(SUP_STATIC "Build and link core functionality as static code" off)
+
 if(SUP_STATIC)
         message("-- Configuring shared code as STATIC lib")
 ADD_LIBRARY(supacng STATIC ${SHAREDSRCS})

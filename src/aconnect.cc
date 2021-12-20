@@ -20,25 +20,21 @@
 
 using namespace std;
 
+#define CONNECT_SYSCALL_RETRY_LIMIT 50
+
 namespace acng
 {
 string dnsError("Unknown DNS error");
 
 struct ConnProbingContext : public tLintRefcounted
 {
-	time_t exTime;
+	time_t m_deadline;
 	mstring target;
 	uint16_t port;
 	aconnector::tCallback m_cbReport;
 	std::deque<acng_addrinfo> m_targets;
 	// linear search is sufficient for this amount of elements
-	struct tProbeInfo
-	{
-		unique_fd fd;
-		unique_event ev;
-	};
-	std::list<tProbeInfo> m_eventFds;
-	unsigned m_pending = 0;
+	std::list<unique_fdevent> m_eventFds;
 	time_t m_timeNextCand;
 	mstring m_error2report;
 	decltype (m_targets)::iterator m_cursor;
@@ -59,6 +55,7 @@ struct ConnProbingContext : public tLintRefcounted
 	}
 	~ConnProbingContext()
 	{
+		DBGQLOG("FIXME: deleting from dtor: " << uintptr_t(this));
 	}
 };
 
@@ -66,11 +63,11 @@ TFinalAction aconnector::Connect(cmstring& target, uint16_t port, tCallback cbRe
 {
 	auto ctx = make_lptr<ConnProbingContext>();
 	if (timeout < 0)
-		ctx->exTime = GetTime() + cfg::GetNetworkTimeout()->tv_sec;
+		ctx->m_deadline = GetTime() + cfg::GetNetworkTimeout()->tv_sec;
 	else if (timeout == 0)
-		ctx->exTime = MAX_VAL(time_t);
+		ctx->m_deadline = MAX_VAL(time_t);
 	else
-		ctx->exTime = GetTime() + timeout;
+		ctx->m_deadline = GetTime() + timeout;
 
 	ctx->target = target;
 	ctx->port = port;
@@ -139,7 +136,7 @@ void ConnProbingContext::step(int fd, short what)
 	}
 	// okay, socket not usable, create next candicate connection?
 	time_t now = GetTime();
-	if (now > exTime)
+	if (now > m_deadline)
 		return retError("Connection timeout", TRANS_TIMEOUT);
 
 	auto isFirst = fd == -1;
@@ -161,7 +158,7 @@ void ConnProbingContext::step(int fd, short what)
 	{
 		// to move into m_eventFds on success
 		unique_fd nextFd;
-		unique_event pe;
+		unique_fdevent pe;
 
 		nextFd.m_p = ::socket(m_cursor->ai_family, SOCK_STREAM, 0);
 		if (!nextFd.valid())
@@ -170,26 +167,33 @@ void ConnProbingContext::step(int fd, short what)
 				m_error2report = tErrnoFmter();
 			continue;
 		}
+
 		set_connect_sock_flags(nextFd.get());
-		for (unsigned i=0; i < 50; ++i)
+
+		unsigned i = CONNECT_SYSCALL_RETRY_LIMIT;
+		do
 		{
 			auto res = connect(nextFd.get(), (sockaddr*) & m_cursor->ai_addr, m_cursor->ai_addrlen);
+			// can we get the connection immediately? Unlikely, but who knows
 			if (res == 0)
 				return retSuccess(nextFd.release());
 			if (errno != EINTR)
 				break;
-		}
+		} while(i--);
+
 		if (errno != EINPROGRESS)
 		{
-			setIfNotEmpty(m_error2report, tErrnoFmter(errno))
-					continue;
+			// probably the first error, remember the reason
+			setIfNotEmpty(m_error2report, tErrnoFmter(errno));
+			continue;
 		}
 		auto tmout = isFirst ? cfg::GetFirstConTimeout() : cfg::GetFurtherConTimeout();
 		pe.m_p = event_new(evabase::base, nextFd.get(), EV_WRITE | EV_PERSIST, cbStep, this);
 		if (AC_LIKELY(pe.valid() && 0 == event_add(pe.get(), tmout)))
 		{
-			m_eventFds.push_back({move(nextFd), move(pe)});
-			m_pending++;
+			m_eventFds.emplace_back(move(pe));
+			nextFd.release(); // eventfd helper will care
+
 			// advance to the next after timeout
 			m_cursor++;
 			dbgline;
@@ -198,50 +202,61 @@ void ConnProbingContext::step(int fd, short what)
 		setIfNotEmpty(m_error2report, "Out of memory"sv);
 	}
 	// not success if got here, any active connection pending? consider this a timeout?
-	if (m_pending == 0)
+	if (m_eventFds.empty())
 		return retError(m_error2report.empty() ? tErrnoFmter(EAFNOSUPPORT) : m_error2report, TRANS_TIMEOUT);
-	LOG("pending connections: " << m_pending);
+//	LOG("pending connections: " << m_pending);
 }
 
 void ConnProbingContext::retError(mstring msg, tComError errHints)
 {
 	LOGSTARTFUNCx(msg);
+	stop();
 	if (m_cbReport)
 		m_cbReport({unique_fd(), move(msg), errHints});
-	return stop();
 }
 
 void ConnProbingContext::retSuccess(int fd)
 {
+	auto rep = move(m_cbReport);
+	m_cbReport = decltype (m_cbReport)();
+
 	// doing destructors work already since we need to visit nodes anyway to find and extract the winner
-	auto it = find_if(m_eventFds.begin(), m_eventFds.end(), [fd](auto& el){return el.fd.get() == fd;});
-	if (it == m_eventFds.end())
+	for(auto it = m_eventFds.begin(); it != m_eventFds.end(); ++it)
 	{
-		if (m_cbReport)
-			m_cbReport({unique_fd(), "Internal error", TRANS_INTERNAL_ERROR});
+		auto elfd = event_get_fd(**it);
+		if (fd == elfd)
+		{
+			// get a naked event pointer without guard influence and defuse the outside
+			auto el = it->release();
+			m_eventFds.erase(it);
+			event_free(el);
+			DBGQLOG("FIXME: stoping on success: " << uintptr_t(this));
+			stop();
+			if (rep)
+				rep({unique_fd(fd), se, 0});
+			return;
+		}
 	}
-	else
-	{
-		it->ev.reset();
-		if (m_cbReport)
-			m_cbReport({move(it->fd), se, 0});
-	}
+	ASSERT(!"Unreachable");
 	return stop();
+	if (rep)
+		rep({unique_fd(), "Internal error", TRANS_INTERNAL_ERROR});
 }
 
 void ConnProbingContext::disable(int fd, int ec)
 {
 	LOGSTARTFUNCx(fd);
 	ASSERT(fd != -1);
-	auto it = find_if(m_eventFds.begin(), m_eventFds.end(), [fd](auto& el){return el.fd.get() == fd;});
+	auto it = find_if(m_eventFds.begin(), m_eventFds.end(), [fd](auto& el)
+	{
+		return event_get_fd(*el) == fd;
+	});
 	if (it == m_eventFds.end())
 		return;
 	// error from primary always wins, grab before closing it
 	if (it == m_eventFds.begin())
 		setIfNotEmpty(m_error2report, tErrnoFmter(ec));
 	// stop observing and release resources
-	if (it->ev.get())
-		m_pending--;
 	m_eventFds.erase(it);
 }
 }
