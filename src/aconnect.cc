@@ -210,9 +210,11 @@ void ConnProbingContext::step(int fd, short what)
 void ConnProbingContext::retError(mstring msg, tComError errHints)
 {
 	LOGSTARTFUNCx(msg);
+	auto rep = move(m_cbReport);
+	m_cbReport = decltype (m_cbReport)();
 	stop();
-	if (m_cbReport)
-		m_cbReport({unique_fd(), move(msg), errHints});
+	if (rep)
+		rep({unique_fd(), move(msg), errHints});
 }
 
 void ConnProbingContext::retSuccess(int fd)
