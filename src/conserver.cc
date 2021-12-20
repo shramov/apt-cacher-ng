@@ -177,13 +177,16 @@ public:
 					cerr << "Port " << port << " is busy, see the manual (Troubleshooting chapter) for details." <<endl;
 				cerr.flush();
 			}
+			close(mSock);
 			return;
 		}
 		if (listen(mSock, SO_MAXCONN))
 		{
 			perror("Couldn't listen on socket");
+			close(mSock);
 			return;
 		}
+
 		set_nb(mSock);
 		auto ev = event_new(evabase::base, mSock, EV_READ|EV_PERSIST, do_accept, this);
 		if(!ev)

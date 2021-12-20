@@ -368,7 +368,8 @@ TFinalAction atransport::Create(tHttpUrl url, const tCallBack &cback, acres& res
 void atransport::Return(lint_ptr<atransport> &stream)
 {
 #ifdef REUSE_TARGET_CONN
-	static_lptr_cast<atransportEx>(stream)->Moothball();
+	if (!evabase::GetGlobal().IsShuttingDown())
+		static_lptr_cast<atransportEx>(stream)->Moothball();
 #endif
 	stream.reset();
 }

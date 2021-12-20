@@ -53,8 +53,8 @@ struct ConnProbingContext : public tLintRefcounted
 	void disable(int fd, int ec);
 	void stop()
 	{
-		// stop all event interaction ASAP and (maybe) self-destruct
 		m_cbReport = aconnector::tCallback();
+		// this should stop all events
 		m_eventFds.clear();
 	}
 	~ConnProbingContext()

@@ -56,6 +56,7 @@ class connImpl : public IConnBase
 	deque<job> m_jobs;
 	lint_user_ptr<dlcontroller> m_pDlClient;
 	mstring m_sClientHost;
+	aobservable::subscription m_baseSub;
 
 public:
 	dlcontroller* GetDownloader() override
@@ -78,6 +79,7 @@ public:
 		m_itemRegistry(res.GetItemRegistry())
 	{
 		LOGSTARTFUNCx(m_sClientHost);
+		m_baseSub = evabase::GetGlobal().subscribe([this](){ cbStatus(nullptr, BEV_EVENT_EOF, this);} );
 		/*m_keepalive = res.GetKeepAliveBeat().AddListener([this] () mutable
 		{
 			//DBGQLOG("ka: "sv << (long) this);
@@ -173,7 +175,7 @@ public:
 		if (what & (BEV_EVENT_EOF | BEV_EVENT_ERROR | BEV_EVENT_TIMEOUT))
 		{
 			auto destroyer = as_lptr((connImpl*)ctx, false);
-			if (destroyer->m_be.get())
+			if (!evabase::GetGlobal().IsShuttingDown() && destroyer->m_be.get())
 				be_free_close(destroyer->m_be.release());
 		}
 	}
@@ -284,8 +286,13 @@ struct TDirectConnector
 	TFinalAction m_connBuilder;
 	string_view m_httpProto;
 	acres& m_res;
+	aobservable::subscription m_baseSub;
 
-	TDirectConnector(acres& res) : m_res(res) {}
+	TDirectConnector(acres& res) : m_res(res)
+	{
+		// release from event base on shutdown
+		m_baseSub = evabase::GetGlobal().subscribe([this]() { cbEvent(nullptr, BEV_EVENT_EOF, this);} );
+	}
 
 	static void PassThrough(bufferevent* be, cmstring& uri, const header& reqHead, acres& res)
 	{
@@ -356,8 +363,12 @@ struct Dispatcher
 	unique_bufferevent_fdclosing m_be;
 	string clientName;
 	acres& m_res;
+	aobservable::subscription m_baseSub;
 
-	Dispatcher(string name, acres& res) : clientName(name), m_res(res) {}
+	Dispatcher(string name, acres& res) : clientName(name), m_res(res)
+	{
+		m_baseSub = evabase::GetGlobal().subscribe([this]() { cbStatus(nullptr, BEV_EVENT_EOF, this);} );
+	}
 	// disable all callback activity to become harmless if removes early
 	~Dispatcher() { if (m_be.valid()) bufferevent_disable(*m_be, EV_READ|EV_WRITE); }
 
