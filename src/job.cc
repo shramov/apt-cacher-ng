@@ -371,10 +371,10 @@ void job::Prepare(const header &h, bufferevent* be, cmstring& callerHostname, ac
 
 		ParseRangeAndIfMo(h);
 
-		m_pItem = m_parent.GetItemRegistry()->Create(m_sFileLoc,
-														 attr.bVolatile ?
-															 ESharingHow::AUTO_MOVE_OUT_OF_THE_WAY :
-															 ESharingHow::ALWAYS_TRY_SHARING, attr);
+		m_pItem = res.GetItemRegistry()->Create(m_sFileLoc,
+												attr.bVolatile ?
+													ESharingHow::AUTO_MOVE_OUT_OF_THE_WAY :
+													ESharingHow::ALWAYS_TRY_SHARING, attr);
 		if( ! m_pItem.get())
 		{
 			USRERR("Error creating file item for "sv << m_sFileLoc << " -- check file permissions!"sv);

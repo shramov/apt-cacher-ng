@@ -21,7 +21,6 @@ class IConnBase : public tLintRefcounted
 {
 public:
 	virtual dlcontroller* GetDownloader() =0;
-	virtual lint_ptr<IFileItemRegistry> GetItemRegistry() =0;
 	/**
 	 * @brief Push the internal processing which is waiting for some notification
 	 * @return true to keep calling, false to unregister the callback

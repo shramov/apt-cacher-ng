@@ -1,4 +1,3 @@
-
 #include "debug.h"
 #include "meta.h"
 #include "conn.h"
@@ -34,9 +33,6 @@ namespace acng
 {
 
 class connImpl;
-class acres;
-
-void ACNG_API StartServingBE(unique_bufferevent_fdclosing&& be, string clientName, acres&);
 
 class connImpl : public IConnBase
 {
@@ -44,7 +40,6 @@ class connImpl : public IConnBase
 	unique_bufferevent_flushclosing m_be;
 	header m_h;
 	ssize_t m_hSize = 0;
-	//aobservable::subscription m_keepalive;
 
 	enum ETeardownMode
 	{
@@ -66,27 +61,17 @@ public:
 		return m_pDlClient.get();
 	}
 
-	lint_ptr<IFileItemRegistry> m_itemRegistry;
-
 	void writeAnotherLogRecord(const mstring &pNewFile,
 			const mstring &pNewClient);
 
-	connImpl(header&& he, size_t hRawSize, mstring clientName, acres& res) :
+	connImpl(mstring&& clientName, acres& res) :
 		m_res(res),
-		m_h(move(he)),
-		m_hSize(hRawSize),
-		m_sClientHost(move(clientName)),
-		m_itemRegistry(res.GetItemRegistry())
+		m_sClientHost(move(clientName))
 	{
 		LOGSTARTFUNCx(m_sClientHost);
 		m_baseSub = evabase::GetGlobal().subscribe([this](){ cbStatus(nullptr, BEV_EVENT_EOF, this);} );
-		/*m_keepalive = res.GetKeepAliveBeat().AddListener([this] () mutable
-		{
-			//DBGQLOG("ka: "sv << (long) this);
-			KeepAlive();
-		});
-		*/
-	};
+	}
+
 	virtual ~connImpl()
 	{
 		LOGSTARTFUNC;
@@ -110,13 +95,12 @@ public:
 		continueJobs();
 	}
 
-	void setup()
+	void setup_regular()
 	{
 		LOGSTARTFUNC;
 		set_serving_sock_flags(bufferevent_getfd(*m_be));
 		bufferevent_setcb(*m_be, cbRead, cbCanWrite, cbStatus, this);
-		if (m_hSize > 0)
-			addOneJob();
+		bufferevent_enable(*m_be, EV_WRITE|EV_READ);
 	}
 
 	void KeepAlive()
@@ -126,30 +110,18 @@ public:
 		m_jobs.front().KeepAlive(m_be.get());
 	}
 
-	static void go(bufferevent* pBE, header&& h, size_t hRawSize, string clientName, acres& res)
+	void spawn(unique_bufferevent_flushclosing&& pBE)
 	{
-		lint_ptr<connImpl> worker;
 		try
 		{
-			worker.reset(new connImpl(move(h), hRawSize, move(clientName), /* SetupServerItemRegistry(), */ res));
-			worker->m_be.m_p = pBE;
-			pBE = nullptr;
-			worker->setup();
-			ignore_ptr(worker.release()); // cleaned by its own callback
+			m_be.reset(move(pBE));
+			setup_regular();
 		}
 		catch (const bad_alloc&)
 		{
-			if (pBE)
-				be_free_close(pBE);
+			delete this;
 		}
 	}
-
-	// ISharedConnectionResources interface
-public:
-	// This method collects the logged data counts for certain file.
-	// Since the user might restart the transfer again and again, the counts are accumulated (for each file path)
-//	void LogDataCounts(cmstring &sFile, mstring xff, off_t nNewIn, off_t nNewOut, bool bAsError) override;
-	lint_ptr<IFileItemRegistry> GetItemRegistry() override { return m_itemRegistry; }
 
 	static void cbStatus(bufferevent*, short what, void* ctx)
 	{
@@ -160,19 +132,22 @@ public:
 				be_free_close(destroyer->m_be.release());
 		}
 	}
-	static void cbRead(bufferevent* pBE, void* ctx)
-	{
-		auto me = (connImpl*)ctx;
-		me->onRead(pBE);
-	}
+	static void cbRead(bufferevent* pBE, void* ctx)	{ ((connImpl*)ctx)->onRead(pBE); }
+
 	static void cbCanWrite(bufferevent*, void* ctx)
 	{
 		auto me = (connImpl*)ctx;
 		me->continueJobs();
 	}
 
-	void addOneJob(string_view errorStatus = svEmpty)
+	/**
+	 * @brief addRegularJob
+	 * @param errorStatus Optional - forced error status line to report as job result
+	 * @return True if a regular request was extracted, false if the request was something else
+	 */
+	bool addRegularRequest(string_view errorStatus = svEmpty)
 	{
+		bool ret = false;
 		if (m_h.type == header::GET)
 		{
 #warning excpt. safe?
@@ -182,13 +157,17 @@ public:
 			else
 				m_jobs.back().Prepare(m_h, *m_be, m_sClientHost, m_res);
 			evbuffer_drain(bereceiver(*m_be), m_hSize);
+			ret = true;
 		}
 		else
 		{
+			// queue will be processed, then this flag will be considered
 			m_opMode = ETeardownMode::PREP_TYPECHANGE;
 		}
 		continueJobs();
+		return ret;
 	}
+
 	void onRead(bufferevent* pBE)
 	{
 		auto obuf = bereceiver(pBE);
@@ -198,16 +177,21 @@ public:
 			evbuffer_drain(obuf, evbuffer_get_length(obuf));
 			return;
 		case ETeardownMode::PREP_TYPECHANGE:
-			return;
+			return; // don't care now, but after mode switching
 		default:
-			m_hSize = m_h.Load(obuf);
-			if (m_hSize < 0)
-				addOneJob("400 Bad Request"sv);
-			else if (m_hSize == 0)
-				return; // more data to ome
-			else
-				addOneJob();
+			bool normalJob = false;
+			do
+			{
+				m_hSize = m_h.Load(obuf);
+				if (m_hSize < 0)
+					normalJob = addRegularRequest("400 Bad Request"sv);
+				else if (m_hSize == 0)
+					return; // more data to come in upcoming callback
+				else
+					normalJob = addRegularRequest();
+			} while(normalJob);
 		}
+		continueJobs();
 	}
 	void continueJobs()
 	{
@@ -234,93 +218,37 @@ public:
 		case ACTIVE: // wait for new requests or timeout
 			return;
 		case PREP_TYPECHANGE:
-		{
-			// can switch right away!
-			auto destroyer(as_lptr(this));
-			bufferevent_disable(*m_be, EV_READ|EV_WRITE);
-			bufferevent_setcb(*m_be, nullptr, nullptr, nullptr, nullptr);
-			return StartServingBE(unique_bufferevent_fdclosing(m_be.release()), m_sClientHost, m_res);
-		}
+			return PerformTypeChange();
 		case PREP_SHUTDOWN:
 			auto destroyer = as_lptr(this);
 			return be_flush_free_close(m_be.release());
 		}
 	}
 
-	// IConnBase interface
-public:
-	cmstring &getClientName() override
-	{
-		return m_sClientHost;
-	}
-};
-
-struct Dispatcher
-{
-	// simplify the reliable releasing whenver this object is deleted
-	unique_bufferevent_fdclosing m_be;
-	string clientName;
-	acres& m_res;
-	aobservable::subscription m_baseSub;
-
-	Dispatcher(string name, acres& res) : clientName(name), m_res(res)
-	{
-		m_baseSub = evabase::GetGlobal().subscribe([this]() { cbStatus(nullptr, BEV_EVENT_EOF, this);} );
-	}
-	// disable all callback activity to become harmless if removes early
-	~Dispatcher() { if (m_be.valid()) bufferevent_disable(*m_be, EV_READ|EV_WRITE); }
-
-	bool Go() noexcept
-	{	
-		LOGSTARTFUNCs;
-		// dispatcher only fetches the relevant type header
-		bufferevent_setcb(*m_be, Dispatcher::cbRead, nullptr, Dispatcher::cbStatus, this);
-#warning tune me, might need an adaptive scheme, the reverse of receiving settings in dlcon
-//		bufferevent_setwatermark(*m_be, EV_READ, 0, MAX_IN_BUF);
-		return 0 == bufferevent_enable(*m_be, EV_READ);
-	}
-
-	static void cbStatus(bufferevent*, short what, void* ctx)
-	{
-		if (what & (BEV_EVENT_EOF | BEV_EVENT_ERROR | BEV_EVENT_TIMEOUT))
-			return delete (Dispatcher*) (ctx);
-	}
-	static void cbRead(bufferevent* pBE, void* ctx)
+	void PerformTypeChange()
 	{
 		LOGSTARTFUNCs;
+		// can only be here when a special request header was received before
+		ASSERT(m_hSize > 0);
+		ebstream sout(*m_be);
+		const auto& tgt = m_h.getRequestUrl();
 
-		auto* me = (Dispatcher*)ctx;
-		auto rbuf = bereceiver(pBE);
-		header h;
-		auto hlen = h.Load(rbuf);
-		if (!hlen)
-			return; // will come back with more data
-
-		ebstream sout(pBE);
-		const auto& tgt = h.getRequestUrl();
-		auto flushClose = [&]()
-		{
-			AppendMetaHeaders(sout);
-			return be_flush_free_close(me->m_be.release());
-		};
-
-		if (hlen < 0) // client sends BS?
+		if (m_hSize <= 0) // client sends BS?
 		{
 			sout << "HTTP/1.0 400 Bad Request\r\n"sv;
-			flushClose();
+			AppendMetaHeaders(sout);
+			return delete this;
 		}
-		else if(h.type == header::GET)
+
+		if (m_h.type == header::CONNECT)
 		{
-			evbuffer_drain(rbuf, hlen);
-			connImpl::go(me->m_be.release(), move(h), hlen, move(me->clientName), me->m_res);
-		}
-		else if (h.type == header::CONNECT)
-		{
-			evbuffer_drain(rbuf, hlen);
-			PassThrough(me->m_be.release(), tgt, h, me->m_res);
+			evbuffer_drain(bereceiver(*m_be), m_hSize);
+			// this will replace the callbacks and continue, we are done here
+			PassThrough(m_be.release(), tgt, m_h, m_res);
+			return delete this;
 		}
 		// is this something we support?
-		else if (h.type == header::POST)
+		if (m_h.type == header::POST)
 		{
 			constexpr auto BDOURL = "http://bugs.debian.org:80/"sv;
 			if(startsWith(tgt, BDOURL))
@@ -335,15 +263,12 @@ struct Dispatcher
 			else
 				sout << "HTTP/1.0 403 Forbidden\r\n"sv;
 
-			flushClose();
+			AppendMetaHeaders(sout);
+			return delete this;
 		}
-		else
-		{
-			sout << "HTTP/1.0 403 Forbidden\r\n"sv;
-			flushClose();
-		}
-
-		return delete me;
+		sout << "HTTP/1.0 403 Forbidden\r\n"sv;
+		AppendMetaHeaders(sout);
+		return delete this;
 	}
 
 	static void AppendMetaHeaders(ebstream& sout)
@@ -355,31 +280,23 @@ struct Dispatcher
 #endif
 		sout << "Date: "sv << tHttpDate(GetTime()).view()
 			 << "\r\nServer: Debian Apt-Cacher NG/" ACVERSION "\r\n"
-		"\r\n"sv;
+															  "\r\n"sv;
+	}
+
+	cmstring &getClientName() override
+	{
+		return m_sClientHost;
 	}
 };
-
-void StartServingBE(unique_bufferevent_fdclosing&& be, string clientName, acres& res)
-{
-	LOGSTARTFUNCsx(clientName);
-
-	if (!be.valid())
-		return; // force-close everything
-	auto* dispatcha = new Dispatcher {move(clientName), res};
-	// excpt.safe
-	dispatcha->m_be.reset(be.release());
-	if (!dispatcha->Go())
-		delete dispatcha; // bad, need to close the socket!
-}
-
 
 void StartServing(unique_fd&& fd, string clientName, acres& res)
 {
 	evutil_make_socket_nonblocking(fd.get());
 	evutil_make_socket_closeonexec(fd.get());
 	// fd ownership moves to bufferevent closer
-	unique_bufferevent_fdclosing be(bufferevent_socket_new(evabase::base, fd.release(), BEV_OPT_DEFER_CALLBACKS));
-#warning tune watermarks! set timeout!
-	return StartServingBE(move(be), move(clientName), res);
+	unique_bufferevent_flushclosing be(bufferevent_socket_new(evabase::base, fd.release(), BEV_OPT_DEFER_CALLBACKS));
+#warning watermarks? timeout!
+	(new connImpl(move(clientName), res))->spawn(move(be));
+
 }
 }
