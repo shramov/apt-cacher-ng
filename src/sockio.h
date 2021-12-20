@@ -79,6 +79,8 @@ struct select_set_t
 void set_connect_sock_flags(evutil_socket_t fd);
 void set_serving_sock_flags(evutil_socket_t fd);
 
+void FinishConnection(int fd);
+
 }
 
 #endif /*SOCKIO_H_*/

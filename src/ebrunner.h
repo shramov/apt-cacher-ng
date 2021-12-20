@@ -20,7 +20,7 @@ class ebase;
 class ACNG_API tMinComStack
 {
 	acres* sharedResources;
-	evabase* ebase;
+	lint_ptr<evabase> ebase;
 	lint_user_ptr<dlcontroller> dler;
 public:
 	tMinComStack();

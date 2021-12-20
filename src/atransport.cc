@@ -43,12 +43,36 @@ time_t g_proxyBackOffUntil = 0;
 using unique_ssl = auto_raii<SSL*,SSL_free,nullptr>;
 
 #ifdef REUSE_TARGET_CONN
-multimap<string, lint_ptr<atransport>> g_con_cache;
 
 #define CACHE_SIZE_MAX 42
 #define REUSE_TIMEOUT_LIMIT 31
+
 static timeval expirationTimeout;
 static const timeval* g_pExpTimeout = nullptr;
+
+using tConnCache = multimap<string, lint_ptr<atransport>>;
+
+/**
+ * @brief Basic container with on-demand initialization and controlled shutdown.
+ */
+class ConnCacher
+{
+	unique_ptr<tConnCache> m_cache;
+	TFinalAction sub;
+public:
+	multimap<string, lint_ptr<atransport>>& get()
+	{
+		if (!m_cache)
+		{
+			m_cache = make_unique<tConnCache>();
+			sub = evabase::GetGlobal().subscribe([&](){m_cache.reset();});
+		}
+		return *m_cache;
+	}
+	bool Full() {return get().size() > CACHE_SIZE_MAX; }
+} g_con_cache;
+
+
 static const timeval* GetKeepTimeout()
 {
 	if (g_pExpTimeout)
@@ -82,29 +106,29 @@ class atransportEx : public atransport
 public:
 
 #ifdef REUSE_TARGET_CONN
-	decltype (g_con_cache)::iterator m_cleanIt;
+	tConnCache::iterator m_cleanIt;
 
 	// stop operations for storing in the cache, respond to timeout only
 	void Moothball()
 	{
-		if (!m_buf.valid() || g_con_cache.size() > CACHE_SIZE_MAX)
+		if (!m_buf.valid() || g_con_cache.Full())
 			return;
 		bufferevent_setcb(*m_buf, nullptr, nullptr, cbCachedKill, this);
 		bufferevent_set_timeouts(*m_buf, GetKeepTimeout(), nullptr);
 		bufferevent_enable(*m_buf, EV_READ);
-		m_cleanIt = g_con_cache.emplace(makeHostPortKey(GetHost(), GetPort()), lint_ptr<atransport>(this));
+		m_cleanIt = g_con_cache.get().emplace(makeHostPortKey(GetHost(), GetPort()), lint_ptr<atransport>(this));
 	}
 	// restore operation after hibernation
 	void GotReused()
 	{
 		bufferevent_disable(*m_buf, EV_READ | EV_WRITE);
 		bufferevent_setcb(*m_buf, nullptr, nullptr, nullptr, this);
-		m_cleanIt = g_con_cache.end();
+		m_cleanIt = g_con_cache.get().end();
 	}
 	static void cbCachedKill(struct bufferevent *, short , void *ctx)
 	{
 		auto delIfLast = as_lptr((atransportEx*) ctx);
-		g_con_cache.erase(delIfLast->m_cleanIt);
+		g_con_cache.get().erase(delIfLast->m_cleanIt);
 	}
 #endif
 	~atransportEx()
@@ -309,11 +333,11 @@ TFinalAction atransport::Create(tHttpUrl url, const tCallBack &cback, acres& res
 	{
 #ifdef REUSE_TARGET_CONN
 		auto cacheKey = url.GetHostPortKey();
-		auto anyIt = g_con_cache.find(cacheKey);
-		if (anyIt != g_con_cache.end())
+		auto anyIt = g_con_cache.get().find(cacheKey);
+		if (anyIt != g_con_cache.get().end())
 		{
 			auto ret = move(anyIt->second);
-			g_con_cache.erase(anyIt);
+			g_con_cache.get().erase(anyIt);
 			if (AC_LIKELY(ret->m_buf.valid()))
 			{
 				static_lptr_cast<atransportEx>(ret)->GotReused();

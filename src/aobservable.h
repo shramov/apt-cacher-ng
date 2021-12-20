@@ -2,7 +2,6 @@
 #define AOBSERVABLE_H
 
 #include "actypes.h"
-#include "evabase.h"
 #include "debug.h"
 #include "acsmartptr.h"
 #include "actemplates.h"
@@ -56,9 +55,6 @@ private:
 	void doNotify();
 	void doSchedule();
 };
-
-// repurposed the old locking macro to ensure the correct thread context
-#define setLockGuard ASSERT_HAVE_MAIN_THREAD
 
 }
 

@@ -9,7 +9,7 @@ void pushEvents(int secTimeout, bool* abortVar)
 	for(auto dateEnd = time(0) + secTimeout;
 		time(0) < dateEnd
 		&& (abortVar == nullptr || !*abortVar)
-		&& ! evabase::in_shutdown
+		&& ! evabase::GetGlobal().IsShuttingDown()
 		;)
 	{
 		event_base_loop(evabase::base, EVLOOP_NONBLOCK | EVLOOP_ONCE);
@@ -21,7 +21,7 @@ acres* g_res;
 int main(int argc, char **argv)
 {
 	g_res = acres::Create();
-	auto p = std::make_unique<acng::evabase>();
+	auto p = acng::evabase::Create();
 
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

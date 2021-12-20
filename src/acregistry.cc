@@ -69,7 +69,7 @@ void fileitem::Abandon()
 
 	// some file items will be held ready for some time
 	if (manger
-			&& !evabase::in_shutdown
+			&& !evabase::GetGlobal().IsShuttingDown()
 			&& acng::cfg::maxtempdelay
 			&& IsVolatile()
 			&& m_status == fileitem::FIST_COMPLETE)

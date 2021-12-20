@@ -43,7 +43,7 @@ class connImpl : public IConnBase
 	acres& m_res;
 	unique_bufferevent_flushclosing m_be;
 	header m_h;
-	size_t m_hSize = 0;
+	ssize_t m_hSize = 0;
 	//aobservable::subscription m_keepalive;
 
 	enum ETeardownMode
@@ -289,6 +289,8 @@ struct TDirectConnector
 
 	static void PassThrough(bufferevent* be, cmstring& uri, const header& reqHead, acres& res)
 	{
+		LOGSTARTFUNCs;
+
 		TDirectConnector *hndlr = nullptr;
 		// to be terminated here, in one way or another
 		unique_bufferevent_flushclosing xbe(be);
@@ -360,7 +362,8 @@ struct Dispatcher
 	~Dispatcher() { if (m_be.valid()) bufferevent_disable(*m_be, EV_READ|EV_WRITE); }
 
 	bool Go() noexcept
-	{
+	{	
+		LOGSTARTFUNCs;
 		// dispatcher only fetches the relevant type header
 		bufferevent_setcb(*m_be, Dispatcher::cbRead, nullptr, Dispatcher::cbStatus, this);
 #warning tune me, might need an adaptive scheme, the reverse of receiving settings in dlcon
@@ -375,6 +378,8 @@ struct Dispatcher
 	}
 	static void cbRead(bufferevent* pBE, void* ctx)
 	{
+		LOGSTARTFUNCs;
+
 		auto* me = (Dispatcher*)ctx;
 		auto rbuf = bereceiver(pBE);
 		header h;
@@ -447,6 +452,8 @@ struct Dispatcher
 
 void StartServingBE(unique_bufferevent_fdclosing&& be, string clientName, acres& res)
 {
+	LOGSTARTFUNCsx(clientName);
+
 	if (!be.valid())
 		return; // force-close everything
 	auto* dispatcha = new Dispatcher {move(clientName), res};

@@ -1,4 +1,5 @@
 #include "aobservable.h"
+#include "evabase.h"
 #include <memory>
 
 using namespace std;

@@ -1,5 +1,6 @@
 #include "aclock.h"
 #include "aevutil.h"
+#include "evabase.h"
 
 namespace acng
 {

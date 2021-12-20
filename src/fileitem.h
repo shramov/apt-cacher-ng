@@ -2,9 +2,9 @@
 #define _FILEITEM_H
 
 #include "actypes.h"
-#include "aobservable.h"
 #include "header.h"
 #include "httpdate.h"
+#include "evabase.h"
 #include <map>
 
 namespace acng

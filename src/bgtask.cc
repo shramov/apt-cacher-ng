@@ -293,7 +293,7 @@ bool tExclusiveUserAction::CheckStopSignal()
 {
 #warning restore protection
 	//lockguard g(&g_StateCv);
-	return g_sigTaskAbort || evabase::in_shutdown;
+	return g_sigTaskAbort || evabase::GetGlobal().IsShuttingDown();
 }
 
 void tExclusiveUserAction::DumpLog(time_t id)

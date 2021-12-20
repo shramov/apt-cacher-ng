@@ -3,6 +3,7 @@
 
 #include "fileitem.h"
 #include "actypes.h"
+#include "evabase.h"
 
 namespace acng
 {

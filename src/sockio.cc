@@ -3,6 +3,7 @@
 #include "sockio.h"
 #include "debug.h"
 #include "acfg.h"
+#include "evabase.h"
 
 #include <unordered_map>
 #include <mutex>
@@ -132,6 +133,13 @@ void setup_be_bidirectional(bufferevent *be)
 	bufferevent_enable(be, EV_READ|EV_WRITE);
 	int yes(1);
 	::setsockopt(bufferevent_getfd(be), IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
+}
+
+void FinishConnection(int fd)
+{
+	if(fd == -1)
+		return;
+	evabase::Post([fd]() { if (!evabase::GetGlobal().IsShuttingDown()) termsocket_async(fd, evabase::base);});
 }
 
 }

@@ -235,7 +235,6 @@ void term_handler(evutil_socket_t signum, short, void*)
 	case (SIGINT):
 	case (SIGQUIT):
 	{
-		evabase::in_shutdown.store(true);
 		evabase::SignalStop();
 		break;
 	}
@@ -247,6 +246,7 @@ void term_handler(evutil_socket_t signum, short, void*)
 void CloseAllCachedConnections();
 
 std::unique_ptr<acres> sharedResources;
+conserver *g_server = nullptr;
 
 void daemon_init()
 {
@@ -277,18 +277,16 @@ void daemon_init()
 		exit(EXIT_FAILURE);
 	}
 
+	g_tpool = tpool::Create(300, 30);
+	g_server = conserver::Create(*sharedResources);
 
-	auto nSockets = conserver::Setup([](unique_fd&& fd, std::string name) { StartServing(move(fd), name, *sharedResources); });
-
-	if (nSockets <= 0)
+	if (!g_server || !g_server->Setup())
 	{
 		cerr
 				<< "No listening socket(s) could be created/prepared. "
 				   "Check the network, check or unset the BindAddress directive.\n";
 		exit(EXIT_FAILURE);
 	}
-
-	g_tpool = tpool::Create(300, 30);
 
 	if (!cfg::foreground && !fork_away())
 	{
@@ -311,20 +309,16 @@ void daemon_init()
 
 void daemon_deinit()
 {
-	evabase::in_shutdown = true;
 	if (!cfg::pidfile.empty())
 		unlink(cfg::pidfile.c_str());
+	delete g_server;
 	g_tpool->stop();
-	conserver::Shutdown();
 	sharedResources.reset();
 	//		CloseAllCachedConnections();
 #warning bring all users of itemregistry down!
 	TeardownServerItemRegistry();
 	log::close(false);
 }
-
-unique_ptr<evabase> g_cacherBase;
-void releaseCacherBase() { g_cacherBase.reset();}
 
 }
 
@@ -333,8 +327,7 @@ int main(int argc, const char **argv)
 {
 	using namespace acng;
 
-	acng::g_cacherBase.reset(new evabase);
-	atexit(releaseCacherBase);
+	auto eBase = evabase::Create();
 
 	ac3rdparty_init();
 	atexit(ac3rdparty_deinit);
@@ -344,5 +337,5 @@ int main(int argc, const char **argv)
 	daemon_init();
 	atexit(daemon_deinit);
 
-	return acng::g_cacherBase->MainLoop();
+	return eBase->MainLoop();
 }

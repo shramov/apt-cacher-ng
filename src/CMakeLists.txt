@@ -1,6 +1,6 @@
 FILE(GLOB ALL_HEADERS "*.h")
 
-set(SERVER_SPECIFIC_SRCS job.cc conn.cc conserver.cc acregistry.cc )
+set(SERVER_SPECIFIC_SRCS job.cc conn.cc acregistry.cc )
 
 set(SHAREDSRCS astrop.cc sockio.cc acbuf.cc acfg.cc acfg_defaults.cc aclogger.cc caddrinfo.cc dirwalk.cc dlcon.cc fileio.cc
     fileitem.cc filereader.cc header.cc meta.cc ptitem.cc evabase.cc httpdate.cc
@@ -39,7 +39,7 @@ endif()
 TARGET_LINK_LIBRARIES(supacng ${BaseNetworkLibs} ${ServerLibs} ${CompLibs} ${SSL_LIB_LIST} ${LDFLAGS_DAEMON} ${CMAKE_THREAD_LIBS_INIT} ${EXTRA_LIBS_ACNG})
 INSTALL(TARGETS supacng LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 
-ADD_EXECUTABLE(apt-cacher-ng apt-cacher.cc)
+ADD_EXECUTABLE(apt-cacher-ng apt-cacher.cc conserver.cc)
 TARGET_LINK_LIBRARIES(apt-cacher-ng supacng ${BaseNetworkLibs} ${ServerLibs} ${CompLibs} ${SSL_LIB_LIST} ${LDFLAGS_DAEMON} ${CMAKE_THREAD_LIBS_INIT} ${EXTRA_LIBS_ACNG})
 SET_TARGET_PROPERTIES(apt-cacher-ng PROPERTIES COMPILE_FLAGS "${ACNG_COMPFLAGS} ${ACNG_CXXFLAGS} ${CFLAGS_DAEMON} ${CFLAGS_PTHREAD}")
 INSTALL(TARGETS apt-cacher-ng DESTINATION ${CMAKE_INSTALL_SBINDIR})

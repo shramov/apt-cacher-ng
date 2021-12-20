@@ -1,3 +1,5 @@
+Move dnsbase into custom source, access through resources!
+
 Add tests:
 
 import of files

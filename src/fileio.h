@@ -137,9 +137,11 @@ public:
 };
 */
 
+void event_and_fd_free(event*);
 using unique_fd = auto_raii<int, justforceclose, -1>;
 
 using unique_event = auto_raii<event*, event_free, nullptr>;
+using unique_fdevent = auto_raii<event*, event_and_fd_free, nullptr>;
 
 }
 

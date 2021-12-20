@@ -7,6 +7,7 @@
 #include "acbuf.h"
 #include "fileio.h"
 #include "aevutil.h"
+#include "evabase.h"
 
 #include <algorithm>
 

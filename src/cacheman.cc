@@ -308,18 +308,15 @@ cacheman::eDlResult cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileF
 
 	std::promise<eDlResult> pro;
 
-	evabase::Post([&](bool cancled)
+	evabase::Post([&]()
 	{
 		eDlResult result = eDlResult::FAIL_LOCAL;
-		if (!cancled)
+		try
 		{
-			try
-			{
-				result = cancled ? eDlResult::FAIL_LOCAL : DownloadIO();
-			}
-			catch (...)
-			{
-			}
+			result = DownloadIO();
+		}
+		catch (...)
+		{
 		}
 		// reset all handlers so they don't cause side effects through its handlers while user thread has already run away
 		m_dlCtx->curState = TDownloadContext::tState();

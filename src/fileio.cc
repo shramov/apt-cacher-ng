@@ -234,4 +234,14 @@ ssize_t ACNG_API eb_dump_chunks(evbuffer* inbuf, std::function<void(string_view)
 	}
 	return consumed;
 };
+
+void event_and_fd_free(event *e)
+{
+	if (!e)
+		return;
+	auto fd = event_get_fd(e);
+	event_free(e);
+	checkforceclose(fd);
+}
+
 }

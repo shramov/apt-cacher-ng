@@ -37,47 +37,19 @@ struct tResolvConfStamp
 	timespec changeTime;
 } cachedDnsFingerprint { 0, 0, { 0, 1 } };
 
-std::atomic<bool> evabase::in_shutdown = ATOMIC_VAR_INIT(false);
-
 struct event *handover_wakeup;
 const struct timeval timeout_asap{0,0};
 #warning add unlocked queues which are only used when installing thread is the main thread
-deque<tCancelableAction> incoming_cancelable_q, temp_cancelable_q, local_cancelable_q;
 deque<tAction> incoming_simple_q, temp_simple_q, local_simple_q;
 std::mutex handover_mx;
 void RejectPendingDnsRequests();
+bool g_shutdownHint = false;
 
 namespace conserver
 {
 // forward declarations for the pointer checks
 //void cb_resume(evutil_socket_t fd, short what, void* arg);
 void do_accept(evutil_socket_t server_fd, short what, void* arg);
-}
-
-/**
- * Forcibly run each callback and signal shutdown.
- */
-int collect_event_info(const event_base*, const event* ev, void* ret)
-{
-	t_event_desctor r;
-	event_base *nix;
-	short what;
-	auto lret((deque<t_event_desctor>*)ret);
-	event_get_assignment(ev, &nix, &r.fd, &what, &r.callback, &r.arg);
-	lret->emplace_back(move(r));
-	return 0;
-}
-struct tShutdownAction
-{
-	event_callback_fn filter_cb_ptr;
-	std::function<void(t_event_desctor)> action;
-};
-
-std::vector<tShutdownAction> shutdownActions;
-
-void evabase::addTeardownAction(event_callback_fn matchedCback, std::function<void (t_event_desctor)> action)
-{
-	shutdownActions.emplace_back( tShutdownAction {matchedCback, action});
 }
 
 CDnsBase::~CDnsBase()
@@ -236,40 +208,33 @@ ACNG_API int evabase::MainLoop()
 
 	int r = event_base_loop(evabase::base, EVLOOP_NO_EXIT_ON_EMPTY);
 
-	in_shutdown = true;
+	notify();
 
 	// make sure that there are no actions from abandoned DNS bases blocking the futures
 	RejectPendingDnsRequests();
 	PushLoop();
 
-	// send teardown hint to all event callbacks
-	deque<t_event_desctor> todo;
-	event_base_foreach_event(evabase::base, collect_event_info, &todo);
-	for (const auto &ptr : todo)
-	{
-		for(auto& ac: shutdownActions)
-		{
-			if (ac.filter_cb_ptr == ptr.callback && ac.action)
-				ac.action(ptr);
-		}
-	}
-
-	PushLoop();
-
 #ifdef HAVE_SD_NOTIFY
 	sd_notify(0, "READY=0");
 #endif
+
+	// this might cause trouble with sloppy written tests
+#ifndef UNDER_TEST
+	// nothing but our owner should reference it now
+	ASSERT(__ref_cnt() == 1);
+#endif
+
 	return r;
 }
 
 void evabase::SignalStop()
 {
-	// actually set this ASAP since it's atomic
-	in_shutdown = true;
+	g_shutdownHint = true;
+
 	Post([]()
 	{
 		if(evabase::base)
-		event_base_loopbreak(evabase::base);
+			event_base_loopbreak(evabase::base);
 	});
 }
 
@@ -284,19 +249,9 @@ void cb_handover(evutil_socket_t, short, void*)
 	}
 	temp_simple_q.clear();
 
-	temp_cancelable_q.swap(local_cancelable_q);
-	for(const auto& ac: temp_cancelable_q)
-	{
-		if(AC_LIKELY(ac))
-			ac(evabase::in_shutdown);
-	}
-	temp_cancelable_q.clear();
-//	retrigger |= !local_cancelable_q.empty();
-
 	{
 		std::lock_guard g(handover_mx);
 		temp_simple_q.swap(incoming_simple_q);
-		temp_cancelable_q.swap(incoming_cancelable_q);
 	}
 	for(const auto& ac: temp_simple_q)
 	{
@@ -304,37 +259,14 @@ void cb_handover(evutil_socket_t, short, void*)
 			ac();
 	}
 	temp_simple_q.clear();
-	for(const auto& ac: temp_cancelable_q)
-	{
-		if(AC_LIKELY(ac))
-			ac(evabase::in_shutdown);
-	}
-	temp_cancelable_q.clear();
 	retrigger |= !local_simple_q.empty();
-	retrigger |= !local_cancelable_q.empty();
 	if (!retrigger)
 	{
 		std::lock_guard g(handover_mx);
 		temp_simple_q.swap(incoming_simple_q);
-		temp_cancelable_q.swap(incoming_cancelable_q);
 	}
 	if (retrigger)
 		event_add(handover_wakeup, &timeout_asap);
-}
-
-void evabase::Post(tCancelableAction&& act)
-{
-	if (evabase::IsMainThread())
-	{
-		local_cancelable_q.emplace_back(move(act));
-	}
-	else
-	{
-		std::lock_guard g(handover_mx);
-		incoming_cancelable_q.emplace_back(move(act));
-	}
-	ASSERT(handover_wakeup);
-	event_add(handover_wakeup, &timeout_asap);
 }
 
 void evabase::Post(tAction && act)
@@ -364,6 +296,7 @@ evabase::evabase()
 evabase::~evabase()
 {
 	delete m_cachedDnsBase;
+	m_cachedDnsBase = nullptr;
 
 	if(evabase::base)
 	{
@@ -393,10 +326,8 @@ uintptr_t evabase::SyncRunOnMainThread(std::function<uintptr_t ()> act, uintptr_
 	auto fut = pro.get_future();
 	try
 	{
-		Post([&](bool cancled) -> void
+		Post([&]() -> void
 		{
-			if (cancled)
-				pro.set_value(onRejection);
 			try
 			{
 				pro.set_value(act());

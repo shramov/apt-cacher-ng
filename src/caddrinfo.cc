@@ -409,14 +409,14 @@ SHARED_PTR<CAddrInfo> CAddrInfo::Resolve(cmstring & sHostname, uint16_t nPort)
 void CAddrInfo::Resolve(cmstring & sHostname, uint16_t nPort, tDnsResultReporter rep)
 {
 	// keep a reference on the dns base to extend its lifetime
-	auto cb_invoke_dns_res = [sHostname, nPort, rep = move(rep)](bool canceled) mutable
+	auto cb_invoke_dns_res = [sHostname, nPort, rep = move(rep)]() mutable
 	{
 		LOGSTARTFUNCsx(sHostname);
 		tDnsResContext *ctx = nullptr;
 
 		try
 		{
-			if (AC_UNLIKELY(canceled || evabase::in_shutdown))
+			if (AC_UNLIKELY(evabase::GetGlobal().IsShuttingDown()))
 			{
 				rep(make_shared<CAddrInfo>("system error"));
 				return;

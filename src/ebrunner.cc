@@ -13,7 +13,7 @@ void ac3rdparty_deinit();
 tMinComStack::tMinComStack()
 {
 	ac3rdparty_init();
-	ebase = new evabase;
+	ebase = evabase::Create();
 	sharedResources = acres::Create();
 	dler = dlcontroller::CreateRegular(*sharedResources);
 }
@@ -30,7 +30,6 @@ tMinComStack::~tMinComStack()
 	delete sharedResources;
 	// run last-minute termination actions
 	evabase::GetGlobal().PushLoop();
-	delete ebase;
 	ac3rdparty_deinit();
 }
 

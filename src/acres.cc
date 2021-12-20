@@ -23,12 +23,20 @@ class acresImpl : public acres
 	std::map<int, std::unique_ptr<tClock>> customClocks;
 	tSslConfig m_ssl_setup;
 	rex *rx = nullptr;
+	aobservable::subscription m_shutdownSub;
 
 public:
 	acresImpl()
 	{
 		kaClock = tClock::Create(defaultKeepAliveTimeout);
 		idleClock = tClock::Create(idleTimeout);
+		m_shutdownSub = evabase::GetGlobal().subscribe([&]()
+		{
+			kaClock.reset();
+			idleClock.reset();
+			customClocks.clear();
+			m_shutdownSub.reset();
+		});
 	}
 	~acresImpl()
 	{

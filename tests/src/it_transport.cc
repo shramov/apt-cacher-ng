@@ -20,16 +20,20 @@
 using namespace acng;
 using namespace std;
 
+extern acres *g_res;
+
 class TransportTest : public ::testing::Test
 {
 protected:
-	int nSockets = 0;
+	bool server_okay = false;
 	std::list<unique_fd> parkedFds;
+	conserver *serva;
 
 	void SetUp() override
 	{
 		acng::cfg::port = TESTPORT;
-		nSockets = conserver::Setup([&](unique_fd&&ufd, std::string) { parkedFds.emplace_back(move(ufd)); });
+		serva = conserver::Create(*g_res);
+		server_okay = serva->Setup();
 	}
 	void TearDown() override
 	{
@@ -41,7 +45,7 @@ protected:
 TEST_F(TransportTest, server_started)
 {
 	// NOTE: expecting IPv6 functionality here, so two sockets
-	ASSERT_GT(nSockets, 1);
+	ASSERT_TRUE(server_okay);
 }
 
 TEST_F(TransportTest, just_connect)
