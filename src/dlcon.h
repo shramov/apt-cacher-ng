@@ -46,7 +46,7 @@ public:
 	 * @param extraHeaders
 	 * @return
 	 */
-	virtual bool AddJob(lint_ptr<fileitem> fi, tHttpUrl* src, tRepoResolvResult* repoSrc, bool isPT = false, mstring extraHeaders = "") =0;
+	virtual bool AddJob(lint_ptr<fileitem> fi, const tHttpUrl* src, tRepoResolvResult* repoSrc, bool isPT = false, mstring extraHeaders = "") =0;
 };
 
 }

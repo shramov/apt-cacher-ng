@@ -24,7 +24,7 @@ namespace acng
 {
 string dnsError("Unknown DNS error");
 
-struct tConnRqData : public tLintRefcounted
+struct ConnProbingContext : public tLintRefcounted
 {
 	time_t exTime;
 	mstring target;
@@ -46,22 +46,25 @@ struct tConnRqData : public tLintRefcounted
 	void step(int fd, short what);
 	static void cbStep(int fd, short what, void* arg)
 	{
-		((tConnRqData*)arg)->step(fd, what);
+		((ConnProbingContext*)arg)->step(fd, what);
 	}
-	void retError(mstring, uint_fast16_t flags);
+	void retError(mstring, tComError flags);
 	void retSuccess(int fd);
 	void disable(int fd, int ec);
-	void abort()
+	void stop()
 	{
 		// stop all event interaction ASAP and (maybe) self-destruct
 		m_cbReport = aconnector::tCallback();
 		m_eventFds.clear();
 	}
+	~ConnProbingContext()
+	{
+	}
 };
 
 TFinalAction aconnector::Connect(cmstring& target, uint16_t port, tCallback cbReport, int timeout)
 {
-	auto ctx = make_lptr<tConnRqData>();
+	auto ctx = make_lptr<ConnProbingContext>();
 	if (timeout < 0)
 		ctx->exTime = GetTime() + cfg::GetNetworkTimeout()->tv_sec;
 	else if (timeout == 0)
@@ -77,7 +80,10 @@ TFinalAction aconnector::Connect(cmstring& target, uint16_t port, tCallback cbRe
 	{
 		ctx->processDnsResult(move(res));
 	});
-	return TFinalAction([ctx](){ ctx->abort(); });
+	return TFinalAction([ctx]()
+	{
+		ctx->stop();
+	});
 }
 
 aconnector::tConnResult aconnector::Connect(cmstring &target, uint16_t port, int timeout)
@@ -93,7 +99,7 @@ aconnector::tConnResult aconnector::Connect(cmstring &target, uint16_t port, int
 	return reppro.get_future().get();
 }
 
-void tConnRqData::processDnsResult(std::shared_ptr<CAddrInfo> res)
+void ConnProbingContext::processDnsResult(std::shared_ptr<CAddrInfo> res)
 {
 	LOGSTARTFUNCs;
 	if (!m_cbReport)
@@ -110,7 +116,7 @@ void tConnRqData::processDnsResult(std::shared_ptr<CAddrInfo> res)
 	step(-1, 0);
 }
 
-void tConnRqData::step(int fd, short what)
+void ConnProbingContext::step(int fd, short what)
 {
 	LOGSTARTFUNCx(fd, what);
 	if (!m_cbReport)
@@ -197,15 +203,15 @@ void tConnRqData::step(int fd, short what)
 	LOG("pending connections: " << m_pending);
 }
 
-void tConnRqData::retError(mstring msg, uint_fast16_t flags)
+void ConnProbingContext::retError(mstring msg, tComError errHints)
 {
 	LOGSTARTFUNCx(msg);
 	if (m_cbReport)
-		m_cbReport({unique_fd(), move(msg), flags});
-	return abort();
+		m_cbReport({unique_fd(), move(msg), errHints});
+	return stop();
 }
 
-void tConnRqData::retSuccess(int fd)
+void ConnProbingContext::retSuccess(int fd)
 {
 	// doing destructors work already since we need to visit nodes anyway to find and extract the winner
 	auto it = find_if(m_eventFds.begin(), m_eventFds.end(), [fd](auto& el){return el.fd.get() == fd;});
@@ -220,10 +226,10 @@ void tConnRqData::retSuccess(int fd)
 		if (m_cbReport)
 			m_cbReport({move(it->fd), se, 0});
 	}
-	return abort();
+	return stop();
 }
 
-void tConnRqData::disable(int fd, int ec)
+void ConnProbingContext::disable(int fd, int ec)
 {
 	LOGSTARTFUNCx(fd);
 	ASSERT(fd != -1);

@@ -348,7 +348,7 @@ public:
 	void DispatchDfrd(tDlJob* what);
 	static void cbDispatchTheQueue(evutil_socket_t, short, void *);
 
-	bool AddJob(lint_ptr<fileitem> fi, tHttpUrl* src, tRepoResolvResult* repoSrc, bool isPT, mstring extraHeaders) override;
+	bool AddJob(lint_ptr<fileitem> fi, const tHttpUrl* src, tRepoResolvResult* repoSrc, bool isPT, mstring extraHeaders) override;
 	void Dispatch(tDlJob* what);
 	void StraightToBacklog(tDlJob* j);
 };
@@ -431,7 +431,7 @@ struct tDlJob
 		return m_pRepoDesc ? m_pRepoDesc->m_pHooks : nullptr;
 	}
 
-	inline tDlJob(uint_fast32_t id, const tFileItemPtr& pFi, tHttpUrl* src, tRepoResolvResult* repoSrc, bool isPT, mstring extraHeaders) :
+	inline tDlJob(uint_fast32_t id, const tFileItemPtr& pFi, const tHttpUrl* src, tRepoResolvResult* repoSrc, bool isPT, mstring extraHeaders) :
 		m_pStorageRef(pFi),
 		m_extraHeaders(move(extraHeaders)),
 		m_bIsPassThroughRequest(isPT),
@@ -1438,7 +1438,7 @@ void CDlConn::StraightToBacklog(tDlJob *j)
 	}
 }
 
-bool CDlConn::AddJob(lint_ptr<fileitem> fi, tHttpUrl *src, tRepoResolvResult *repoSrc, bool isPT, mstring extraHeaders)
+bool CDlConn::AddJob(lint_ptr<fileitem> fi, const tHttpUrl *src, tRepoResolvResult *repoSrc, bool isPT, mstring extraHeaders)
 {
 	tDlJob *j = nullptr;
 	try

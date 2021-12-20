@@ -42,10 +42,9 @@ class ACNG_API cacheman :
 		public IFileHandler,
 		public tExclusiveUserAction
 {
-
 public:
 	cacheman(tRunParms&& parms);
-	virtual ~cacheman() =default;
+	virtual ~cacheman();
 
 	enum enumMetaType
 		: uint8_t
@@ -106,6 +105,11 @@ SUTPROTECTED:
 	std::unordered_map<mstring,bool> m_forceKeepInTrash;
 	mstring m_processedIfile;
 
+	// helper object, remembering state on IO tread
+	struct TDownloadContext;
+	TDownloadContext* m_dlCtx = nullptr;
+	TDownloadContext* GetDlRes();
+
 	enumMetaType GuessMetaTypeFromURL(const mstring &sPath);
 
 	// stuff in those directories must be managed by some top-level index files
@@ -153,14 +157,16 @@ SUTPROTECTED:
 		OK,
 		GONE,
 		FAIL_LOCAL,
-		FAIL_REMOTE
+		FAIL_REMOTE,
+		IO_AGAIN
 	};
 
-	virtual eDlResult Download(cmstring& sFilePathRel, bool bIsVolatileFile,
+	eDlResult Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 			eDlMsgPrio msgLevel,
 			const tHttpUrl *pForcedURL=nullptr, unsigned hints=0, cmstring* sGuessedFrom = nullptr, bool bForceReDownload = false);
 #define DL_HINT_GUESS_REPLACEMENT 0x1
 #define DL_HINT_NOTAG 0x2
+	eDlResult DownloadIO();
 
 	void TellCount(unsigned nCount, off_t nSize);
 

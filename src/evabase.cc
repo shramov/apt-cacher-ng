@@ -386,7 +386,9 @@ void evabase::PushLoop()
 
 uintptr_t evabase::SyncRunOnMainThread(std::function<uintptr_t ()> act, uintptr_t onRejection)
 {
-	ASSERT(std::this_thread::get_id() != evabase::GetMainThreadId());
+	if(std::this_thread::get_id() == evabase::GetMainThreadId())
+		return act();
+
 	std::promise<uintptr_t> pro;
 	auto fut = pro.get_future();
 	try

@@ -257,6 +257,17 @@ std::string GetBaseName(const std::string &in);
 std::string GetDirPart(const std::string &in);
 std::pair<std::string,std::string> SplitDirPath(const std::string& in);
 std::string PathCombine(string_view a, string_view b);
+inline std::string Concat(string_view a, string_view b, string_view c = string_view())
+{
+	std::string ret;
+	if (!a.empty())
+		ret.append(a);
+	if (!b.empty())
+		ret.append(b);
+	if (!c.empty())
+		ret.append(c);
+	return ret;
+}
 
 bool scaseequals(string_view a, string_view b);
 

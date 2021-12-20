@@ -22,6 +22,7 @@
 #include <string>
 #include <iostream>
 #include <algorithm>
+#include <future>
 
 #include <unistd.h>
 
@@ -240,24 +241,120 @@ mstring FindCommonPath(cmstring& a, cmstring& b)
 }
 */
 
+struct cacheman::TDownloadContext
+{
+	struct tParms
+	{
+		mstring sFilePathRel;
+		cacheman::eDlMsgPrio msgVerbosityLevel;
+		const tHttpUrl * pForcedURL;
+		unsigned hints;
+		cmstring* sGuessedFrom;
+		bool bForceReDownload;
+	} m_parms;
+
+	lint_user_ptr<dlcontroller> dler;
+
+	struct tState
+	{
+		mstring sErr;
+		const tHttpUrl* fallbackUrl = nullptr;
+		fileitem::FiStatus initState = fileitem::FIST_FRESH;
+		tRepoResolvResult repinfo;
+		TFileItemHolder fiaccess;
+
+		mstring sFilePathAbs;
+
+		//uint64_t prog_before = 0;
+
+		tHttpUrl parserPath, parserHead;
+		// alternatives!
+		const tHttpUrl *pResolvedDirectUrl=nullptr;
+		tRepoResolvResult repoSrc;
+		header hor;
+		fileitem::tSpecialPurposeAttr attr;
+
+		unsigned dlactive = 0;
+		aobservable::subscription observer;
+	} curState;
+};
+
+cacheman::~cacheman()
+{
+	if (m_dlCtx)
+	{
+		evabase::GetGlobal().SyncRunOnMainThread([&]()
+		{
+			delete m_dlCtx;
+			m_dlCtx = nullptr;
+			return 0;
+		});
+	}
+}
+
 cacheman::eDlResult cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 		cacheman::eDlMsgPrio msgVerbosityLevel,
 		const tHttpUrl * pForcedURL, unsigned hints,
 		cmstring* sGuessedFrom, bool bForceReDownload)
 {
-	return eDlResult::FAIL_LOCAL;
-#warning implement me as detached client actor
-#if 0
+	if (!m_dlCtx)
+		m_dlCtx = (TDownloadContext*) evabase::GetGlobal().SyncRunOnMainThread([&](){ return (uintptr_t) new TDownloadContext; });
+	if (!m_dlCtx)
+		return eDlResult::FAIL_LOCAL;
+	m_dlCtx->m_parms = { sFilePathRel, msgVerbosityLevel, pForcedURL, hints, sGuessedFrom, bForceReDownload };
+	m_dlCtx->curState = TDownloadContext::tState();
+	m_dlCtx->curState.sFilePathAbs = SABSPATH(sFilePathRel);
+	m_dlCtx->curState.attr.bVolatile = bIsVolatileFile;
 
-	LOGSTART("tCacheMan::Download");
+	std::promise<eDlResult> pro;
 
-	mstring sErr;
+	evabase::Post([&](bool cancled)
+	{
+		eDlResult result = eDlResult::FAIL_LOCAL;
+		if (!cancled)
+		{
+			try
+			{
+				result = cancled ? eDlResult::FAIL_LOCAL : DownloadIO();
+			}
+			catch (...)
+			{
+			}
+		}
+		// reset all handlers so they don't cause side effects through its handlers while user thread has already run away
+		m_dlCtx->curState = TDownloadContext::tState();
+		pro.set_value(result);
+	});
+
+	try
+	{
+		return pro.get_future().get();
+	}
+	catch (...)
+	{
+		return eDlResult::FAIL_LOCAL;
+	}
+}
+
+cacheman::eDlResult cacheman::DownloadIO()
+{
+	LOGSTARTFUNC;
+
+	auto& state = m_dlCtx->curState;
+	auto& dler = m_dlCtx->dler;
 	eDlResult ret = eDlResult::FAIL_REMOTE;
-	const tHttpUrl* fallbackUrl = nullptr;
-	fileitem::FiStatus initState = fileitem::FIST_FRESH;
 
-	tRepoResolvResult repinfo;
-	auto dler = GetDlRes().SetupDownloader();
+	auto& sFilePathRel = m_dlCtx->m_parms.sFilePathRel;
+	auto msgVerbosityLevel = m_dlCtx->m_parms.msgVerbosityLevel;
+	auto* pForcedURL = m_dlCtx->m_parms.pForcedURL;
+	auto hints = m_dlCtx->m_parms.hints;
+	auto& sGuessedFrom = m_dlCtx->m_parms.sGuessedFrom;
+
+	if (state.dlactive == 1)
+		goto FROM_ITEM_CB_FIRST;
+
+	if (!dler)
+		dler = dlcontroller::CreateRegular(m_parms.res);
 	if (!dler)
 		return eDlResult::FAIL_LOCAL;
 
@@ -266,45 +363,31 @@ cacheman::eDlResult cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileF
 #define NEEDED_VERBOSITY_ALL_BUT_ERRORS (msgVerbosityLevel >= eDlMsgPrio::HIDE_ERR)
 #define NEEDED_VERBOSITY_EVERYTHING (msgVerbosityLevel >= eDlMsgPrio::SHOW_ALL)
 
-	const tIfileAttribs &flags=GetFlags(sFilePathRel);
-	if(flags.uptodate)
+#define GOTOREPMSG(x, y) {state.sErr = x; ret = y; goto rep_dlresult; }
+//#define RETURN_REPORTING
+
+	if(GetFlags(sFilePathRel).uptodate)
 	{
 		if(NEEDED_VERBOSITY_ALL_BUT_ERRORS)
-			SendFmt<<"Checking "<<sFilePathRel<< (bIsVolatileFile
+			SendFmt<<"Checking "<<sFilePathRel<< (state.attr.bVolatile
 					? "... (fresh)<br>\n" : "... (complete)<br>\n");
 		return eDlResult::OK;
 	}
 
-#define GOTOREPMSG(x, y) {sErr = x; ret = y; goto rep_dlresult; }
-
-	mstring sFilePathAbs(SABSPATH(sFilePathRel));
-
-	//uint64_t prog_before = 0;
-
-	tHttpUrl parserPath, parserHead;
-	// alternatives!
-	const tHttpUrl *pResolvedDirectUrl=nullptr;
-	tRepoResolvResult repoSrc;
-
-	std::pair<fileitem::FiStatus, tRemoteStatus> dlres;
-
-
 	// header could contained malformed data and be nuked in the process,
 	// try to get the original source whatever happens
-	header hor;
-	hor.LoadFromFile(sFilePathAbs + ".head");
+	state.hor.LoadFromFile(state.sFilePathAbs + ".head");
 
-	dbgline;
-	auto mode = (m_bForceDownload | bForceReDownload) ? ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY :
-								   (bIsVolatileFile ? ESharingHow::AUTO_MOVE_OUT_OF_THE_WAY :
-													  ESharingHow::ALWAYS_TRY_SHARING);
-
-	fileitem::tSpecialPurposeAttr attr;
-	attr.bVolatile = bIsVolatileFile;
-	auto fiaccess = GetDlRes().GetItemRegistry()->Create(sFilePathRel, mode, attr);
-	auto pFi=fiaccess.get();
-
-	if (!pFi)
+	{
+		dbgline;
+		auto mode = (m_bForceDownload | m_dlCtx->m_parms.bForceReDownload) ? ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY :
+																			 (state.attr.bVolatile ? ESharingHow::AUTO_MOVE_OUT_OF_THE_WAY :
+																									 ESharingHow::ALWAYS_TRY_SHARING);
+		if(! m_parms.res.GetItemRegistry().get())
+			return eDlResult::FAIL_LOCAL;
+		state.fiaccess = m_parms.res.GetItemRegistry()->Create(sFilePathRel, mode, state.attr);
+	}
+	if (!state.fiaccess.get())
 	{
 		if (NEEDED_VERBOSITY_ALL_BUT_ERRORS)
 			SendFmt << "Checking " << sFilePathRel << "...\n"; // just display the name ASAP
@@ -312,53 +395,50 @@ cacheman::eDlResult cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileF
 	}
 
 	dbgline;
-	if(bIsVolatileFile && m_bSkipIxUpdate)
+	if(state.attr.bVolatile && m_bSkipIxUpdate)
 	{
 		SendFmt << "Checking " << sFilePathRel << "... (skipped, as requested)<br>\n";
 		dbgline;
 		return eDlResult::OK;
 	}
+	state.initState = state.fiaccess->Setup();
 
-    initState = pFi->Setup();
-    {
-        lockguard g(*pFi);
-        if (initState > fileitem::FIST_COMPLETE)
-			GOTOREPMSG(message_detox(pFi->m_responseStatus.msg, pFi->m_responseStatus.code), eDlResult::FAIL_REMOTE);
+	if (state.initState > fileitem::FIST_COMPLETE)
+		GOTOREPMSG(message_detox(state.fiaccess.get()->m_responseStatus.msg,
+								 state.fiaccess.get()->m_responseStatus.code), eDlResult::FAIL_REMOTE);
 
-        if (fileitem::FIST_COMPLETE == initState)
-        {
-            if(pFi->m_responseStatus.code != 200)
-            {
-                SendFmt << "Error downloading " << sFilePathRel << ":\n";
-                goto format_error;
-                //GOTOREPMSG(pFi->GetHeader().frontLine);
-            }
-            SendFmt << "Checking " << sFilePathRel << "... (complete)<br>\n";
-			return eDlResult::OK;
-        }
-        if (NEEDED_VERBOSITY_ALL_BUT_ERRORS)
-            SendFmt << (bIsVolatileFile ? "Checking/Updating " : "Downloading ")
-            << sFilePathRel	<< "...\n";
-    }
+	if (fileitem::FIST_COMPLETE == state.initState)
+	{
+		if(state.fiaccess.get()->m_responseStatus.code != 200)
+		{
+			SendFmt << "Error downloading " << sFilePathRel << ":\n";
+			goto format_error;
+			//GOTOREPMSG(pFi->GetHeader().frontLine);
+		}
+		SendFmt << "Checking " << sFilePathRel << "... (complete)<br>\n";
+		return eDlResult::OK;
+	}
+	if (NEEDED_VERBOSITY_ALL_BUT_ERRORS)
+		SendFmt << (state.attr.bVolatile ? "Checking/Updating " : "Downloading ")
+				<< sFilePathRel	<< "...\n";
 
-	if(!GetDlRes().GetItemRegistry())
-		return eDlResult::FAIL_LOCAL;
+
 	if (pForcedURL)
-		pResolvedDirectUrl=pForcedURL;
+		state.pResolvedDirectUrl = pForcedURL;
 	else
 	{
 		// must have the URL somewhere
 
-		bool bCachePathAsUriPlausible=parserPath.SetHttpUrl(sFilePathRel, false);
-		ldbg("Find backend for " << sFilePathRel << " parsed as host: "  << parserPath.sHost
-				<< " and path: " << parserPath.sPath << ", ok? " << bCachePathAsUriPlausible);
+		bool bCachePathAsUriPlausible = state.parserPath.SetHttpUrl(sFilePathRel, false);
+		ldbg("Find backend for " << sFilePathRel << " parsed as host: "  << state.parserPath.sHost
+				<< " and path: " << state.parserPath.sPath << ", ok? " << bCachePathAsUriPlausible);
 
 		if(!cfg::stupidfs && bCachePathAsUriPlausible
-				&& nullptr != (repoSrc.repodata = remotedb::GetInstance().GetRepoData(parserPath.sHost))
-				&& !repoSrc.repodata->m_backends.empty())
+				&& nullptr != (state.repoSrc.repodata = remotedb::GetInstance().GetRepoData(state.parserPath.sHost))
+				&& !state.repoSrc.repodata->m_backends.empty())
 		{
 			ldbg("will use backend mode, subdirectory is path suffix relative to backend uri");
-			repoSrc.sRestPath = parserPath.sPath.substr(1);
+			state.repoSrc.sRestPath = state.parserPath.sPath.substr(1);
 		}
 		else
 		{
@@ -370,22 +450,22 @@ cacheman::eDlResult cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileF
 			dbgline;
 			if(bCachePathAsUriPlausible) // default option, unless the next check matches
 			{
-				StrSubst(parserPath.sPath, "//", "/");
-				pResolvedDirectUrl = &parserPath;
+				StrSubst(state.parserPath.sPath, "//", "/");
+				state.pResolvedDirectUrl = &state.parserPath;
 			}
 			// and prefer the source from xorig which is likely to deliver better result
-			if(hor.h[header::XORIG] && parserHead.SetHttpUrl(hor.h[header::XORIG], false))
+			if(state.hor.h[header::XORIG] && state.parserHead.SetHttpUrl(state.hor.h[header::XORIG], false))
 			{
 				dbgline;
-				fallbackUrl = pResolvedDirectUrl;
-				StrSubst(parserPath.sPath, "//", "/");
-				pResolvedDirectUrl = &parserHead;
+				state.fallbackUrl = state.pResolvedDirectUrl;
+				StrSubst(state.parserPath.sPath, "//", "/");
+				state.pResolvedDirectUrl = &state.parserHead;
 			}
 			else if(sGuessedFrom
-					&& hor.LoadFromFile(SABSPATH(*sGuessedFrom + ".head"))
-					&& hor.h[header::XORIG]) // might use a related file as reference
+					&& state.hor.LoadFromFile(SABSPATH(*sGuessedFrom + ".head"))
+					&& state.hor.h[header::XORIG]) // might use a related file as reference
 			{
-				mstring refURL(hor.h[header::XORIG]);
+				mstring refURL(state.hor.h[header::XORIG]);
 
 				tStrPos spos(0); // if not 0 -> last slash sign position if both
 				for(tStrPos i=0; i< sGuessedFrom->size() && i< sFilePathRel.size(); ++i)
@@ -403,15 +483,15 @@ cacheman::eDlResult cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileF
 					refURL.erase(urlSlashPos);
 					refURL += sFilePathRel.substr(spos);
 					//refURL.replace(urlSlashPos, chopLen, sPathSep.substr(spos));
-					if(parserHead.SetHttpUrl(refURL, false))
+					if(state.parserHead.SetHttpUrl(refURL, false))
 					{
-						StrSubst(parserPath.sPath, "//", "/");
-						pResolvedDirectUrl = &parserHead;
+						StrSubst(state.parserPath.sPath, "//", "/");
+						state.pResolvedDirectUrl = &state.parserHead;
 					}
 				}
 			}
 
-			if(!pResolvedDirectUrl)
+			if(!state.pResolvedDirectUrl)
 			{
 				SendChunkSZ("<b>Failed to calculate the original URL</b><br>");
 				return eDlResult::FAIL_REMOTE; // XXX: actually a local error?
@@ -420,58 +500,64 @@ cacheman::eDlResult cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileF
 	}
 
 	// might still need a repo data description
-	if (pResolvedDirectUrl)
+	if (state.pResolvedDirectUrl)
 	{
 		dbgline;
-		repinfo = remotedb::GetInstance().GetRepNameAndPathResidual(*pResolvedDirectUrl);
-		if(repinfo.repodata && !repinfo.repodata->m_backends.empty())
+		state.repinfo = remotedb::GetInstance().GetRepNameAndPathResidual(*state.pResolvedDirectUrl);
+		if(state.repinfo.repodata && !state.repinfo.repodata->m_backends.empty())
 		{
 			dbgline;
-			pResolvedDirectUrl = nullptr;
-			repoSrc = repinfo;
+			state.pResolvedDirectUrl = nullptr;
+			state.repoSrc = state.repinfo;
 		}
 	}
-#error nope, no direct acess here!
-	if (pResolvedDirectUrl)
-		dler->AddJob(pFi, *pResolvedDirectUrl);
-	else
-		dler->AddJob(pFi, repoSrc);
-	dlres = pFi->WaitForFinish(1, [&](){ SendChunk("."); return true; } );
-    if (dlres.first == fileitem::FIST_COMPLETE && dlres.second.code == 200)
+
+	state.dlactive = 1;
+	state.observer = state.fiaccess->Subscribe([&](){ DownloadIO(); });
+	m_dlCtx->dler->AddJob(as_lptr(state.fiaccess.get()), state.pResolvedDirectUrl, state.pResolvedDirectUrl ? nullptr : & state.repoSrc);
+FROM_ITEM_CB_FIRST:
+#warning add slow verbosity!
+	SendChunk(".");
+	//dlres = pFi->WaitForFinish(1, [&](){ SendChunk("."); return true; } );
+	if (state.fiaccess->GetStatus() < fileitem::FIST_COMPLETE)
+		return eDlResult::IO_AGAIN;
+
+	if (state.fiaccess->GetStatus() == fileitem::FIST_COMPLETE && state.fiaccess->m_responseStatus.code == 200)
 	{
 		dbgline;
 		ret = eDlResult::OK;
 		if (NEEDED_VERBOSITY_ALL_BUT_ERRORS)
-			SendFmt << "<i>(" << pFi->TakeTransferCount() / 1024 << "KiB)</i>\n";
+			SendFmt << "<i>(" << state.fiaccess->TakeTransferCount() / 1024 << "KiB)</i>\n";
 	}
 	else
 	{
-		ASSERT(!(dlres.second.code == 500 && dlres.second.msg.empty())); // catch a strange condition
+		ASSERT(!(state.fiaccess->m_responseStatus.code == 500 && state.fiaccess->m_responseStatus.msg.empty())); // catch a strange condition
 		LOG("having alternative url and fitem was created here anyway")
-		if(fallbackUrl && fiaccess.get() && (!pResolvedDirectUrl || fallbackUrl != pResolvedDirectUrl))
+		if(state.fallbackUrl && state.fiaccess.get() && (!state.pResolvedDirectUrl || state.fallbackUrl != state.pResolvedDirectUrl))
 		{
 			dbgline;
 			SendChunkSZ("<i>(download error, ignored, guessing alternative URL by path)</i>\n");
-			return Download(sFilePathRel, bIsVolatileFile,
+
+			return Download(sFilePathRel, state.attr.bVolatile,
 					msgVerbosityLevel,
-					fallbackUrl, hints, sGuessedFrom, true);
+					state.fallbackUrl, hints, sGuessedFrom, true);
 
 			SendFmt << "<i>Remote peer is not usable but the alternative source might be guessed from the path as "
-					<< fallbackUrl->ToURI(true) << " . If this is the better option, please remove the file "
+					<< state.fallbackUrl->ToURI(true) << " . If this is the better option, please remove the file "
 					<< sFilePathRel << ".head manually from the cache folder or remove the whole index file with the Delete button below.</i>\n";
 		}
 
 		format_error:
-		if ( (cfg::follow404 && dlres.second.code == 404) || IsDeprecatedArchFile(sFilePathRel))
+		if ( (cfg::follow404 && state.fiaccess->m_responseStatus.code == 404) || IsDeprecatedArchFile(sFilePathRel))
 		{
 			if (NEEDED_VERBOSITY_EVERYTHING)
 				SendChunkSZ("<i>(no longer available)</i>\n");
 			m_forceKeepInTrash[sFilePathRel] = true;
 			ret = eDlResult::GONE;
 		}
-		else if (flags.forgiveDlErrors
+		else if (GetFlags(sFilePathRel).forgiveDlErrors
 				||
-                (dlres.second.code == 404 && endsWith(sFilePathRel, oldStylei18nIdx))
+				(state.fiaccess->m_responseStatus.code == 404 && endsWith(sFilePathRel, oldStylei18nIdx))
 		)
 		{
 			ret = eDlResult::OK;
@@ -479,26 +565,26 @@ cacheman::eDlResult cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileF
 				SendChunkSZ("<i>(ignored)</i>\n");
 		}
 		else
-			GOTOREPMSG(message_detox(dlres.second.msg, dlres.second.code), eDlResult::FAIL_REMOTE);
+			GOTOREPMSG(message_detox(state.fiaccess->m_responseStatus.msg, state.fiaccess->m_responseStatus.code), eDlResult::FAIL_REMOTE);
 	}
 
 	rep_dlresult:
 
-	if(pFi)
+	if(state.fiaccess)
 	{
-		auto dlCount = pFi->TakeTransferCount();
+		auto dlCount = state.fiaccess->TakeTransferCount();
 		static cmstring sInternal("[INTERNAL:");
 		// need to account both, this traffic as officially tracked traffic, and also keep the count
 		// separately for expiration about trade-off calculation
-		log::transfer(dlCount, 0, sInternal + GetTaskName() + "]", sFilePathRel, false);
+		log::transfer(dlCount, 0, Concat(sInternal, GetTaskName(m_parms.type), "]"), sFilePathRel, false);
 	}
 
-	if (ret == eDlResult::OK && bIsVolatileFile)
+	if (ret == eDlResult::OK && state.attr.bVolatile)
 		SetFlags(sFilePathRel).uptodate = true;
 
 	if(ret != eDlResult::OK)
 	{
-		if(repoSrc.repodata && repoSrc.repodata->m_backends.empty() && !hor.h[header::XORIG] && !pForcedURL)
+		if(state.repoSrc.repodata && state.repoSrc.repodata->m_backends.empty() && !state.hor.h[header::XORIG] && !pForcedURL)
 		{
 			// oh, that crap: in a repo, but no backends configured, and no original source
 			// to look at because head file is probably damaged :-(
@@ -533,7 +619,7 @@ cacheman::eDlResult cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileF
 							if(tu.SetHttpUrl(url, false))
 							{
 								SendChunkSZ("Restarting download... ");
-								return Download(sFilePathRel, bIsVolatileFile,
+								return Download(sFilePathRel, state.attr.bVolatile,
 										msgVerbosityLevel, &tu, 0, nullptr, true);
 							}
 						}
@@ -544,7 +630,7 @@ cacheman::eDlResult cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileF
 				pos--;
 			}
 		}
-		else if((hints & DL_HINT_GUESS_REPLACEMENT) && dlres.second.code == 404)
+		else if((hints & DL_HINT_GUESS_REPLACEMENT) && state.fiaccess->m_responseStatus.code == 404)
 		{
 			// another special case, slightly ugly :-(
 			// this is explicit hardcoded repair code
@@ -567,20 +653,19 @@ cacheman::eDlResult cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileF
 					continue;
 				SendChunkSZ("Attempting to download the alternative version... ");
 				// if we have it already, use it as-is
-				if (!pResolvedDirectUrl)
+				if (!state.pResolvedDirectUrl)
 				{
-                    lockguard g(*pFi);
-                    auto p = pFi->m_responseOrigin;
-                    if (parserHead.SetHttpUrl(p))
-						pResolvedDirectUrl = &parserHead;
+					auto p = state.fiaccess->m_responseOrigin;
+					if (state.parserHead.SetHttpUrl(p))
+						state.pResolvedDirectUrl = &state.parserHead;
 				}
-				auto newurl(*pResolvedDirectUrl);
+				auto newurl(*state.pResolvedDirectUrl);
 				if(!endsWith(newurl.sPath, fix.fromEnd) || !StrHas(newurl.sPath, fix.extraCheck))
 					continue;
 				newurl.sPath.replace(newurl.sPath.size()-fix.fromEnd.size(), fix.fromEnd.size(),
 						fix.toEnd);
 				if(eDlResult::OK == Download(sFilePathRel.substr(0, sFilePathRel.size() - fix.fromEnd.size())
-						+ fix.toEnd, bIsVolatileFile, msgVerbosityLevel, &newurl,
+						+ fix.toEnd, state.attr.bVolatile, msgVerbosityLevel, &newurl,
 				hints &~ DL_HINT_GUESS_REPLACEMENT ))
 				{
 					MarkObsolete(sFilePathRel);
@@ -589,22 +674,22 @@ cacheman::eDlResult cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileF
 				// XXX: this sucks a little bit since we don't want to show the checkbox
 				// when the fallback download succeeded... but on failures, the previous one
 				// already added a newline before
-				AddDelCbox(sFilePathRel, sErr, true);
+				AddDelCbox(sFilePathRel, state.sErr, true);
 				return eDlResult::FAIL_REMOTE;
 			}
 		}
 		//else
 		//	AddDelCbox(sFilePathRel);
 
-		if (sErr.empty())
-			sErr = "Download error";
+		if (state.sErr.empty())
+			state.sErr = "Download error";
 		if (NEEDED_VERBOSITY_EVERYTHING || m_bVerbose)
 		{
-			if(!flags.hideDlErrors)
+			if(!GetFlags(sFilePathRel).hideDlErrors)
 			{
-				SendFmt << "<span class=\"ERROR\">" << sErr << "</span>\n";
+				SendFmt << "<span class=\"ERROR\">" << state.sErr << "</span>\n";
 				if(0 == (hints & DL_HINT_NOTAG))
-					AddDelCbox(sFilePathRel, sErr);
+					AddDelCbox(sFilePathRel, state.sErr);
 			}
 		}
 	}
@@ -613,8 +698,7 @@ cacheman::eDlResult cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileF
 	if (NEEDED_VERBOSITY_ALL_BUT_ERRORS)
 		SendChunk("\n<br>\n");
 
-	return eDlResult::OK;
-#endif
+	return eDlResult::OK;	
 }
 
 #define ERRMSGABORT  dbgline; if(m_nErrorCount && m_bErrAbort) { SendChunk(sErr); return false; }

@@ -2,6 +2,7 @@
 #include "aclock.h"
 #include "ac3rdparty.h"
 #include "rex.h"
+#include "acregistry.h"
 
 #include <map>
 
@@ -63,6 +64,13 @@ public:
 		if (!rx)
 			rx = new rex;
 		return *rx;
+	}
+
+	// acres interface
+public:
+	acng::lint_ptr<IFileItemRegistry> GetItemRegistry() override
+	{
+		return SetupServerItemRegistry();
 	}
 };
 

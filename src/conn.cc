@@ -70,12 +70,12 @@ public:
 	void writeAnotherLogRecord(const mstring &pNewFile,
 			const mstring &pNewClient);
 
-	connImpl(header&& he, size_t hRawSize, mstring clientName, lint_ptr<IFileItemRegistry> ireg, acres& res) :
+	connImpl(header&& he, size_t hRawSize, mstring clientName, acres& res) :
 		m_res(res),
 		m_h(move(he)),
 		m_hSize(hRawSize),
 		m_sClientHost(move(clientName)),
-		m_itemRegistry(move(ireg))
+		m_itemRegistry(res.GetItemRegistry())
 	{
 		LOGSTARTFUNCx(m_sClientHost);
 		/*m_keepalive = res.GetKeepAliveBeat().AddListener([this] () mutable
@@ -148,7 +148,7 @@ public:
 		lint_ptr<connImpl> worker;
 		try
 		{
-			worker.reset(new connImpl(move(h), hRawSize, move(clientName), SetupServerItemRegistry(), res));
+			worker.reset(new connImpl(move(h), hRawSize, move(clientName), /* SetupServerItemRegistry(), */ res));
 			worker->m_be.m_p = pBE;
 			pBE = nullptr;
 			worker->setup();

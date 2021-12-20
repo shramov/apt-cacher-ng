@@ -2,6 +2,7 @@
 #define ACRES_H
 
 #include "sut.h"
+#include "acsmartptr.h"
 
 extern "C"
 {
@@ -13,6 +14,7 @@ namespace acng
 class tClock;
 class tSslConfig;
 class rex;
+class IFileItemRegistry;
 
 /**
  * @brief The acres class provides access to certain shared resources
@@ -35,6 +37,8 @@ public:
 	virtual tClock& GetCustomBeat(int id, const struct timeval& interval) =0;
 	virtual tSslConfig &GetSslConfig() =0;
 	virtual rex& GetMatchers() =0;
+
+	virtual lint_ptr<IFileItemRegistry> GetItemRegistry() =0;
 };
 
 }
