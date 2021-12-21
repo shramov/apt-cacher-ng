@@ -1305,10 +1305,11 @@ bool tDlStream::TakeJob(tDlJob *pJob)
 	m_waiting.push(pJob);
 	pJob->m_DlState = tDlJob::STATE_GETHEADER;
 
-	if (!m_transport && !m_connectionToken)
-		Connect();
-	else
+	if (m_transport)
 		tryRequestMore();
+	else if (!m_connectionToken)
+		Connect();
+
 	return true;
 }
 
