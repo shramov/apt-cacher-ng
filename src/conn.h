@@ -36,29 +36,6 @@ public:
  */
 void ACNG_API StartServing(unique_fd&& fd, std::string clientName, acres&);
 
-#if 0
-class conn
-{
-public:
-#error ney. brauche einen create mit dispatcher, gleich von anfang an verschiedene typen
-	conn(unique_fd&& fd, mstring sClient, std::shared_ptr<IFileItemRegistry>);
-	/**
-	 * @brief Detach the object and run it's activities independently, eventually deleting itself.
-	 */
-	void Detach();
-
-	std::shared_ptr<IFileItemRegistry> GetItemRegistry();
-	dlcon* SetupDownloader();
-	void LogDataCounts(cmstring & sFile, mstring xff, off_t nNewIn,
-					   off_t nNewOut, bool bAsError);
-
-private:
-	conn& operator=(const conn&);
-	conn(const conn&);
-};
-
-#endif
-
 }
 
 #endif

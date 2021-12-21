@@ -3,10 +3,9 @@
 
 #include "config.h"
 #include "acbuf.h"
-//#include <sys/types.h>
 #include "acregistry.h"
 #include "sockio.h"
-#include "ptitem.h"
+#include "debug.h"
 #include "aevutil.h"
 
 namespace acng
@@ -30,7 +29,7 @@ public:
 	~job();
 
 	void Prepare(const header &h, bufferevent* be, cmstring& callerHostname, acres& res);
-	void PrepareFatalError(const header &h, string_view errorStatus);	
+	void PrepareFatalError(string_view errorStatus);
 	eJobResult Resume(bool canSend, bufferevent* be);
 
 	uint_fast32_t GetId() { return IFDEBUGELSE(m_id, 0); }
@@ -88,24 +87,24 @@ public:
 	job(const job&);
 	job& operator=(const job&);
 
-	void CookResponseHeader();
-    void AddPtHeader(cmstring& remoteHead);
 	void SetEarlySimpleResponse(string_view message, bool nobody = false);
 
-	bool ParseRangeAndIfMo(const header& h);
+	inline bool ParseRangeAndIfMo(const header& h);
+	inline void CookResponseHeader();
+	inline void AddPtHeader(cmstring& remoteHead);
 	/**
 	 * @brief HandleSuddenError sets the state to handle the errors
 	 * @return True to continue on this job, false to disconnect ASAP
 	 */
-	bool HandleSuddenError();
-    void AppendMetaHeaders();
-	void PrependHttpVariant();
-	eJobResult subscribeAndExit();
+	inline bool HandleSuddenError();
+	inline void AppendMetaHeaders();
+	inline void PrependHttpVariant();
+	inline eJobResult subscribeAndExit(int IFDEBUG(line));
 	/**
 	 * @brief GetBufFmter prepares the formatting buffer
 	 * @return Format object usable for convenient data adding, which is sent ASAP in the next operation cycles
 	 */
-	ebstream GetBufFmter();
+	inline ebstream GetBufFmter();
 };
 
 }

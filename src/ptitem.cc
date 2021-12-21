@@ -60,9 +60,9 @@ ssize_t tPassThroughFitem::DlConsumeData(evbuffer *chunk, size_t maxTake)
 		if (m_status > fileitem::FIST_COMPLETE)
 			return -1;
 
-        if (m_status < FIST_DLRECEIVING)
+        if (m_status < FIST_DLBODY)
         {
-            m_status = FIST_DLRECEIVING;
+            m_status = FIST_DLBODY;
             m_nSizeChecked = 0;
         }
 

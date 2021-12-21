@@ -55,7 +55,7 @@ struct ConnProbingContext : public tLintRefcounted
 	}
 	~ConnProbingContext()
 	{
-		DBGQLOG("FIXME: deleting from dtor: " << uintptr_t(this));
+		//DBGQLOG("FIXME: deleting from dtor: " << uintptr_t(this));
 	}
 };
 
@@ -232,7 +232,7 @@ void ConnProbingContext::retSuccess(int fd)
 			auto el = it->release();
 			m_eventFds.erase(it);
 			event_free(el);
-			DBGQLOG("FIXME: stoping on success: " << uintptr_t(this));
+			//DBGQLOG("FIXME: stoping on success: " << uintptr_t(this));
 			stop();
 			if (rep)
 				rep({unique_fd(fd), se, 0});

@@ -375,20 +375,21 @@ public:
 		if (evbuffer_add_file_segment(besender(target), *m_seg, 0, len))
 			return -1;
 		callerSendPos += len;
+		ASSERT(len >= 0);
 		return len;
 	};
 };
 
 std::unique_ptr<fileitem::ICacheDataSender> TFileitemWithStorage::GetCacheSender()
 {
-	LOGSTART("fileitem::GetFileFd");
+	LOGSTARTFUNC;
 	setLockGuard;
 
 	USRDBG("Opening " << m_sPathRel);
 	int fd = open(SZABSPATH(m_sPathRel), O_RDONLY);
 
 	if (fd == -1)
-		return make_unique<fileitem::ICacheDataSender>();
+		return std::unique_ptr<fileitem::ICacheDataSender>();
 
 #ifdef HAVE_FADVISE
 	posix_fadvise(fd, 0, m_nSizeChecked, POSIX_FADV_SEQUENTIAL);
@@ -497,7 +498,8 @@ bool TFileitemWithStorage::SafeOpenOutFile()
 		return LogSetError("Cannot store header"), false;
 
 	// okay, have the stream open
-	m_status = FIST_DLRECEIVING;
+	m_status = FIST_DLBODY;
+	NotifyObservers();
 
 	/** Tweak FS to receive a file of remoteSize in one sequence,
 	 * considering current m_nSizeChecked as well.

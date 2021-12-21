@@ -178,7 +178,9 @@ ssize_t eb_dump_chunks(evbuffer *inbuf, int out_fd, size_t nMax2SendNow)
 	while (nMax2SendNow > 0)
 	{
 		auto nbufs = evbuffer_peek(inbuf, nMax2SendNow, nullptr, ivs, _countof(ivs));
-		ASSERT(nbufs > 0);
+		if (size_t(nbufs) > _countof(ivs))
+			nbufs = _countof(ivs); // will come back here anyway
+		ASSERT(nbufs > 0); // && unsigned(nbufs) <= _countof(ivs));
 		if (nbufs <= 0)
 			return -1;
 

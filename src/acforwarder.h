@@ -4,9 +4,10 @@
 #include "actypes.h"
 #include "header.h"
 #include "acres.h"
+#include "aevutil.h"
 
 namespace acng
 {
-void PassThrough(bufferevent* be, cmstring& uri, const header& reqHead, acres& res);
+void PassThrough(unique_bufferevent_flushclosing&& xbe, cmstring& uri, const header& reqHead, acres& res);
 }
 #endif // ACFORWARDER_H

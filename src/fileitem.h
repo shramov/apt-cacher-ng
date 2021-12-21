@@ -56,7 +56,7 @@ public:
 		FIST_DLPENDING, // some download task for this item exists
 		FIST_DLASSIGNED, // our downloader was assigned (optional)
 		FIST_DLGOTHEAD,
-		FIST_DLRECEIVING,
+		FIST_DLBODY,
 		FIST_COMPLETE,
 		// error cases: downloader reports its error or last user told downloader to stop
 		FIST_DLERROR,
@@ -92,7 +92,7 @@ public:
 		 * @param maxTake Limits the data to be transfered
 		 * @return How much data was added to target, -1 on error
 		 */
-		virtual ssize_t SendData(bufferevent* target, off_t& sendPos, size_t maxTake) { return -1; };
+		virtual ssize_t SendData(bufferevent* target, off_t& sendPos, size_t maxTake) =0;
 		virtual ~ICacheDataSender() = default;
 	};
 	/**

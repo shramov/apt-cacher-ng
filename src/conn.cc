@@ -41,12 +41,7 @@ class connImpl : public IConnBase
 	header m_h;
 	ssize_t m_hSize = 0;
 
-	enum ETeardownMode
-	{
-		ACTIVE,
-		PREP_SHUTDOWN,
-		PREP_TYPECHANGE
-	} m_opMode = ACTIVE;
+	bool m_bPrepTypeChange = false;
 
 	deque<job> m_jobs;
 	lint_user_ptr<dlcontroller> m_pDlClient;
@@ -145,55 +140,43 @@ public:
 	 * @param errorStatus Optional - forced error status line to report as job result
 	 * @return True if a regular request was extracted, false if the request was something else
 	 */
-	bool addRegularRequest(string_view errorStatus = svEmpty)
+	void addRequest(string_view errorStatus = svEmpty)
 	{
-		bool ret = false;
+		LOGSTARTFUNC;
 		if (m_h.type == header::GET)
 		{
 #warning excpt. safe?
 			m_jobs.emplace_back(*this);
 			if (!errorStatus.empty())
-				m_jobs.back().PrepareFatalError(m_h, errorStatus);
+				m_jobs.back().PrepareFatalError(errorStatus);
 			else
 				m_jobs.back().Prepare(m_h, *m_be, m_sClientHost, m_res);
 			evbuffer_drain(bereceiver(*m_be), m_hSize);
-			ret = true;
 		}
 		else
 		{
 			// queue will be processed, then this flag will be considered
-			m_opMode = ETeardownMode::PREP_TYPECHANGE;
+			m_bPrepTypeChange = true;
 		}
-		continueJobs();
-		return ret;
 	}
 
 	void onRead(bufferevent* pBE)
 	{
 		auto obuf = bereceiver(pBE);
-		switch (m_opMode)
+		while (!m_bPrepTypeChange)
 		{
-		case PREP_SHUTDOWN:
-			evbuffer_drain(obuf, evbuffer_get_length(obuf));
-			return;
-		case ETeardownMode::PREP_TYPECHANGE:
-			return; // don't care now, but after mode switching
-		default:
-			bool normalJob = false;
-			do
-			{
-				m_hSize = m_h.Load(obuf);
-				if (m_hSize < 0)
-					normalJob = addRegularRequest("400 Bad Request"sv);
-				else if (m_hSize == 0)
-					return; // more data to come in upcoming callback
-				else
-					normalJob = addRegularRequest();
-			} while(normalJob);
+			m_hSize = m_h.Load(obuf);
+			if (m_hSize == 0)
+				break; // more data to come in upcoming callback
+			addRequest(m_hSize < 0 ? "400 Bad Request"sv : se );
 		}
 		continueJobs();
 	}
-	void continueJobs()
+	/**
+	 * @brief continueJobs runs remaining jobs
+	 * @return True to continue, false if "this" is destroyed
+	 */
+	bool continueJobs()
 	{
 		while (!m_jobs.empty())
 		{
@@ -201,30 +184,32 @@ public:
 			switch (jr)
 			{
 			case job::eJobResult::R_DISCON:
+			{
 				DBGQLOG("Discon for " << m_jobs.front().GetId());
 				m_jobs.clear();
-				m_opMode = PREP_SHUTDOWN; // terminated below
-				break;
+				auto destroyer = as_lptr(this);
+				be_flush_free_close(m_be.release());
+				return false;
+			}
 			case job::eJobResult::R_DONE:
 				m_jobs.pop_front();
 				continue;
 			case job::eJobResult::R_WILLNOTIFY:
-				return;
+				return true;
 			}
 		}
-		ASSERT(m_jobs.empty());
-		switch (m_opMode)
+		// ok, jobs finished, what next?
+		if (m_bPrepTypeChange)
 		{
-		case ACTIVE: // wait for new requests or timeout
-			return;
-		case PREP_TYPECHANGE:
-			return PerformTypeChange();
-		case PREP_SHUTDOWN:
-			auto destroyer = as_lptr(this);
-			return be_flush_free_close(m_be.release());
+			PerformTypeChange();
+			return false;
 		}
+		return true;
 	}
 
+	/**
+	 * @brief PerformTypeChange moves the eventbuffer to another type of connection handler and destroys this object.
+	 */
 	void PerformTypeChange()
 	{
 		LOGSTARTFUNCs;
@@ -244,7 +229,7 @@ public:
 		{
 			evbuffer_drain(bereceiver(*m_be), m_hSize);
 			// this will replace the callbacks and continue, we are done here
-			PassThrough(m_be.release(), tgt, m_h, m_res);
+			PassThrough(move(m_be), tgt, m_h, m_res);
 			return delete this;
 		}
 		// is this something we support?
@@ -253,7 +238,6 @@ public:
 			constexpr auto BDOURL = "http://bugs.debian.org:80/"sv;
 			if(startsWith(tgt, BDOURL))
 			{
-#warning TESTME
 				string_view path(tgt);
 				path.remove_prefix(BDOURL.length());
 				// XXX: consider using 426 instead, https://datatracker.ietf.org/doc/html/rfc2817#section-4.2
@@ -268,6 +252,7 @@ public:
 		}
 		sout << "HTTP/1.0 403 Forbidden\r\n"sv;
 		AppendMetaHeaders(sout);
+		// flusher will take over
 		return delete this;
 	}
 
@@ -295,8 +280,17 @@ void StartServing(unique_fd&& fd, string clientName, acres& res)
 	evutil_make_socket_closeonexec(fd.get());
 	// fd ownership moves to bufferevent closer
 	unique_bufferevent_flushclosing be(bufferevent_socket_new(evabase::base, fd.release(), BEV_OPT_DEFER_CALLBACKS));
-#warning watermarks? timeout!
-	(new connImpl(move(clientName), res))->spawn(move(be));
+#warning watermarks? timeout?
 
+	try
+	{
+		auto session = as_lptr(new connImpl(move(clientName), res));
+		session->spawn(move(be));
+		ignore_ptr(session.release());
+	}
+	catch (...)
+	{
+
+	}
 }
 }

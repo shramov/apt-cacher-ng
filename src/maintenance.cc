@@ -245,7 +245,7 @@ public:
 		m_nSizeChecked = m_nCursor + len;
 		ldbg(len << " -> " << m_nSizeChecked);
 		if (m_status == FIST_DLGOTHEAD)
-			m_status = FIST_DLRECEIVING;
+			m_status = FIST_DLBODY;
 		NotifyObservers();
 	}
 

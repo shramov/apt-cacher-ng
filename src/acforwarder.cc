@@ -29,31 +29,12 @@ struct TDirectConnector
 		// release from event base on shutdown
 		m_baseSub = evabase::GetGlobal().subscribe([this]() { cbEvent(nullptr, BEV_EVENT_EOF, this);} );
 	}
-
-	static void PassThrough(bufferevent* be, cmstring& uri, const header& reqHead, acres& res)
+	~TDirectConnector()
 	{
-		LOGSTARTFUNCs;
-
-		TDirectConnector *hndlr = nullptr;
-		// to be terminated here, in one way or another
-		unique_bufferevent_flushclosing xbe(be);
-
-		try
-		{
-			hndlr = new TDirectConnector(res);
-			xbe.swap(hndlr->m_be);
-			hndlr->m_httpProto = reqHead.GetProtoView();
-		}
-		catch (const std::bad_alloc&)
-		{
-			unique_bufferevent_fdclosing closer(be);
-		}
-		if(res.GetMatchers().Match(uri, rex::PASSTHROUGH) && hndlr->url.SetHttpUrl(uri))
-			return hndlr->Go();
-		ebstream(be) << hndlr->m_httpProto << " 403 CONNECT denied (ask the admin to allow HTTPS tunnels)\r\n\r\n"sv;
-		return delete hndlr;
+#warning implement data accounting
 	}
-	void Go()
+
+	void Go(tHttpUrl&& url)
 	{
 		auto act = [this] (atransport::tResult&& rep)
 		{
@@ -71,7 +52,7 @@ struct TDirectConnector
 			setup_be_bidirectional(targetCon);
 			m_connBuilder.reset();
 		};
-		m_connBuilder = atransport::Create(url, move(act), m_res,
+		m_connBuilder = atransport::Create(move(url), move(act), m_res,
 										   atransport::TConnectParms()
 										   .SetDirectConnection(true)
 										   .SetNoTlsOnTarget(true));
@@ -93,9 +74,34 @@ struct TDirectConnector
 	}
 };
 
-void PassThrough(bufferevent *be, cmstring &uri, const header &reqHead, acres &res)
+
+void PassThrough(unique_bufferevent_flushclosing&& xbe, cmstring& uri, const header& reqHead, acres& res)
 {
-	TDirectConnector::PassThrough(be, uri, reqHead, res);
+	LOGSTARTFUNCs;
+	try
+	{
+		bufferevent_disable(*xbe, EV_READ|EV_WRITE);
+		// be sure about THAT
+		bufferevent_setcb(*xbe, nullptr,nullptr,nullptr,nullptr);
+
+		tHttpUrl url;
+		if(res.GetMatchers().Match(uri, rex::PASSTHROUGH) && url.SetHttpUrl(uri))
+		{
+			auto hndlr = new TDirectConnector(res);
+			hndlr->m_be.reset(move(xbe));
+			hndlr->m_httpProto = reqHead.GetProtoView();
+			return hndlr->Go(move(url));
+		}
+		else
+		{
+			ebstream(xbe.get()) <<  reqHead.GetProtoView() << " 403 CONNECT denied (ask the admin to allow HTTPS tunnels)\r\n\r\n"sv;
+			return xbe.reset();
+		}
+	}
+	catch (const std::bad_alloc&)
+	{
+		return xbe.reset();
+	}
 }
 
 }

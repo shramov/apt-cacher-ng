@@ -3,10 +3,13 @@
 #define _acbuf_H
 
 #include "actypes.h"
+
 #include <limits>
 #include <string>
 #include <cstdlib>
 #include <cstring>
+
+#include <assert.h>
 
 #include <event2/buffer.h>
 #include <event2/bufferevent.h>
@@ -131,11 +134,9 @@ public:
 	bool recv(int nConFd, std::string* sErrorStatus=nullptr);
 
     inline tSS & add(const char *data, size_t len)
-	{ reserve_atleast(len); memcpy(wptr(), data, len); got(len); return *this;}
-	inline tSS & add(const char *val)
-	{ if(val) return add(val, strlen(val)); else return add("(null)", 6); }
+	{ if (len) { reserve_atleast(len); assert(data); memcpy(wptr(), data, len); got(len); }; return *this; }
+	inline tSS & add(const char *val) { if(val) return add(val, strlen(val)); return *this; }
 	inline tSS & add(const std::string& val) { return add((const char*) val.data(), (size_t) val.size());}
-
 
 	template <typename Arg>
 	static void Chain(tSS& fmter, const std::string& delimiter, Arg arg) {

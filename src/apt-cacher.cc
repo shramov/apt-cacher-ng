@@ -279,7 +279,7 @@ void daemon_init()
 
 	g_tpool = tpool::Create(300, 30);
 	g_server = conserver::Create(*sharedResources);
-
+#warning double-check that actual sockets were created, even if port was busy
 	if (!g_server || !g_server->Setup())
 	{
 		cerr

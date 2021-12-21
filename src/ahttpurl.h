@@ -42,15 +42,11 @@ public:
 			}
 			return PROT_PFX_HTTP;
 		}
-        tHttpUrl(const acng::tHttpUrl& a)
-        {
-                sHost = a.sHost;
-				nPort = a.nPort;
-                sPath = a.sPath;
-                sUserPass = a.sUserPass;
-				m_schema = a.m_schema;
-        }
-        tHttpUrl & operator=(const tHttpUrl &a)
+
+		tHttpUrl(const tHttpUrl& a) =default;
+		tHttpUrl(tHttpUrl&& a) =default;
+
+		tHttpUrl & operator=(const tHttpUrl &a)
         {
                 if(&a == this) return *this;
                 sHost = a.sHost;
@@ -92,7 +88,7 @@ public:
 		void SetPort(uint16_t nPort) { this->nPort = nPort; }
 
 		inline tHttpUrl(cmstring &host, uint16_t port, EProtoType schema) :
-			m_schema(schema), nPort(port), sHost(host)
+			nPort(port), m_schema(schema), sHost(host)
 		{
 		}
 		inline tHttpUrl(cmstring &host, uint16_t port, bool ssl) :

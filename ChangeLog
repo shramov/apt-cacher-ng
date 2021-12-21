@@ -7,7 +7,7 @@ apt-cacher-ng (4.0) 4-ELIZA; urgency=low
 FIXME: WIP
    * HTTPS connections behind a HTTPS proxy possible
 
-  [ IMPROVEMENTS AND BUGFIXES ]
+  [ INTERNAL IMPROVEMENTS AND BUGFIXES ]
 
   * Completely revamped file item serving code, now mostly single-threaded
     and in asynchronous IO style:
@@ -19,6 +19,7 @@ FIXME: WIP
     + more special responses possible without closing connection
 
   [ BUGFIXES]
+    + Data accounting for HTTPS pass-through connections
     + more correct replies in CONNECT requests
     + fixes potential ignorance of "uncached" definitions' request patterns
     + various fixes in local file serving code

@@ -15,6 +15,7 @@
 #include "evabase.h"
 #include "aevutil.h"
 #include "aclocal.h"
+#include "ptitem.h"
 #include "rex.h"
 
 #include <algorithm>
@@ -478,17 +479,17 @@ void job::Prepare(const header &h, bufferevent* be, cmstring& callerHostname, ac
 	}
 }
 
-void job::PrepareFatalError(const header &h, const string_view errorStatus)
+void job::PrepareFatalError(string_view errorStatus)
 {
 	SetEarlySimpleResponse(errorStatus, true);
 }
 
-job::eJobResult job::subscribeAndExit()
+inline job::eJobResult job::subscribeAndExit(int IFDEBUG(line))
 {
 	if (m_subKey)
 		return R_WILLNOTIFY;
 
-	LOGSTARTFUNC;
+	LOGSTARTFUNCx(line);
 
 	try
 	{
@@ -506,7 +507,7 @@ job::eJobResult job::subscribeAndExit()
 	}
 }
 
-ebstream job::GetBufFmter()
+inline ebstream job::GetBufFmter()
 {
 	if (!m_preHeadBuf.valid())
 		m_preHeadBuf.reset(evbuffer_new());
@@ -518,9 +519,9 @@ job::eJobResult job::Resume(bool canSend, bufferevent* be)
 	LOGSTARTFUNC;
 
 	// use this return helper for better tracking, actually the caller should never return
-	auto return_discon = [&]()
+	auto return_discon = [&](int IFDEBUG(line))
 	{
-		LOG("EXPLICIT DISCONNECT");
+		LOG("EXPLICIT DISCONNECT " << line);
 		m_activity = STATE_DISCO_ASAP;
 		return R_DISCON;
 	};
@@ -531,17 +532,21 @@ job::eJobResult job::Resume(bool canSend, bufferevent* be)
 			return m_activity = STATE_DONE, R_DONE;
 		if(m_keepAlive == CLOSE)
 		{
-			return return_discon();
+			return return_discon(__LINE__);
 		}
 		// unspecified?
 		if (m_bIsHttp11)
 			return m_activity = STATE_DONE, R_DONE;
-		return return_discon();
+		return return_discon(__LINE__);
 	};
+#define HANDLE_OR_DISCON { if (HandleSuddenError()) continue ; return return_discon(__LINE__); }
+#define SET_SENDER if (fist < fileitem::FiStatus::FIST_DLBODY) return subscribeAndExit(__LINE__); \
+	if (!m_dataSender) m_dataSender = fi->GetCacheSender(); \
+	if (!m_dataSender) HANDLE_OR_DISCON;
 
 	if (AC_UNLIKELY(!be))
 	{
-		return return_discon(); // shouldn't be here
+		return return_discon(__LINE__); // shouldn't be here
 	}
 
 	auto fi = m_pItem.get();
@@ -557,16 +562,12 @@ job::eJobResult job::Resume(bool canSend, bufferevent* be)
 
 	do
 	{
-
-#define HANDLE_OR_DISCON { if (HandleSuddenError()) continue ; return R_DISCON; }
-#define ENSURE_SENDER_SET if (!m_dataSender) m_dataSender = fi->GetCacheSender(); if (!m_dataSender) HANDLE_OR_DISCON;
-
 		LOG(int(m_activity));
 
 		// shouldn't be here.
 //XXX: is this actually needed? No notifications are currently passed unless the sending position is reached.
 		if (!canSend)
-			return return_discon();
+			return return_discon(__LINE__);
 
 		if (m_preHeadBuf.valid())
 		{
@@ -600,12 +601,12 @@ job::eJobResult job::Resume(bool canSend, bufferevent* be)
 		case (STATE_NOT_STARTED):
 		{
 			if (fist < fileitem::FIST_DLGOTHEAD)
-				return subscribeAndExit();
+				return subscribeAndExit(__LINE__);
 			if (fist < fileitem::FIST_COMPLETE)
 			{
 				auto have = fi->GetCheckedSize();
 				if (have < (m_nReqRangeFrom != -1 ? m_nReqRangeFrom : 0))
-					return subscribeAndExit();
+					return subscribeAndExit(__LINE__);
 			}
 
 			CookResponseHeader();
@@ -627,24 +628,24 @@ job::eJobResult job::Resume(bool canSend, bufferevent* be)
 			if (m_bIsHeadOnly) // there is no data to come!
 				return fin_stream_good();
 
-			ENSURE_SENDER_SET;
+			SET_SENDER;
 
 			if (fi->GetCheckedSize() <= m_nSendPos)
-				return subscribeAndExit();
+				return subscribeAndExit(__LINE__);
 
 			auto limit = fi->GetCheckedSize() - m_nSendPos;
 			if (m_nReqRangeTo >= 0)
 				limit = min(m_nReqRangeTo + 1 - m_nSendPos, limit);
 			if (limit <= 0)
-				return R_DISCON;
+				return return_discon(__LINE__);
 			//ldbg("~senddata: to " << fi->GetCheckedSize() << ", OLD m_nSendPos: " << m_nSendPos);
 			auto n = m_dataSender->SendData(be, m_nSendPos, limit);
 			if (n < 0)
-				return return_discon();
+				return return_discon(__LINE__);
 			m_nAllDataCount += n;
 			if (n < limit)
 				// woot, a temporary glitch? let's try a few times
-				return subscribeAndExit();
+				return subscribeAndExit(__LINE__);
 			//ldbg("~senddata: " << n << " new m_nSendPos: " << m_nSendPos);
 			if ((fi->GetStatus() == fileitem::FIST_COMPLETE && m_nSendPos == fi->GetCheckedSize())
 				|| (m_nReqRangeTo >= 0 && m_nSendPos >= m_nReqRangeTo + 1))
@@ -662,7 +663,7 @@ job::eJobResult job::Resume(bool canSend, bufferevent* be)
 
 			auto len = m_nChunkEnd - m_nSendPos;
 			if (len == 0 && fist < fileitem::FIST_COMPLETE)
-				return subscribeAndExit();
+				return subscribeAndExit(__LINE__);
 
 			ebstream outStream(be);
 			outStream << ebstream::imode::hex << len << svRN;
@@ -674,7 +675,7 @@ job::eJobResult job::Resume(bool canSend, bufferevent* be)
 			}
 			else
 			{
-				ENSURE_SENDER_SET;
+				SET_SENDER;
 				m_activity = STATE_SEND_CHUNK_DATA;
 			}
 			continue;
@@ -685,10 +686,10 @@ job::eJobResult job::Resume(bool canSend, bufferevent* be)
 			auto limit = m_nChunkEnd - m_nSendPos;
 			auto n = m_dataSender->SendData(be, m_nSendPos, limit);
 			if (n < 0)
-				return return_discon();
+				return return_discon(__LINE__);
 			m_nAllDataCount += n;
 			if (n < limit)
-				return subscribeAndExit();
+				return subscribeAndExit(__LINE__);
 			if (m_nSendPos == m_nChunkEnd)
 			{
 				bufferevent_write(be, svRN);
@@ -699,7 +700,7 @@ job::eJobResult job::Resume(bool canSend, bufferevent* be)
 		}
 	} while(true);
 
-	return return_discon();
+	return return_discon(__LINE__);
 }
 
 bool job::KeepAlive(bufferevent *bev)
@@ -737,7 +738,7 @@ inline void job::AddPtHeader(cmstring& remoteHead)
 		m_keepAlive = CLOSE;
 }
 
-bool job::HandleSuddenError()
+inline bool job::HandleSuddenError()
 {
 	LOGSTARTFUNC;
 	// response ongoing, can only reject the client now?
@@ -890,7 +891,7 @@ inline void job::CookResponseHeader()
 	AppendMetaHeaders();
 }
 
-void job::PrependHttpVariant()
+inline void job::PrependHttpVariant()
 {
 	auto SB = GetBufFmter();
 	SB << (m_bIsHttp11 ? "HTTP/1.1 "sv : "HTTP/1.0 "sv);
@@ -927,7 +928,7 @@ void job::SetEarlySimpleResponse(string_view message, bool nobody)
 	SB << body;
 }
 
-void job::AppendMetaHeaders()
+inline void job::AppendMetaHeaders()
 {
 	auto fi = m_pItem.get();
 	auto SB = GetBufFmter();
