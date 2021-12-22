@@ -206,7 +206,7 @@ TFileItemHolder TFileItemRegistry::Create(cmstring &sPathUnescaped, ESharingHow 
 
 		// okay, have to move a probably existing cache file out of the way,
 		// therefore needing this evasive maneuver
-		auto replPathRel = fi->m_sPathRel + "." + ltos(now);
+		auto replPathRel = fi->m_sPathRel + "." + ltos(random());
 		auto replPathAbs = SABSPATH(replPathRel);
 		auto pathAbs = SABSPATH(fi->m_sPathRel);
 
@@ -215,7 +215,7 @@ TFileItemHolder TFileItemRegistry::Create(cmstring &sPathUnescaped, ESharingHow 
 			return TFileItemHolder();
 
 		auto abandon_replace = [&]() {
-			fi->m_sPathRel = replPathAbs;
+			fi->m_sPathRel = replPathRel;
 			fi->m_eDestroy = fileitem::EDestroyMode::ABANDONED;
 			fi->m_globRef = mapItems.end();
 			fi->m_owner = nullptr;
