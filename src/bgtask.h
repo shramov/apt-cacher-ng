@@ -63,19 +63,6 @@ private:
 	int m_logFd = -1;
 };
 
-#ifdef DEBUG
-class tBgTester : public tExclusiveUserAction
-{
-public:
-	tBgTester(tSpecialRequestHandler::tRunParms&& parms)
-		: tExclusiveUserAction(std::move(parms))
-	{
-		m_szDecoFile="maint.html";
-	}
-	void Action() override;
-};
-#endif // DEBUG
-
 enum ControLineType : uint8_t
 {
 	NotForUs = 0,

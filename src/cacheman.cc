@@ -240,6 +240,30 @@ mstring FindCommonPath(cmstring& a, cmstring& b)
 	return a.substr(0, lspos-po);
 }
 */
+struct cacheman::TDownloadState
+{
+	mutex mx;
+
+	std::promise<eDlResult> pro;
+	mstring sErr;
+	const tHttpUrl* fallbackUrl = nullptr;
+	fileitem::FiStatus initState = fileitem::FIST_FRESH;
+	tRepoResolvResult repinfo;
+	TFileItemHolder fiaccess;
+	mstring sFilePathAbs;
+
+	//uint64_t prog_before = 0;
+
+	tHttpUrl parserPath, parserHead;
+	// alternatives!
+	const tHttpUrl *pResolvedDirectUrl=nullptr;
+	tRepoResolvResult repoSrc;
+	header hor;
+	fileitem::tSpecialPurposeAttr attr;
+
+	unsigned dlactive = 0;
+	aobservable::subscription observer;
+};
 
 struct cacheman::TDownloadContext
 {
@@ -255,28 +279,8 @@ struct cacheman::TDownloadContext
 
 	lint_user_ptr<dlcontroller> dler;
 
-	struct tState
-	{
-		mstring sErr;
-		const tHttpUrl* fallbackUrl = nullptr;
-		fileitem::FiStatus initState = fileitem::FIST_FRESH;
-		tRepoResolvResult repinfo;
-		TFileItemHolder fiaccess;
-
-		mstring sFilePathAbs;
-
-		//uint64_t prog_before = 0;
-
-		tHttpUrl parserPath, parserHead;
-		// alternatives!
-		const tHttpUrl *pResolvedDirectUrl=nullptr;
-		tRepoResolvResult repoSrc;
-		header hor;
-		fileitem::tSpecialPurposeAttr attr;
-
-		unsigned dlactive = 0;
-		aobservable::subscription observer;
-	} curState;
+	std::shared_ptr<TDownloadState> curState;
+	TDownloadState& state() { return *curState; }
 };
 
 cacheman::~cacheman()
@@ -302,42 +306,49 @@ cacheman::eDlResult cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileF
 	if (!m_dlCtx)
 		return eDlResult::FAIL_LOCAL;
 	m_dlCtx->m_parms = { sFilePathRel, msgVerbosityLevel, pForcedURL, hints, sGuessedFrom, bForceReDownload };
-	m_dlCtx->curState = TDownloadContext::tState();
-	m_dlCtx->curState.sFilePathAbs = SABSPATH(sFilePathRel);
-	m_dlCtx->curState.attr.bVolatile = bIsVolatileFile;
-
-	std::promise<eDlResult> pro;
-
-	evabase::Post([&]()
-	{
-		eDlResult result = eDlResult::FAIL_LOCAL;
-		try
-		{
-			result = DownloadIO();
-		}
-		catch (...)
-		{
-		}
-		// reset all handlers so they don't cause side effects through its handlers while user thread has already run away
-		m_dlCtx->curState = TDownloadContext::tState();
-		pro.set_value(result);
-	});
-
+	auto p = make_shared<TDownloadState>();
+	m_dlCtx->curState = p;
+	p->sFilePathAbs = SABSPATH(sFilePathRel);
+	p->attr.bVolatile = bIsVolatileFile;
+	evabase::Post([&]()	{ cbDownload(); });
 	try
 	{
-		return pro.get_future().get();
+		return m_dlCtx->state().pro.get_future().get();
 	}
 	catch (...)
 	{
+		m_dlCtx->curState.reset();
 		return eDlResult::FAIL_LOCAL;
 	}
 }
+
+void cacheman::cbDownload()
+{
+	lguard g(m_dlCtx->state().mx);
+
+	eDlResult result = eDlResult::FAIL_LOCAL;
+	try
+	{
+		result = DownloadIO();
+	}
+	catch (...)
+	{
+	}
+
+	if (result != eDlResult::IO_AGAIN)
+	{
+		m_dlCtx->state().pro.set_value(result);
+		// release all callbacks
+		m_dlCtx->curState.reset();
+	}
+}
+
 
 cacheman::eDlResult cacheman::DownloadIO()
 {
 	LOGSTARTFUNC;
 	eDlResult ret = eDlResult::FAIL_REMOTE;
-	auto& state = m_dlCtx->curState;
+	auto& state = m_dlCtx->state();
 	auto& sFilePathRel = m_dlCtx->m_parms.sFilePathRel;
 
 	if (state.dlactive == 1)
@@ -365,19 +376,22 @@ cacheman::eDlResult cacheman::DownloadIO()
 	// try to get the original source whatever happens
 	state.hor.LoadFromFile(state.sFilePathAbs + ".head");
 
-	{
-		dbgline;
-		auto mode = (m_bForceDownload | m_dlCtx->m_parms.bForceReDownload) ? ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY :
-																			 (state.attr.bVolatile ? ESharingHow::AUTO_MOVE_OUT_OF_THE_WAY :
-																									 ESharingHow::ALWAYS_TRY_SHARING);
-		if(! m_parms.res.GetItemRegistry().get())
-			return eDlResult::FAIL_LOCAL;
-		state.fiaccess = m_parms.res.GetItemRegistry()->Create(sFilePathRel, mode, state.attr);
-	}
-	if (!state.fiaccess.get())
+	dbgline;
+	if(! m_parms.res.GetItemRegistry())
+		return eDlResult::FAIL_LOCAL;
+	state.fiaccess = m_parms.res.GetItemRegistry()->Create(sFilePathRel,
+														   (m_bForceDownload | m_dlCtx->m_parms.bForceReDownload)
+														   ? ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY
+														   : (state.attr.bVolatile
+															  ? ESharingHow::AUTO_MOVE_OUT_OF_THE_WAY
+															  : ESharingHow::ALWAYS_TRY_SHARING),
+														   state.attr);
+	if (state.fiaccess)
+		state.observer = state.fiaccess->Subscribe([&]{DownloadIO();});
+	else
 	{
 		if (NEEDED_VERBOSITY_ALL_BUT_ERRORS)
-			SendFmt << "Checking " << sFilePathRel << "...\n"; // just display the name ASAP
+			SendFmt << "Checking " << sFilePathRel << "..."; // just display the name ASAP
 		GOTOREPMSG(" could not create file item handler.", eDlResult::FAIL_LOCAL);
 	}
 
@@ -407,7 +421,7 @@ cacheman::eDlResult cacheman::DownloadIO()
 	}
 	if (NEEDED_VERBOSITY_ALL_BUT_ERRORS)
 		SendFmt << (state.attr.bVolatile ? "Checking/Updating " : "Downloading ")
-				<< sFilePathRel	<< "...\n";
+				<< sFilePathRel	<< "...";
 
 
 	if (m_dlCtx->m_parms.pForcedURL)
@@ -500,7 +514,7 @@ cacheman::eDlResult cacheman::DownloadIO()
 	}
 
 	state.dlactive = 1;
-	state.observer = state.fiaccess->Subscribe([&](){ DownloadIO(); });
+	state.observer = state.fiaccess->Subscribe([&]() { cbDownload(); });
 	m_dlCtx->dler->AddJob(as_lptr(state.fiaccess.get()), state.pResolvedDirectUrl, state.pResolvedDirectUrl ? nullptr : & state.repoSrc);
 FROM_ITEM_CB_FIRST:
 	{
@@ -522,7 +536,7 @@ FROM_ITEM_CB_FIRST:
 		dbgline;
 		ret = eDlResult::OK;
 		if (NEEDED_VERBOSITY_ALL_BUT_ERRORS)
-			SendFmt << "<i>(" << state.fiaccess->TakeTransferCount() / 1024 << "KiB)</i>\n";
+			SendFmt << " <i>(" << state.fiaccess->TakeTransferCount() / 1024 << "KiB)</i>\n";
 	}
 	else
 	{
@@ -567,7 +581,7 @@ FROM_ITEM_CB_FIRST:
 
 	SendChunkSZ("<br>\n");
 
-	if(state.fiaccess)
+	if (state.fiaccess)
 	{
 		auto dlCount = state.fiaccess->TakeTransferCount();
 		static cmstring sInternal("[INTERNAL:");
@@ -579,7 +593,7 @@ FROM_ITEM_CB_FIRST:
 	if (ret == eDlResult::OK && state.attr.bVolatile)
 		SetFlags(sFilePathRel).uptodate = true;
 
-	if(ret != eDlResult::OK)
+	if (ret != eDlResult::OK)
 	{
 		if(state.repoSrc.repodata
 				&& state.repoSrc.repodata->m_backends.empty()
@@ -595,37 +609,37 @@ FROM_ITEM_CB_FIRST:
 					")</span>\n<br>\n");
 
 			cmstring::size_type pos=sFilePathRel.length();
-			while(true)
+			while (true)
 			{
 				pos=sFilePathRel.rfind(CPATHSEPUNX, pos);
-				if(pos == stmiss)
+				if (pos == stmiss)
 					break;
-				for(const auto& sfx : {&inRelKey, &relKey})
+				for (const auto& sfx : {&inRelKey, &relKey})
 				{
 					if(endsWith(sFilePathRel, *sfx))
 						continue;
 
 					auto testpath=sFilePathRel.substr(0, pos) + *sfx;
-					if(GetFlags(testpath).vfile_ondisk)
+					if (GetFlags(testpath).vfile_ondisk)
 					{
 						header hare;
-						if(hare.LoadFromFile(SABSPATH(testpath)+".head")
+						if (hare.LoadFromFile(SABSPATH(testpath)+".head")
 								&& hare.h[header::XORIG])
 						{
 							string url(hare.h[header::XORIG]);
 							url.replace(url.size() - sfx->size(), sfx->size(),
 									sFilePathRel.substr(pos));
 							tHttpUrl tu;
-							if(tu.SetHttpUrl(url, false))
+							if (tu.SetHttpUrl(url, false))
 							{
-								SendChunkSZ("Restarting download... ");
+								SendChunkSZ("Restarting download...");
 								return Download(sFilePathRel, state.attr.bVolatile,
 										m_dlCtx->m_parms.msgVerbosityLevel, &tu, 0, nullptr, true);
 							}
 						}
 					}
 				}
-				if(!pos)
+				if (!pos)
 					break;
 				pos--;
 			}
@@ -647,11 +661,11 @@ FROM_ITEM_CB_FIRST:
 					{ "/Packages.gz", "/Packages.xz", "" },
 					{ "/Sources.gz", "/Sources.xz", "" }
 			};
-			for(const auto& fix : fixmap)
+			for (const auto& fix : fixmap)
 			{
-				if(!endsWith(sFilePathRel, fix.fromEnd) || !StrHas(sFilePathRel, fix.extraCheck))
+				if (!endsWith(sFilePathRel, fix.fromEnd) || !StrHas(sFilePathRel, fix.extraCheck))
 					continue;
-				SendChunkSZ("Attempting to download the alternative version... ");
+				SendChunkSZ("Attempting to download the alternative version...");
 				// if we have it already, use it as-is
 				if (!state.pResolvedDirectUrl)
 				{
@@ -660,13 +674,13 @@ FROM_ITEM_CB_FIRST:
 						state.pResolvedDirectUrl = &state.parserHead;
 				}
 				auto newurl(*state.pResolvedDirectUrl);
-				if(!endsWith(newurl.sPath, fix.fromEnd) || !StrHas(newurl.sPath, fix.extraCheck))
+				if (!endsWith(newurl.sPath, fix.fromEnd) || !StrHas(newurl.sPath, fix.extraCheck))
 					continue;
 				newurl.sPath.replace(newurl.sPath.size()-fix.fromEnd.size(), fix.fromEnd.size(),
 						fix.toEnd);
-				if(eDlResult::OK == Download(sFilePathRel.substr(0, sFilePathRel.size() - fix.fromEnd.size())
+				if (eDlResult::OK == Download(sFilePathRel.substr(0, sFilePathRel.size() - fix.fromEnd.size())
 						+ fix.toEnd, state.attr.bVolatile, m_dlCtx->m_parms.msgVerbosityLevel, &newurl,
-				m_dlCtx->m_parms.hints &~ DL_HINT_GUESS_REPLACEMENT ))
+						m_dlCtx->m_parms.hints &~ DL_HINT_GUESS_REPLACEMENT ))
 				{
 					MarkObsolete(sFilePathRel);
 					return eDlResult::OK;
@@ -697,7 +711,6 @@ FROM_ITEM_CB_FIRST:
 	// there must have been output
 	if (NEEDED_VERBOSITY_ALL_BUT_ERRORS)
 		Send("\n<br>\n");
-
 	return eDlResult::OK;	
 }
 
@@ -742,56 +755,6 @@ void ACNG_API DelTree(const string &what)
 	} hh;
 	IFileHandler::DirectoryWalk(what, &hh, false, false);
 }
-
-// crap
-#if 0
-struct lessThanByAvailability
-{
-	cacheman& m_cman;
-	lessThanByAvailability(cacheman &cman) :
-		m_cman(cman)
-	{
-	}
-
-	bool operator()(const string &s1, const string &s2) const
-		{
-		auto f1(m_cman.GetFlags(s1)), f2(m_cman.GetFlags(s2));
-		if(f1.vfile_ondisk && !f2.vfile_ondisk)
-			return true;
-		if(!f1.vfile_ondisk && f2.vfile_ondisk)
-			return false;
-		if(!f1.vfile_ondisk)
-			return false;
-		// both here?
-		Cstat st1(SABSPATH(s1)), st2(SABSPATH(s2));
-		// errors?
-		if(!st1) st1.st_mtim.tv_sec = 0;
-		if(!st2) st2.st_mtim.tv_sec = 0;
-		return st1.st_mtim.tv_sec > st2.st_mtim.tv_sec;
-		}
-};
-
-struct tEqualToFingerprint : public tFingerprint
-{
-	tEqualToFingerprint(const tFingerprint &re) : tFingerprint(re) {}
-	bool operator()(const tPatchEntry &other) const { return other.fprState == *this; }
-};
-
-
-struct tCompRateIterator
-{
-	tStrDeq& _stuff;
-	tStrDeq::iterator it;
-	tCompRateIterator(tStrDeq& stuff) : _stuff(stuff) { it = _stuff.end();};
-	mstring& value() { return *it;	}
-	bool next() {
-		if(it == _stuff.end()) {it = _stuff.begin(); return it != _stuff.end();}
-
-	}
-};
-
-#endif
-
 
 tFingerprint * BuildPatchList(string sFilePathAbs, deque<tPatchEntry> &retList)
 {
@@ -2533,5 +2496,26 @@ bool cacheman::ProcessDirBefore(const std::string &, const struct stat &)
 {
 	return true;
 }
+
+#ifdef DEBUG
+void tBgTester::Action()
+{
+	tHttpUrl url;
+	url.SetHttpUrl("http://ftp2.de.debian.org/debian/dists/unstable/InRelease");
+	Download("debrep/dists/unstable/InRelease", true, eDlMsgPrio::SHOW_ALL, &url, 0, 0, true);
+	for (int i = 0; i < 10 && !CheckStopSignal(); i++, sleep(1))
+	{
+		timespec tp;
+		clock_gettime(CLOCK_MONOTONIC, &tp);
+		SendFmt << tp.tv_sec << "." << tp.tv_nsec << "<br>\n";
+	}
+}
+
+bool tBgTester::ProcessRegular(const std::string &, const struct stat &)
+{
+	return !CheckStopSignal();
+}
+
+#endif // DEBUG
 
 }

@@ -107,6 +107,7 @@ SUTPROTECTED:
 
 	// helper object, remembering state on IO tread
 	struct TDownloadContext;
+	struct TDownloadState;
 	TDownloadContext* m_dlCtx = nullptr;
 	TDownloadContext* GetDlRes();
 
@@ -167,6 +168,7 @@ SUTPROTECTED:
 #define DL_HINT_GUESS_REPLACEMENT 0x1
 #define DL_HINT_NOTAG 0x2
 	eDlResult DownloadIO();
+	void cbDownload();
 
 	void TellCount(unsigned nCount, off_t nSize);
 
@@ -273,6 +275,22 @@ SUTPROTECTED:
 	bool IsInternalItem(cmstring& sPathAbs, bool inDoubt);
 };
 
+#ifdef DEBUG
+class tBgTester : public cacheman
+{
+public:
+	tBgTester(tSpecialRequestHandler::tRunParms&& parms)
+		: cacheman(std::move(parms))
+	{
+		m_szDecoFile="maint.html";
+	}
+	void Action() override;
+
+	// IFileHandler interface
+public:
+	bool ProcessRegular(const std::string &sPath, const struct stat &) override;
+};
+#endif // DEBUG
 }
 
 #endif /*_CACHEMAN_H_*/

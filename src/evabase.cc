@@ -43,7 +43,7 @@ const struct timeval timeout_asap{0,0};
 deque<tAction> incoming_simple_q, temp_simple_q, local_simple_q;
 std::mutex handover_mx;
 void RejectPendingDnsRequests();
-bool g_shutdownHint = false;
+std::atomic_bool g_shutdownHint = false;
 
 namespace conserver
 {

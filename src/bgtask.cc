@@ -366,19 +366,4 @@ mstring tExclusiveUserAction::BuildCompressedDelFileCatalog()
 
 #endif
 
-#ifdef DEBUG
-void tBgTester::Action()
-{
-	for (int i = 0; i < 100 && !CheckStopSignal(); i++, sleep(1))
-	{
-		timespec tp;
-		clock_gettime(CLOCK_MONOTONIC, &tp);
-		SendFmt << tp.tv_sec << "." << tp.tv_nsec << "<br>\n";
-	}
-}
-
-#endif // DEBUG
-
-
-
 }

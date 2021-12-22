@@ -22,7 +22,7 @@ struct ares_channeldata;
 
 namespace acng
 {
-extern bool g_shutdownHint;
+extern std::atomic_bool g_shutdownHint;
 
 struct CDnsBase : public std::enable_shared_from_this<CDnsBase>
 {
