@@ -180,8 +180,8 @@ public:
 			handler.reset(MakeMaintWorker({jobType, move(cmd), bufferevent_getfd(bev), *this, arg, reso}));
 			if (handler)
 			{
-				auto flags =  (handler->m_bNeedsBgThread * BEV_OPT_THREADSAFE)
-							  | BEV_OPT_DEFER_CALLBACKS | BEV_OPT_UNLOCK_CALLBACKS;
+				auto flags =  //(handler->m_bNeedsBgThread * BEV_OPT_THREADSAFE)
+						BEV_OPT_THREADSAFE | BEV_OPT_DEFER_CALLBACKS | BEV_OPT_UNLOCK_CALLBACKS;
 				if (AC_UNLIKELY(bufferevent_pair_new(evabase::base, flags, m_pipeInOut)))
 				{
 					throw std::bad_alloc();
@@ -300,6 +300,8 @@ void tSpecialRequestHandler::SendRemoteOnly(string_view sv)
 
 void tSpecialRequestHandler::SendRemoteOnly(evbuffer* data)
 {
+	if (!data)
+		return;
 	// push everything into the pipe, the output will make notifications as needed
 	evbuffer_add_buffer(PipeTx(), data);
 }

@@ -311,32 +311,30 @@ public:
 			bind_and_listen(sockFd, &ai, 0);
 		}
 
+		bool custom_listen_ip = false;
+		tHttpUrl url;
+		for(const auto& sp: tSplitWalk(cfg::bindaddr))
 		{
-			bool custom_listen_ip = false;
-			tHttpUrl url;
-			for(const auto& sp: tSplitWalk(cfg::bindaddr))
+			mstring token(sp);
+			auto isUrl = url.SetHttpUrl(token, false);
+			if(!isUrl && !cfg::port)
 			{
-				mstring token(sp);
-				auto isUrl = url.SetHttpUrl(token, false);
-				if(!isUrl && !cfg::port)
-				{
-					USRDBG("Not creating TCP listening socket for " <<  sp
-						   << ", no custom nor default port specified!");
-					continue;
-				}
-				//	XXX: uri parser accepts anything wihtout shema, good for this situation but maybe bad for strict validation...
-				//			USRDBG("Binding as host:port URI? " << isUrl << ", addr: " << url.ToURI(false));
-				setup_tcp_listeners(isUrl ? url.sHost.c_str() : token.c_str(),
-									isUrl ? url.GetPort(cfg::port) : cfg::port);
-				custom_listen_ip = true;
+				USRDBG("Not creating TCP listening socket for " <<  sp
+					   << ", no custom nor default port specified!");
+				continue;
 			}
-			// just TCP_ANY if none was specified
-			if(!custom_listen_ip)
-				setup_tcp_listeners(nullptr, cfg::port);
+			//	XXX: uri parser accepts anything wihtout shema, good for this situation but maybe bad for strict validation...
+			//			USRDBG("Binding as host:port URI? " << isUrl << ", addr: " << url.ToURI(false));
+			setup_tcp_listeners(isUrl ? url.sHost.c_str() : token.c_str(),
+								isUrl ? url.GetPort(cfg::port) : cfg::port);
+			custom_listen_ip = true;
 		}
+		// just TCP_ANY if none was specified
+		if(!custom_listen_ip)
+			setup_tcp_listeners(nullptr, cfg::port);
 
 		if (m_listeners.empty())
-			return true;
+			return false;
 
 		m_shutdownSub = evabase::GetGlobal().subscribe([&]()
 		{

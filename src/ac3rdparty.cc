@@ -1,6 +1,7 @@
 #include "config.h"
 #include "ac3rdparty.h"
 #include "acfg.h"
+#include "debug.h"
 
 #include <mutex>
 #include <deque>
@@ -79,6 +80,9 @@ void ACNG_API globalSslDeInit() {}
 void ACNG_API ac3rdparty_init()
 {
 	evthread_use_pthreads();
+#ifdef DEBUG
+	evthread_enable_lock_debugging();
+#endif
 	ares_library_init(ARES_LIB_INIT_ALL);
 }
 
