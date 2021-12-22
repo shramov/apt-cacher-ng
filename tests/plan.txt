@@ -1,5 +1,10 @@
 Manual checks:
 
+degraded mode - switch to it, operations therein
+offline mode for various file types and states
+
+pass-through mode!
+
 Import
 Expiration
 Expiration with contents checks

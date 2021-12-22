@@ -11,41 +11,37 @@ using namespace std;
 namespace acng
 {
 
-tPassThroughFitem::tPassThroughFitem(string s) : fileitem(s)
+tPassThroughFitem::tPassThroughFitem(string s) : fileitem(s),
+	m_q(evbuffer_new())
 {
-    LOGSTARTFUNC;
-    if(!m_q)
-        throw std::bad_alloc();
-    m_nSizeChecked = m_nSizeCachedInitial = -1;
-}
-
-tPassThroughFitem::~tPassThroughFitem()
-{
-    evbuffer_free(m_q);
+	LOGSTARTFUNC;
+	if(!m_q.valid())
+		throw std::bad_alloc();
+	m_nSizeChecked = m_nSizeCachedInitial = -1;
 }
 
 fileitem::FiStatus tPassThroughFitem::Setup()
 {
-    return m_status = FIST_INITED;
+	return m_status = FIST_INITED;
 }
 
 const string &tPassThroughFitem::GetRawResponseHeader() { return m_sHeader; }
 
 void tPassThroughFitem::DlFinish(bool)
 {
-    LOGSTARTFUNC;
+	LOGSTARTFUNC;
 	NotifyObservers();
-    m_status = FIST_COMPLETE;
+	m_status = FIST_COMPLETE;
 }
 
 ssize_t tPassThroughFitem::DlConsumeData(evbuffer *chunk, size_t maxTake)
 {
-    try
-    {
-        LOGSTARTFUNCx(maxTake, m_status);
+	try
+	{
+		LOGSTARTFUNCx(maxTake, m_status);
 
 		{
-			auto in_buffer = evbuffer_get_length(m_q);
+			auto in_buffer = evbuffer_get_length(*m_q);
 			off_t nAddLimit = PT_BUFFER_LIMIT - in_buffer;
 			if (off_t(maxTake) > nAddLimit)
 				maxTake = nAddLimit;
@@ -60,33 +56,33 @@ ssize_t tPassThroughFitem::DlConsumeData(evbuffer *chunk, size_t maxTake)
 		if (m_status > fileitem::FIST_COMPLETE)
 			return -1;
 
-        if (m_status < FIST_DLBODY)
-        {
-            m_status = FIST_DLBODY;
-            m_nSizeChecked = 0;
-        }
+		if (m_status < FIST_DLBODY)
+		{
+			m_status = FIST_DLBODY;
+			m_nSizeChecked = 0;
+		}
 
-		auto ret = eb_move_range(chunk, m_q, min(size_t(INT_MAX), maxTake));
+		auto ret = eb_move_range(chunk, *m_q, min(size_t(INT_MAX), maxTake));
 		INCPOS(m_nIncommingCount, ret);
 		INCPOS(m_nSizeChecked, ret);
 		return ret;
-    }
-    catch (...)
-    {
+	}
+	catch (...)
+	{
 		m_status = FIST_DLERROR;
 		return -1;
-    }
+	}
 }
 
 bool tPassThroughFitem::DlStarted(evbuffer *rawData, size_t headerLen, const tHttpDate &,
 								  cmstring &origin, tRemoteStatus status, off_t seekPos,
 								  off_t bytesAnnounced)
 {
-//bool tPassThroughFitem::DlStarted(string_view rawHeader, const tHttpDate &, cmstring &origin, tRemoteStatus status, off_t seekPos, off_t bytesAnnounced)
-    LOGSTARTFUNC;
-    if (m_status > FIST_COMPLETE)
-        return false;
-    else if (m_status < FIST_DLGOTHEAD)
+	//bool tPassThroughFitem::DlStarted(string_view rawHeader, const tHttpDate &, cmstring &origin, tRemoteStatus status, off_t seekPos, off_t bytesAnnounced)
+	LOGSTARTFUNC;
+	if (m_status > FIST_COMPLETE)
+		return false;
+	else if (m_status < FIST_DLGOTHEAD)
 		m_status = FIST_DLGOTHEAD;
 	else if (m_nSizeChecked > 0 && m_nSizeChecked != seekPos)
 		return false;
@@ -110,7 +106,7 @@ public:
 	ssize_t SendData(bufferevent* target, off_t& callerSendPos, size_t maxTake) override
 	{
 		parent->NotifyObservers();
-		return eb_move_range(parent->m_q, besender(target), maxTake, callerSendPos);
+		return eb_move_range(parent->m_q.get(), besender(target), maxTake, callerSendPos);
 	}
 };
 

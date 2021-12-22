@@ -451,7 +451,8 @@ void job::Prepare(const header &h, bufferevent* be, cmstring& callerHostname, ac
 
 			if (bPtMode && beconsum(be).front().length() > 0)
 			{
-				extraHeaders += header::ExtractCustomHeaders(beconsum(be).front().data(), bPtMode);
+				// can get the first chunk in this eventbuffer because the header parser has previously linearized a sufficient range!
+				extraHeaders += header::ExtractCustomHeaders(beconsum(be).front(), bPtMode);
 			}
 
 			if (m_parent.GetDownloader()->AddJob(as_lptr(m_pItem.get()),

@@ -2,6 +2,7 @@
 #define PTITEM_H
 
 #include "fileitem.h"
+#include "aevutil.h"
 
 namespace acng
 {
@@ -16,13 +17,12 @@ namespace acng
 class tPassThroughFitem : public fileitem
 {
 protected:
-        evbuffer* m_q;
+		unique_eb m_q;
         std::string m_sHeader;
 		class TSender;
 		friend class TSender;
 public:
 		tPassThroughFitem(std::string s);
-        ~tPassThroughFitem();
         virtual FiStatus Setup() override;
 
         const std::string& GetRawResponseHeader() override;
