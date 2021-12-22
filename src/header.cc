@@ -239,6 +239,7 @@ int header::Load(string_view input, std::vector<std::pair<string_view,string_vie
 
 /**
  * @brief header::Load linearizes input buffer but only as much as needed
+ * WARNING: assumed postcondition (see hardcoded assumption in job.cc) -> of the memory is linearized for at least the length of a header
  * @param buf Evbuffer with comming data
  * @param unkHeaderMap See header::Load
  * @return See header::Load
@@ -403,12 +404,12 @@ int header::StoreToFile(cmstring &sPath) const
 }
 
 // those are not allowed to be forwarded ever
-static const auto tabooHeadersForCaching =
-{ string("Host"), string("Cache-Control"), string("Proxy-Authorization"),
-        string("Accept"), string("User-Agent"), string("Accept-Encoding") };
-static const auto tabooHeadersPassThrough =
-{ string("Host"), string("Cache-Control"), string("Proxy-Authorization"),
-        string("Accept"), string("User-Agent") };
+static const initializer_list<string_view> tabooHeadersForCaching =
+{ "Host"sv, "Cache-Control"sv, "Proxy-Authorization"sv,
+		"Accept"sv, "User-Agent"sv, "Accept-Encoding"sv };
+static const initializer_list<string_view> tabooHeadersPassThrough =
+{ "Host"sv, "Cache-Control"sv, "Proxy-Authorization"sv,
+		"Accept"sv, "User-Agent"sv };
 
 mstring header::ExtractCustomHeaders(string_view reqHead, bool isPassThrough)
 {
@@ -421,12 +422,13 @@ mstring header::ExtractCustomHeaders(string_view reqHead, bool isPassThrough)
     h.Load(reqHead, &unkHeaderMap);
 
     bool forbidden = false;
-    const auto& taboo = isPassThrough ? tabooHeadersPassThrough : tabooHeadersForCaching;
+	const auto& taboo = isPassThrough ? tabooHeadersPassThrough : tabooHeadersForCaching;
     for(auto& it: unkHeaderMap)
     {
         if (it.first.empty())
         {
-            if (forbidden) continue;
+			if (forbidden)
+				continue;
             ret.erase(ret.size()-2);
             ret += ' ';
             ret += it.second;
@@ -434,11 +436,8 @@ mstring header::ExtractCustomHeaders(string_view reqHead, bool isPassThrough)
             continue;
         }
 
-        forbidden = taboo.end() != std::find_if(taboo.begin(),
-                                                taboo.end(),
-                                                [&](cmstring &x)
-        { return scaseequals(x, it.first.data()); }
-                );
+		forbidden = any_of(taboo.begin(), taboo.end(), [&](auto x)
+		{ return scaseequals(x, it.first); });
 
         if(!forbidden)
         {
