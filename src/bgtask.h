@@ -36,7 +36,7 @@ protected:
 	// to be implemented by subclasses
 	virtual void Action() =0;
 
-	void SendChunkLocalOnly(const char *data, size_t size) override;
+	void SendLocalOnly(const char *data, size_t size) override;
 
 	void DumpLog(time_t id);
 

@@ -1,0 +1,12 @@
+Manual checks:
+
+Import
+Expiration
+Expiration with contents checks
+Assisted deletion after expiration
+Valgrind check for memory AND filedescriptor leaks
+
+Automated:
+
+cascade.sh stress test
+scripts/Makefile -f test

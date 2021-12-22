@@ -66,9 +66,9 @@ void expiration::HandlePkgEntry(const tRemoteFileInfo &entry)
 				auto finish_bad = [&](cmstring& reason)->bool
 				{
 					if (m_damageList.is_open()) m_damageList << sPathRel << "\n";
-					SendChunk(" (treating as damaged file...) "sv);
+					Send(" (treating as damaged file...) "sv);
 					AddDelCbox(sPathRel, reason);
-					SendChunk(CLASSEND);
+					Send(CLASSEND);
 					return true;
 				};
 #define ADDSPACE(x) SetFlags(m_processedIfile).space+=x
@@ -96,7 +96,7 @@ void expiration::HandlePkgEntry(const tRemoteFileInfo &entry)
 				{
 					SendFmt << WCLASS << sPathRel << " (invalid but volatile, ignoring...) ";
 					AddDelCbox(sPathRel, "Bad file state while containing volatile index data");
-					SendChunk(CLASSEND);
+					Send(CLASSEND);
 				}
 				ADDSPACE(size);
 				return false;
@@ -395,15 +395,15 @@ inline void expiration::RemoveAndStoreStatus(bool bPurgeNow)
         f.p = fopen(sDbFileAbs.c_str(), "w");
         if(!f)
         {
-			SendChunk(WITHLEN("Unable to open " FNAME_PENDING
+			Send(WITHLEN("Unable to open " FNAME_PENDING
             		" for writing, attempting to recreate... "));
             ::unlink(sDbFileAbs.c_str());
             f.p=::fopen(sDbFileAbs.c_str(), "w");
             if(f)
-				SendChunk(WITHLEN("OK\n<br>\n"));
+				Send(WITHLEN("OK\n<br>\n"));
             else
             {
-				SendChunk(WITHLEN(
+				Send(WITHLEN(
                 		"<span class=\"ERROR\">"
                 		"FAILED. ABORTING. Check filesystem and file permissions."
                 		"</span>"));
@@ -449,11 +449,11 @@ inline void expiration::RemoveAndStoreStatus(bool bPurgeNow)
 #ifdef ENABLED
 				SendFmt << "Removing " << sPathRel;
 				if(::unlink(sPathAbs.c_str()) && errno != ENOENT)
-					SendChunk(tErrnoFmter("<span class=\"ERROR\"> [ERROR] ")+"</span>");
+					Send(tErrnoFmter("<span class=\"ERROR\"> [ERROR] ")+"</span>");
 				SendFmt << sBRLF << "Removing " << sPathRel << ".head";
 				if(::unlink((sPathAbs + ".head").c_str()) && errno != ENOENT)
-					SendChunk(tErrnoFmter("<span class=\"ERROR\"> [ERROR] ")+"</span>");
-				SendChunk(sBRLF);
+					Send(tErrnoFmter("<span class=\"ERROR\"> [ERROR] ")+"</span>");
+				Send(sBRLF);
 				::rmdir(SZABSPATH(dir_props.first));
 #endif
 			}
@@ -462,7 +462,7 @@ inline void expiration::RemoveAndStoreStatus(bool bPurgeNow)
 				SendFmt << "Tagging " << sPathRel;
 				if (m_bVerbose)
 					SendFmt << " (t-" << (m_gMaintTimeNow - desc.nLostAt) / 3600 << "h)";
-				SendChunk(sBRLF);
+				Send(sBRLF);
 
 				nCount++;
 				tagSpace += desc.fpr.size;
@@ -524,7 +524,7 @@ void expiration::Action()
 	m_bIncompleteIsDamaged=StrHas(m_parms.cmd, "incomAsDamaged");
 	m_bScanVolatileContents=StrHas(m_parms.cmd, "scanVolatile");
 
-	SendChunk("<b>Locating potentially expired files in the cache...</b><br>\n");
+	Send("<b>Locating potentially expired files in the cache...</b><br>\n");
 	BuildCacheFileList();
 	if(CheckStopSignal())
 		goto save_fail_count;
@@ -554,7 +554,7 @@ void expiration::Action()
 
 	m_damageList.open(SZABSPATH(FNAME_DAMAGED), ios::out | ios::trunc);
 
-	SendChunk(WITHLEN("<b>Validating cache contents...</b><br>\n"));
+	Send(WITHLEN("<b>Validating cache contents...</b><br>\n"));
 
 	// by-hash stuff needs special handling...
 	for(const auto& sPathRel : GetGoodReleaseFiles())
@@ -587,7 +587,7 @@ void expiration::Action()
 	// update timestamps of pending removals
 	LoadPreviousData(false);
 
-	SendChunk(WITHLEN("<b>Reviewing candidates for removal...</b><br>\n"));
+	Send(WITHLEN("<b>Reviewing candidates for removal...</b><br>\n"));
 	RemoveAndStoreStatus(StrHas(m_parms.cmd, "purgeNow"));
 	PurgeMaintLogs();
 
@@ -597,7 +597,7 @@ void expiration::Action()
 
 	PrintStats("Allocated disk space");
 
-	SendChunk("<br>Done.<br>");
+	Send("<br>Done.<br>");
 
 	if(tradeOffCheck)
 	{
@@ -621,10 +621,10 @@ void expiration::Action()
 			::unlink(FAIL_INI);
 			f = ::fopen(FAIL_INI, "w");
 			if (f)
-				SendChunk(WITHLEN("OK\n<br>\n"));
+				Send(WITHLEN("OK\n<br>\n"));
 			else
 			{
-				SendChunk(WITHLEN("<span class=\"ERROR\">FAILED. ABORTING. "
+				Send(WITHLEN("<span class=\"ERROR\">FAILED. ABORTING. "
 						"Check filesystem and file permissions.</span>"));
 			}
 		}
@@ -653,14 +653,14 @@ void expiration::ListExpiredFiles()
 					continue;
 
 				cnt++;
-				this->SendChunk(rel + sBRLF);
+				this->Send(rel + sBRLF);
 				nSpace += sz;
 
 				sz = GetFileSize(abspath + ".head", -2);
 				if (sz >= 0)
 				{
 					nSpace += sz;
-					this->SendChunk(rel + ".head<br>\n");
+					this->Send(rel + ".head<br>\n");
 				}
 			}
 		}
@@ -711,7 +711,7 @@ void expiration::HandleDamagedFiles()
 	filereader f;
 	if(!f.OpenFile(SABSPATH(FNAME_DAMAGED)))
 	{
-		this->SendChunk(WITHLEN("List of damaged files not found"));
+		this->Send(WITHLEN("List of damaged files not found"));
 		return;
 	}
 	mstring s;
@@ -757,7 +757,7 @@ void expiration::PurgeMaintLogs()
 {
 	tStrDeq logs = ExpandFilePattern(cfg::logdir + SZPATHSEP MAINT_PFX "*.log*");
 	if (logs.size() > 2)
-		SendChunk(WITHLEN(
+		Send(WITHLEN(
 				"Found required cleanup tasks: purging maintenance logs...<br>\n"));
 	for (const auto &s: logs)
 	{
@@ -772,10 +772,10 @@ void expiration::PurgeMaintLogs()
 	}
 	if(!m_killBill.empty())
 	{
-		SendChunk(WITHLEN("Removing deprecated files...<br>\n"));
+		Send(WITHLEN("Removing deprecated files...<br>\n"));
 		for(const auto &s: m_killBill)
 		{
-			SendChunk(s+sBRLF);
+			Send(s+sBRLF);
 			::unlink(SZABSPATH(s));
 		}
 	}

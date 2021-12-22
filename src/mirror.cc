@@ -64,11 +64,11 @@ void pkgmirror::Action()
 {
 	if(cfg::mirrorsrcs.empty())
 	{
-		SendChunk("<b>PrecacheFor not set, check configuration!</b><br>\n");
+		Send("<b>PrecacheFor not set, check configuration!</b><br>\n");
 		return;
 	}
 
-	SendChunk("<b>Locating index files, scanning...</b><br>\n");
+	Send("<b>Locating index files, scanning...</b><br>\n");
 
 	m_bCalcSize=(m_parms.cmd.find("calcSize=cs")!=stmiss);
 	m_bDoDownload=(m_parms.cmd.find("doDownload=dd")!=stmiss);
@@ -79,12 +79,12 @@ void pkgmirror::Action()
 	{
 		if(::system("dpkg --version"))
 		{
-			SendChunk("<b>dpkg not found, Debdelta support disabled</b><br>\n");
+			Send("<b>dpkg not found, Debdelta support disabled</b><br>\n");
 			m_bUseDelta=false;
 		}
 		else if(::system("debpatch -h"))
 		{
-			SendChunk("<b>debpatch not found, Debdelta support disabled</b><br>\n");
+			Send("<b>debpatch not found, Debdelta support disabled</b><br>\n");
 			m_bUseDelta=false;
 		}
 	}
@@ -103,7 +103,7 @@ void pkgmirror::Action()
 
 	if(m_metaFilesRel.empty())
 	{
-		SendChunk("<div class=\"ERROR\">No index files detected. Unable to continue, cannot map files to internal locations.</div>");
+		Send("<div class=\"ERROR\">No index files detected. Unable to continue, cannot map files to internal locations.</div>");
 		return;
 	}
 
@@ -134,7 +134,7 @@ void pkgmirror::Action()
 
 	mstring sErr;
 
-	SendChunk("<b>Identifying relevant index files...</b><br>");
+	Send("<b>Identifying relevant index files...</b><br>");
 	// ok, now go through all release files and pickup all appropriate index files
 	for(auto& path2x: m_metaFilesRel)
 	{
@@ -150,7 +150,7 @@ void pkgmirror::Action()
 			TryAdd((cmstring)path2x.first);
 	}
 
-	SendChunk("<b>Identifying more index files in cache...</b><br>");
+	Send("<b>Identifying more index files in cache...</b><br>");
 	// unless found in release files, get the from the local system
 	for (const auto& match: matchList)
 		for(const auto& path : ExpandFilePattern(CACHE_BASE+match, false))
@@ -247,7 +247,7 @@ void pkgmirror::Action()
 				<< offttosH(m_totalSize-m_totalHave) << "<br>\n";
 
 		if(m_bUseDelta && !dcount)
-			SendChunk("WARNING: <b>no deltasrc setting was found for any specified source</b><br>\n");
+			Send("WARNING: <b>no deltasrc setting was found for any specified source</b><br>\n");
 	}
 
 	if(m_bDoDownload && (!m_bCalcSize || m_totalSize!=m_totalHave))

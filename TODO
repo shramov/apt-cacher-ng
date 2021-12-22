@@ -1,4 +1,9 @@
+Restore current data overview in maint page
+Maybe... restore data collector, or maybe drop it and add a log scanner script instead?
+
 Move dnsbase into custom source, access through resources!
+
+Check Cancel link in maint page, seems to be broken.
 
 Add tests:
 

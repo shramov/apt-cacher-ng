@@ -37,7 +37,8 @@ enum class EWorkType : int8_t
 	TRUNCATE,
 	TRUNCATE_CONFIRM
 #ifdef DEBUG
-	,DBG_SLEEPER
+	, DBG_SLEEPER
+	, DBG_BGSTREAM
 #endif
 };
 

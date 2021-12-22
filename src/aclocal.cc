@@ -99,7 +99,7 @@ void aclocal::Run()
 										"<tr><th colspan=\"4\"><hr></th></tr>"sv;
 		auto* dir = opendir(absPath.c_str());
 		if (!dir) // weird, whatever... ignore...
-			SendChunk("ERROR READING DIRECTORY"sv);
+			Send("ERROR READING DIRECTORY"sv);
 		else
 		{
 			// quick hack with sorting by custom keys, good enough here

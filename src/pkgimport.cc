@@ -181,7 +181,7 @@ void pkgimport::Action()
 
 	_LoadKeyCache();
 	if(!m_precachedList.empty())
-		SendChunk( tSS(100)<<"Loaded "<<m_importMap.size()<<
+		Send( tSS(100)<<"Loaded "<<m_importMap.size()<<
 				(m_precachedList.size()==1 ? " entry" : " entries")
 				<<" from the fingerprint cache<br>\n");
 	
@@ -192,7 +192,7 @@ void pkgimport::Action()
 	
 	if(m_metaFilesRel.empty())
 	{
-		SendChunk("<span class=\"ERROR\">No index files detected. Unable to continue, cannot map files to internal locations.</span>");
+		Send("<span class=\"ERROR\">No index files detected. Unable to continue, cannot map files to internal locations.</span>");
 		return;
 	}
 
@@ -202,7 +202,7 @@ void pkgimport::Action()
 	
 	if(m_bErrAbort && m_nErrorCount>0)
 	{
-		SendChunk(sAbortMsg);
+		Send(sAbortMsg);
 		return;
 	}
 	
@@ -213,7 +213,7 @@ void pkgimport::Action()
 	
 	if(m_importMap.empty())
 	{
-		SendChunk("No appropriate files found in the _import directory.<br>\nDone.<br>\n");
+		Send("No appropriate files found in the _import directory.<br>\nDone.<br>\n");
 		return;
 	}
 	
@@ -231,7 +231,7 @@ void pkgimport::Action()
 		fList.open(SCACHEFILE.c_str(), ios::out| ios::trunc);
 	}
 	if(!fList.is_open())
-		SendChunk("Cannot save fingerprint cache, ignored");
+		Send("Cannot save fingerprint cache, ignored");
 	else
 		fList << FMTSIG"\n";
 	
@@ -294,7 +294,7 @@ void pkgimport::HandlePkgEntry(const tRemoteFileInfo &entry)
 	string sDestHeadAbs=sDestAbs+".head";
 	cmstring& sFromAbs=hit->second.sPath;
 
-	SendChunk(string("<font color=green>HIT: ")+sFromAbs
+	Send(string("<font color=green>HIT: ")+sFromAbs
 			+ "<br>\nDESTINATION: "+sDestAbs+"</font><br>\n");
 
 	// linking and moving would shred them when the link leads to the same target
@@ -305,10 +305,10 @@ void pkgimport::HandlePkgEntry(const tRemoteFileInfo &entry)
 	{
 		//cerr << "Same target file, ignoring."<<endl;
 		hit->second.bFileUsed=true;
-		SendChunk("<span class=\"WARNING\">Same file exists</span><br>\n");
+		Send("<span class=\"WARNING\">Same file exists</span><br>\n");
 		if(0!=access(sDestHeadAbs.c_str(), F_OK))
 		{
-			SendChunk("<span class=\"WARNING\">Header is missing, will recreate...</span>\n<br>\n");
+			Send("<span class=\"WARNING\">Header is missing, will recreate...</span>\n<br>\n");
 			goto gen_header;
 		}
 		return;
@@ -320,7 +320,7 @@ void pkgimport::HandlePkgEntry(const tRemoteFileInfo &entry)
 
 	if (!LinkOrCopy(sFromAbs, sDestAbs))
 	{
-		SendChunk("<span class=\"ERROR\">ERROR: couldn't link or copy file.</span>\n<br>\n");
+		Send("<span class=\"ERROR\">ERROR: couldn't link or copy file.</span>\n<br>\n");
 		return;
 	}
 

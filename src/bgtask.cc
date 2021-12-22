@@ -83,13 +83,13 @@ void tExclusiveUserAction::Run()
 		if(mark)
 		{
 			// send fancy header only to the remote caller
-			SendChunkRemoteOnly(deco.rptr(), mark-deco.rptr());
+			SendRemoteOnly(deco.rptr(), mark-deco.rptr());
 			deco.drop((mark-deco.rptr())+1);
 		}
 		else
 		{
 			// send fancy header only to the remote caller
-			SendChunkRemoteOnly(deco.c_str(), deco.size());
+			SendRemoteOnly(deco.c_str(), deco.size());
 			deco.clear();
 		}
 	}
@@ -118,7 +118,7 @@ void tExclusiveUserAction::Run()
 			else
 			{
 				nBgTimestamp = 0;
-				SendChunk("Failed to create the log file, aborting.");
+				Send("Failed to create the log file, aborting.");
 				return;
 			}
 		}
@@ -151,10 +151,10 @@ void tExclusiveUserAction::Run()
 				m_logFd=open(logPath.c_str(), O_RDONLY|O_NONBLOCK);
 
 				if(m_logFd>=0)
-					SendChunk("ok:<br>\n");
+					Send("ok:<br>\n");
 				else
 				{
-					SendChunk("Failed to open log output, please retry later.<br>\n");
+					Send("Failed to open log output, please retry later.<br>\n");
 					goto finish_action;
 				}
 
@@ -178,7 +178,7 @@ void tExclusiveUserAction::Run()
 						break;
 					continue;
 				}
-				SendChunkRemoteOnly(sendbuf.rptr(), sendbuf.size());
+				SendRemoteOnly(sendbuf.rptr(), sendbuf.size());
 				sendbuf.clear();
 				if(r>0)
 				{
@@ -221,9 +221,9 @@ void tExclusiveUserAction::Run()
 					<< "Server control address: " << link
 					<< "\n-->\n";
 			string xlink = "<br>\nServer link: <a href=\"" + link + "\">" + link + "</a><br>\n";
-			SendChunkLocalOnly(xlink.data(), xlink.size());
+			SendLocalOnly(xlink.data(), xlink.size());
 			SendFmt << "<br>\n";
-			SendChunkRemoteOnly(WITHLEN("<form id=\"mainForm\" action=\"#top\">\n"));
+			SendRemoteOnly(WITHLEN("<form id=\"mainForm\" action=\"#top\">\n"));
 
 			Action();
 
@@ -241,7 +241,7 @@ void tExclusiveUserAction::Run()
 					if(!ehprinted)
 					{
 						ehprinted=true;
-						SendChunkRemoteOnly(WITHLEN(
+						SendRemoteOnly(WITHLEN(
 								"<br><b>Error summary:</b><br>"));
 					}
 
@@ -258,13 +258,13 @@ void tExclusiveUserAction::Run()
 
 				if(unchint)
 				{
-					SendChunkRemoteOnly(WITHLEN(
+					SendRemoteOnly(WITHLEN(
 					"<i>Note: some uncompressed index versions like Packages and Sources are no"
 					" longer offered by most mirrors and can be safely removed if a compressed version exists.</i>\n"
 							));
 				}
 
-				SendChunkRemoteOnly(WITHLEN(
+				SendRemoteOnly(WITHLEN(
 				"<br><b>Action(s):</b><br>"
 					"<input type=\"submit\" name=\"doDelete\""
 					" value=\"Delete selected files\">"
@@ -273,20 +273,20 @@ void tExclusiveUserAction::Run()
 					"|<button type=\"button\" onclick=\"checkOrUncheck(true);\">Check all</button>"
 					"<button type=\"button\" onclick=\"checkOrUncheck(false);\">Uncheck all</button><br>"));
 				auto blob=BuildCompressedDelFileCatalog();
-				SendChunkRemoteOnly(blob.data(), blob.size());
+				SendRemoteOnly(blob.data(), blob.size());
 			}
 
 			SendFmtRemote << "<br>\n<a href=\"/"<< cfg::reportpage<<"\">Return to main page</a>"
 					"</form>";
 			auto& f(GetFooter());
-						SendChunkRemoteOnly(f.data(), f.size());
+						SendRemoteOnly(f.data(), f.size());
 
 	}
 
 	finish_action:
 
 	if(!deco.empty())
-		SendChunkRemoteOnly(deco.c_str(), deco.size());
+		SendRemoteOnly(deco.c_str(), deco.size());
 }
 
 bool tExclusiveUserAction::CheckStopSignal()
@@ -306,12 +306,12 @@ void tExclusiveUserAction::DumpLog(time_t id)
 	tSS path(cfg::logdir.length()+24);
 	path<<cfg::logdir<<CPATHSEP<<MAINT_PFX << id << ".log.html";
 	if (!reader.OpenFile(path))
-        SendChunkRemoteOnly("Log not available");
+        SendRemoteOnly("Log not available");
 	else
-        SendChunkRemoteOnly(reader.getView());
+        SendRemoteOnly(reader.getView());
 }
 
-void tExclusiveUserAction::SendChunkLocalOnly(const char *data, size_t len)
+void tExclusiveUserAction::SendLocalOnly(const char *data, size_t len)
 {
 	if(m_reportStream.is_open())
 	{
@@ -369,15 +369,11 @@ mstring tExclusiveUserAction::BuildCompressedDelFileCatalog()
 #ifdef DEBUG
 void tBgTester::Action()
 {
-	for (int i = 0; i < 10 && !CheckStopSignal(); i++, sleep(1))
+	for (int i = 0; i < 100 && !CheckStopSignal(); i++, sleep(1))
 	{
-		char buf[1024];
-		time_t t;
-		struct tm *tmp;
-		t = time(nullptr);
-		tmp = localtime(&t);
-		strftime(buf, sizeof(buf), "%c", tmp);
-		SendFmt << buf << "<br>\n";
+		timespec tp;
+		clock_gettime(CLOCK_MONOTONIC, &tp);
+		SendFmt << tp.tv_sec << "." << tp.tv_nsec << "<br>\n";
 	}
 }
 

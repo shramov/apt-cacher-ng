@@ -77,28 +77,28 @@ protected:
 	evbuffer* PipeTx() { return m_parms.output.PipeTx(); }
 
 	// for customization in base classes
-	virtual void SendChunkLocalOnly(const char* /*data*/, size_t /*size*/) {};
-	virtual void SendChunkLocalOnly(ebstream&) {};
+	virtual void SendLocalOnly(const char* /*data*/, size_t /*size*/) {};
+	virtual void SendLocalOnly(ebstream&) {};
 
-	void SendChunkRemoteOnly(const char *data, size_t size)
+	void SendRemoteOnly(const char *data, size_t size)
 	{
-		return SendChunkRemoteOnly(string_view(data, size));
+		return SendRemoteOnly(string_view(data, size));
 	}
-	inline void SendChunkRemoteOnly(ebstream& data) { return SendChunkRemoteOnly(data.be);}
-	void SendChunkRemoteOnly(evbuffer *data);
-	void SendChunkRemoteOnly(string_view sv);
+	inline void SendRemoteOnly(ebstream& data) { return SendRemoteOnly(data.be);}
+	void SendRemoteOnly(evbuffer *data);
+	void SendRemoteOnly(string_view sv);
 
-	void SendChunk(const char *data, size_t len)
+	void Send(const char *data, size_t len)
 	{
-		SendChunkLocalOnly(data, len);
-		SendChunkRemoteOnly(data, len);
+		SendLocalOnly(data, len);
+		SendRemoteOnly(data, len);
 	}
-	void SendChunk(string_view x) { SendChunk(x.data(), x.size()); }
+	void Send(string_view x) { Send(x.data(), x.size()); }
 	// this will eventually move data from there to output
-	void SendChunk(ebstream& x)
+	void Send(ebstream& x)
 	{
-		SendChunkLocalOnly(x);
-		SendChunkRemoteOnly(x);
+		SendLocalOnly(x);
+		SendRemoteOnly(x);
 	}
 
 	cmstring & GetMyHostPort();
@@ -122,9 +122,9 @@ public:
 		inline ~tFmtSendObj()
 		{
 			if(m_bRemoteOnly)
-				m_parent.SendChunkRemoteOnly(m_parent.m_fmtHelper);
+				m_parent.SendRemoteOnly(m_parent.m_fmtHelper);
 			else
-				m_parent.SendChunk(m_parent.m_fmtHelper);
+				m_parent.Send(m_parent.m_fmtHelper);
 			m_parent.m_fmtHelper.clear();
 		}
 		tSpecialRequestHandler &m_parent;
@@ -135,7 +135,7 @@ public:
 
 #define SendFmt tFmtSendObj(this, false).m_parent.m_fmtHelper
 #define SendFmtRemote tFmtSendObj(this, true).m_parent.m_fmtHelper
-#define SendChunkSZ(x) SendChunk(WITHLEN(x))
+#define SendChunkSZ(x) Send(WITHLEN(x))
 
 	bSS m_fmtHelper;
 

@@ -336,29 +336,19 @@ cacheman::eDlResult cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileF
 cacheman::eDlResult cacheman::DownloadIO()
 {
 	LOGSTARTFUNC;
-
-	auto& state = m_dlCtx->curState;
-	auto& dler = m_dlCtx->dler;
 	eDlResult ret = eDlResult::FAIL_REMOTE;
-
+	auto& state = m_dlCtx->curState;
 	auto& sFilePathRel = m_dlCtx->m_parms.sFilePathRel;
-	auto msgVerbosityLevel = m_dlCtx->m_parms.msgVerbosityLevel;
-	auto* pForcedURL = m_dlCtx->m_parms.pForcedURL;
-	auto hints = m_dlCtx->m_parms.hints;
-	auto& sGuessedFrom = m_dlCtx->m_parms.sGuessedFrom;
 
 	if (state.dlactive == 1)
 		goto FROM_ITEM_CB_FIRST;
 
-	if (!dler)
-		dler = dlcontroller::CreateRegular(m_parms.res);
-	if (!dler)
+	if (!m_dlCtx->dler)
+		m_dlCtx->dler = dlcontroller::CreateRegular(m_parms.res);
+	if (!m_dlCtx->dler)
 		return eDlResult::FAIL_LOCAL;
-
-//	bool holdon = sFilePathRel == "debrep/dists/experimental/contrib/binary-amd64/Packages";
-
-#define NEEDED_VERBOSITY_ALL_BUT_ERRORS (msgVerbosityLevel >= eDlMsgPrio::HIDE_ERR)
-#define NEEDED_VERBOSITY_EVERYTHING (msgVerbosityLevel >= eDlMsgPrio::SHOW_ALL)
+#define NEEDED_VERBOSITY_ALL_BUT_ERRORS (m_dlCtx->m_parms.msgVerbosityLevel >= eDlMsgPrio::HIDE_ERR)
+#define NEEDED_VERBOSITY_EVERYTHING (m_dlCtx->m_parms.msgVerbosityLevel >= eDlMsgPrio::SHOW_ALL)
 
 #define GOTOREPMSG(x, y) {state.sErr = x; ret = y; goto rep_dlresult; }
 //#define RETURN_REPORTING
@@ -420,8 +410,8 @@ cacheman::eDlResult cacheman::DownloadIO()
 				<< sFilePathRel	<< "...\n";
 
 
-	if (pForcedURL)
-		state.pResolvedDirectUrl = pForcedURL;
+	if (m_dlCtx->m_parms.pForcedURL)
+		state.pResolvedDirectUrl = m_dlCtx->m_parms.pForcedURL;
 	else
 	{
 		// must have the URL somewhere
@@ -458,22 +448,22 @@ cacheman::eDlResult cacheman::DownloadIO()
 				StrSubst(state.parserPath.sPath, "//", "/");
 				state.pResolvedDirectUrl = &state.parserHead;
 			}
-			else if(sGuessedFrom
-					&& state.hor.LoadFromFile(SABSPATH(*sGuessedFrom + ".head"))
+			else if(m_dlCtx->m_parms.sGuessedFrom
+					&& state.hor.LoadFromFile(SABSPATH(* m_dlCtx->m_parms.sGuessedFrom + ".head"))
 					&& state.hor.h[header::XORIG]) // might use a related file as reference
 			{
 				mstring refURL(state.hor.h[header::XORIG]);
 
 				tStrPos spos(0); // if not 0 -> last slash sign position if both
-				for(tStrPos i=0; i< sGuessedFrom->size() && i< sFilePathRel.size(); ++i)
+				for(tStrPos i=0; i< m_dlCtx->m_parms.sGuessedFrom->size() && i< sFilePathRel.size(); ++i)
 				{
-					if(sFilePathRel[i] != sGuessedFrom->at(i))
+					if(sFilePathRel[i] != m_dlCtx->m_parms.sGuessedFrom->at(i))
 						break;
 					if(sFilePathRel[i] == '/')
 						spos = i;
 				}
 				// cannot underflow since checked by less-than
-				auto chopLen = sGuessedFrom->length() - spos;
+				auto chopLen = m_dlCtx->m_parms.sGuessedFrom->length() - spos;
 				auto urlSlashPos = refURL.size()-chopLen;
 				if(chopLen < refURL.size() && refURL[urlSlashPos] == '/')
 				{
@@ -513,8 +503,16 @@ cacheman::eDlResult cacheman::DownloadIO()
 	state.observer = state.fiaccess->Subscribe([&](){ DownloadIO(); });
 	m_dlCtx->dler->AddJob(as_lptr(state.fiaccess.get()), state.pResolvedDirectUrl, state.pResolvedDirectUrl ? nullptr : & state.repoSrc);
 FROM_ITEM_CB_FIRST:
-#warning add slow verbosity!
-	SendChunk(".");
+	{
+		// simple limiter, not more dots than one per second
+		static auto spamLimit = GetTime();
+		auto now = GetTime();
+		if (now > spamLimit + 1)
+		{
+			Send(".");
+			spamLimit = now;
+		}
+	}
 	//dlres = pFi->WaitForFinish(1, [&](){ SendChunk("."); return true; } );
 	if (state.fiaccess->GetStatus() < fileitem::FIST_COMPLETE)
 		return eDlResult::IO_AGAIN;
@@ -536,8 +534,8 @@ FROM_ITEM_CB_FIRST:
 			SendChunkSZ("<i>(download error, ignored, guessing alternative URL by path)</i>\n");
 
 			return Download(sFilePathRel, state.attr.bVolatile,
-					msgVerbosityLevel,
-					state.fallbackUrl, hints, sGuessedFrom, true);
+					m_dlCtx->m_parms.msgVerbosityLevel,
+					state.fallbackUrl, m_dlCtx->m_parms.hints, m_dlCtx->m_parms.sGuessedFrom, true);
 
 			SendFmt << "<i>Remote peer is not usable but the alternative source might be guessed from the path as "
 					<< state.fallbackUrl->ToURI(true) << " . If this is the better option, please remove the file "
@@ -567,6 +565,8 @@ FROM_ITEM_CB_FIRST:
 
 	rep_dlresult:
 
+	SendChunkSZ("<br>\n");
+
 	if(state.fiaccess)
 	{
 		auto dlCount = state.fiaccess->TakeTransferCount();
@@ -581,7 +581,10 @@ FROM_ITEM_CB_FIRST:
 
 	if(ret != eDlResult::OK)
 	{
-		if(state.repoSrc.repodata && state.repoSrc.repodata->m_backends.empty() && !state.hor.h[header::XORIG] && !pForcedURL)
+		if(state.repoSrc.repodata
+				&& state.repoSrc.repodata->m_backends.empty()
+				&& !state.hor.h[header::XORIG]
+				&& !m_dlCtx->m_parms.pForcedURL)
 		{
 			// oh, that crap: in a repo, but no backends configured, and no original source
 			// to look at because head file is probably damaged :-(
@@ -617,7 +620,7 @@ FROM_ITEM_CB_FIRST:
 							{
 								SendChunkSZ("Restarting download... ");
 								return Download(sFilePathRel, state.attr.bVolatile,
-										msgVerbosityLevel, &tu, 0, nullptr, true);
+										m_dlCtx->m_parms.msgVerbosityLevel, &tu, 0, nullptr, true);
 							}
 						}
 					}
@@ -627,7 +630,7 @@ FROM_ITEM_CB_FIRST:
 				pos--;
 			}
 		}
-		else if((hints & DL_HINT_GUESS_REPLACEMENT) && state.fiaccess->m_responseStatus.code == 404)
+		else if((m_dlCtx->m_parms.hints & DL_HINT_GUESS_REPLACEMENT) && state.fiaccess->m_responseStatus.code == 404)
 		{
 			// another special case, slightly ugly :-(
 			// this is explicit hardcoded repair code
@@ -662,8 +665,8 @@ FROM_ITEM_CB_FIRST:
 				newurl.sPath.replace(newurl.sPath.size()-fix.fromEnd.size(), fix.fromEnd.size(),
 						fix.toEnd);
 				if(eDlResult::OK == Download(sFilePathRel.substr(0, sFilePathRel.size() - fix.fromEnd.size())
-						+ fix.toEnd, state.attr.bVolatile, msgVerbosityLevel, &newurl,
-				hints &~ DL_HINT_GUESS_REPLACEMENT ))
+						+ fix.toEnd, state.attr.bVolatile, m_dlCtx->m_parms.msgVerbosityLevel, &newurl,
+				m_dlCtx->m_parms.hints &~ DL_HINT_GUESS_REPLACEMENT ))
 				{
 					MarkObsolete(sFilePathRel);
 					return eDlResult::OK;
@@ -685,7 +688,7 @@ FROM_ITEM_CB_FIRST:
 			if(!GetFlags(sFilePathRel).hideDlErrors)
 			{
 				SendFmt << "<span class=\"ERROR\">" << state.sErr << "</span>\n";
-				if(0 == (hints & DL_HINT_NOTAG))
+				if(0 == (m_dlCtx->m_parms.hints & DL_HINT_NOTAG))
 					AddDelCbox(sFilePathRel, state.sErr);
 			}
 		}
@@ -693,12 +696,12 @@ FROM_ITEM_CB_FIRST:
 
 	// there must have been output
 	if (NEEDED_VERBOSITY_ALL_BUT_ERRORS)
-		SendChunk("\n<br>\n");
+		Send("\n<br>\n");
 
 	return eDlResult::OK;	
 }
 
-#define ERRMSGABORT  dbgline; if(m_nErrorCount && m_bErrAbort) { SendChunk(sErr); return false; }
+#define ERRMSGABORT  dbgline; if(m_nErrorCount && m_bErrAbort) { Send(sErr); return false; }
 #define ERRABORT dbgline; if(m_nErrorCount && m_bErrAbort) { return false; }
 
 inline tStrPos FindCompSfxPos(const string &s)
@@ -1262,7 +1265,7 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 			pf.p=fopen(sPatchCombinedAbs.c_str(), "w");
 			if(!pf.p)
 			{
-				SendChunk("Failed to create intermediate patch file, stop patching...<br>");
+				Send("Failed to create intermediate patch file, stop patching...<br>");
 				return PATCH_FAIL;
 			}
 		}
@@ -1297,7 +1300,7 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 			::fflush(pf.p); // still a slight risk of file closing error but it's good enough for now
 			if(::ferror(pf.p))
 			{
-				SendChunk("Patch application error<br>");
+				Send("Patch application error<br>");
 				return PATCH_FAIL;
 			}
 			checkForceFclose(pf.p);
@@ -1305,7 +1308,7 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 	#ifndef DEBUGIDX
 			if(m_bVerbose)
 	#endif
-				SendChunk("Patching...<br>");
+				Send("Patching...<br>");
 
 			tSS cmd;
 			cmd << "cd '" << CACHE_BASE << PATCH_TEMP_DIR "' && ";
@@ -1426,7 +1429,7 @@ bool cacheman::UpdateVolatileFiles()
 	// just reget them as-is and we are done. Also include non-index files, to be sure...
 	if (m_bForceDownload)
 	{
-		SendChunk("<b>Bringing index files up to date...</b><br>\n");
+		Send("<b>Bringing index files up to date...</b><br>\n");
 		for (auto& f: m_metaFilesRel)
 		{
 			auto notIgnorable = !m_metaFilesRel[f.first].forgiveDlErrors;
@@ -1494,7 +1497,7 @@ bool cacheman::UpdateVolatileFiles()
 	// this runs early with the state that is present on disk, before updating any file,
 	// since it deals with the "reality" in the cache
 
-	SendChunk("<b>Checking implicitly referenced files...</b><br>");
+	Send("<b>Checking implicitly referenced files...</b><br>");
 
 	/*
 	 * Update all Release files
@@ -1532,7 +1535,7 @@ bool cacheman::UpdateVolatileFiles()
 		}
 	}
 
-	SendChunk("<b>Bringing index files up to date...</b><br>\n");
+	Send("<b>Bringing index files up to date...</b><br>\n");
 
 	{
 		std::unordered_set<std::string> oldReleaseFilesInRsnap;
@@ -1778,7 +1781,7 @@ bool cacheman::ParseAndProcessMetaFile(std::function<void(const tRemoteFileInfo&
 
 	unsigned progHint=0;
 #define STEP 2048
-	TFinalAction postNewline([this, &progHint](){if(progHint>=STEP) SendChunk("<br>\n");});
+	TFinalAction postNewline([this, &progHint](){if(progHint>=STEP) Send("<br>\n");});
 
 	switch(idxType)
 	{
@@ -1793,7 +1796,7 @@ bool cacheman::ParseAndProcessMetaFile(std::function<void(const tRemoteFileInfo&
 			trimBack(sLine);
 			//cout << "file: " << *it << " line: "  << sLine<<endl;
 			if(0 == ((++progHint) & (STEP-1)))
-				SendChunk("<wbr>.");
+				Send("<wbr>.");
 
 
 			if (sLine.empty())
@@ -2010,7 +2013,7 @@ bool cacheman::ParseAndProcessMetaFile(std::function<void(const tRemoteFileInfo&
 					EIDX_RELEASE, CSTYPES::CSTYPE_SHA256, "SHA256", false);
 		}
 	default:
-		SendChunk("<span class=\"WARNING\">"
+		Send("<span class=\"WARNING\">"
 				"WARNING: unable to read this file (unsupported format)</span>\n<br>\n");
 		return false;
 	}
@@ -2214,22 +2217,22 @@ void cacheman::ProcessSeenIndexFiles(std::function<void(tRemoteFileInfo)> pkgHan
 
 		if(!m_bByPath && att.alreadyparsed)
 		{
-			SendChunk(string("Skipping in ")+path2att.first+" (equivalent checks done before)<br>\n");
+			Send(string("Skipping in ")+path2att.first+" (equivalent checks done before)<br>\n");
 			continue;
 		}
 
 		//bool bNix=(it->first.find("experimental/non-free/binary-amd64/Packages.xz") != stmiss);
 
-		SendChunk(string("Parsing metadata in ")+path2att.first+sBRLF);
+		Send(string("Parsing metadata in ")+path2att.first+sBRLF);
 
 		if( ! ParseAndProcessMetaFile(pkgHandler, path2att.first, itype))
 		{
 			if(!m_metaFilesRel[path2att.first].forgiveDlErrors)
 			{
 				m_nErrorCount++;
-				SendChunk("<span class=\"ERROR\">An error occurred while reading this file, some contents may have been ignored.</span>\n");
+				Send("<span class=\"ERROR\">An error occurred while reading this file, some contents may have been ignored.</span>\n");
 				AddDelCbox(path2att.first, "Index data processing error");
-				SendChunk(sBRLF);
+				Send(sBRLF);
 			}
 			continue;
 		}

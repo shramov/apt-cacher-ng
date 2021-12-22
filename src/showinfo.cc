@@ -54,7 +54,7 @@ void tMarkupFileSend::Run()
 		log::err(string("Error reading local page template: " ) + m_sFileName);
 		auto msg = "<html><h1>500 Template not found</h1>Please contact the system administrator.</html>"sv;
 		m_parms.output.ManualStart(500, "Template Not Found", "text/html", se, msg.size());
-		SendChunkRemoteOnly(msg);
+		SendRemoteOnly(msg);
 		return;
 	}
     auto sv = fr.getView();
@@ -70,7 +70,7 @@ void tMarkupFileSend::Run()
 		auto propStart=(LPCSTR) memchr(pr, (uint) '$', restlen);
 		if (propStart) {
 			if (propStart < lastchar && propStart[1] == '{') {
-				SendChunkRemoteOnly(pr, propStart-pr);
+				SendRemoteOnly(pr, propStart-pr);
 				pr=propStart;
 				// found begin of a new property key
 				auto propEnd = (LPCSTR) memchr(propStart+2, (uint) '}', pend-propStart+2);
@@ -87,13 +87,13 @@ void tMarkupFileSend::Run()
 			} else {
 				// not a property string, send as-is
 				propStart++;
-				SendChunkRemoteOnly(pr, propStart-pr);
+				SendRemoteOnly(pr, propStart-pr);
 				pr=propStart;
 			}
 		} else // no more props
 		{
 			no_more_props:
-			SendChunkRemoteOnly(pr, restlen);
+			SendRemoteOnly(pr, restlen);
 			break;
 		}
 	}
@@ -104,11 +104,11 @@ void tDeleter::SendProp(cmstring &key)
 	if(key=="count")
 		SendFmtRemote << files.size();
 	else if(key=="countNZs")
-		return SendChunkRemoteOnly((files.size()>1) ? "s" : "");
+		return SendRemoteOnly((files.size()>1) ? "s" : "");
 	else if(key == "stuff")
-		return SendChunkRemoteOnly(sHidParms);
+		return SendRemoteOnly(sHidParms);
 	else if(key=="vmode")
-		return SendChunkRemoteOnly(sVisualMode.data(), sVisualMode.size());
+		return SendRemoteOnly(sVisualMode.data(), sVisualMode.size());
 	else
 		return tMarkupFileSend::SendProp(key);
 }
@@ -341,9 +341,9 @@ void tMarkupFileSend::SendIfElse(LPCSTR pszBeginSep, LPCSTR pszEnd)
 	if(!valNo) // heh?
 			return;
 	if(0==sel)
-		SendChunkRemoteOnly(valYes, valNo-valYes);
+		SendRemoteOnly(valYes, valNo-valYes);
 	else
-		SendChunkRemoteOnly(valNo+1, pszEnd-valNo-1);
+		SendRemoteOnly(valNo+1, pszEnd-valNo-1);
 }
 
 
@@ -352,12 +352,12 @@ void tMaintPage::SendProp(cmstring &key)
 	if(key=="statsRow")
 	{
 		if(!StrHas(m_parms.cmd, "doCount"))
-			return SendChunkRemoteOnly(sReportButton);
-		return SendChunkRemoteOnly(log::GetStatReport());
+			return SendRemoteOnly(sReportButton);
+		return SendRemoteOnly(log::GetStatReport());
 	}
 	static cmstring defStringChecked("checked");
 	if(key == "aOeDefaultChecked")
-		return SendChunkRemoteOnly(cfg::exfailabort ? defStringChecked : se);
+		return SendRemoteOnly(cfg::exfailabort ? defStringChecked : se);
 
 	if(key == "curPatTraceCol")
 	{
@@ -406,7 +406,7 @@ void tMarkupFileSend::SendProp(cmstring &key)
 		auto ckey=key.c_str() + 4;
 		auto ps(cfg::GetStringPtr(ckey));
 		if(ps)
-			return SendChunkRemoteOnly(*ps);
+			return SendRemoteOnly(*ps);
 		auto pi(cfg::GetIntPtr(ckey));
 		if(pi)
 			SendFmt << *pi;
@@ -414,10 +414,10 @@ void tMarkupFileSend::SendProp(cmstring &key)
 	}
 
 	if (key == "serverhostport")
-		return SendChunkRemoteOnly(GetMyHostPort());
+		return SendRemoteOnly(GetMyHostPort());
 
 	if (key == "footer")
-		return SendChunkRemoteOnly(GetFooter());
+		return SendRemoteOnly(GetFooter());
 
 	if (key == "hostname")
 	{
@@ -425,19 +425,19 @@ void tMarkupFileSend::SendProp(cmstring &key)
 		if(gethostname(buf, sizeof(buf)-2))
 			return; // failed?
 		buf[sizeof(buf)-1] = 0x0;
-		return SendChunkRemoteOnly(buf);
+		return SendRemoteOnly(buf);
 	}
 	if(key=="random")
 		SendFmtRemote << rand();
 	else if(key=="dataInHuman")
 	{
 		auto stats = log::GetCurrentCountersInOut();
-		return SendChunkRemoteOnly(offttosH(stats.first));
+		return SendRemoteOnly(offttosH(stats.first));
 	}
 	else if(key=="dataOutHuman")
 	{
 		auto stats = log::GetCurrentCountersInOut();
-		return SendChunkRemoteOnly(offttosH(stats.second));
+		return SendRemoteOnly(offttosH(stats.second));
 	}
 	else if(key=="dataIn")
 	{
@@ -456,12 +456,12 @@ void tMarkupFileSend::SendProp(cmstring &key)
 	else if (key == "dataHistInHuman")
 	{
 		auto stats = pairSum(log::GetCurrentCountersInOut(), log::GetOldCountersInOut());
-		return SendChunkRemoteOnly(offttosH(stats.first));
+		return SendRemoteOnly(offttosH(stats.first));
 	}
 	else if (key == "dataHistOutHuman")
 	{
 		auto stats = pairSum(log::GetCurrentCountersInOut(), log::GetOldCountersInOut());
-		return SendChunkRemoteOnly(offttosH(stats.second));
+		return SendRemoteOnly(offttosH(stats.second));
 	}
 	else if (key == "dataHistIn")
 	{

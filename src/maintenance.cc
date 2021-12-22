@@ -54,7 +54,7 @@ public:
 				   "configuration directory, probably " CFGDIR;
 		m_parms.output.ManualStart(401, "Not Authorized", "text/plain", "", msg.size());
 		m_parms.output.AddExtraHeaders("WWW-Authenticate: Basic realm=\"For login data, see AdminAuth in Apt-Cacher NG config files\"\r\n");
-		SendChunkRemoteOnly(msg);
+		SendRemoteOnly(msg);
 	}
 };
 
@@ -68,7 +68,7 @@ public:
 		string_view msg = "Not Authorized. To start this action, an administrator password must be set and "
 						  "you must be logged in.";
 		m_parms.output.ManualStart(403, "Access Forbidden", "text/plain", se, msg.size());
-		SendChunkRemoteOnly(msg);
+		SendRemoteOnly(msg);
 	}
 };
 
@@ -135,6 +135,8 @@ static tSpecialRequestHandler* MakeMaintWorker(tSpecialRequestHandler::tRunParms
 #ifdef DEBUG
 	case EWorkType::DBG_SLEEPER:
 		return new sleeper(move(parms));
+	case EWorkType::DBG_BGSTREAM:
+		return new tBgTester(move(parms));
 #endif
 #if 0
 	case workJStats:
@@ -287,7 +289,7 @@ private:
 	}
 };
 
-void tSpecialRequestHandler::SendChunkRemoteOnly(string_view sv)
+void tSpecialRequestHandler::SendRemoteOnly(string_view sv)
 {
 	// push everything into the pipe, the output will make notifications as needed
 
@@ -296,7 +298,7 @@ void tSpecialRequestHandler::SendChunkRemoteOnly(string_view sv)
 	send(PipeTx(), sv);
 }
 
-void tSpecialRequestHandler::SendChunkRemoteOnly(evbuffer* data)
+void tSpecialRequestHandler::SendRemoteOnly(evbuffer* data)
 {
 	// push everything into the pipe, the output will make notifications as needed
 	evbuffer_add_buffer(PipeTx(), data);
@@ -351,8 +353,6 @@ string_view GetTaskName(EWorkType type)
 	case EWorkType::EXP_LIST_DAMAGED: return "Listing Damaged Files"sv;
 	case EWorkType::EXP_PURGE_DAMAGED: return "Truncating Damaged Files"sv;
 	case EWorkType::EXP_TRUNC_DAMAGED: return "Truncating damaged files to zero size"sv;
-	//case ESpecialWorkType::workRAWDUMP: /*fall-through*/
-	//case ESpecialWorkType::workBGTEST: return "42";
 	case EWorkType::USER_INFO: return "General Configuration Information"sv;
 	case EWorkType::TRACE_START:
 	case EWorkType::TRACE_END:
@@ -367,9 +367,9 @@ string_view GetTaskName(EWorkType type)
 	case EWorkType::TRUNCATE_CONFIRM: return "Manual File Truncation (Confirmed)"sv;
 	case EWorkType::COUNT_STATS: return "Status Report With Statistics"sv;
 #ifdef DEBUG
-		case EWorkType::DBG_SLEEPER: return "SLEEPER"sv;
+	case EWorkType::DBG_SLEEPER: return "SLEEPER"sv;
+	case EWorkType::DBG_BGSTREAM: return "BGTESTACTION"sv;
 #endif
-	// case ESpecialWorkType::workJStats: return "Stats";
 	case EWorkType::STYLESHEET:
 	case EWorkType::FAVICON:
 		break;
@@ -383,12 +383,11 @@ EWorkType DetectWorkType(const tHttpUrl& reqUrl, string_view rawCmd, const char*
 
 	LOG("cmd: " << rawCmd);
 
-#if 0 // defined(DEBUG)
-	if(cmd.find("tickTack")!=stmiss)
-	{
-		tBgTester(conFD).Run(cmd);
-		return;
-	}
+#if defined(DEBUG)
+	if(rawCmd.find("tickTack")!=stmiss)
+		return EWorkType::DBG_SLEEPER;
+	if(rawCmd.find("pingMe")!=stmiss)
+		return EWorkType::DBG_BGSTREAM;
 #endif
 
 	if (reqUrl.sHost == "style.css")
