@@ -327,10 +327,10 @@ int main(int argc, const char **argv)
 {
 	using namespace acng;
 
-	auto eBase = evabase::Create();
-
 	ac3rdparty_init();
 	atexit(ac3rdparty_deinit);
+
+	auto eBase = evabase::Create();
 
 	parse_options(argc, argv);
 
