@@ -6,6 +6,14 @@ apt-cacher-ng (4.0) 4-ELIZA; urgency=low
 
 FIXME: WIP
    * HTTPS connections behind a HTTPS proxy possible
+   * Storing maintenance processing (HTML) logs in internal cache, not in
+     logdir anymore. This allows for password protected access and precise
+     control of their expiration.
+     TODO: add area in _xstore; create variant of fileitem_with_storage with
+     Dl* methods callable from BG thread (POSTIng to a call of base class
+     methods); store log ID information in the page handler (some substiture
+     var) and create filename (maybe:
+     <LOGTYPEENUM>.<second>.<usecond>.<autoincrement>.html)
 
   [ INTERNAL IMPROVEMENTS AND BUGFIXES ]
 
@@ -18,7 +26,7 @@ FIXME: WIP
     + combination of request ranges and chunked transfers possible
     + more special responses possible without closing connection
 
-  [ BUGFIXES]
+  [ MISCELLANEOUS BUGFIXES]
     + Data accounting for HTTPS pass-through connections
     + more correct replies in CONNECT requests
     + fixes potential ignorance of "uncached" definitions' request patterns

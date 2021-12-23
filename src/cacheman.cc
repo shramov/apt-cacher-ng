@@ -242,9 +242,6 @@ mstring FindCommonPath(cmstring& a, cmstring& b)
 */
 struct cacheman::TDownloadState
 {
-	mutex mx;
-
-	std::promise<eDlResult> pro;
 	mstring sErr;
 	const tHttpUrl* fallbackUrl = nullptr;
 	fileitem::FiStatus initState = fileitem::FIST_FRESH;
@@ -278,8 +275,8 @@ struct cacheman::TDownloadContext
 	} m_parms;
 
 	lint_user_ptr<dlcontroller> dler;
-
-	std::shared_ptr<TDownloadState> curState;
+	std::promise<eDlResult> pro;
+	std::unique_ptr<TDownloadState> curState;
 	TDownloadState& state() { return *curState; }
 };
 
@@ -306,25 +303,29 @@ cacheman::eDlResult cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileF
 	if (!m_dlCtx)
 		return eDlResult::FAIL_LOCAL;
 	m_dlCtx->m_parms = { sFilePathRel, msgVerbosityLevel, pForcedURL, hints, sGuessedFrom, bForceReDownload };
-	auto p = make_shared<TDownloadState>();
-	m_dlCtx->curState = p;
-	p->sFilePathAbs = SABSPATH(sFilePathRel);
-	p->attr.bVolatile = bIsVolatileFile;
+	evabase::GetGlobal().SyncRunOnMainThread([&]()
+	{
+		m_dlCtx->curState.reset(new TDownloadState);
+		m_dlCtx->curState->sFilePathAbs = SABSPATH(sFilePathRel);
+		m_dlCtx->curState->attr.bVolatile = bIsVolatileFile;
+		return (uintptr_t) m_dlCtx->curState.get();
+	});
+	m_dlCtx->pro = std::promise<eDlResult>();
+
 	evabase::Post([&]()	{ cbDownload(); });
 	try
 	{
-		return m_dlCtx->state().pro.get_future().get();
+		return m_dlCtx->pro.get_future().get();
 	}
 	catch (...)
 	{
-		m_dlCtx->curState.reset();
 		return eDlResult::FAIL_LOCAL;
 	}
 }
 
 void cacheman::cbDownload()
 {
-	lguard g(m_dlCtx->state().mx);
+	ASSERT_HAVE_MAIN_THREAD;
 
 	eDlResult result = eDlResult::FAIL_LOCAL;
 	try
@@ -337,7 +338,7 @@ void cacheman::cbDownload()
 
 	if (result != eDlResult::IO_AGAIN)
 	{
-		m_dlCtx->state().pro.set_value(result);
+		m_dlCtx->pro.set_value(result);
 		// release all callbacks
 		m_dlCtx->curState.reset();
 	}

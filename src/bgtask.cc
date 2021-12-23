@@ -34,8 +34,8 @@ namespace acng
 {
 
 // for start/stop and abort hint
-mutex g_bgTaskMx;
-condition_variable g_bgTaskCondVar;
+//mutex g_bgTaskMx;
+//condition_variable g_bgTaskCondVar;
 bool tExclusiveUserAction::g_sigTaskAbort=false;
 // not zero if a task is active
 time_t nBgTimestamp = 0;
@@ -64,7 +64,7 @@ void tExclusiveUserAction::Run()
 	if (m_parms.cmd.find("&sigabort")!=stmiss)
 	{
 		g_sigTaskAbort = true;
-		g_bgTaskCondVar.notify_all();
+		//g_bgTaskCondVar.notify_all();
 		tStrPos nQuest = m_parms.cmd.find("?");
 		if(nQuest != stmiss)
 			return m_parms.output.ManualStart(302, "Redirect", se, m_parms.cmd.substr(0,nQuest));
@@ -96,11 +96,11 @@ void tExclusiveUserAction::Run()
 
 	tSS logPath;
 
-	time_t other_id=0;
+	//time_t other_id=0;
 
 	{
 		// this is locked just to make sure that only one can register as master
-		lguard g(g_bgTaskMx);
+		//lguard g(g_bgTaskMx);
 
 		if (0 == nBgTimestamp) // ok, not running yet -> become the log source then
 		{
@@ -122,10 +122,10 @@ void tExclusiveUserAction::Run()
 				return;
 			}
 		}
-		else
-			other_id = nBgTimestamp;
+//		else
+//			other_id = nBgTimestamp;
 	}
-
+#if 0
 	if(other_id)
 	{
 		SendChunkSZ("<font color=\"blue\">A maintenance task is already running!</font>\n");
@@ -193,12 +193,14 @@ void tExclusiveUserAction::Run()
 		goto finish_action;
 	}
 	else
+#endif
 	{
 			/*****************************************************
 			 * This is the worker part
 			 *****************************************************/
-			ulock g(g_bgTaskMx);
+			//ulock g(g_bgTaskMx);
 			g_sigTaskAbort=false;
+			/*
 			TFinalAction cleaner([&]()
 			{
 				g.lock();
@@ -206,7 +208,7 @@ void tExclusiveUserAction::Run()
 				g_bgTaskCondVar.notify_all();
 			});
 			g.unlock();
-
+*/
 			SendFmt << "Maintenance task <b>" << GetTaskName(m_parms.type)
 					<< "</b>, apt-cacher-ng version: " ACVERSION;
 			string link = "http://" + GetMyHostPort() + "/" + cfg::reportpage;
@@ -317,13 +319,13 @@ void tExclusiveUserAction::SendLocalOnly(const char *data, size_t len)
 	{
 		m_reportStream.write(data, len);
 		m_reportStream.flush();
-		g_bgTaskCondVar.notify_all();
+		//g_bgTaskCondVar.notify_all();
 	}
 }
 
 time_t tExclusiveUserAction::GetTaskId()
 {
-	lguard guard(g_bgTaskMx);
+	//lguard guard(g_bgTaskMx);
 	return nBgTimestamp;
 }
 

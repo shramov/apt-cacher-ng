@@ -20,10 +20,10 @@ public:
     {
         return nullptr;
     }
-	lint_ptr<IFileItemRegistry> GetItemRegistry() override
-	{
-		return lint_ptr<IFileItemRegistry>();
-	}
+//	lint_ptr<IFileItemRegistry> GetItemRegistry() override
+//	{
+//		return lint_ptr<IFileItemRegistry>();
+//	}
 
 	// IConnBase interface
 public:
