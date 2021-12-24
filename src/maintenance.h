@@ -11,8 +11,8 @@ class acres;
 
 enum class EWorkType : int8_t
 {
-	UNKNOWN = -1,
-	REGULAR = 0,
+	UNKNOWN,
+	REGULAR,
 	LOCALITEM,
 	// expiration types
 	EXPIRE,
@@ -40,6 +40,7 @@ enum class EWorkType : int8_t
 	, DBG_SLEEPER
 	, DBG_BGSTREAM
 #endif
+	, WORK_TYPE_MAX
 };
 
 EWorkType DetectWorkType(const tHttpUrl& reqUrl, string_view rawCmd, const char* auth);

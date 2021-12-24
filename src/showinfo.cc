@@ -53,7 +53,7 @@ void tMarkupFileSend::Run()
 	{
 		log::err(string("Error reading local page template: " ) + m_sFileName);
 		auto msg = "<html><h1>500 Template not found</h1>Please contact the system administrator.</html>"sv;
-		m_parms.output.ManualStart(500, "Template Not Found", "text/html", se, msg.size());
+		m_parms.bitem().ManualStart(500, "Template Not Found", "text/html", se, msg.size());
 		SendRemoteOnly(msg);
 		return;
 	}
@@ -61,7 +61,7 @@ void tMarkupFileSend::Run()
     auto pr = sv.data();
     auto pend = pr + sv.size();
     // XXX: redo more nicely with string_view operations?
-	m_parms.output.ManualStart(m_httpStatus.code, m_httpStatus.msg, m_sMimeType);
+	m_parms.bitem().ManualStart(m_httpStatus.code, m_httpStatus.msg, m_sMimeType);
 
 	auto lastchar=pend-1;
 	while(pr<pend)

@@ -67,10 +67,10 @@ void tExclusiveUserAction::Run()
 		//g_bgTaskCondVar.notify_all();
 		tStrPos nQuest = m_parms.cmd.find("?");
 		if(nQuest != stmiss)
-			return m_parms.output.ManualStart(302, "Redirect", se, m_parms.cmd.substr(0,nQuest));
+			return m_parms.bitem().ManualStart(302, "Redirect", se, m_parms.cmd.substr(0,nQuest));
 	}
 
-	m_parms.output.ManualStart(200, "OK", "text/html");
+	m_parms.bitem().ManualStart(200, "OK", "text/html");
 
 	tSS deco;
 	const char *mark(nullptr);

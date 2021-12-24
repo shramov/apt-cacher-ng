@@ -31,7 +31,8 @@ using namespace std;
 #define MAINT_HTML_DECO "maint.html"
 static string cssString("style.css");
 
-namespace acng {
+namespace acng
+{
 
 tSpecialRequestHandler::tSpecialRequestHandler(tRunParms&& parms) :
 		m_parms(move(parms))
@@ -52,8 +53,8 @@ public:
 		string_view msg = "Not Authorized. Please contact Apt-Cacher NG administrator for further questions.\n\n"
 				   "For Admin: Check the AdminAuth option in one of the *.conf files in Apt-Cacher NG "
 				   "configuration directory, probably " CFGDIR;
-		m_parms.output.ManualStart(401, "Not Authorized", "text/plain", "", msg.size());
-		m_parms.output.AddExtraHeaders("WWW-Authenticate: Basic realm=\"For login data, see AdminAuth in Apt-Cacher NG config files\"\r\n");
+		m_parms.bitem().ManualStart(401, "Not Authorized", "text/plain", "", msg.size());
+		m_parms.bitem().AddExtraHeaders("WWW-Authenticate: Basic realm=\"For login data, see AdminAuth in Apt-Cacher NG config files\"\r\n");
 		SendRemoteOnly(msg);
 	}
 };
@@ -67,7 +68,7 @@ public:
 	{
 		string_view msg = "Not Authorized. To start this action, an administrator password must be set and "
 						  "you must be logged in.";
-		m_parms.output.ManualStart(403, "Access Forbidden", "text/plain", se, msg.size());
+		m_parms.bitem().ManualStart(403, "Access Forbidden", "text/plain", se, msg.size());
 		SendRemoteOnly(msg);
 	}
 };
@@ -84,7 +85,7 @@ public:
 	{
 		auto dpos = m_parms.cmd.find_first_of("0123456789");
 		sleep(dpos == stmiss ? 100 : atoi(m_parms.cmd.data()+dpos));
-		m_parms.output.ManualStart(500, "DBG", "text/plain");
+		m_parms.bitem().ManualStart(500, "DBG", "text/plain");
 	}
 };
 #endif
@@ -177,7 +178,7 @@ public:
 
 		try
 		{
-			handler.reset(MakeMaintWorker({jobType, move(cmd), bufferevent_getfd(bev), *this, arg, reso}));
+			handler.reset(MakeMaintWorker({jobType, move(cmd), bufferevent_getfd(bev), this, arg, reso}));
 			if (handler)
 			{
 				auto flags =  //(handler->m_bNeedsBgThread * BEV_OPT_THREADSAFE)
@@ -374,6 +375,7 @@ string_view GetTaskName(EWorkType type)
 #endif
 	case EWorkType::STYLESHEET:
 	case EWorkType::FAVICON:
+	case EWorkType::WORK_TYPE_MAX:
 		break;
 	}
 	return "UnknownTask"sv;
@@ -467,6 +469,18 @@ EWorkType DetectWorkType(const tHttpUrl& reqUrl, string_view rawCmd, const char*
 	// something weird, go to the maint page
 	return EWorkType::REPORT;
 }
+
+using tSpecialJobFactory = std::function<tSpecialRequestHandler*()>;
+
+struct tSpecialWorkDescription
+{
+	EWorkType type;
+	string_view typeName;
+	string_view title;
+	string_view trigger;
+
+};
+
 
 tFileItemPtr Create(EWorkType jobType, bufferevent *bev, const tHttpUrl& url, SomeData* arg, acres& reso)
 {

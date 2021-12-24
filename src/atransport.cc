@@ -155,7 +155,8 @@ struct tConnContext : public tLintRefcounted
 	lint_ptr<atransportEx> m_result;
 	TFinalAction m_connBuilder;
 	acres& m_res;
-#warning reenable
+
+#warning reenable specific modes?
 
 	bool m_disableNameValidation = cfg::nsafriendly == 1;// || (bGuessedTls * cfg::nsafriendly == 2);
 	bool m_disableAllValidation = cfg::nsafriendly == 1; // || (bGuessedTls * (cfg::nsafriendly == 2 || cfg::nsafriendly == 3));

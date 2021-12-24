@@ -31,20 +31,28 @@ namespace acng
  */
 string_view GetTaskName(EWorkType type);
 
-class BufferedPtItemBase : public fileitem
+class IMaintJobItem : public fileitem
 {
 public:
 	using fileitem::fileitem;
-
-	struct bufferevent *m_pipeInOut[2];	
-	struct evbuffer* PipeTx() { return bufferevent_get_output(m_pipeInOut[0]); }
-	struct evbuffer* PipeRx() { return bufferevent_get_input(m_pipeInOut[1]); }
-
+	virtual evbuffer* PipeTx() =0;
+	virtual evbuffer* PipeRx() =0;
 	virtual void AddExtraHeaders(mstring appendix) =0;
+};
+
+class BufferedPtItemBase : public IMaintJobItem
+{
+protected:
+	struct bufferevent *m_pipeInOut[2];
+public:
+	using IMaintJobItem::IMaintJobItem;
+	struct evbuffer* PipeTx() override { return bufferevent_get_output(m_pipeInOut[0]); }
+	struct evbuffer* PipeRx() override { return bufferevent_get_input(m_pipeInOut[1]); }
 };
 
 class ACNG_API tSpecialRequestHandler
 {
+protected:
 	friend class BackgroundThreadedItem;
 
 public:
@@ -55,12 +63,12 @@ public:
 		mstring cmd;
 		int fd;
 		// reference to the carrier item
-		BufferedPtItemBase& output;
+		fileitem* owner;
 		SomeData* arg;
-
 		acres& res;
 
-		lint_ptr<fileitem> pin();
+		// provide access to BufferedPtItemBase typed jobs
+		IMaintJobItem& bitem() { return * static_cast<BufferedPtItemBase*>(owner); }
 	};
 
 	/*!
@@ -74,7 +82,7 @@ public:
 
 protected:
 
-	evbuffer* PipeTx() { return m_parms.output.PipeTx(); }
+	evbuffer* PipeTx() { return m_parms.bitem().PipeTx(); }
 
 	// for customization in base classes
 	virtual void SendLocalOnly(const char* /*data*/, size_t /*size*/) {};
