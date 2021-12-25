@@ -22,7 +22,7 @@ enum EWorkType : unsigned
 	EXP_TRUNC_DAMAGED,
 	USER_INFO,
 	REPORT,
-	AUT_REQ,
+	AUTH_REQ,
 	AUTH_DENY,
 	IMPORT,
 	MIRROR,

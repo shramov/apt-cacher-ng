@@ -107,9 +107,18 @@ array<tSpecialWorkDescription, (size_t) EWorkType::WORK_TYPE_MAX> workDescriptor
 
 string_view GetTaskName(EWorkType type)
 {
-	if (type >= workDescriptors.max_size())
-		return "UnknownTask"sv;
-	return workDescriptors[type].title;
+	return AC_LIKELY(type < workDescriptors.max_size())
+			? workDescriptors[type].title : "UnknownTask"sv;
+}
+
+static tSpecialRequestHandler* MakeMaintWorker(tSpecialRequestHandler::tRunParms&& parms)
+{
+	if (parms.type >= workDescriptors.size())
+		parms.type = EWorkType::USER_INFO; // XXX: report as error in the log?
+	const auto* creator = workDescriptors[parms.type].creator;
+	if (!creator)
+		creator = workDescriptors[EWorkType::USER_INFO].creator;
+	return (*creator)(move(parms));
 }
 
 namespace creators
@@ -133,57 +142,41 @@ const static tSpecialJobFactory truncator = [](tSpecialRequestHandler::tRunParms
 
 void InitSpecialWorkDescriptors()
 {
-	workDescriptors[EWorkType::REGULAR] = {se, se, ""sv, nullptr, 0 }; // dummy, for regular jobs
-	workDescriptors[EWorkType::LOCALITEM] = {"LOCALITEM"sv, "Local File Server"sv, ""sv, &creators::aclocal, BLOCKING };
-	workDescriptors[EWorkType::EXPIRE] = {"EXPIRE"sv, "Expiration"sv, ""sv, &creators::expiration, BLOCKING };
-	workDescriptors[EWorkType::EXP_LIST] = {"EXP_LIST"sv, "Expired Files Listing"sv, ""sv, &creators::expiration, BLOCKING };
-	workDescriptors[EWorkType::EXP_PURGE] = {"EXP_PURGE"sv, "Expired Files Purging"sv, ""sv, &creators::expiration, BLOCKING };
-	workDescriptors[EWorkType::EXP_LIST_DAMAGED] = {"EXP_LIST_DAMAGED"sv, "Listing Damaged Files"sv, ""sv, &creators::expiration, BLOCKING };
-	workDescriptors[EWorkType::EXP_PURGE_DAMAGED] = {"EXP_PURGE_DAMAGED"sv, "Truncating Damaged Files"sv, ""sv, &creators::expiration, BLOCKING };
-	workDescriptors[EWorkType::EXP_TRUNC_DAMAGED] = {"EXP_TRUNC_DAMAGED"sv, "Truncating damaged files to zero size"sv, ""sv, &creators::expiration, BLOCKING };
-	workDescriptors[EWorkType::USER_INFO] = {"USER_INFO"sv, "General Configuration Information"sv, ""sv, &creators::tShowInfo, 0 };
-	workDescriptors[EWorkType::TRACE_START] = {"TRACE_START"sv, "Status Report and Maintenance Tasks Overview"sv, ""sv, &creators::tMaintPage, 0 };
-	workDescriptors[EWorkType::TRACE_END] = {"TRACE_END"sv, "Status Report and Maintenance Tasks Overview"sv, ""sv, &creators::tMaintPage, 0 };
-	workDescriptors[EWorkType::REPORT] = {"REPORT"sv, "Status Report and Maintenance Tasks Overview"sv, ""sv, &creators::tMaintPage, BLOCKING };
-	workDescriptors[EWorkType::COUNT_STATS] = {"COUNT_STATS"sv, "Status Report With Statistics"sv, ""sv, &creators::tMaintPage, BLOCKING };
-	workDescriptors[EWorkType::AUT_REQ] = {"AUT_REQ"sv, "Authentication Required"sv, ""sv, &creators::tAuthRequest, 0 };
-	workDescriptors[EWorkType::AUTH_DENY] = {"AUTH_DENY"sv, "Authentication Denied"sv, ""sv, &creators::authbounce, 0 };
-	workDescriptors[EWorkType::IMPORT] = {"IMPORT"sv, "Data Import"sv, ""sv, &creators::pkgimport, BLOCKING };
-	workDescriptors[EWorkType::MIRROR] = {"MIRROR"sv, "Archive Mirroring"sv, ""sv, &creators::pkgmirror, BLOCKING };
-	workDescriptors[EWorkType::DELETE] = {"DELETE"sv, "Manual File Deletion"sv, ""sv, &creators::deleter, BLOCKING };
-	workDescriptors[EWorkType::DELETE_CONFIRM] = {"DELETE_CONFIRM"sv, "Manual File Deletion (Confirmed)"sv, ""sv, &creators::deleter, BLOCKING };
-	workDescriptors[EWorkType::TRUNCATE] = {"TRUNCATE"sv, "Manual File Truncation"sv, ""sv, &creators::truncator, BLOCKING };
-	workDescriptors[EWorkType::TRUNCATE_CONFIRM] = {"TRUNCATE_CONFIRM"sv, "Manual File Truncation (Confirmed)"sv, ""sv, &creators::truncator, BLOCKING };
+	workDescriptors[EWorkType::REGULAR] = {se, se, se, nullptr, 0 }; // dummy, for regular jobs
+	workDescriptors[EWorkType::LOCALITEM] = {"LOCALITEM"sv, "Local File Server"sv, se, &creators::aclocal, BLOCKING };
+	workDescriptors[EWorkType::EXPIRE] = {"EXPIRE"sv, "Expiration"sv, "doExpire="sv, &creators::expiration, BLOCKING };
+	workDescriptors[EWorkType::EXP_LIST] = {"EXP_LIST"sv, "Expired Files Listing"sv, "justShow="sv, &creators::expiration, BLOCKING };
+	workDescriptors[EWorkType::EXP_PURGE] = {"EXP_PURGE"sv, "Expired Files Purging"sv, "justRemove="sv, &creators::expiration, BLOCKING };
+	workDescriptors[EWorkType::EXP_LIST_DAMAGED] = {"EXP_LIST_DAMAGED"sv, "Listing Damaged Files"sv, "justShowDamaged="sv, &creators::expiration, BLOCKING };
+	workDescriptors[EWorkType::EXP_PURGE_DAMAGED] = {"EXP_PURGE_DAMAGED"sv, "Truncating Damaged Files"sv, "justRemoveDamaged="sv, &creators::expiration, BLOCKING };
+	workDescriptors[EWorkType::EXP_TRUNC_DAMAGED] = {"EXP_TRUNC_DAMAGED"sv, "Truncating damaged files to zero size"sv, "justTruncDamaged="sv, &creators::expiration, BLOCKING };
+	workDescriptors[EWorkType::USER_INFO] = {"USER_INFO"sv, "General Configuration Information"sv, se, &creators::tShowInfo, 0 };
+	workDescriptors[EWorkType::TRACE_START] = {"TRACE_START"sv, "Status Report and Maintenance Tasks Overview"sv, "doTraceStart="sv, &creators::tMaintPage, 0 };
+	workDescriptors[EWorkType::TRACE_END] = {"TRACE_END"sv, "Status Report and Maintenance Tasks Overview"sv, "doTraceEnd="sv, &creators::tMaintPage, 0 };
+	workDescriptors[EWorkType::REPORT] = {"REPORT"sv, "Status Report and Maintenance Tasks Overview"sv, se, &creators::tMaintPage, BLOCKING };
+	workDescriptors[EWorkType::COUNT_STATS] = {"COUNT_STATS"sv, "Status Report With Statistics"sv, "doCount="sv, &creators::tMaintPage, BLOCKING };
+	workDescriptors[EWorkType::AUTH_REQ] = {"AUT_REQ"sv, "Authentication Required"sv, se, &creators::tAuthRequest, 0 };
+	workDescriptors[EWorkType::AUTH_DENY] = {"AUTH_DENY"sv, "Authentication Denied"sv, se, &creators::authbounce, 0 };
+	workDescriptors[EWorkType::IMPORT] = {"IMPORT"sv, "Data Import"sv, "doImport="sv, &creators::pkgimport, BLOCKING };
+	workDescriptors[EWorkType::MIRROR] = {"MIRROR"sv, "Archive Mirroring"sv, "doMirror="sv, &creators::pkgmirror, BLOCKING };
+	workDescriptors[EWorkType::DELETE] = {"DELETE"sv, "Manual File Deletion"sv, "doDeleteYes="sv, &creators::deleter, BLOCKING };
+	workDescriptors[EWorkType::DELETE_CONFIRM] = {"DELETE_CONFIRM"sv, "Manual File Deletion (Confirmed)"sv, "doDelete="sv, &creators::deleter, BLOCKING };
+	workDescriptors[EWorkType::TRUNCATE] = {"TRUNCATE"sv, "Manual File Truncation"sv, "doTruncateYes="sv, &creators::truncator, BLOCKING };
+	workDescriptors[EWorkType::TRUNCATE_CONFIRM] = {"TRUNCATE_CONFIRM"sv, "Manual File Truncation (Confirmed)"sv, "doTruncate="sv, &creators::truncator, BLOCKING };
 #ifdef DEBUG
-	workDescriptors[EWorkType::DBG_SLEEPER] = {"DBG_SLEEPER"sv, "SpecialOperation"sv, ""sv, &creators::sleeper, BLOCKING };
-	workDescriptors[EWorkType::DBG_BGSTREAM] = {"DBG_BGSTREAM"sv, "SpecialOperation"sv, ""sv, &creators::tBgTester, BLOCKING };
+	workDescriptors[EWorkType::DBG_SLEEPER] = {"DBG_SLEEPER"sv, "SpecialOperation"sv, "sleeper="sv, &creators::sleeper, BLOCKING };
+	workDescriptors[EWorkType::DBG_BGSTREAM] = {"DBG_BGSTREAM"sv, "SpecialOperation"sv, "pingMe="sv, &creators::tBgTester, BLOCKING };
 #endif
-	workDescriptors[EWorkType::STYLESHEET] = {"STYLESHEET"sv, "SpecialOperation"sv, ""sv, nullptr, 0};
-	workDescriptors[EWorkType::FAVICON] = {"FAVICON"sv, "SpecialOperation"sv, ""sv, nullptr, 0};
+	workDescriptors[EWorkType::STYLESHEET] = {"STYLESHEET"sv, "SpecialOperation"sv, se, nullptr, 0};
+	workDescriptors[EWorkType::FAVICON] = {"FAVICON"sv, "SpecialOperation"sv, se, nullptr, 0};
 }
 
-static tSpecialRequestHandler* MakeMaintWorker(tSpecialRequestHandler::tRunParms&& parms)
-{
-	if (parms.type >= workDescriptors.size())
-		parms.type = EWorkType::USER_INFO; // XXX: report as error in the log?
-	const auto* creator = workDescriptors[parms.type].creator;
-	if (!creator)
-		creator = workDescriptors[EWorkType::USER_INFO].creator;
-	return (*creator)(move(parms));
-}
 
 EWorkType DetectWorkType(const tHttpUrl& reqUrl, string_view rawCmd, const char* auth)
 {
 	LOGSTARTs("DispatchMaintWork");
 
 	LOG("cmd: " << rawCmd);
-
-#if defined(DEBUG)
-	if(rawCmd.find("tickTack")!=stmiss)
-		return EWorkType::DBG_SLEEPER;
-	if(rawCmd.find("pingMe")!=stmiss)
-		return EWorkType::DBG_BGSTREAM;
-#endif
 
 	if (reqUrl.sHost == "style.css")
 		return EWorkType::STYLESHEET;
@@ -223,38 +216,15 @@ EWorkType DetectWorkType(const tHttpUrl& reqUrl, string_view rawCmd, const char*
 		// most data modifying tasks cannot be run safely without checksumming support
 		return ESpecialWorkType::workAUTHREJECT;
 #endif
-	 case 1: return EWorkType::AUT_REQ;
+	 case 1: return EWorkType::AUTH_REQ;
 	 default: return EWorkType::AUTH_DENY;
 	}
 
-	struct { string_view trigger; EWorkType type; } matches [] =
+	for (unsigned i = EWorkType::REGULAR + 1; i < EWorkType::WORK_TYPE_MAX; ++i)
 	{
-			{"doExpire="sv, EWorkType::EXPIRE},
-			{"justShow="sv, EWorkType::EXP_LIST},
-			{"justRemove="sv, EWorkType::EXP_PURGE},
-			{"justShowDamaged="sv, EWorkType::EXP_LIST_DAMAGED},
-			{"justRemoveDamaged="sv, EWorkType::EXP_PURGE_DAMAGED},
-			{"justTruncDamaged="sv, EWorkType::EXP_TRUNC_DAMAGED},
-			{"doImport="sv, EWorkType::IMPORT},
-			{"doMirror="sv, EWorkType::MIRROR},
-			{"doDelete="sv, EWorkType::DELETE_CONFIRM},
-			{"doDeleteYes="sv, EWorkType::DELETE},
-			{"doTruncate="sv, EWorkType::TRUNCATE_CONFIRM},
-			{"doTruncateYes="sv, EWorkType::TRUNCATE},
-			{"doCount="sv, EWorkType::COUNT_STATS},
-			{"doTraceStart="sv, EWorkType::TRACE_START},
-			{"doTraceEnd="sv, EWorkType::TRACE_END},
-		#ifdef DEBUG
-			{"sleeper="sv, EWorkType::DBG_SLEEPER},
-		#endif
-//			{"doJStats", workJStats}
-	};
-
-#warning check perfromance, might be inefficient, maybe use precompiled regex for do* and just* or at least separate into two groups
-	for(auto& needle: matches)
-	{
-		if (rawCmd.find(needle.trigger) != stmiss)
-			return needle.type;
+		const auto& trigger = workDescriptors[i].trigger;
+		if (!trigger.empty() && rawCmd.find(trigger) != stmiss)
+			return (EWorkType) i;
 	}
 
 	// something weird, go to the maint page
