@@ -3,8 +3,9 @@
 #include "acfgshared.h"
 #include "astrop.h"
 
-#include <regex>
 #include <iostream>
+
+#include <regex.h>
 
 #define BADSTUFF_PATTERN "\\.\\.($|%|/)"
 
@@ -13,34 +14,56 @@ using namespace std;
 namespace acng
 {
 
+struct tRex : public regex_t
+{
+	int m_error = 1;
+	tRex() =default;
+//	tRex(const tRex&& other) { std::swap(other, this);};
+	~tRex()
+	{
+		if (!m_error)
+			regfree(this);
+	}
+	bool match(cmstring& in)
+	{
+		return !m_error && 0 == regexec(this, in.c_str(), 0, 0, 0);
+	}
+	tRex(cmstring& ps)
+	{
+		m_error = regcomp(this, ps.c_str(), REG_EXTENDED);
+	}
+
+private:
+	tRex(const tRex&) =delete;
+};
+
 struct rex::tImpl
 {
 	int errorCount = 0;
-	// this has the exact order of the "regular" types in the enum
-	std::array<std::vector<std::regex>, ematchtype_max+2> typeMatcher;
-	std::vector<std::regex> vecReqPatters, vecTgtPatterns;
+	// this has the exact order of the "regular" types in the enum, and extra two lists for the uncached patterns
+	std::array<std::deque<tRex>, ematchtype_max+2> typeMatcher;
+#define NOCAPOS(type) (ematchtype_max + (NOCACHE_TGT == type ? 0 : 1))
 
 	int compile(unsigned pos, cmstring& ps)
 	{
 		if(ps.empty())
 			return 0;
-		try
+		auto& el = typeMatcher[pos].emplace_back(ps);
+		if (el.m_error)
 		{
-			typeMatcher[pos].emplace_back(ps, std::regex_constants::extended);
-		}
-		catch (const std::regex_error& ex)
-		{
-			std::cerr << "Regex error " << ex.code() << " in " << ps << " : " << ex.what() << std::endl;
+			std::cerr << "Regex error in " << ps;
+			auto len = regerror(el.m_error, &el, nullptr, 0);
+			vector<char> buf;
+			buf.reserve(len+1);
+			regerror(el.m_error, &el, & buf[0], buf.size());
+			std::cerr << " : " << &buf[0] << std::endl;
 			return 1;
-		}
-		catch (...)
-		{
-			return 2;
 		}
 		return 0;
 	}
 	void compileDefaultMatcher()
 	{
+#warning FIXME: review order, which patterns takes precedence in which context, and add UT
 		using namespace cfg;
 		errorCount = compile(FILE_SOLID, pfilepat)
 				+ compile(FILE_VOLATILE, vfilepat)
@@ -75,7 +98,7 @@ struct rex::tImpl
 	{
 		auto& matcher = typeMatcher.at(type);
 		for(auto& el: matcher)
-			if(regex_search(in, el))
+			if (el.match(in))
 				return true;
 		return false;
 	}
@@ -95,11 +118,9 @@ struct rex::tImpl
 
 	bool CompileUncachedRex(const string & token, NOCACHE_PATTYPE type, bool bRecursiveCall)
 	{
-		auto pos = ematchtype_max + (NOCACHE_TGT == type ? 0 : 1);
-
 		if (0!=token.compare(0, 5, "file:")) // pure pattern
 		{
-			compile(pos, token);
+			compile(NOCAPOS(type), token);
 			return !errorCount;
 		}
 
@@ -136,9 +157,11 @@ struct rex::tImpl
 
 	bool MatchUncacheable(const string & in, NOCACHE_PATTYPE type)
 	{
-		for(const auto& patre: (type == NOCACHE_REQ) ? vecReqPatters : vecTgtPatterns)
-			if(regex_search(in, patre))
+		for(auto& patre: typeMatcher[NOCAPOS(type)])
+		{
+			if (patre.match(in))
 				return true;
+		}
 		return false;
 	}
 
@@ -186,7 +209,7 @@ LPCSTR ReTest(LPCSTR s, rex& matcher)
 				"FILE_SPECIAL_SOLID"
 	};
 	auto t = matcher.GetFiletype(s);
-	if(t<0 || t>=rex::ematchtype_max)
+	if(t < 0 || t >= rex::ematchtype_max)
 		return "NOMATCH";
 	return names[t];
 }

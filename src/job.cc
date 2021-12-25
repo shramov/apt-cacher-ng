@@ -687,6 +687,7 @@ job::eJobResult job::Resume(bool canSend, bufferevent* be)
 			// entered after STATE_SEND_CHUNK_HEADER, end was checked
 			auto limit = m_nChunkEnd - m_nSendPos;
 			auto n = m_dataSender->SendData(be, m_nSendPos, limit);
+			LOG("csent: " << n);
 			if (n < 0)
 				return return_discon(__LINE__);
 			m_nAllDataCount += n;

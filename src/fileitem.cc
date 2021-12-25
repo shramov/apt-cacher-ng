@@ -375,7 +375,6 @@ public:
 		if (evbuffer_add_file_segment(besender(target), *m_seg, 0, len))
 			return -1;
 		callerSendPos += len;
-		ASSERT(len >= 0);
 		return len;
 	};
 };
