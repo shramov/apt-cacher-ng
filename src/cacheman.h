@@ -282,7 +282,8 @@ public:
 	tBgTester(tSpecialRequestHandler::tRunParms&& parms)
 		: cacheman(std::move(parms))
 	{
-		m_szDecoFile="maint.html";
+		ASSERT(!"fixme");
+//		m_szDecoFile="maint.html";
 	}
 	void Action() override;
 

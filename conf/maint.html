@@ -63,29 +63,23 @@ function  appendData()
 //   window.onload=pageScroll;
 
       </script-->
-
-
    </head>
    <body>
          <table border=0 cellspacing=0 cellpadding=0 width=777 class="center">
             <tr>
-               <td class="title">Apt-Cacher NG maintenance tasks</td>
+		    <td class="title">Apt-Cacher NG maintenance tasks on ${hostname}</td>
             </tr>
             <tr>
                <td>
-                  <div style="text-align:left;font-size:x-small;">
-                        <div class="visarea" id="logArea">
-
-
-                           ~
-
-
-
+                  <div style="text-align:left;font-size:small;">
+                        <div class="visarea maxwid" style="text-align:left" id="logArea">
+				Currently running <b>${taskTitle}</b>, started at ${startTime}<div style="display:${:/showCancel/inline/none};white-space:nowrap;">, Cancel</div><br>
+				${action}
                         </div>
-<!--a href="javascript:stopScroll()">Stop Scrolling</a-->
                   </div>
                </td>
             </tr>
+	    <tr><td><div class="visarea maxwid">${footer}</div></td></tr>
          </table>
    </body>
 </html>

@@ -108,7 +108,6 @@ cacheman::cacheman(tRunParms&& parms) :
 	m_nErrorCount(0),
 	m_nProgIdx(0), m_nProgTell(1)
 {
-	m_szDecoFile="maint.html";
 	m_gMaintTimeNow=GetTime();
 
 	m_bErrAbort=(parms.cmd.find("abortOnErrors=aOe")!=stmiss);
@@ -588,7 +587,7 @@ FROM_ITEM_CB_FIRST:
 		static cmstring sInternal("[INTERNAL:");
 		// need to account both, this traffic as officially tracked traffic, and also keep the count
 		// separately for expiration about trade-off calculation
-		log::transfer(dlCount, 0, Concat(sInternal, GetTaskName(m_parms.type), "]"), sFilePathRel, false);
+		log::transfer(dlCount, 0, Concat(sInternal, GetTaskTitle(m_parms.type), "]"), sFilePathRel, false);
 	}
 
 	if (ret == eDlResult::OK && state.attr.bVolatile)

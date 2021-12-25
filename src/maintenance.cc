@@ -105,10 +105,16 @@ const unsigned EXCLUSIVE = 0x4; // shall be the only action of that kind active;
 
 array<tSpecialWorkDescription, (size_t) EWorkType::WORK_TYPE_MAX> workDescriptors;
 
-string_view GetTaskName(EWorkType type)
+string_view GetTaskTitle(EWorkType type)
 {
 	return AC_LIKELY(type < workDescriptors.max_size())
 			? workDescriptors[type].title : "UnknownTask"sv;
+}
+
+string_view GetTaskTypeName(EWorkType type)
+{
+	return AC_LIKELY(type < workDescriptors.max_size())
+			? workDescriptors[type].typeName : "UnknownTask"sv;
 }
 
 static tSpecialRequestHandler* MakeMaintWorker(tSpecialRequestHandler::tRunParms&& parms)
@@ -127,7 +133,7 @@ namespace creators
 CREAT(aclocal);
 CREAT(expiration);
 CREAT(tShowInfo);
-CREAT(tMaintPage);
+CREAT(tMaintOverview);
 CREAT(tAuthRequest);
 CREAT(authbounce);
 CREAT(pkgimport);
@@ -151,10 +157,10 @@ void InitSpecialWorkDescriptors()
 	workDescriptors[EWorkType::EXP_PURGE_DAMAGED] = {"EXP_PURGE_DAMAGED"sv, "Truncating Damaged Files"sv, "justRemoveDamaged="sv, &creators::expiration, BLOCKING };
 	workDescriptors[EWorkType::EXP_TRUNC_DAMAGED] = {"EXP_TRUNC_DAMAGED"sv, "Truncating damaged files to zero size"sv, "justTruncDamaged="sv, &creators::expiration, BLOCKING };
 	workDescriptors[EWorkType::USER_INFO] = {"USER_INFO"sv, "General Configuration Information"sv, se, &creators::tShowInfo, 0 };
-	workDescriptors[EWorkType::TRACE_START] = {"TRACE_START"sv, "Status Report and Maintenance Tasks Overview"sv, "doTraceStart="sv, &creators::tMaintPage, 0 };
-	workDescriptors[EWorkType::TRACE_END] = {"TRACE_END"sv, "Status Report and Maintenance Tasks Overview"sv, "doTraceEnd="sv, &creators::tMaintPage, 0 };
-	workDescriptors[EWorkType::REPORT] = {"REPORT"sv, "Status Report and Maintenance Tasks Overview"sv, se, &creators::tMaintPage, BLOCKING };
-	workDescriptors[EWorkType::COUNT_STATS] = {"COUNT_STATS"sv, "Status Report With Statistics"sv, "doCount="sv, &creators::tMaintPage, BLOCKING };
+	workDescriptors[EWorkType::TRACE_START] = {"TRACE_START"sv, "Status Report and Maintenance Tasks Overview"sv, "doTraceStart="sv, &creators::tMaintOverview, 0 };
+	workDescriptors[EWorkType::TRACE_END] = {"TRACE_END"sv, "Status Report and Maintenance Tasks Overview"sv, "doTraceEnd="sv, &creators::tMaintOverview, 0 };
+	workDescriptors[EWorkType::REPORT] = {"REPORT"sv, "Status Report and Maintenance Tasks Overview"sv, se, &creators::tMaintOverview, BLOCKING };
+	workDescriptors[EWorkType::COUNT_STATS] = {"COUNT_STATS"sv, "Status Report With Statistics"sv, "doCount="sv, &creators::tMaintOverview, BLOCKING };
 	workDescriptors[EWorkType::AUTH_REQ] = {"AUT_REQ"sv, "Authentication Required"sv, se, &creators::tAuthRequest, 0 };
 	workDescriptors[EWorkType::AUTH_DENY] = {"AUTH_DENY"sv, "Authentication Denied"sv, se, &creators::authbounce, 0 };
 	workDescriptors[EWorkType::IMPORT] = {"IMPORT"sv, "Data Import"sv, "doImport="sv, &creators::pkgimport, BLOCKING };

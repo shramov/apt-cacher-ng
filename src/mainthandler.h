@@ -29,7 +29,8 @@ namespace acng
  * @param type
  * @return Human readable name, guaranteed to be zero-terminated
  */
-string_view GetTaskName(EWorkType type);
+string_view GetTaskTitle(EWorkType type);
+string_view GetTaskTypeName(EWorkType type);
 
 class IMaintJobItem : public fileitem
 {
@@ -110,7 +111,6 @@ protected:
 	}
 
 	cmstring & GetMyHostPort();
-	LPCSTR m_szDecoFile = nullptr;
 	tRunParms m_parms;
 
 private:

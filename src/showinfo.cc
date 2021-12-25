@@ -34,33 +34,14 @@ tMarkupFileSend::tMarkupFileSend(tSpecialRequestHandler::tRunParms&& parms,
 		const char *m, const tRemoteStatus& st)
 :
 	tSpecialRequestHandler(move(parms)),
-	m_sFileName(s), m_sMimeType(m), m_httpStatus(st)
+	m_sOuterDecoFile(s), m_sMimeType(m), m_httpStatus(st)
 {
 }
 
-void tMarkupFileSend::Run()
+void acng::tMarkupFileSend::SendProcessedData(string_view sv)
 {
-	LOGSTARTFUNCx(m_parms.cmd);
-
-	filereader fr;
-	if(!m_bFatalError)
-	{
-		m_bFatalError = ! ( fr.OpenFile(cfg::confdir+SZPATHSEP+m_sFileName, true) ||
-			(!cfg::suppdir.empty() && fr.OpenFile(cfg::suppdir+SZPATHSEP+m_sFileName, true)));
-	}
-	if(m_bFatalError)
-	{
-		log::err(string("Error reading local page template: " ) + m_sFileName);
-		auto msg = "<html><h1>500 Template not found</h1>Please contact the system administrator.</html>"sv;
-		m_parms.bitem().ManualStart(500, "Template Not Found", "text/html", se, msg.size());
-		SendRemoteOnly(msg);
-		return;
-	}
-    auto sv = fr.getView();
-    auto pr = sv.data();
-    auto pend = pr + sv.size();
-    // XXX: redo more nicely with string_view operations?
-	m_parms.bitem().ManualStart(m_httpStatus.code, m_httpStatus.msg, m_sMimeType);
+	auto pr = sv.data();
+	auto pend = pr + sv.size();
 
 	auto lastchar=pend-1;
 	while(pr<pend)
@@ -96,6 +77,22 @@ void tMarkupFileSend::Run()
 			break;
 		}
 	}
+}
+
+void tMarkupFileSend::Run()
+{
+	LOGSTARTFUNCx(m_parms.cmd);
+	tMarkupInput input(m_sOuterDecoFile, m_bFatalError);
+	if(input.bError)
+	{
+		log::err(string("Error reading local page template: " ) + m_sOuterDecoFile);
+		auto msg = "<html><h1>500 Template not found</h1>Please contact the system administrator.</html>"sv;
+		m_parms.bitem().ManualStart(500, "Template Not Found", "text/html", se, msg.size());
+		SendRemoteOnly(msg);
+		return;
+	}
+	m_parms.bitem().ManualStart(m_httpStatus.code, m_httpStatus.msg, m_sMimeType);
+	SendProcessedData(input.view());
 }
 
 void tDeleter::SendProp(cmstring &key)
@@ -277,15 +274,13 @@ tDeleter::tDeleter(tRunParms&& parms, const mstring& vmode)
 	}
 }
 
-tMaintPage::tMaintPage(tRunParms&& parms)
-:tMarkupFileSend(move(parms), "report.html", "text/html", stOK)
+void tMaintOverview::Action()
 {
-
-	if(StrHas(parms.cmd, "doTraceStart"))
+	if(StrHas(m_parms.cmd, "doTraceStart"))
 		cfg::patrace=true;
-	else if(StrHas(parms.cmd, "doTraceStop"))
+	else if(StrHas(m_parms.cmd, "doTraceStop"))
 		cfg::patrace=false;
-	else if(StrHas(parms.cmd, "doTraceClear"))
+	else if(StrHas(m_parms.cmd, "doTraceClear"))
 	{
 #warning restoreme or just drop that feature, add a log parser and displayer instead
 		/*auto& tr(tTraceData::getInstance());
@@ -293,32 +288,31 @@ tMaintPage::tMaintPage(tRunParms&& parms)
 		tr.clear();
 		*/
 	}
+	ProcessResource("report.html");
 }
 
 // compares c string with a determined part of another string
 #define RAWEQ(longstring, len, pfx) (len==(sizeof(pfx)-1) && 0==memcmp(longstring, pfx, sizeof(pfx)-1))
 #define PFXCMP(longstring, len, pfx) ((sizeof(pfx)-1) <= len && 0==memcmp(longstring, pfx, sizeof(pfx)-1))
 
-inline int tMarkupFileSend::CheckCondition(LPCSTR id, size_t len)
+inline int tMarkupFileSend::CheckCondition(string_view key)
 {
 	//std::cerr << "check if: " << string(id, len) << std::endl;
-	if(PFXCMP(id, len, "cfg:"))
+	if(key.starts_with("cfg:"sv))
 	{
-		string key(id+4, len-4);
-		auto p=cfg::GetIntPtr(key.c_str());
+		string skey(key.data()+4, key.length()-4);
+		auto p=cfg::GetIntPtr(skey.c_str());
 		if(p)
 			return ! *p;
-		if(key == "degraded")
+		if(skey == "degraded"sv)
 			return cfg::DegradedMode();
     	return -1;
 	}
-
-	if(RAWEQ(id, len, "delConfirmed"))
+	if(key == "delConfirmed"sv)
 	{
 		return m_parms.type != EWorkType::DELETE
 				&& m_parms.type != EWorkType::TRUNCATE;
 	}
-
 	return -2;
 }
 
@@ -330,7 +324,7 @@ void tMarkupFileSend::SendIfElse(LPCSTR pszBeginSep, LPCSTR pszEnd)
 	auto valYes=(LPCSTR) memchr(key, (uint) *sep, pszEnd-key);
 	if(!valYes) // heh?
 		return;
-	auto sel=CheckCondition(key, valYes-key);
+	auto sel=CheckCondition(string_view(key, valYes-key));
 	//std::cerr << "sel: " << sel << std::endl;
 	if(sel<0) // heh?
 		return;
@@ -346,7 +340,13 @@ void tMarkupFileSend::SendIfElse(LPCSTR pszBeginSep, LPCSTR pszEnd)
 }
 
 
-void tMaintPage::SendProp(cmstring &key)
+tMaintOverview::tMaintOverview(tRunParms &&parms) : tMaintJobBase(std::move(parms))
+{
+	m_showCancel = false;
+	m_startTime = GetTime();
+}
+
+void tMaintOverview::SendProp(cmstring &key)
 {
 	if(key=="statsRow")
 	{
@@ -382,7 +382,7 @@ void tMaintPage::SendProp(cmstring &key)
 		if(bcount)
 			m_fmtHelper << "<br>some strings not considered due to security restrictions<br>"sv;
 	}
-	return tMarkupFileSend::SendProp(key);
+	return tMaintJobBase::SendProp(key);
 }
 /*
 void tMarkupFileSend::SendRaw(const char* pBuf, size_t len)
@@ -476,6 +476,64 @@ void tMarkupFileSend::SendProp(cmstring &key)
 		auto pixels = statsMax ? (SCALEFAC * stats.second/statsMax) : 0;
 		SendFmtRemote << pixels;
 	}
+	else if (key == "taskTitle")
+	{
+		SendFmtRemote << GetTaskTitle(m_parms.type);
+	}
+	else if (key == "taskName")
+	{
+		SendFmtRemote << GetTaskTypeName(m_parms.type);
+	}
+}
+
+tMarkupFileSend::tMarkupInput::tMarkupInput(cmstring &fname, bool alreadyError)
+{
+	bError = alreadyError || ! ( fr.OpenFile(cfg::confdir + SZPATHSEP+fname, true) ||
+								 (!cfg::suppdir.empty() && fr.OpenFile(cfg::suppdir + SZPATHSEP + fname, true)));
+}
+
+tMaintJobBase::tMaintJobBase(tRunParms &&parms) : tMarkupFileSend(std::move(parms), "maint.html", "text/html", stOK)
+{
+
+}
+
+void tMaintJobBase::SendProp(cmstring &key)
+{
+	if (key == "action")
+		return Action();
+	if (key == "startTime")
+	{
+#warning format nicely!
+		SendFmt << m_startTime;
+		return;
+	}
+
+	return tMarkupFileSend::SendProp(key);
+}
+
+int tMaintJobBase::CheckCondition(string_view key)
+{
+	if (key == "showCancel"sv)
+	{
+		return !m_showCancel;
+	}
+	return tMarkupFileSend::CheckCondition(key);
+}
+
+void tMaintJobBase::ProcessResource(cmstring sFilename)
+{
+	tMarkupInput input(sFilename);
+	if (input.bError)
+		SendFmt << "<b>INTERNAL ERROR</b>";
+	else
+	{
+		SendProcessedData(input.view());
+	}
+}
+
+bool tMaintJobBase::CheckStopSignal()
+{
+	return g_sigTaskAbort || evabase::GetGlobal().IsShuttingDown();
 }
 
 }

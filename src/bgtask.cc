@@ -36,14 +36,9 @@ namespace acng
 // for start/stop and abort hint
 //mutex g_bgTaskMx;
 //condition_variable g_bgTaskCondVar;
-bool tExclusiveUserAction::g_sigTaskAbort=false;
+//bool tExclusiveUserAction::g_sigTaskAbort=false;
 // not zero if a task is active
 time_t nBgTimestamp = 0;
-
-tExclusiveUserAction::tExclusiveUserAction(tRunParms &&parms)
-	: tSpecialRequestHandler(move(parms))
-{
-}
 
 tExclusiveUserAction::~tExclusiveUserAction()
 {
@@ -55,6 +50,7 @@ tExclusiveUserAction::~tExclusiveUserAction()
 	checkforceclose(m_logFd);
 }
 
+#if 0
 /*
  *  TODO: this is kept in expiration class for historical reasons. Should be moved to some shared upper
  * class, like "detachedtask" or something like that
@@ -71,7 +67,7 @@ void tExclusiveUserAction::Run()
 	}
 
 	m_parms.bitem().ManualStart(200, "OK", "text/html");
-
+#if 0
 	tSS deco;
 	const char *mark(nullptr);
 	if(m_szDecoFile &&
@@ -93,7 +89,7 @@ void tExclusiveUserAction::Run()
 			deco.clear();
 		}
 	}
-
+#endif
 	tSS logPath;
 
 	//time_t other_id=0;
@@ -227,7 +223,7 @@ void tExclusiveUserAction::Run()
 			SendFmt << "<br>\n";
 			SendRemoteOnly(WITHLEN("<form id=\"mainForm\" action=\"#top\">\n"));
 
-			Action();
+		//	Action();
 
 
 			if (!m_pathMemory.empty())
@@ -287,16 +283,12 @@ void tExclusiveUserAction::Run()
 
 	finish_action:
 
+#if 0
 	if(!deco.empty())
 		SendRemoteOnly(deco.c_str(), deco.size());
+#endif
 }
-
-bool tExclusiveUserAction::CheckStopSignal()
-{
-#warning restore protection
-	//lockguard g(&g_StateCv);
-	return g_sigTaskAbort || evabase::GetGlobal().IsShuttingDown();
-}
+#endif
 
 void tExclusiveUserAction::DumpLog(time_t id)
 {

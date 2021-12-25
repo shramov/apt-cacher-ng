@@ -1,7 +1,7 @@
 body {
    background-color: #cccccc;
    font-family: Verdana, Arial, sans-serif;
-   font-size: 10px;
+   font-size: small;
    color: black;
 }
 .title {
@@ -22,7 +22,6 @@ body {
    text-align: center;
    font-weight: bold;
    font-family: Tahoma, Arial, sans-serif;
-   font-size: 11px;
 }
 .colcont
 {
@@ -40,15 +39,15 @@ body {
    padding-left: 5px;
    padding-right: 5px;
    padding-top: 3px;
-   padding-bottom: 10px;
+   padding-bottom: 11px;
 }
 a { text-decoration: none; }
 a:hover { text-decoration: underline; }
 table.center {margin-left:auto; margin-right:auto;}
-.rawstyle { font-size:x-small;font-weight:bold;white-space:nowrap; }
+.rawstyle { font-size:small;font-weight:bold;white-space:nowrap; }
 
 .maxwid {
-   max-width: 777px;
+   max-width: 1010px;
 }
 
 .xhidden {
