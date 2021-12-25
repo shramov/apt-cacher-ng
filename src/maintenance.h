@@ -9,12 +9,11 @@ namespace acng
 {
 class acres;
 
-enum class EWorkType : int8_t
+enum EWorkType : unsigned
 {
-	UNKNOWN,
 	REGULAR,
 	LOCALITEM,
-	// expiration types
+	// special job types with dedicated handlers, see Create(...)
 	EXPIRE,
 	EXP_LIST,
 	EXP_PURGE,
@@ -30,6 +29,7 @@ enum class EWorkType : int8_t
 	DELETE,
 	DELETE_CONFIRM,
 	COUNT_STATS,
+#warning reoder, move dummies with no processing classes to the end
 	STYLESHEET,
 	FAVICON,
 	TRACE_START,
@@ -44,6 +44,7 @@ enum class EWorkType : int8_t
 };
 
 EWorkType DetectWorkType(const tHttpUrl& reqUrl, string_view rawCmd, const char* auth);
+
 /**
  * @brief Create a new "hot" fileitem (might have a thread attached already).
  * @param wType

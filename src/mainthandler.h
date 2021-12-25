@@ -146,10 +146,6 @@ public:
 #define SendChunkSZ(x) Send(WITHLEN(x))
 
 	bSS m_fmtHelper;
-
-	bool m_bNeedsBgThread = true; // invoke/use a background thread for blocking activities
-	bool m_bFileBacked = false; // output shall be returned through a tempfile, not directly via pipe
-	bool m_bExclusive = false; // shall be the only action of that kind active; output from an active sesion is shared; requires: m_bFileBacked
 };
 
 std::string to_base36(unsigned int val);

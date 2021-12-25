@@ -36,7 +36,6 @@ tMarkupFileSend::tMarkupFileSend(tSpecialRequestHandler::tRunParms&& parms,
 	tSpecialRequestHandler(move(parms)),
 	m_sFileName(s), m_sMimeType(m), m_httpStatus(st)
 {
-	m_bNeedsBgThread = false;
 }
 
 void tMarkupFileSend::Run()

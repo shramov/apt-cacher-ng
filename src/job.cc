@@ -253,7 +253,7 @@ void job::Prepare(const header &h, bufferevent* be, cmstring& callerHostname, ac
 		{
 			auto t = DetectWorkType(theUrl, sReqPath, h.h[header::AUTHORIZATION]);
 			ldbg("type: " << (int) t);
-			if (t > EWorkType::REGULAR)
+			if (t)
 			{
 				m_pItem.reset(Create(t, be, theUrl, nullptr, res));
 				return m_pItem ? void() : report_overload(__LINE__);

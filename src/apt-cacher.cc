@@ -244,6 +244,7 @@ void term_handler(evutil_socket_t signum, short, void*)
 }
 
 void CloseAllCachedConnections();
+void InitSpecialWorkDescriptors();
 
 std::unique_ptr<acres> sharedResources;
 conserver *g_server = nullptr;
@@ -269,6 +270,7 @@ void daemon_init()
 
 	//DelTree(cfg::cacheDirSlash + sReplDir);
 	SetupServerItemRegistry();
+	InitSpecialWorkDescriptors();
 	sharedResources.reset(acres::Create());
 
 	if (sharedResources->GetMatchers().HasErrors())

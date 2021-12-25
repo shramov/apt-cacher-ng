@@ -77,10 +77,7 @@ public:
 class sleeper : public tSpecialRequestHandler
 {
 public:
-	sleeper(tRunParms&& parms) : tSpecialRequestHandler(move(parms))
-	{
-		m_bNeedsBgThread = true;
-	}
+	using tSpecialRequestHandler::tSpecialRequestHandler;
 	void Run() override
 	{
 		auto dpos = m_parms.cmd.find_first_of("0123456789");
@@ -90,63 +87,179 @@ public:
 };
 #endif
 
-static tSpecialRequestHandler* MakeMaintWorker(tSpecialRequestHandler::tRunParms&& parms)
+
+using tSpecialJobFactory = std::function<tSpecialRequestHandler*(tSpecialRequestHandler::tRunParms&&)>;
+tSpecialJobFactory dummyCreator = [](tSpecialRequestHandler::tRunParms&& parms){ return nullptr; };
+struct tSpecialWorkDescription
 {
-	if (cfg::DegradedMode() && parms.type != EWorkType::STYLESHEET)
-		parms.type = EWorkType::USER_INFO;
+	string_view typeName;
+	string_view title;
+	string_view trigger;
+	const tSpecialJobFactory* creator;
+	unsigned flags;
+};
+const unsigned BLOCKING = 0x1; // needs a detached thread
+const unsigned FILE_BACKED = 0x2;  // output shall be returned through a tempfile, not directly via pipe
+const unsigned EXCLUSIVE = 0x4; // shall be the only action of that kind active; output from an active sesion is shared; requires: m_bFileBacked
 
-	switch (parms.type)
-	{
-	case EWorkType::UNKNOWN:
-	case EWorkType::REGULAR:
-	case EWorkType::STYLESHEET:
-	case EWorkType::FAVICON:
-		return nullptr;
-	case EWorkType::LOCALITEM:
-		return new aclocal(move(parms));
-	case EWorkType::EXPIRE:
-	case EWorkType::EXP_LIST:
-	case EWorkType::EXP_PURGE:
-	case EWorkType::EXP_LIST_DAMAGED:
-	case EWorkType::EXP_PURGE_DAMAGED:
-	case EWorkType::EXP_TRUNC_DAMAGED:
-		return new expiration(move(parms));
-	case EWorkType::USER_INFO:
-		return new tShowInfo(move(parms));
-	case EWorkType::REPORT:
-	case EWorkType::COUNT_STATS:
-	case EWorkType::TRACE_START:
-	case EWorkType::TRACE_END:
-		return new tMaintPage(move(parms));
-	case EWorkType::AUT_REQ:
-		return new tAuthRequest(move(parms));
-	case EWorkType::AUTH_DENY:
-		return new authbounce(move(parms));
-	case EWorkType::IMPORT:
-		return new pkgimport(move(parms));
-	case EWorkType::MIRROR:
-		return new pkgmirror(move(parms));
-	case EWorkType::DELETE:
-	case EWorkType::DELETE_CONFIRM:
-		return new tDeleter(move(parms), "Delet");
-	case EWorkType::TRUNCATE:
-	case EWorkType::TRUNCATE_CONFIRM:
-		return new tDeleter(move(parms), "Truncat");
 
-#ifdef DEBUG
-	case EWorkType::DBG_SLEEPER:
-		return new sleeper(move(parms));
-	case EWorkType::DBG_BGSTREAM:
-		return new tBgTester(move(parms));
-#endif
-#if 0
-	case workJStats:
-		return new jsonstats(parms);
-#endif
-	}
-	return nullptr;
+array<tSpecialWorkDescription, (size_t) EWorkType::WORK_TYPE_MAX> workDescriptors;
+
+string_view GetTaskName(EWorkType type)
+{
+	if (type >= workDescriptors.max_size())
+		return "UnknownTask"sv;
+	return workDescriptors[type].title;
 }
 
+namespace creators
+{
+#define CREAT(x) const static tSpecialJobFactory x = [](tSpecialRequestHandler::tRunParms&& parms){ return new acng:: x (move(parms)); };
+CREAT(aclocal);
+CREAT(expiration);
+CREAT(tShowInfo);
+CREAT(tMaintPage);
+CREAT(tAuthRequest);
+CREAT(authbounce);
+CREAT(pkgimport);
+CREAT(pkgmirror);
+#ifdef DEBUG
+CREAT(sleeper);
+CREAT(tBgTester);
+#endif
+const static tSpecialJobFactory deleter = [](tSpecialRequestHandler::tRunParms&& parms){ return new acng::tDeleter (move(parms), "Delet"); };
+const static tSpecialJobFactory truncator = [](tSpecialRequestHandler::tRunParms&& parms){ return new acng::tDeleter (move(parms), "Truncat"); };
+}
+
+void InitSpecialWorkDescriptors()
+{
+	workDescriptors[EWorkType::REGULAR] = {se, se, ""sv, nullptr, 0 }; // dummy, for regular jobs
+	workDescriptors[EWorkType::LOCALITEM] = {"LOCALITEM"sv, "Local File Server"sv, ""sv, &creators::aclocal, BLOCKING };
+	workDescriptors[EWorkType::EXPIRE] = {"EXPIRE"sv, "Expiration"sv, ""sv, &creators::expiration, BLOCKING };
+	workDescriptors[EWorkType::EXP_LIST] = {"EXP_LIST"sv, "Expired Files Listing"sv, ""sv, &creators::expiration, BLOCKING };
+	workDescriptors[EWorkType::EXP_PURGE] = {"EXP_PURGE"sv, "Expired Files Purging"sv, ""sv, &creators::expiration, BLOCKING };
+	workDescriptors[EWorkType::EXP_LIST_DAMAGED] = {"EXP_LIST_DAMAGED"sv, "Listing Damaged Files"sv, ""sv, &creators::expiration, BLOCKING };
+	workDescriptors[EWorkType::EXP_PURGE_DAMAGED] = {"EXP_PURGE_DAMAGED"sv, "Truncating Damaged Files"sv, ""sv, &creators::expiration, BLOCKING };
+	workDescriptors[EWorkType::EXP_TRUNC_DAMAGED] = {"EXP_TRUNC_DAMAGED"sv, "Truncating damaged files to zero size"sv, ""sv, &creators::expiration, BLOCKING };
+	workDescriptors[EWorkType::USER_INFO] = {"USER_INFO"sv, "General Configuration Information"sv, ""sv, &creators::tShowInfo, 0 };
+	workDescriptors[EWorkType::TRACE_START] = {"TRACE_START"sv, "Status Report and Maintenance Tasks Overview"sv, ""sv, &creators::tMaintPage, 0 };
+	workDescriptors[EWorkType::TRACE_END] = {"TRACE_END"sv, "Status Report and Maintenance Tasks Overview"sv, ""sv, &creators::tMaintPage, 0 };
+	workDescriptors[EWorkType::REPORT] = {"REPORT"sv, "Status Report and Maintenance Tasks Overview"sv, ""sv, &creators::tMaintPage, BLOCKING };
+	workDescriptors[EWorkType::COUNT_STATS] = {"COUNT_STATS"sv, "Status Report With Statistics"sv, ""sv, &creators::tMaintPage, BLOCKING };
+	workDescriptors[EWorkType::AUT_REQ] = {"AUT_REQ"sv, "Authentication Required"sv, ""sv, &creators::tAuthRequest, 0 };
+	workDescriptors[EWorkType::AUTH_DENY] = {"AUTH_DENY"sv, "Authentication Denied"sv, ""sv, &creators::authbounce, 0 };
+	workDescriptors[EWorkType::IMPORT] = {"IMPORT"sv, "Data Import"sv, ""sv, &creators::pkgimport, BLOCKING };
+	workDescriptors[EWorkType::MIRROR] = {"MIRROR"sv, "Archive Mirroring"sv, ""sv, &creators::pkgmirror, BLOCKING };
+	workDescriptors[EWorkType::DELETE] = {"DELETE"sv, "Manual File Deletion"sv, ""sv, &creators::deleter, BLOCKING };
+	workDescriptors[EWorkType::DELETE_CONFIRM] = {"DELETE_CONFIRM"sv, "Manual File Deletion (Confirmed)"sv, ""sv, &creators::deleter, BLOCKING };
+	workDescriptors[EWorkType::TRUNCATE] = {"TRUNCATE"sv, "Manual File Truncation"sv, ""sv, &creators::truncator, BLOCKING };
+	workDescriptors[EWorkType::TRUNCATE_CONFIRM] = {"TRUNCATE_CONFIRM"sv, "Manual File Truncation (Confirmed)"sv, ""sv, &creators::truncator, BLOCKING };
+#ifdef DEBUG
+	workDescriptors[EWorkType::DBG_SLEEPER] = {"DBG_SLEEPER"sv, "SpecialOperation"sv, ""sv, &creators::sleeper, BLOCKING };
+	workDescriptors[EWorkType::DBG_BGSTREAM] = {"DBG_BGSTREAM"sv, "SpecialOperation"sv, ""sv, &creators::tBgTester, BLOCKING };
+#endif
+	workDescriptors[EWorkType::STYLESHEET] = {"STYLESHEET"sv, "SpecialOperation"sv, ""sv, nullptr, 0};
+	workDescriptors[EWorkType::FAVICON] = {"FAVICON"sv, "SpecialOperation"sv, ""sv, nullptr, 0};
+}
+
+static tSpecialRequestHandler* MakeMaintWorker(tSpecialRequestHandler::tRunParms&& parms)
+{
+	if (parms.type >= workDescriptors.size())
+		parms.type = EWorkType::USER_INFO; // XXX: report as error in the log?
+	const auto* creator = workDescriptors[parms.type].creator;
+	if (!creator)
+		creator = workDescriptors[EWorkType::USER_INFO].creator;
+	return (*creator)(move(parms));
+}
+
+EWorkType DetectWorkType(const tHttpUrl& reqUrl, string_view rawCmd, const char* auth)
+{
+	LOGSTARTs("DispatchMaintWork");
+
+	LOG("cmd: " << rawCmd);
+
+#if defined(DEBUG)
+	if(rawCmd.find("tickTack")!=stmiss)
+		return EWorkType::DBG_SLEEPER;
+	if(rawCmd.find("pingMe")!=stmiss)
+		return EWorkType::DBG_BGSTREAM;
+#endif
+
+	if (reqUrl.sHost == "style.css")
+		return EWorkType::STYLESHEET;
+
+	if (reqUrl.sHost == "favicon.ico")
+		return EWorkType::FAVICON;
+
+	if (reqUrl.sHost == cfg::reportpage && reqUrl.sPath == "/")
+		return EWorkType::REPORT;
+
+	// others are passed through the report page extra functions
+
+	if (cfg::reportpage.empty())
+		return EWorkType::REGULAR;
+
+	trimBack(rawCmd);
+	trimFront(rawCmd, "/");
+
+	if (!startsWith(rawCmd, cfg::reportpage))
+		return EWorkType::REGULAR;
+
+	rawCmd.remove_prefix(cfg::reportpage.length());
+	if (rawCmd.empty() || rawCmd[0] != '?')
+		return EWorkType::REPORT;
+	rawCmd.remove_prefix(1);
+
+	// not shorter, was already compared, can be only longer, means having parameters,
+	// -> means needs authorization
+
+	// all of the following need authorization if configured, enforce it
+	switch(cfg::CheckAdminAuth(auth))
+	{
+	 case 0:
+#ifdef HAVE_CHECKSUM
+		break; // auth is ok or no passwort is set
+#else
+		// most data modifying tasks cannot be run safely without checksumming support
+		return ESpecialWorkType::workAUTHREJECT;
+#endif
+	 case 1: return EWorkType::AUT_REQ;
+	 default: return EWorkType::AUTH_DENY;
+	}
+
+	struct { string_view trigger; EWorkType type; } matches [] =
+	{
+			{"doExpire="sv, EWorkType::EXPIRE},
+			{"justShow="sv, EWorkType::EXP_LIST},
+			{"justRemove="sv, EWorkType::EXP_PURGE},
+			{"justShowDamaged="sv, EWorkType::EXP_LIST_DAMAGED},
+			{"justRemoveDamaged="sv, EWorkType::EXP_PURGE_DAMAGED},
+			{"justTruncDamaged="sv, EWorkType::EXP_TRUNC_DAMAGED},
+			{"doImport="sv, EWorkType::IMPORT},
+			{"doMirror="sv, EWorkType::MIRROR},
+			{"doDelete="sv, EWorkType::DELETE_CONFIRM},
+			{"doDeleteYes="sv, EWorkType::DELETE},
+			{"doTruncate="sv, EWorkType::TRUNCATE_CONFIRM},
+			{"doTruncateYes="sv, EWorkType::TRUNCATE},
+			{"doCount="sv, EWorkType::COUNT_STATS},
+			{"doTraceStart="sv, EWorkType::TRACE_START},
+			{"doTraceEnd="sv, EWorkType::TRACE_END},
+		#ifdef DEBUG
+			{"sleeper="sv, EWorkType::DBG_SLEEPER},
+		#endif
+//			{"doJStats", workJStats}
+	};
+
+#warning check perfromance, might be inefficient, maybe use precompiled regex for do* and just* or at least separate into two groups
+	for(auto& needle: matches)
+	{
+		if (rawCmd.find(needle.trigger) != stmiss)
+			return needle.type;
+	}
+
+	// something weird, go to the maint page
+	return EWorkType::REPORT;
+}
 void cb_notify_new_pipe_data(struct bufferevent *bev, void *ctx);
 void cb_bgpipe_event(struct bufferevent *bev, short what, void *ctx);
 
@@ -343,150 +456,11 @@ const string & tSpecialRequestHandler::GetMyHostPort()
 	return m_sHostPort;
 }
 
-string_view GetTaskName(EWorkType type)
-{
-	switch(type)
-	{
-	case EWorkType::UNKNOWN: return "SpecialOperation"sv;
-	case EWorkType::LOCALITEM: return "Local File Server"sv;
-	case EWorkType::REGULAR: return se;
-	case EWorkType::EXPIRE: return "Expiration"sv;
-	case EWorkType::EXP_LIST: return "Expired Files Listing"sv;
-	case EWorkType::EXP_PURGE: return "Expired Files Purging"sv;
-	case EWorkType::EXP_LIST_DAMAGED: return "Listing Damaged Files"sv;
-	case EWorkType::EXP_PURGE_DAMAGED: return "Truncating Damaged Files"sv;
-	case EWorkType::EXP_TRUNC_DAMAGED: return "Truncating damaged files to zero size"sv;
-	case EWorkType::USER_INFO: return "General Configuration Information"sv;
-	case EWorkType::TRACE_START:
-	case EWorkType::TRACE_END:
-	case EWorkType::REPORT: return "Status Report and Maintenance Tasks Overview"sv;
-	case EWorkType::AUT_REQ: return "Authentication Required"sv;
-	case EWorkType::AUTH_DENY: return "Authentication Denied"sv;
-	case EWorkType::IMPORT: return "Data Import"sv;
-	case EWorkType::MIRROR: return "Archive Mirroring"sv;
-	case EWorkType::DELETE: return "Manual File Deletion"sv;
-	case EWorkType::DELETE_CONFIRM: return "Manual File Deletion (Confirmed)"sv;
-	case EWorkType::TRUNCATE: return "Manual File Truncation"sv;
-	case EWorkType::TRUNCATE_CONFIRM: return "Manual File Truncation (Confirmed)"sv;
-	case EWorkType::COUNT_STATS: return "Status Report With Statistics"sv;
-#ifdef DEBUG
-	case EWorkType::DBG_SLEEPER: return "SLEEPER"sv;
-	case EWorkType::DBG_BGSTREAM: return "BGTESTACTION"sv;
-#endif
-	case EWorkType::STYLESHEET:
-	case EWorkType::FAVICON:
-	case EWorkType::WORK_TYPE_MAX:
-		break;
-	}
-	return "UnknownTask"sv;
-}
-
-EWorkType DetectWorkType(const tHttpUrl& reqUrl, string_view rawCmd, const char* auth)
-{
-	LOGSTARTs("DispatchMaintWork");
-
-	LOG("cmd: " << rawCmd);
-
-#if defined(DEBUG)
-	if(rawCmd.find("tickTack")!=stmiss)
-		return EWorkType::DBG_SLEEPER;
-	if(rawCmd.find("pingMe")!=stmiss)
-		return EWorkType::DBG_BGSTREAM;
-#endif
-
-	if (reqUrl.sHost == "style.css")
-		return EWorkType::STYLESHEET;
-
-	if (reqUrl.sHost == "favicon.ico")
-		return EWorkType::FAVICON;
-
-	if (reqUrl.sHost == cfg::reportpage && reqUrl.sPath == "/")
-		return EWorkType::REPORT;
-
-	// others are passed through the report page extra functions
-
-	if (cfg::reportpage.empty())
-		return EWorkType::UNKNOWN;
-
-	trimBack(rawCmd);
-	trimFront(rawCmd, "/");
-
-	if (!startsWith(rawCmd, cfg::reportpage))
-		return EWorkType::UNKNOWN;
-
-	rawCmd.remove_prefix(cfg::reportpage.length());
-	if (rawCmd.empty() || rawCmd[0] != '?')
-		return EWorkType::REPORT;
-	rawCmd.remove_prefix(1);
-
-	// not smaller, was already compared, can be only longer, means having parameters,
-	// means needs authorization
-
-	// all of the following need authorization if configured, enforce it
-	switch(cfg::CheckAdminAuth(auth))
-	{
-     case 0:
-#ifdef HAVE_CHECKSUM
-        break; // auth is ok or no passwort is set
-#else
-        // most data modifying tasks cannot be run safely without checksumming support 
-		return ESpecialWorkType::workAUTHREJECT;
-#endif
-	 case 1: return EWorkType::AUT_REQ;
-	 default: return EWorkType::AUTH_DENY;
-	}
-
-	struct { string_view trigger; EWorkType type; } matches [] =
-	{
-			{"doExpire="sv, EWorkType::EXPIRE},
-			{"justShow="sv, EWorkType::EXP_LIST},
-			{"justRemove="sv, EWorkType::EXP_PURGE},
-			{"justShowDamaged="sv, EWorkType::EXP_LIST_DAMAGED},
-			{"justRemoveDamaged="sv, EWorkType::EXP_PURGE_DAMAGED},
-			{"justTruncDamaged="sv, EWorkType::EXP_TRUNC_DAMAGED},
-			{"doImport="sv, EWorkType::IMPORT},
-			{"doMirror="sv, EWorkType::MIRROR},
-			{"doDelete="sv, EWorkType::DELETE_CONFIRM},
-			{"doDeleteYes="sv, EWorkType::DELETE},
-			{"doTruncate="sv, EWorkType::TRUNCATE_CONFIRM},
-			{"doTruncateYes="sv, EWorkType::TRUNCATE},
-			{"doCount="sv, EWorkType::COUNT_STATS},
-			{"doTraceStart="sv, EWorkType::TRACE_START},
-			{"doTraceEnd="sv, EWorkType::TRACE_END},
-		#ifdef DEBUG
-			{"sleeper="sv, EWorkType::DBG_SLEEPER},
-		#endif
-//			{"doJStats", workJStats}
-	};
-
-#warning check perfromance, might be inefficient, maybe use precompiled regex for do* and just* or at least separate into two groups
-	for(auto& needle: matches)
-	{
-		if (rawCmd.find(needle.trigger) != stmiss)
-			return needle.type;
-	}
-
-	// something weird, go to the maint page
-	return EWorkType::REPORT;
-}
-
-using tSpecialJobFactory = std::function<tSpecialRequestHandler*()>;
-
-struct tSpecialWorkDescription
-{
-	EWorkType type;
-	string_view typeName;
-	string_view title;
-	string_view trigger;
-
-};
-
-
 tFileItemPtr Create(EWorkType jobType, bufferevent *bev, const tHttpUrl& url, SomeData* arg, acres& reso)
 {
 	try
 	{
-		if (jobType == EWorkType::UNKNOWN)
+		if (jobType == EWorkType::REGULAR || jobType >= EWorkType::WORK_TYPE_MAX)
 			return tFileItemPtr(); // not for us?
 
 		if (jobType == EWorkType::STYLESHEET)
@@ -495,12 +469,14 @@ tFileItemPtr Create(EWorkType jobType, bufferevent *bev, const tHttpUrl& url, So
 		if (jobType == EWorkType::FAVICON)
 			return tFileItemPtr(new TResFileItem("favicon.ico", "image/x-icon"));
 
+		const auto& desc = workDescriptors[jobType];
+
 		auto item = new BufferedPtItem(jobType, url.sPath, bev, arg, reso);
 		auto ret = as_lptr<fileitem>(item);
 		if (! item->GetHandler())
 			return tFileItemPtr();
 
-		if (!item->GetHandler()->m_bNeedsBgThread)
+		if (0 == (desc.flags & BLOCKING))
 		{
 			item->GetHandler()->Run();
 			item->Eof();
