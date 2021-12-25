@@ -122,14 +122,18 @@ void aclocal::Run()
 				ebstream line(buf);
 				if(bDir)
 					line << "[DIR]"sv;
-				else if(startsWithSz(cfg::GetMimeType(nam), "audio/"))
-					line << "[AUD]"sv;
-				else if(startsWithSz(cfg::GetMimeType(nam), "video/"))
-					line << "[VID]"sv;
-				else if(startsWithSz(cfg::GetMimeType(nam), "image/"))
-					line << "[IMG]"sv;
 				else
-					line << "[&nbsp;&nbsp;&nbsp;]"sv;
+				{
+					const auto& mt = cfg::GetMimeType(nam);
+					if(startsWith(nam, "audio/"sv))
+						line << "[AUD]"sv;
+					else if(startsWith(mt, "video/"sv))
+						line << "[VID]"sv;
+					else if(startsWith(mt, "image/"sv))
+						line << "[IMG]"sv;
+					else
+						line << "[&nbsp;&nbsp;&nbsp;]"sv;
+				}
 				line << "</td><td><a href=\""sv
 							<< UrlEscape(nam)
 						<< (bDir? "/\">"sv : "\">"sv )

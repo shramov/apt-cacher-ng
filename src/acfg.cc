@@ -571,6 +571,7 @@ cmstring & GetMimeType(string_view path)
 		if (it != cfg::mimemap.end())
 			return it->second;
 	}
+#if 0
 	// try some educated guess... assume binary if we are sure, text if we are almost sure
 	filereader f;
 	if (f.OpenFile(to_string(path), true))
@@ -583,6 +584,7 @@ cmstring & GetMimeType(string_view path)
 		}
 		return tp;
 	}
+#endif
 	return se;
 }
 
