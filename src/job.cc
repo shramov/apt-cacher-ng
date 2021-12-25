@@ -667,22 +667,23 @@ job::eJobResult job::Resume(bool canSend, bufferevent* be)
 				return subscribeAndExit(__LINE__);
 
 			ebstream outStream(be);
+			LOG("clen: " << len);
 			outStream << ebstream::imode::hex << len << svRN;
 
 			if (len == 0)
 			{
-				outStream << svRN;
 				m_activity = STATE_DONE;
+				outStream << svRN;
 			}
 			else
 			{
-				SET_SENDER;
 				m_activity = STATE_SEND_CHUNK_DATA;
 			}
 			continue;
 		}
 		case (STATE_SEND_CHUNK_DATA):
 		{
+			SET_SENDER;
 			// entered after STATE_SEND_CHUNK_HEADER, end was checked
 			auto limit = m_nChunkEnd - m_nSendPos;
 			auto n = m_dataSender->SendData(be, m_nSendPos, limit);
