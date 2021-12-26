@@ -87,15 +87,14 @@ public:
 };
 #endif
 
+tSpecialRequestHandler* creatorPrototype(tSpecialRequestHandler::tRunParms&& parms);
 
-using tSpecialJobFactory = std::function<tSpecialRequestHandler*(tSpecialRequestHandler::tRunParms&&)>;
-tSpecialJobFactory dummyCreator = [](tSpecialRequestHandler::tRunParms&& parms){ return nullptr; };
 struct tSpecialWorkDescription
 {
 	string_view typeName;
 	string_view title;
 	string_view trigger;
-	const tSpecialJobFactory* creator;
+	decltype(&creatorPrototype) creator;
 	unsigned flags;
 };
 const unsigned BLOCKING = 0x1; // needs a detached thread
@@ -121,15 +120,14 @@ static tSpecialRequestHandler* MakeMaintWorker(tSpecialRequestHandler::tRunParms
 {
 	if (parms.type >= workDescriptors.size())
 		parms.type = EWorkType::USER_INFO; // XXX: report as error in the log?
-	const auto* creator = workDescriptors[parms.type].creator;
-	if (!creator)
-		creator = workDescriptors[EWorkType::USER_INFO].creator;
-	return (*creator)(move(parms));
+	if (workDescriptors[parms.type].creator)
+		return workDescriptors[parms.type].creator(move(parms));
+	return workDescriptors[EWorkType::USER_INFO].creator(move(parms));
 }
 
 namespace creators
 {
-#define CREAT(x) const static tSpecialJobFactory x = [](tSpecialRequestHandler::tRunParms&& parms){ return new acng:: x (move(parms)); };
+#define CREAT(x) static tSpecialRequestHandler* x (tSpecialRequestHandler::tRunParms&& parms) { return new ::acng:: x (move(parms)); };
 CREAT(aclocal);
 CREAT(expiration);
 CREAT(tShowInfo);
@@ -142,8 +140,8 @@ CREAT(pkgmirror);
 CREAT(sleeper);
 CREAT(tBgTester);
 #endif
-const static tSpecialJobFactory deleter = [](tSpecialRequestHandler::tRunParms&& parms){ return new acng::tDeleter (move(parms), "Delet"); };
-const static tSpecialJobFactory truncator = [](tSpecialRequestHandler::tRunParms&& parms){ return new acng::tDeleter (move(parms), "Truncat"); };
+static tSpecialRequestHandler* deleter (tSpecialRequestHandler::tRunParms&& parms){ return new acng::tDeleter (move(parms), "Delet"); };
+static tSpecialRequestHandler* truncator (tSpecialRequestHandler::tRunParms&& parms){ return new acng::tDeleter (move(parms), "Truncat"); };
 }
 
 void InitSpecialWorkDescriptors()
@@ -236,12 +234,19 @@ EWorkType DetectWorkType(const tHttpUrl& reqUrl, string_view rawCmd, const char*
 	// something weird, go to the maint page
 	return EWorkType::REPORT;
 }
-void cb_notify_new_pipe_data(struct bufferevent *bev, void *ctx);
-void cb_bgpipe_event(struct bufferevent *bev, short what, void *ctx);
 
 class BufferedPtItem : public BufferedPtItemBase
 {
 	unique_ptr<tSpecialRequestHandler> handler;
+
+	static void cb_notify_new_pipe_data(struct bufferevent *, void *ctx)
+	{
+		((BufferedPtItem*)ctx)->GotNewData();
+	}
+	static void cb_bgpipe_event(struct bufferevent *, short what, void *ctx)
+	{
+		((BufferedPtItem*)ctx)->BgPipeEvent(what);
+	}
 
 public:
 
@@ -319,7 +324,7 @@ public:
 		bufferevent_flush(m_pipeInOut[0], EV_WRITE, BEV_FINISHED);
 	}
 
-	void BgPipeEvent(short what)
+	inline void BgPipeEvent(short what)
 	{
 		LOGSTARTFUNCs;
 		ldbg(what);
@@ -329,7 +334,7 @@ public:
 		}
 	}
 
-	void GotNewData()
+	inline void GotNewData()
 	{
 		ASSERT_HAVE_MAIN_THREAD;
 		LOGSTARTFUNC;
@@ -533,15 +538,5 @@ std::unique_ptr<fileitem::ICacheDataSender> BufferedPtItem::GetCacheSender()
 {
 	return make_unique<BufItemPipeReader>(this);
 }
-
-void cb_notify_new_pipe_data(struct bufferevent *, void *ctx)
-{
-	((BufferedPtItem*)ctx)->GotNewData();
-}
-void cb_bgpipe_event(struct bufferevent *, short what, void *ctx)
-{
-	((BufferedPtItem*)ctx)->BgPipeEvent(what);
-}
-
 
 }
