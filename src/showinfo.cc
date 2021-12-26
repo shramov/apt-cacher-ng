@@ -22,6 +22,7 @@ namespace acng
 {
 
 tRemoteStatus stOK {200, "OK"};
+std::atomic_bool tMaintJobBase::g_sigTaskAbort = false;
 
 static cmstring sReportButton("<tr><td class=\"colcont\"><form action=\"#stats\" method=\"get\">"
 					"<input type=\"submit\" name=\"doCount\" value=\"Count Data\"></form>"
@@ -288,6 +289,9 @@ void tMaintOverview::Action()
 		tr.clear();
 		*/
 	}
+
+	g_sigTaskAbort = (m_parms.cmd.find("&sigAbort") != stmiss);
+
 	ProcessResource("report.html");
 }
 
@@ -493,7 +497,6 @@ tMarkupFileSend::tMarkupInput::tMarkupInput(cmstring &fname, bool alreadyError)
 
 tMaintJobBase::tMaintJobBase(tRunParms &&parms) : tMarkupFileSend(std::move(parms), "maint.html", "text/html", stOK)
 {
-
 }
 
 void tMaintJobBase::SendProp(cmstring &key)
@@ -502,8 +505,7 @@ void tMaintJobBase::SendProp(cmstring &key)
 		return Action();
 	if (key == "startTime")
 	{
-#warning format nicely!
-		SendFmt << m_startTime;
+		SendFmt << tHttpDate(m_startTime).view();
 		return;
 	}
 

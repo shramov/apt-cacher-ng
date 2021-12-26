@@ -36,6 +36,19 @@ function copycheck(src, clname)
       nodes[i].checked = isChecked;
 }
 
+	       function doCancel()
+	       {
+		      var baseLink = window.location.href.split('?')[0];
+		      var canLink = baseLink + "?sigAbort=1";
+		      window.location.assign(canLink);
+	      }
+
+	       function doForce()
+	       {
+		      var canLink = window.location.href + "&force=1";
+		      window.location.assign(canLink);
+	      }
+
       </script>
 
       <!--script type="text/javascript">
@@ -73,7 +86,7 @@ function  appendData()
                <td>
                   <div style="text-align:left;font-size:small;">
                         <div class="visarea maxwid" style="text-align:left" id="logArea">
-				Currently running <b>${taskTitle}</b>, started at ${startTime}<div style="display:${:/showCancel/inline/none};white-space:nowrap;">, Cancel</div><br>
+				Currently running <b>${taskTitle}</b>, started at ${startTime}<div style="display:${:/showCancel/inline/none};white-space:nowrap;"> (<a href="javascript:doCancel()">CANCEL THIS</a>)</div><br>
 				${action}
                         </div>
                   </div>

@@ -500,7 +500,7 @@ void expiration::Action()
 		break;
 	}
 
-	bool tradeOffCheck = cfg::exstarttradeoff && !StrHas(m_parms.cmd, "ignoreTradeOff") && !m_bByChecksum && !Cstat(SZABSPATH("_actmp/.ignoreTradeOff"));
+	bool tradeOffCheck = cfg::exstarttradeoff && !StrHas(m_parms.cmd, "force=1") && !m_bByChecksum && !Cstat(SZABSPATH("_actmp/.ignoreTradeOff"));
 
 	off_t newLastIncommingOffset = 0;
 
@@ -513,9 +513,9 @@ void expiration::Action()
 		if(haveIncomming < cfg::exstarttradeoff)
 		{
 			SendFmt << "Expiration suppressed due to costs-vs.-benefit considerations "
-					"(see exStartTradeOff setting, " << offttosH(haveIncomming) <<
+					"(see exStartTradeOff setting, currently: " << offttosH(haveIncomming) <<
 					" vs. " << offttosH(cfg::exstarttradeoff)
-					<< " (<a href=\"" << this->m_parms.cmd << "&ignoreTradeOff=iTO\">Override this check now</a>)"
+					<< ") (<a href=\"javascript:doForce()\">FORCE IT</a>)"
 					<< sBRLF;
 			return;
 		}

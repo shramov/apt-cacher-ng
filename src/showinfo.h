@@ -64,9 +64,8 @@ protected:
 	void ProcessResource(cmstring sFilename);
 
 	bool CheckStopSignal();
-#warning FIXME: this needs to be static and coordinated with the Cancel code somehow
-	std::atomic_bool g_sigTaskAbort;
-	time_t m_startTime;
+	static std::atomic_bool g_sigTaskAbort;
+	time_t m_startTime = GetTime();
 };
 
 class tDeleter : public tMarkupFileSend
