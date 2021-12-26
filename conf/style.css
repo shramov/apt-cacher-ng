@@ -46,8 +46,14 @@ a:hover { text-decoration: underline; }
 table.center {margin-left:auto; margin-right:auto;}
 .rawstyle { font-size:small;font-weight:bold;white-space:nowrap; }
 
+.noborders {
+	border: 0;
+	border-spacing: 0;
+	padding: 0;
+}
+
 .maxwid {
-   max-width: 1010px;
+   max-width: 960px;
 }
 
 .xhidden {
