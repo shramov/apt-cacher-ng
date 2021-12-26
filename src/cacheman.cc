@@ -33,6 +33,8 @@
 
 #define MAX_TOP_COUNT 10
 
+#define HARD_TIMEOUT std::chrono::minutes(10)
+
 using namespace std;
 
 namespace acng
@@ -314,7 +316,12 @@ cacheman::eDlResult cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileF
 	evabase::Post([&]()	{ cbDownload(); });
 	try
 	{
-		return m_dlCtx->pro.get_future().get();
+		auto fut = m_dlCtx->pro.get_future();
+		auto state = fut.wait_for(HARD_TIMEOUT);
+		if (state == future_status::ready)
+			return m_dlCtx->pro.get_future().get();
+#warning log this as error, 10min timeout hit, why?
+		return eDlResult::FAIL_LOCAL;
 	}
 	catch (...)
 	{
@@ -481,6 +488,7 @@ cacheman::eDlResult cacheman::DownloadIO()
 				auto urlSlashPos = refURL.size()-chopLen;
 				if(chopLen < refURL.size() && refURL[urlSlashPos] == '/')
 				{
+					dbgline;
 					refURL.erase(urlSlashPos);
 					refURL += sFilePathRel.substr(spos);
 					//refURL.replace(urlSlashPos, chopLen, sPathSep.substr(spos));
@@ -494,6 +502,7 @@ cacheman::eDlResult cacheman::DownloadIO()
 
 			if(!state.pResolvedDirectUrl)
 			{
+				dbgline;
 				SendChunkSZ("<b>Failed to calculate the original URL</b><br>");
 				return eDlResult::FAIL_REMOTE; // XXX: actually a local error?
 			}
@@ -514,8 +523,16 @@ cacheman::eDlResult cacheman::DownloadIO()
 	}
 
 	state.dlactive = 1;
+	dbgline;
 	state.observer = state.fiaccess->Subscribe([&]() { cbDownload(); });
-	m_dlCtx->dler->AddJob(as_lptr(state.fiaccess.get()), state.pResolvedDirectUrl, state.pResolvedDirectUrl ? nullptr : & state.repoSrc);
+	{
+		auto added = m_dlCtx->dler->AddJob(as_lptr(state.fiaccess.get()), state.pResolvedDirectUrl, state.pResolvedDirectUrl ? nullptr : & state.repoSrc);
+		if (!added)
+		{
+			SendChunkSZ("Cannot send download request, aborting...");
+			return eDlResult::FAIL_LOCAL;
+		}
+	}
 FROM_ITEM_CB_FIRST:
 	{
 		// simple limiter, not more dots than one per second

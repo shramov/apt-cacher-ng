@@ -1441,6 +1441,8 @@ void CDlConn::StraightToBacklog(tDlJob *j)
 
 bool CDlConn::AddJob(lint_ptr<fileitem> fi, const tHttpUrl *src, tRepoResolvResult *repoSrc, bool isPT, mstring extraHeaders)
 {
+	LOGSTARTFUNC;
+
 	tDlJob *j = nullptr;
 	try
 	{
@@ -1450,10 +1452,12 @@ bool CDlConn::AddJob(lint_ptr<fileitem> fi, const tHttpUrl *src, tRepoResolvResu
 	}
 	catch (...)
 	{
+		dbgline;
 		return false;
 	}
 	if (j)
 		delete j;
+	return false;
 }
 
 void CDlConn::Dispatch(tDlJob *what)
