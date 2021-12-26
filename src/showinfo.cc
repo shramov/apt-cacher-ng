@@ -342,7 +342,6 @@ void tMarkupFileSend::SendIfElse(LPCSTR pszBeginSep, LPCSTR pszEnd)
 
 tMaintOverview::tMaintOverview(tRunParms &&parms) : tMaintJobBase(std::move(parms))
 {
-	m_showCancel = false;
 	m_startTime = GetTime();
 }
 
@@ -478,11 +477,11 @@ void tMarkupFileSend::SendProp(cmstring &key)
 	}
 	else if (key == "taskTitle")
 	{
-		SendFmtRemote << GetTaskTitle(m_parms.type);
+		SendFmtRemote << GetTaskInfo(m_parms.type).title;
 	}
 	else if (key == "taskName")
 	{
-		SendFmtRemote << GetTaskTypeName(m_parms.type);
+		SendFmtRemote << GetTaskInfo(m_parms.type).typeName;
 	}
 }
 
@@ -515,7 +514,7 @@ int tMaintJobBase::CheckCondition(string_view key)
 {
 	if (key == "showCancel"sv)
 	{
-		return !m_showCancel;
+		return ! (GetTaskInfo(m_parms.type).flags & EXCLUSIVE);
 	}
 	return tMarkupFileSend::CheckCondition(key);
 }

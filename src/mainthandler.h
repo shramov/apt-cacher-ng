@@ -24,14 +24,6 @@ static const std::string sBRLF("<br>\n");
 namespace acng
 {
 
-/**
- * @brief GetTaskName resolves a static name for the task type
- * @param type
- * @return Human readable name, guaranteed to be zero-terminated
- */
-string_view GetTaskTitle(EWorkType type);
-string_view GetTaskTypeName(EWorkType type);
-
 class IMaintJobItem : public fileitem
 {
 public:
@@ -147,6 +139,29 @@ public:
 
 	bSS m_fmtHelper;
 };
+
+
+tSpecialRequestHandler* creatorPrototype(tSpecialRequestHandler::tRunParms&& parms);
+
+struct tSpecialWorkDescription
+{
+	string_view typeName;
+	string_view title;
+	string_view trigger;
+	decltype(&creatorPrototype) creator;
+	unsigned flags;
+};
+
+/**
+ * @brief GetTaskName resolves a static name for the task type
+ * @param type
+ * @return Human readable name, guaranteed to be zero-terminated
+ */
+const tSpecialWorkDescription& GetTaskInfo(EWorkType type);
+const unsigned BLOCKING = 0x1; // needs a detached thread
+const unsigned FILE_BACKED = 0x2;  // output shall be returned through a tempfile, not directly via pipe
+const unsigned EXCLUSIVE = 0x4; // shall be the only action of that kind active; output from an active sesion is shared; requires: m_bFileBacked
+
 
 std::string to_base36(unsigned int val);
 static cmstring relKey("/Release"), inRelKey("/InRelease");

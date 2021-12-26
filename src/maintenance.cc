@@ -87,33 +87,12 @@ public:
 };
 #endif
 
-tSpecialRequestHandler* creatorPrototype(tSpecialRequestHandler::tRunParms&& parms);
-
-struct tSpecialWorkDescription
-{
-	string_view typeName;
-	string_view title;
-	string_view trigger;
-	decltype(&creatorPrototype) creator;
-	unsigned flags;
-};
-const unsigned BLOCKING = 0x1; // needs a detached thread
-const unsigned FILE_BACKED = 0x2;  // output shall be returned through a tempfile, not directly via pipe
-const unsigned EXCLUSIVE = 0x4; // shall be the only action of that kind active; output from an active sesion is shared; requires: m_bFileBacked
-
-
 array<tSpecialWorkDescription, (size_t) EWorkType::WORK_TYPE_MAX> workDescriptors;
 
-string_view GetTaskTitle(EWorkType type)
+const tSpecialWorkDescription& GetTaskInfo(EWorkType type)
 {
 	return AC_LIKELY(type < workDescriptors.max_size())
-			? workDescriptors[type].title : "UnknownTask"sv;
-}
-
-string_view GetTaskTypeName(EWorkType type)
-{
-	return AC_LIKELY(type < workDescriptors.max_size())
-			? workDescriptors[type].typeName : "UnknownTask"sv;
+			? workDescriptors[type] : workDescriptors[0];
 }
 
 static tSpecialRequestHandler* MakeMaintWorker(tSpecialRequestHandler::tRunParms&& parms)
@@ -146,9 +125,9 @@ static tSpecialRequestHandler* truncator (tSpecialRequestHandler::tRunParms&& pa
 
 void InitSpecialWorkDescriptors()
 {
-	workDescriptors[EWorkType::REGULAR] = {se, se, se, nullptr, 0 }; // dummy, for regular jobs
+	workDescriptors[EWorkType::REGULAR] = {"UNKNOWNTYPE"sv, "Unknown Type"sv, se, nullptr, 0 }; // noop for regular jobs, also a dummy entry for wrong calls
 	workDescriptors[EWorkType::LOCALITEM] = {"LOCALITEM"sv, "Local File Server"sv, se, &creators::aclocal, BLOCKING };
-	workDescriptors[EWorkType::EXPIRE] = {"EXPIRE"sv, "Expiration"sv, "doExpire="sv, &creators::expiration, BLOCKING };
+	workDescriptors[EWorkType::EXPIRE] = {"EXPIRE"sv, "Expiration"sv, "doExpire="sv, &creators::expiration, BLOCKING | FILE_BACKED | EXCLUSIVE };
 	workDescriptors[EWorkType::EXP_LIST] = {"EXP_LIST"sv, "Expired Files Listing"sv, "justShow="sv, &creators::expiration, BLOCKING };
 	workDescriptors[EWorkType::EXP_PURGE] = {"EXP_PURGE"sv, "Expired Files Purging"sv, "justRemove="sv, &creators::expiration, BLOCKING };
 	workDescriptors[EWorkType::EXP_LIST_DAMAGED] = {"EXP_LIST_DAMAGED"sv, "Listing Damaged Files"sv, "justShowDamaged="sv, &creators::expiration, BLOCKING };
@@ -161,8 +140,8 @@ void InitSpecialWorkDescriptors()
 	workDescriptors[EWorkType::COUNT_STATS] = {"COUNT_STATS"sv, "Status Report With Statistics"sv, "doCount="sv, &creators::tMaintOverview, BLOCKING };
 	workDescriptors[EWorkType::AUTH_REQ] = {"AUT_REQ"sv, "Authentication Required"sv, se, &creators::tAuthRequest, 0 };
 	workDescriptors[EWorkType::AUTH_DENY] = {"AUTH_DENY"sv, "Authentication Denied"sv, se, &creators::authbounce, 0 };
-	workDescriptors[EWorkType::IMPORT] = {"IMPORT"sv, "Data Import"sv, "doImport="sv, &creators::pkgimport, BLOCKING };
-	workDescriptors[EWorkType::MIRROR] = {"MIRROR"sv, "Archive Mirroring"sv, "doMirror="sv, &creators::pkgmirror, BLOCKING };
+	workDescriptors[EWorkType::IMPORT] = {"IMPORT"sv, "Data Import"sv, "doImport="sv, &creators::pkgimport, BLOCKING | EXCLUSIVE };
+	workDescriptors[EWorkType::MIRROR] = {"MIRROR"sv, "Archive Mirroring"sv, "doMirror="sv, &creators::pkgmirror, BLOCKING | EXCLUSIVE};
 	workDescriptors[EWorkType::DELETE] = {"DELETE"sv, "Manual File Deletion"sv, "doDeleteYes="sv, &creators::deleter, BLOCKING };
 	workDescriptors[EWorkType::DELETE_CONFIRM] = {"DELETE_CONFIRM"sv, "Manual File Deletion (Confirmed)"sv, "doDelete="sv, &creators::deleter, BLOCKING };
 	workDescriptors[EWorkType::TRUNCATE] = {"TRUNCATE"sv, "Manual File Truncation"sv, "doTruncateYes="sv, &creators::truncator, BLOCKING };

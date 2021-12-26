@@ -66,7 +66,6 @@ protected:
 	bool CheckStopSignal();
 #warning FIXME: this needs to be static and coordinated with the Cancel code somehow
 	std::atomic_bool g_sigTaskAbort;
-	bool m_showCancel = false;
 	time_t m_startTime;
 };
 

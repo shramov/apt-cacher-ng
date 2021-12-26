@@ -587,7 +587,7 @@ FROM_ITEM_CB_FIRST:
 		static cmstring sInternal("[INTERNAL:");
 		// need to account both, this traffic as officially tracked traffic, and also keep the count
 		// separately for expiration about trade-off calculation
-		log::transfer(dlCount, 0, Concat(sInternal, GetTaskTitle(m_parms.type), "]"), sFilePathRel, false);
+		log::transfer(dlCount, 0, Concat(sInternal, GetTaskInfo(m_parms.type).typeName, "]"), sFilePathRel, false);
 	}
 
 	if (ret == eDlResult::OK && state.attr.bVolatile)
