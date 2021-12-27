@@ -6,7 +6,7 @@
 namespace acng
 {
 
-class aclocal : public acng::tSpecialRequestHandler
+class aclocal : public acng::mainthandler
 {
 public:
 
@@ -18,7 +18,7 @@ public:
 		off_t offset;
 	};
 
-	aclocal(tSpecialRequestHandler::tRunParms&& parms);
+	aclocal(mainthandler::tRunParms&& parms);
 	void Run() override;
 
 private:

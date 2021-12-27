@@ -23,17 +23,24 @@ static const std::string sBRLF("<br>\n");
 
 namespace acng
 {
+class mainthandler;
 
 class IMaintJobItem : public fileitem
 {
+protected:
+	std::unique_ptr<mainthandler> handler;
+
 public:
 	using fileitem::fileitem;
 	virtual evbuffer* PipeTx() =0;
 	virtual evbuffer* PipeRx() =0;
 	virtual void AddExtraHeaders(mstring appendix) =0;
+	virtual void Eof() =0;
+
+	mainthandler* GetHandler() { return handler.get(); }
 };
 
-class BufferedPtItemBase : public IMaintJobItem
+class MaintStreamItemBase : public IMaintJobItem
 {
 protected:
 	struct bufferevent *m_pipeInOut[2];
@@ -43,10 +50,10 @@ public:
 	struct evbuffer* PipeRx() override { return bufferevent_get_input(m_pipeInOut[1]); }
 };
 
-class ACNG_API tSpecialRequestHandler
+class ACNG_API mainthandler
 {
 protected:
-	friend class BackgroundThreadedItem;
+	friend class BufferedPtItem;
 
 public:
 	// common data to be passed through constructors and kept in the base object
@@ -61,7 +68,7 @@ public:
 		acres& res;
 
 		// provide access to BufferedPtItemBase typed jobs
-		IMaintJobItem& bitem() { return * static_cast<BufferedPtItemBase*>(owner); }
+		IMaintJobItem& bitem() { return * static_cast<MaintStreamItemBase*>(owner); }
 	};
 
 	/*!
@@ -69,9 +76,9 @@ public:
 	 */
 	virtual void Run() =0;
 
-	virtual ~tSpecialRequestHandler();
+	virtual ~mainthandler();
 
-	tSpecialRequestHandler(tRunParms&& parms);
+	mainthandler(tRunParms&& parms);
 
 protected:
 
@@ -106,8 +113,8 @@ protected:
 	tRunParms m_parms;
 
 private:
-	tSpecialRequestHandler(const tSpecialRequestHandler&);
-	tSpecialRequestHandler& operator=(const tSpecialRequestHandler&);
+	mainthandler(const mainthandler&);
+	mainthandler& operator=(const mainthandler&);
 	mstring m_sHostPort;
 
 public:
@@ -117,7 +124,7 @@ public:
 	class tFmtSendObj
 	{
 	public:
-		inline tFmtSendObj(tSpecialRequestHandler *p, bool remoteOnly)
+		inline tFmtSendObj(mainthandler *p, bool remoteOnly)
 		: m_parent(*p), m_bRemoteOnly(remoteOnly) { }
 		inline ~tFmtSendObj()
 		{
@@ -127,9 +134,9 @@ public:
 				m_parent.Send(m_parent.m_fmtHelper);
 			m_parent.m_fmtHelper.clear();
 		}
-		tSpecialRequestHandler &m_parent;
+		mainthandler &m_parent;
 	private:
-		tFmtSendObj operator=(const tSpecialRequestHandler::tFmtSendObj&) = delete;
+		tFmtSendObj operator=(const mainthandler::tFmtSendObj&) = delete;
 		bool m_bRemoteOnly;
 	};
 
@@ -141,7 +148,7 @@ public:
 };
 
 
-tSpecialRequestHandler* creatorPrototype(tSpecialRequestHandler::tRunParms&& parms);
+mainthandler* creatorPrototype(mainthandler::tRunParms&& parms);
 
 struct tSpecialWorkDescription
 {

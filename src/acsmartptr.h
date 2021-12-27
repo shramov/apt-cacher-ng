@@ -44,6 +44,13 @@ public:
 	explicit lint_ptr()
 	{
 	}
+	/**
+	 * @brief lint_ptr Captures the pointer and ensures that it's released when the refcount goes to zero, unless initialyTakeRef is set to false.
+	 * If initialyTakeRef is false, the operation is asymmetric, i.e. one extra __dec_ref operation will happen in the end.
+	 *
+	 * @param rawPtr
+	 * @param initialyTakeRef
+	 */
 	explicit lint_ptr(T *rawPtr, bool initialyTakeRef = true) :
 		m_ptr(rawPtr)
 	{

@@ -17,6 +17,7 @@ tPassThroughFitem::tPassThroughFitem(string s) : fileitem(s),
 	LOGSTARTFUNC;
 	if(!m_q.valid())
 		throw std::bad_alloc();
+	m_bPureStreamNoStorage = true;
 	m_nSizeChecked = m_nSizeCachedInitial = -1;
 }
 

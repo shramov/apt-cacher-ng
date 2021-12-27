@@ -30,11 +30,11 @@ static cmstring sReportButton("<tr><td class=\"colcont\"><form action=\"#stats\"
 					"<i>Not calculated, click \"Count data\"</i></font></td></tr>");
 
 // some NOOPs
-tMarkupFileSend::tMarkupFileSend(tSpecialRequestHandler::tRunParms&& parms,
+tMarkupFileSend::tMarkupFileSend(mainthandler::tRunParms&& parms,
 		const char *s,
 		const char *m, const tRemoteStatus& st)
 :
-	tSpecialRequestHandler(move(parms)),
+	mainthandler(move(parms)),
 	m_sOuterDecoFile(s), m_sMimeType(m), m_httpStatus(st)
 {
 }

@@ -38,8 +38,8 @@ tr
 </style>
 )";
 
-aclocal::aclocal(tSpecialRequestHandler::tRunParms&& parms)
-	: acng::tSpecialRequestHandler(move(parms))
+aclocal::aclocal(mainthandler::tRunParms&& parms)
+	: acng::mainthandler(move(parms))
 {
 	auto* p = dynamic_cast<TParms*>(m_parms.arg);
 	if (!p)

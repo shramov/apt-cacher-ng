@@ -165,6 +165,10 @@ protected:
 	 * for this location must get it out of the way.
 	 */
 	bool m_bCreateItemMustDisplace = false;
+	/**
+	 * The items has no storage ever, no cache file operations needed nor allowed.
+	 */
+	bool m_bPureStreamNoStorage = false;
 
 	unsigned m_nDlRefsCount = 0;
 

@@ -279,7 +279,7 @@ SUTPROTECTED:
 class tBgTester : public cacheman
 {
 public:
-	tBgTester(tSpecialRequestHandler::tRunParms&& parms)
+	tBgTester(mainthandler::tRunParms&& parms)
 		: cacheman(std::move(parms))
 	{
 		ASSERT(!"fixme");

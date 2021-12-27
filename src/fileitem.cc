@@ -549,48 +549,51 @@ TFileitemWithStorage::~TFileitemWithStorage()
 		sPathHead = SABSPATH(m_sPathRel) + ".head";
 	};
 
-	ldbg(int(m_eDestroy));
+	if (!m_bPureStreamNoStorage)
+	{
+		ldbg(int(m_eDestroy));
 
-	switch (m_eDestroy)
-	{
-	case EDestroyMode::KEEP:
-	{
-		if(m_bPreallocated)
+		switch (m_eDestroy)
 		{
-			Cstat st(sPathAbs);
-			if (st)
-				ignore_value(truncate(sPathAbs.c_str(), st.st_size)); // CHECKED!
+		case EDestroyMode::KEEP:
+		{
+			if(m_bPreallocated)
+			{
+				Cstat st(sPathAbs);
+				if (st)
+					ignore_value(truncate(sPathAbs.c_str(), st.st_size)); // CHECKED!
+			}
+			break;
 		}
-		break;
-	}
-	case EDestroyMode::TRUNCATE:
-	{
-		calcPath();
-		if (0 != ::truncate(sPathAbs.c_str(), 0))
+		case EDestroyMode::TRUNCATE:
+		{
+			calcPath();
+			if (0 != ::truncate(sPathAbs.c_str(), 0))
+				unlink(sPathAbs.c_str());
+			TFileitemWithStorage::SaveHeader(true);
+			break;
+		}
+		case EDestroyMode::ABANDONED:
+		{
+			calcPath();
 			unlink(sPathAbs.c_str());
-		TFileitemWithStorage::SaveHeader(true);
-		break;
-	}
-	case EDestroyMode::ABANDONED:
-	{
-		calcPath();
-		unlink(sPathAbs.c_str());
-		break;
-	}
-	case EDestroyMode::DELETE:
-	{
-		calcPath();
-		unlink(sPathAbs.c_str());
-		unlink(sPathHead.c_str());
-		break;
-	}
-	case EDestroyMode::DELETE_KEEP_HEAD:
-	{
-		calcPath();
-		unlink(sPathAbs.c_str());
-		TFileitemWithStorage::SaveHeader(true);
-		break;
-	}
+			break;
+		}
+		case EDestroyMode::DELETE:
+		{
+			calcPath();
+			unlink(sPathAbs.c_str());
+			unlink(sPathHead.c_str());
+			break;
+		}
+		case EDestroyMode::DELETE_KEEP_HEAD:
+		{
+			calcPath();
+			unlink(sPathAbs.c_str());
+			TFileitemWithStorage::SaveHeader(true);
+			break;
+		}
+		}
 	}
 }
 

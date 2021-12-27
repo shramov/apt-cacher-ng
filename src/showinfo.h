@@ -12,7 +12,7 @@ namespace acng
 
 extern tRemoteStatus stOK;
 
-class tMarkupFileSend : public tSpecialRequestHandler
+class tMarkupFileSend : public mainthandler
 {
 public:
 	virtual ~tMarkupFileSend() {};

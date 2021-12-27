@@ -34,19 +34,19 @@ static string cssString("style.css");
 namespace acng
 {
 
-tSpecialRequestHandler::tSpecialRequestHandler(tRunParms&& parms) :
+mainthandler::mainthandler(tRunParms&& parms) :
 		m_parms(move(parms))
 {
 }
 
-tSpecialRequestHandler::~tSpecialRequestHandler()
+mainthandler::~mainthandler()
 {
 }
 
-class tAuthRequest : public tSpecialRequestHandler
+class tAuthRequest : public mainthandler
 {
 public:
-	using tSpecialRequestHandler::tSpecialRequestHandler;
+	using mainthandler::mainthandler;
 
 	void Run() override
 	{
@@ -59,10 +59,10 @@ public:
 	}
 };
 
-class authbounce : public tSpecialRequestHandler
+class authbounce : public mainthandler
 {
 public:
-	using tSpecialRequestHandler::tSpecialRequestHandler;
+	using mainthandler::mainthandler;
 
 	void Run() override
 	{
@@ -73,11 +73,24 @@ public:
 	}
 };
 
-#ifdef DEBUG
-class sleeper : public tSpecialRequestHandler
+class errorItem : public fileitem
 {
 public:
-	using tSpecialRequestHandler::tSpecialRequestHandler;
+	errorItem(mstring msg) : fileitem("<fatalerror>")
+	{
+		ManualStart(500, move(msg), "text/plain", se, 0);
+		m_status = FIST_DLERROR;
+	}
+public:
+	std::unique_ptr<ICacheDataSender> GetCacheSender() override { return std::unique_ptr<ICacheDataSender>(); }
+};
+
+
+#ifdef DEBUG
+class sleeper : public mainthandler
+{
+public:
+	using mainthandler::mainthandler;
 	void Run() override
 	{
 		auto dpos = m_parms.cmd.find_first_of("0123456789");
@@ -95,7 +108,7 @@ const tSpecialWorkDescription& GetTaskInfo(EWorkType type)
 			? workDescriptors[type] : workDescriptors[0];
 }
 
-static tSpecialRequestHandler* MakeMaintWorker(tSpecialRequestHandler::tRunParms&& parms)
+static mainthandler* MakeMaintWorker(mainthandler::tRunParms&& parms)
 {
 	if (parms.type >= workDescriptors.size())
 		parms.type = EWorkType::USER_INFO; // XXX: report as error in the log?
@@ -106,7 +119,7 @@ static tSpecialRequestHandler* MakeMaintWorker(tSpecialRequestHandler::tRunParms
 
 namespace creators
 {
-#define CREAT(x) static tSpecialRequestHandler* x (tSpecialRequestHandler::tRunParms&& parms) { return new ::acng:: x (move(parms)); };
+#define CREAT(x) static mainthandler* x (mainthandler::tRunParms&& parms) { return new ::acng:: x (move(parms)); };
 CREAT(aclocal);
 CREAT(expiration);
 CREAT(tShowInfo);
@@ -119,8 +132,8 @@ CREAT(pkgmirror);
 CREAT(sleeper);
 CREAT(tBgTester);
 #endif
-static tSpecialRequestHandler* deleter (tSpecialRequestHandler::tRunParms&& parms){ return new acng::tDeleter (move(parms), "Delet"); };
-static tSpecialRequestHandler* truncator (tSpecialRequestHandler::tRunParms&& parms){ return new acng::tDeleter (move(parms), "Truncat"); };
+static mainthandler* deleter (mainthandler::tRunParms&& parms){ return new acng::tDeleter (move(parms), "Delet"); };
+static mainthandler* truncator (mainthandler::tRunParms&& parms){ return new acng::tDeleter (move(parms), "Truncat"); };
 }
 
 void InitSpecialWorkDescriptors()
@@ -214,9 +227,8 @@ EWorkType DetectWorkType(const tHttpUrl& reqUrl, string_view rawCmd, const char*
 	return EWorkType::REPORT;
 }
 
-class BufferedPtItem : public BufferedPtItemBase
+class BufferedPtItem : public MaintStreamItemBase
 {
-	unique_ptr<tSpecialRequestHandler> handler;
 
 	static void cb_notify_new_pipe_data(struct bufferevent *, void *ctx)
 	{
@@ -229,8 +241,6 @@ class BufferedPtItem : public BufferedPtItemBase
 
 public:
 
-	tSpecialRequestHandler* GetHandler() { return handler.get(); }
-
 	// where the cursor is, matches the begin of the current buffer
 	off_t m_nCursor = 0;
 
@@ -241,47 +251,43 @@ public:
 		if (m_pipeInOut[1]) bufferevent_free(m_pipeInOut[1]);
 	}
 
-	BufferedPtItem(EWorkType jobType, mstring cmd, bufferevent *bev, SomeData* arg, acres& reso)
-		: BufferedPtItemBase("_internal_task")
+	BufferedPtItem(unique_ptr<mainthandler>&& han)
+		: MaintStreamItemBase("_internal_task")
 		// XXX: resolve the name to task type for the logs? Or replace the name with something useful later? Although, not needed, and also w/ format not fitting the purpose.
 	{
 		ASSERT_HAVE_MAIN_THREAD;
+		ASSERT(han);
 
-		m_status = FiStatus::FIST_DLPENDING;
+		han.swap(handler);
+		handler->m_parms.owner = this;
 
+		m_bPureStreamNoStorage = true;
+
+		m_status = FiStatus::FIST_DLERROR;
 		try
 		{
-			handler.reset(MakeMaintWorker({jobType, move(cmd), bufferevent_getfd(bev), this, arg, reso}));
-			if (handler)
-			{
-				auto flags =  //(handler->m_bNeedsBgThread * BEV_OPT_THREADSAFE)
-						BEV_OPT_THREADSAFE | BEV_OPT_DEFER_CALLBACKS | BEV_OPT_UNLOCK_CALLBACKS;
-				if (AC_UNLIKELY(bufferevent_pair_new(evabase::base, flags, m_pipeInOut)))
-				{
-					throw std::bad_alloc();
-				}
-				// trigger of passed data notification
-				bufferevent_setcb(m_pipeInOut[1], cb_notify_new_pipe_data, nullptr, cb_bgpipe_event, this);
-				bufferevent_enable(m_pipeInOut[1], EV_READ);
-				bufferevent_enable(m_pipeInOut[0], EV_WRITE);
 
-				m_status = FiStatus::FIST_DLASSIGNED;
-				m_responseStatus = { 200, "OK" };
-			}
-			else
+			auto flags = BEV_OPT_DEFER_CALLBACKS | BEV_OPT_UNLOCK_CALLBACKS
+						 | BEV_OPT_THREADSAFE * !!(GetTaskInfo(handler->m_parms.type).flags & BLOCKING);
+
+			if (AC_UNLIKELY(bufferevent_pair_new(evabase::base, flags, m_pipeInOut)))
 			{
-				m_status = FiStatus::FIST_DLERROR;
-				m_responseStatus = { 500, "Internal processing error" };
+				throw std::bad_alloc();
 			}
+			// trigger of passed data notification
+			bufferevent_setcb(m_pipeInOut[1], cb_notify_new_pipe_data, nullptr, cb_bgpipe_event, this);
+			bufferevent_enable(m_pipeInOut[1], EV_READ);
+			bufferevent_enable(m_pipeInOut[0], EV_WRITE);
+
+			m_status = FiStatus::FIST_DLASSIGNED;
+			m_responseStatus = { 200, "OK" };
 		}
 		catch(const std::exception& e)
 		{
-			m_status = FiStatus::FIST_DLERROR;
 			m_responseStatus = { 500, e.what() };
 		}
 		catch(...)
 		{
-			m_status = FiStatus::FIST_DLERROR;
 			m_responseStatus = { 500, "Unable to start background items" };
 		}
 	}
@@ -298,7 +304,7 @@ public:
 			return evabase::Post([this, appendix ]() { m_extraHeaders = move(appendix); });
 		m_extraHeaders = move(appendix);
 	}
-	void Eof()
+	void Eof() override
 	{
 		bufferevent_flush(m_pipeInOut[0], EV_WRITE, BEV_FINISHED);
 	}
@@ -363,7 +369,7 @@ private:
 	}
 };
 
-void tSpecialRequestHandler::SendRemoteOnly(string_view sv)
+void mainthandler::SendRemoteOnly(string_view sv)
 {
 	// push everything into the pipe, the output will make notifications as needed
 
@@ -372,7 +378,7 @@ void tSpecialRequestHandler::SendRemoteOnly(string_view sv)
 	send(PipeTx(), sv);
 }
 
-void tSpecialRequestHandler::SendRemoteOnly(evbuffer* data)
+void mainthandler::SendRemoteOnly(evbuffer* data)
 {
 	if (!data)
 		return;
@@ -380,7 +386,7 @@ void tSpecialRequestHandler::SendRemoteOnly(evbuffer* data)
 	evbuffer_add_buffer(PipeTx(), data);
 }
 
-const string & tSpecialRequestHandler::GetMyHostPort()
+const string & mainthandler::GetMyHostPort()
 {
 	if(!m_sHostPort.empty())
 		return m_sHostPort;
@@ -420,8 +426,11 @@ tFileItemPtr Create(EWorkType jobType, bufferevent *bev, const tHttpUrl& url, So
 {
 	try
 	{
-		if (jobType == EWorkType::REGULAR || jobType >= EWorkType::WORK_TYPE_MAX)
+		if (jobType == EWorkType::REGULAR)
 			return tFileItemPtr(); // not for us?
+
+		if (jobType >= EWorkType::WORK_TYPE_MAX)
+			return tFileItemPtr(new errorItem("Bad Type"));
 
 		if (jobType == EWorkType::STYLESHEET)
 			return tFileItemPtr(new TResFileItem("style.css", "text/css"));
@@ -431,50 +440,72 @@ tFileItemPtr Create(EWorkType jobType, bufferevent *bev, const tHttpUrl& url, So
 
 		const auto& desc = workDescriptors[jobType];
 
-		auto item = new BufferedPtItem(jobType, url.sPath, bev, arg, reso);
-		auto ret = as_lptr<fileitem>(item);
-		if (! item->GetHandler())
-			return tFileItemPtr();
+		lint_ptr<IMaintJobItem> item;
+
+		try
+		{
+			unique_ptr<mainthandler> handler;
+			handler.reset(MakeMaintWorker({jobType, move(url.sPath), bufferevent_getfd(bev), nullptr, arg, reso}));
+			if (!handler)
+				return tFileItemPtr(new errorItem("Internal processing error"));
+			item.reset(new BufferedPtItem(move(handler)));
+		}
+		catch(const std::exception& e)
+		{
+			return tFileItemPtr(new errorItem(e.what()));
+		}
+		catch (...)
+		{
+			return tFileItemPtr(new errorItem("Unable to start background items"));
+		}
+
+		auto ret = item.release();
 
 		if (0 == (desc.flags & BLOCKING))
 		{
 			item->GetHandler()->Run();
 			item->Eof();
-			return ret;
+			return as_lptr<fileitem>(ret);
 		}
+
+		// OKAY, prepare to execute on another thread
 
 		// we only pass the bare pointer to it, release the reference on the main thread only and only after the BG thread action is finished!
 		ret->__inc_ref();
-		auto runner = [item] ()
+		auto runner = [ret] ()
 		{
 			try
 			{
-				item->GetHandler()->Run();
-				item->Eof();
+				ret->GetHandler()->Run();
 				// release the potentially last reference when done
-				evabase::Post([item]() { tFileItemPtr p(item, false); });
+				evabase::Post([ret]() { tFileItemPtr destroyer(ret, false); });
 			}
 			catch (const std::exception& exe)
 			{
 				string msg=exe.what();
-				evabase::Post([item, msg]()
+				evabase::Post([ret, msg]()
 				{
-					item->DlSetError({500, msg}, fileitem::EDestroyMode::DELETE);
+					ret->DlSetError({500, msg}, fileitem::EDestroyMode::DELETE);
 				});
 			}
 			catch (...)
 			{
-				evabase::Post([item]()
+				evabase::Post([ret]()
 				{
-					item->DlSetError({500, "Unknown processing error"}, fileitem::EDestroyMode::DELETE);
+					ret->DlSetError({500, "Unknown processing error"}, fileitem::EDestroyMode::DELETE);
 				});
 			}
+			evabase::Post([ret]()
+			{
+				ret->Eof();
+				tFileItemPtr destroyer(ret, false);
+			});
 		};
 
 		if(g_tpool->schedule(runner))
-			return ret;
+			return as_lptr<fileitem>(ret);
 
-		// FAIL STATE!
+		// FAIL STATE! CLEANUP HERE ASAP!
 		ret->__dec_ref();
 		return tFileItemPtr();
 	}
