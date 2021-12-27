@@ -4,6 +4,7 @@
 #include "filereader.h"
 #include "fileio.h"
 #include "acregistry.h"
+#include "acfg.h"
 
 #include <fstream>
 #include <map>
@@ -755,24 +756,21 @@ void expiration::HandleDamagedFiles()
 
 void expiration::PurgeMaintLogs()
 {
-	tStrDeq logs = ExpandFilePattern(cfg::logdir + SZPATHSEP MAINT_PFX "*.log*");
+	tStrDeq logs = ExpandFilePattern(SZABSPATH(MJSTORE_SUBPATH "/*.html"));
 	if (logs.size() > 2)
-		Send(WITHLEN(
-				"Found required cleanup tasks: purging maintenance logs...<br>\n"));
+		Send("Found required cleanup tasks: purging maintenance logs...<br>\n"sv);
+	auto threshhold = GetTime() - cfg::extreshhold * 24*60*60;
 	for (const auto &s: logs)
 	{
-		time_t id = atoofft(s.c_str() + cfg::logdir.size() + 7);
-		//cerr << "id ist: "<< id<<endl;
-		if (id == GetTaskId())
-			continue;
-		//cerr << "Remove: "<<globbuf.gl_pathv[i]<<endl;
 #ifdef ENABLED
-		::unlink(s.c_str());
+		Cstat sb(s);
+		if (sb && sb.st_mtim.tv_sec < threshhold)
+			::unlink(s.c_str());
 #endif
 	}
 	if(!m_killBill.empty())
 	{
-		Send(WITHLEN("Removing deprecated files...<br>\n"));
+		Send("Removing deprecated files...<br>\n"sv);
 		for(const auto &s: m_killBill)
 		{
 			Send(s+sBRLF);

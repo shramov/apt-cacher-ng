@@ -123,6 +123,8 @@ void mkdirhier(cmstring& path);
 bool xtouch(cmstring &wanted);
 void mkbasedir(const mstring & path);
 
+ssize_t dumpall(int fd, string_view data);
+
 /*
 class tLazyStat
 {

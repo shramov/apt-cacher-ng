@@ -8,12 +8,8 @@ FIXME: WIP
    * HTTPS connections behind a HTTPS proxy possible
    * Storing maintenance processing (HTML) logs in internal cache, not in
      logdir anymore. This allows for password protected access and precise
-     control of their expiration.
-     TODO: add area in _xstore; create variant of fileitem_with_storage with
-     Dl* methods callable from BG thread (POSTIng to a call of base class
-     methods); store log ID information in the page handler (some substiture
-     var) and create filename (maybe:
-     <LOGTYPEENUM>.<second>.<usecond>.<autoincrement>.html)
+     control of their expiration, and controlled expiration of those logs
+     without additional tricks outside.
 
   [ INTERNAL IMPROVEMENTS AND BUGFIXES ]
 

@@ -379,25 +379,31 @@ public:
 	};
 };
 
-std::unique_ptr<fileitem::ICacheDataSender> TFileitemWithStorage::GetCacheSender()
+std::unique_ptr<fileitem::ICacheDataSender> GetStoredFileSender(cmstring& sPathRel, off_t knownSize, bool considerComplete)
 {
-	LOGSTARTFUNC;
 	setLockGuard;
 
-	USRDBG("Opening " << m_sPathRel);
-	int fd = open(SZABSPATH(m_sPathRel), O_RDONLY);
+	int fd = open(SZABSPATH(sPathRel), O_RDONLY);
 
 	if (fd == -1)
 		return std::unique_ptr<fileitem::ICacheDataSender>();
 
 #ifdef HAVE_FADVISE
-	posix_fadvise(fd, 0, m_nSizeChecked, POSIX_FADV_SEQUENTIAL);
+	posix_fadvise(fd, 0, knownSize, POSIX_FADV_SEQUENTIAL);
 #endif
 
-	if (m_nSizeChecked > 0 && m_status == FIST_COMPLETE)
-		return make_unique<TSimpleSender>(fd, m_nSizeChecked);
+	if (knownSize > 0 && considerComplete)
+		return make_unique<TSimpleSender>(fd, knownSize);
 
 	return make_unique<TSegmentSender>(fd);
+}
+
+std::unique_ptr<fileitem::ICacheDataSender> TFileitemWithStorage::GetCacheSender()
+{
+	LOGSTARTFUNC;
+	setLockGuard;
+	USRDBG("Opening " << m_sPathRel);
+	return GetStoredFileSender(m_sPathRel, m_nSizeChecked, m_status == FIST_COMPLETE);
 }
 
 bool TFileitemWithStorage::SafeOpenOutFile()

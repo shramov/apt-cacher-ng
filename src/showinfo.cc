@@ -22,7 +22,7 @@ namespace acng
 {
 
 tRemoteStatus stOK {200, "OK"};
-std::atomic_bool tMaintJobBase::g_sigTaskAbort = false;
+std::atomic_bool g_sigTaskAbort = false;
 
 static cmstring sReportButton("<tr><td class=\"colcont\"><form action=\"#stats\" method=\"get\">"
 					"<input type=\"submit\" name=\"doCount\" value=\"Count Data\"></form>"
@@ -51,7 +51,7 @@ void acng::tMarkupFileSend::SendProcessedData(string_view sv)
 		auto propStart=(LPCSTR) memchr(pr, (uint) '$', restlen);
 		if (propStart) {
 			if (propStart < lastchar && propStart[1] == '{') {
-				SendRemoteOnly(pr, propStart-pr);
+				Send(pr, propStart-pr);
 				pr=propStart;
 				// found begin of a new property key
 				auto propEnd = (LPCSTR) memchr(propStart+2, (uint) '}', pend-propStart+2);
@@ -68,13 +68,13 @@ void acng::tMarkupFileSend::SendProcessedData(string_view sv)
 			} else {
 				// not a property string, send as-is
 				propStart++;
-				SendRemoteOnly(pr, propStart-pr);
+				Send(pr, propStart-pr);
 				pr=propStart;
 			}
 		} else // no more props
 		{
 			no_more_props:
-			SendRemoteOnly(pr, restlen);
+			Send(pr, restlen);
 			break;
 		}
 	}
@@ -88,11 +88,11 @@ void tMarkupFileSend::Run()
 	{
 		log::err(string("Error reading local page template: " ) + m_sOuterDecoFile);
 		auto msg = "<html><h1>500 Template not found</h1>Please contact the system administrator.</html>"sv;
-		m_parms.bitem().ManualStart(500, "Template Not Found", "text/html", se, msg.size());
-		SendRemoteOnly(msg);
+		item().ManualStart(500, "Template Not Found", "text/html", se, msg.size());
+		Send(msg);
 		return;
 	}
-	m_parms.bitem().ManualStart(m_httpStatus.code, m_httpStatus.msg, m_sMimeType);
+	item().ManualStart(m_httpStatus.code, m_httpStatus.msg, m_sMimeType);
 	SendProcessedData(input.view());
 }
 
@@ -101,11 +101,11 @@ void tDeleter::SendProp(cmstring &key)
 	if(key=="count")
 		SendFmtRemote << files.size();
 	else if(key=="countNZs")
-		return SendRemoteOnly((files.size()>1) ? "s" : "");
+		return Send((files.size()>1) ? "s" : "");
 	else if(key == "stuff")
-		return SendRemoteOnly(sHidParms);
+		return Send(sHidParms);
 	else if(key=="vmode")
-		return SendRemoteOnly(sVisualMode.data(), sVisualMode.size());
+		return Send(sVisualMode.data(), sVisualMode.size());
 	else
 		return tMarkupFileSend::SendProp(key);
 }
@@ -338,9 +338,9 @@ void tMarkupFileSend::SendIfElse(LPCSTR pszBeginSep, LPCSTR pszEnd)
 	if(!valNo) // heh?
 			return;
 	if(0==sel)
-		SendRemoteOnly(valYes, valNo-valYes);
+		Send(valYes, valNo-valYes);
 	else
-		SendRemoteOnly(valNo+1, pszEnd-valNo-1);
+		Send(valNo+1, pszEnd-valNo-1);
 }
 
 
@@ -354,12 +354,12 @@ void tMaintOverview::SendProp(cmstring &key)
 	if(key=="statsRow")
 	{
 		if(!StrHas(m_parms.cmd, "doCount"))
-			return SendRemoteOnly(sReportButton);
-		return SendRemoteOnly(log::GetStatReport());
+			return Send(sReportButton);
+		return Send(log::GetStatReport());
 	}
 	static cmstring defStringChecked("checked");
 	if(key == "aOeDefaultChecked")
-		return SendRemoteOnly(cfg::exfailabort ? defStringChecked : se);
+		return Send(cfg::exfailabort ? defStringChecked : se);
 
 	if(key == "curPatTraceCol")
 	{
@@ -408,7 +408,7 @@ void tMarkupFileSend::SendProp(cmstring &key)
 		auto ckey=key.c_str() + 4;
 		auto ps(cfg::GetStringPtr(ckey));
 		if(ps)
-			return SendRemoteOnly(*ps);
+			return Send(*ps);
 		auto pi(cfg::GetIntPtr(ckey));
 		if(pi)
 			SendFmt << *pi;
@@ -416,10 +416,10 @@ void tMarkupFileSend::SendProp(cmstring &key)
 	}
 
 	if (key == "serverhostport")
-		return SendRemoteOnly(GetMyHostPort());
+		return Send(GetMyHostPort());
 
 	if (key == "footer")
-		return SendRemoteOnly(GetFooter());
+		return Send(GetFooter());
 
 	if (key == "hostname")
 	{
@@ -427,19 +427,19 @@ void tMarkupFileSend::SendProp(cmstring &key)
 		if(gethostname(buf, sizeof(buf)-2))
 			return; // failed?
 		buf[sizeof(buf)-1] = 0x0;
-		return SendRemoteOnly(buf);
+		return Send(buf);
 	}
 	if(key=="random")
 		SendFmtRemote << rand();
 	else if(key=="dataInHuman")
 	{
 		auto stats = log::GetCurrentCountersInOut();
-		return SendRemoteOnly(offttosH(stats.first));
+		return Send(offttosH(stats.first));
 	}
 	else if(key=="dataOutHuman")
 	{
 		auto stats = log::GetCurrentCountersInOut();
-		return SendRemoteOnly(offttosH(stats.second));
+		return Send(offttosH(stats.second));
 	}
 	else if(key=="dataIn")
 	{
@@ -458,12 +458,12 @@ void tMarkupFileSend::SendProp(cmstring &key)
 	else if (key == "dataHistInHuman")
 	{
 		auto stats = pairSum(log::GetCurrentCountersInOut(), log::GetOldCountersInOut());
-		return SendRemoteOnly(offttosH(stats.first));
+		return Send(offttosH(stats.first));
 	}
 	else if (key == "dataHistOutHuman")
 	{
 		auto stats = pairSum(log::GetCurrentCountersInOut(), log::GetOldCountersInOut());
-		return SendRemoteOnly(offttosH(stats.second));
+		return Send(offttosH(stats.second));
 	}
 	else if (key == "dataHistIn")
 	{

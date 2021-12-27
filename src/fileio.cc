@@ -246,4 +246,23 @@ void event_and_fd_free(event *e)
 	checkforceclose(fd);
 }
 
+ssize_t dumpall(int fd, string_view data)
+{
+	ssize_t ret = data.size();
+	while (data.size())
+	{
+		errno = 0;
+		auto n = ::write(fd, data.data(), data.size());
+		if (n <= 0)
+		{
+			if (errno == EINTR || errno == EAGAIN)
+				continue;
+			return -1;
+		}
+		data.remove_prefix(n);
+	}
+	return ret;
+}
+
+
 }

@@ -64,7 +64,6 @@ protected:
 	void ProcessResource(cmstring sFilename);
 
 	bool CheckStopSignal();
-	static std::atomic_bool g_sigTaskAbort;
 	time_t m_startTime = GetTime();
 };
 

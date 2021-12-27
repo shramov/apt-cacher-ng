@@ -301,5 +301,7 @@ public:
 	std::unique_ptr<ICacheDataSender> GetCacheSender() override { return std::move(m_sender); }
 };
 
+std::unique_ptr<fileitem::ICacheDataSender> GetStoredFileSender(cmstring& sPathRel, off_t knownSize, bool considerComplete);
+
 }
 #endif

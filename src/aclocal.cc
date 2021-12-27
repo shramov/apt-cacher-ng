@@ -49,7 +49,7 @@ aclocal::aclocal(mainthandler::tRunParms&& parms)
 
 void aclocal::SetEarlySimpleResponse(int code, string_view msg)
 {
-	m_parms.bitem().ManualStart(code, to_string(msg), "text/plain");
+	item().ManualStart(code, to_string(msg), "text/plain");
 }
 
 void aclocal::Run()
@@ -87,10 +87,10 @@ void aclocal::Run()
 			tFmtSendObj tx(this, true);
 			m_fmtHelper << "<!DOCTYPE html>\n<html lang=\"en\"><head><title>301 Moved Permanently</title></head><body><h1>Moved Temporarily</h1>"
 				 "<p>The document has moved <a href=\""sv << UrlEscape(m_extraParms.visPath) << "/\">here</a>.</p></body></html>"sv;
-			m_parms.bitem().ManualStart(301, "Moved Permanently", "text/html", m_extraParms.visPath + "/", m_fmtHelper.size());
+			item().ManualStart(301, "Moved Permanently", "text/html", m_extraParms.visPath + "/", m_fmtHelper.size());
 			return;
 		}
-		m_parms.bitem().ManualStart(200, "OK", "text/html");
+		item().ManualStart(200, "OK", "text/html");
 		SendFmt << "<!DOCTYPE html>\n<html lang=\"en\"><head>"
 				<< style << "<title>Index of "sv
 			 << m_extraParms.visPath << "</title></head><body><h1>Index of "sv
@@ -181,13 +181,13 @@ void aclocal::Run()
 
 #warning check resuming after 3gb on 32bit build, and after 4.7 gb
 		// let's mmap it and then drop the unneeded part on delivery from reader builder
-		if (0 != evbuffer_add_file(PipeTx(), fd, 0, stbuf.st_size))
+		if (0 != evbuffer_add_file(GetTxBufferForBufferedItem(item()), fd, 0, stbuf.st_size))
 		{
 			checkforceclose(fd);
 			return SetEarlySimpleResponse(500, "Internal error"sv);
 		}
 	}
-	m_parms.bitem().ManualStart(200, "OK",
+	item().ManualStart(200, "OK",
 							   sMimeType.empty() ? "octet/stream" : sMimeType,
 							   se, stbuf.st_size, stbuf.st_mtim.tv_sec);
 

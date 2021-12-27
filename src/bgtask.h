@@ -19,19 +19,7 @@ class ACNG_API tExclusiveUserAction : public tMaintJobBase
 public:
 	using tMaintJobBase::tMaintJobBase;
 
-	virtual ~tExclusiveUserAction();
-
-protected:
-
-	void SendLocalOnly(const char *data, size_t size) override;
-
-	void DumpLog(time_t id);
-
-	time_t GetTaskId();
-
 private:
-
-	std::ofstream m_reportStream;
 
 	// XXX: this code sucks and needs a full review. It abuses shared_ptr as stupid reference
 	// counter. Originally written with some uber-protective considerations in mind like
@@ -43,9 +31,6 @@ private:
 	std::map<mstring,pathMemEntry> m_pathMemory;
 	// generates a lookup blob as hidden form parameter
 	mstring BuildCompressedDelFileCatalog();
-
-	// to watch the log file
-	int m_logFd = -1;
 };
 
 enum ControLineType : uint8_t
@@ -55,6 +40,8 @@ enum ControLineType : uint8_t
 	Error = 2
 };
 #define maark "41d_a6aeb8-26dfa" // random enough to not match anything existing *g*
+
+#define MJSTORE_SUBPATH "_xstore/maintjobs"
 
 }
 

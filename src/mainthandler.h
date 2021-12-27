@@ -24,30 +24,37 @@ static const std::string sBRLF("<br>\n");
 namespace acng
 {
 class mainthandler;
+class IMaintJobItem;
+struct tSpecialWorkDescription;
 
+extern std::atomic_bool g_sigTaskAbort;
+
+/**
+ * @brief The IMaintJobItem class
+ */
 class IMaintJobItem : public fileitem
 {
 protected:
 	std::unique_ptr<mainthandler> handler;
 
+	mstring m_extraHeaders;
+
 public:
-	using fileitem::fileitem;
-	virtual evbuffer* PipeTx() =0;
-	virtual evbuffer* PipeRx() =0;
-	virtual void AddExtraHeaders(mstring appendix) =0;
-	virtual void Eof() =0;
+	IMaintJobItem(std::unique_ptr<mainthandler>&& han, IMaintJobItem* owner);
+	virtual ~IMaintJobItem() =default;
+
+	virtual void Send(evbuffer *data) =0;
+	virtual void Send(string_view sv) =0;
+	/**
+	 * @brief Eof signals the peer to stop processing, wherever it currently was.
+	 */
+	virtual void Eof();
 
 	mainthandler* GetHandler() { return handler.get(); }
-};
 
-class MaintStreamItemBase : public IMaintJobItem
-{
-protected:
-	struct bufferevent *m_pipeInOut[2];
-public:
-	using IMaintJobItem::IMaintJobItem;
-	struct evbuffer* PipeTx() override { return bufferevent_get_output(m_pipeInOut[0]); }
-	struct evbuffer* PipeRx() override { return bufferevent_get_input(m_pipeInOut[1]); }
+	void AddExtraHeaders(mstring appendix);
+	cmstring &GetExtraResponseHeaders();
+
 };
 
 class ACNG_API mainthandler
@@ -63,54 +70,28 @@ public:
 		mstring cmd;
 		int fd;
 		// reference to the carrier item
-		fileitem* owner;
+		IMaintJobItem* owner;
 		SomeData* arg;
 		acres& res;
-
-		// provide access to BufferedPtItemBase typed jobs
-		IMaintJobItem& bitem() { return * static_cast<MaintStreamItemBase*>(owner); }
-	};
+	} m_parms;
 
 	/*!
 	 *  @brief Main execution method for maintenance tasks.
 	 */
 	virtual void Run() =0;
 
-	virtual ~mainthandler();
+	virtual ~mainthandler() =default;
 
 	mainthandler(tRunParms&& parms);
 
 protected:
 
-	evbuffer* PipeTx() { return m_parms.bitem().PipeTx(); }
-
-	// for customization in base classes
-	virtual void SendLocalOnly(const char* /*data*/, size_t /*size*/) {};
-	virtual void SendLocalOnly(ebstream&) {};
-
-	void SendRemoteOnly(const char *data, size_t size)
-	{
-		return SendRemoteOnly(string_view(data, size));
-	}
-	inline void SendRemoteOnly(ebstream& data) { return SendRemoteOnly(data.be);}
-	void SendRemoteOnly(evbuffer *data);
-	void SendRemoteOnly(string_view sv);
-
-	void Send(const char *data, size_t len)
-	{
-		SendLocalOnly(data, len);
-		SendRemoteOnly(data, len);
-	}
-	void Send(string_view x) { Send(x.data(), x.size()); }
-	// this will eventually move data from there to output
-	void Send(ebstream& x)
-	{
-		SendLocalOnly(x);
-		SendRemoteOnly(x);
-	}
+	inline void Send(const char *data, size_t size)	{ return Send(string_view(data, size));	}
+	inline void Send(ebstream& data) { return Send(data.be); }
+	void Send(evbuffer *data) { m_parms.owner->Send(data); };
+	void Send(string_view sv) { m_parms.owner->Send(sv); };
 
 	cmstring & GetMyHostPort();
-	tRunParms m_parms;
 
 private:
 	mainthandler(const mainthandler&);
@@ -118,6 +99,10 @@ private:
 	mstring m_sHostPort;
 
 public:
+
+	inline fileitem& item() { return * m_parms.owner; }
+	const tSpecialWorkDescription& desc();
+
 	// dirty little RAII helper to send data after formating it, uses a shared
 	// buffer presented to the user via macro. This two-stage design should
 	// reduce needed locking operations on the output.
@@ -129,7 +114,7 @@ public:
 		inline ~tFmtSendObj()
 		{
 			if(m_bRemoteOnly)
-				m_parent.SendRemoteOnly(m_parent.m_fmtHelper);
+				m_parent.Send(m_parent.m_fmtHelper);
 			else
 				m_parent.Send(m_parent.m_fmtHelper);
 			m_parent.m_fmtHelper.clear();
@@ -146,7 +131,6 @@ public:
 
 	bSS m_fmtHelper;
 };
-
 
 mainthandler* creatorPrototype(mainthandler::tRunParms&& parms);
 
@@ -169,12 +153,24 @@ const unsigned BLOCKING = 0x1; // needs a detached thread
 const unsigned FILE_BACKED = 0x2;  // output shall be returned through a tempfile, not directly via pipe
 const unsigned EXCLUSIVE = 0x4; // shall be the only action of that kind active; output from an active sesion is shared; requires: m_bFileBacked
 
+inline const tSpecialWorkDescription &mainthandler::desc() { return GetTaskInfo(m_parms.type); }
+
+mainthandler* MakeMaintWorker(mainthandler::tRunParms&& parms);
 
 std::string to_base36(unsigned int val);
 static cmstring relKey("/Release"), inRelKey("/InRelease");
 static cmstring sfxXzBz2GzLzma[] = { ".xz", ".bz2", ".gz", ".lzma"};
 static cmstring sfxXzBz2GzLzmaNone[] = { ".xz", ".bz2", ".gz", ".lzma", ""};
 static cmstring sfxMiscRelated[] = { "", ".xz", ".bz2", ".gz", ".lzma", ".gpg", ".diff/Index"};
+
+/**
+ * @brief GetTxBufferForBufferedItem Special-use thing to get access to the sending buffer directly
+ * This assumes that the handler is made for Buffered threaded items only!
+ * @param p
+ * @return
+ */
+evbuffer* GetTxBufferForBufferedItem(fileitem& p);
+
 }
 
 #endif // MAINTHANDLER_H
