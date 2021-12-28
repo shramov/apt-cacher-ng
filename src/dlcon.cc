@@ -1455,6 +1455,7 @@ bool CDlConn::AddJob(lint_ptr<fileitem> fi, const tHttpUrl *src, tRepoResolvResu
 		dbgline;
 		return false;
 	}
+	dbgline;
 	if (j)
 		delete j;
 	return false;

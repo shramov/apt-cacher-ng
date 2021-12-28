@@ -526,7 +526,8 @@ cacheman::eDlResult cacheman::DownloadIO()
 	dbgline;
 	state.observer = state.fiaccess->Subscribe([&]() { cbDownload(); });
 	{
-		auto added = m_dlCtx->dler->AddJob(as_lptr(state.fiaccess.get()), state.pResolvedDirectUrl, state.pResolvedDirectUrl ? nullptr : & state.repoSrc);
+		auto added = m_dlCtx->dler->AddJob(as_lptr(state.fiaccess.get()), state.pResolvedDirectUrl,
+										   state.pResolvedDirectUrl ? nullptr : & state.repoSrc);
 		if (!added)
 		{
 			string msg = (state.pResolvedDirectUrl ? state.pResolvedDirectUrl->ToURI(true) : state.repoSrc.sRestPath);
@@ -535,6 +536,7 @@ cacheman::eDlResult cacheman::DownloadIO()
 		}
 	}
 FROM_ITEM_CB_FIRST:
+	dbgline;
 	{
 		// simple limiter, not more dots than one per second
 		static auto spamLimit = GetTime();

@@ -350,6 +350,8 @@ private:
 
 tFileItemPtr Create(EWorkType jobType, bufferevent *bev, const tHttpUrl& url, SomeData* arg, acres& reso)
 {
+	LOGSTARTFUNCsx(url.ToURI(true));
+
 	try
 	{
 		if (jobType == EWorkType::REGULAR)
@@ -425,8 +427,6 @@ tFileItemPtr Create(EWorkType jobType, bufferevent *bev, const tHttpUrl& url, So
 			try
 			{
 				item->GetHandler()->Run();
-				// release the potentially last reference when done
-				evabase::Post([item]() { tFileItemPtr destroyer(item, false); });
 			}
 			catch (const std::exception& exe)
 			{
@@ -443,6 +443,7 @@ tFileItemPtr Create(EWorkType jobType, bufferevent *bev, const tHttpUrl& url, So
 					item->DlSetError({500, "Unknown processing error"}, fileitem::EDestroyMode::DELETE);
 				});
 			}
+			// release the potentially last reference when done
 			evabase::Post([item]()
 			{
 				item->Eof();
@@ -450,12 +451,14 @@ tFileItemPtr Create(EWorkType jobType, bufferevent *bev, const tHttpUrl& url, So
 			});
 		};
 
-		if(g_tpool->schedule(runner))
-			return ret;
-
-		// FAIL STATE! CLEANUP HERE ASAP!
-		item->__dec_ref();
-		return tFileItemPtr();
+		if (!g_tpool->schedule(runner))
+		{
+			LOG("Unable to start background thread");
+			// FAIL STATE! CLEANUP HERE ASAP!
+			item->__dec_ref();
+			return tFileItemPtr();
+		}
+		return ret;
 	}
 	catch (...)
 	{

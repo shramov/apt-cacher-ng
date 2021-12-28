@@ -1,3 +1,19 @@
+FIXME:
+
+Too many newlines in downloadIO output
+
+Wrong decoding:
+
+		sReqPath	"/ReportPage?abortOnErrors=aOe&doExpire=Start+Scan+and/or+Expiration&calcSize=cs&asNeeded=an"	std::string
+		theUrl	@0x7fffffffe2a0	acng::tHttpUrl
+			m_schema	acng::tHttpUrl::EProtoType::HTTP (0)	acng::tHttpUrl::EProtoType
+			nPort	0	uint16_t
+			sHost	"ReportPage?abortOnErrors=aOe&doExpire=Start+Scan+and"	acng::mstring
+			sPath	"/or+Expiration&calcSize=cs&asNeeded=an"	acng::mstring
+			sUserPass	""	acng::mstring
+		this	@0x5555555bc090	acng::job
+
+
 Restore current data overview in maint page
 Maybe... restore data collector, or maybe drop it and add a log scanner script instead?
 

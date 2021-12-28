@@ -15,6 +15,7 @@
 #include "conn.h"
 #include "acres.h"
 #include "rex.h"
+#include "aevutil.h"
 
 #ifdef DEBUG
 #include <regex.h>
@@ -129,27 +130,33 @@ void parse_options(int argc, const char **argv)
 
 	if(bExtraVerb)
 		cfg::debug |= (log::LOG_DEBUG|log::LOG_MORE);
-
 }
 
-void setup_sighandler()
+struct sigMapping
 {
-	auto what = EV_SIGNAL|EV_PERSIST;
-#define REGSIG(x,y) event_add(::event_new(evabase::base, x, what, & y, 0), nullptr);
-	for(int snum : {SIGBUS, SIGTERM, SIGINT, SIGQUIT}) REGSIG(snum, term_handler);
-	REGSIG(SIGUSR1, log_handler);
-#warning restore dumper?
-//	REGSIG(SIGUSR2, dump_handler);
-	REGSIG(SIGPIPE, noop_handler);
+	int snum;
+	decltype(term_handler) &cb;
+}
+const sigMap[] =
+{
+{SIGBUS, term_handler},
+{SIGTERM, term_handler},
+{SIGINT, term_handler},
+{SIGQUIT, term_handler},
+{SIGUSR1, log_handler},
+{SIGPIPE, noop_handler},
 #ifdef SIGIO
-	REGSIG(SIGIO, noop_handler);
+{SIGIO, noop_handler},
 #endif
 #ifdef SIGXFSZ
-	REGSIG(SIGXFSZ, noop_handler);
+{SIGXFSZ, noop_handler},
 #endif
-}
+};
 
-static void usage(int retCode) {
+std::list<unique_event> sigEvents;
+
+static void usage(int retCode)
+{
 	cout <<"Usage: apt-cacher-ng [options] [ -c configdir ] <var=value ...>\n\n"
 		"Options:\n"
 		"-h: this help message\n"
@@ -264,7 +271,12 @@ void daemon_init()
 
 	check_algos();
 
-	setup_sighandler();
+	for(auto& el: sigMap)
+	{
+		event_add(sigEvents
+				  .emplace_back(event_new(evabase::base, el.snum, EV_SIGNAL|EV_PERSIST, el.cb, 0)).m_p,
+				  nullptr);
+	}
 
 	SetupCacheDir();
 
@@ -300,7 +312,7 @@ void daemon_init()
 	if (!cfg::pidfile.empty())
 	{
 		mkbasedir(cfg::pidfile);
-		FILE *PID_FILE = fopen(cfg::pidfile.c_str(), "w");
+		auto* PID_FILE = fopen(cfg::pidfile.c_str(), "w");
 		if (PID_FILE != nullptr)
 		{
 			fprintf(PID_FILE, "%d", getpid());
@@ -337,7 +349,12 @@ int main(int argc, const char **argv)
 	parse_options(argc, argv);
 
 	daemon_init();
+
+	auto ret = eBase->MainLoop();
+
 	atexit(daemon_deinit);
 
-	return eBase->MainLoop();
+	sigEvents.clear();
+
+	return ret;
 }
