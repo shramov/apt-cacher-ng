@@ -331,7 +331,7 @@ cacheman::eDlResult cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileF
 
 void cacheman::cbDownload()
 {
-	ASSERT_HAVE_MAIN_THREAD;
+	ASSERT_IS_MAIN_THREAD;
 
 	eDlResult result = eDlResult::FAIL_LOCAL;
 	try
@@ -357,9 +357,13 @@ cacheman::eDlResult cacheman::DownloadIO()
 	eDlResult ret = eDlResult::FAIL_REMOTE;
 	auto& state = m_dlCtx->state();
 	auto& sFilePathRel = m_dlCtx->m_parms.sFilePathRel;
+	fileitem::FiStatus fist;
 
 	if (state.dlactive == 1)
+	{
+		dbgline;
 		goto FROM_ITEM_CB_FIRST;
+	}
 
 	if (!m_dlCtx->dler)
 		m_dlCtx->dler = dlcontroller::CreateRegular(m_parms.res);
@@ -405,7 +409,7 @@ cacheman::eDlResult cacheman::DownloadIO()
 	dbgline;
 	if(state.attr.bVolatile && m_bSkipIxUpdate)
 	{
-		SendFmt << "Checking " << sFilePathRel << "... (skipped, as requested)<br>\n";
+		SendFmt << "Checking "sv << sFilePathRel << "... (skipped, as requested)<br>\n"sv;
 		dbgline;
 		return eDlResult::OK;
 	}
@@ -423,7 +427,7 @@ cacheman::eDlResult cacheman::DownloadIO()
 			goto format_error;
 			//GOTOREPMSG(pFi->GetHeader().frontLine);
 		}
-		SendFmt << "Checking " << sFilePathRel << "... (complete)<br>\n";
+		SendFmt << "Checking "sv << sFilePathRel << "... (complete)<br>\n"sv;
 		return eDlResult::OK;
 	}
 	if (NEEDED_VERBOSITY_ALL_BUT_ERRORS)
@@ -503,7 +507,7 @@ cacheman::eDlResult cacheman::DownloadIO()
 			if(!state.pResolvedDirectUrl)
 			{
 				dbgline;
-				SendChunkSZ("<b>Failed to calculate the original URL</b><br>");
+				Send("<b>Failed to calculate the original URL</b><br>"sv);
 				return eDlResult::FAIL_REMOTE; // XXX: actually a local error?
 			}
 		}
@@ -525,6 +529,7 @@ cacheman::eDlResult cacheman::DownloadIO()
 	state.dlactive = 1;
 	dbgline;
 	state.observer = state.fiaccess->Subscribe([&]() { cbDownload(); });
+
 	{
 		auto added = m_dlCtx->dler->AddJob(as_lptr(state.fiaccess.get()), state.pResolvedDirectUrl,
 										   state.pResolvedDirectUrl ? nullptr : & state.repoSrc);
@@ -535,6 +540,7 @@ cacheman::eDlResult cacheman::DownloadIO()
 			return eDlResult::FAIL_LOCAL;
 		}
 	}
+
 FROM_ITEM_CB_FIRST:
 	dbgline;
 	{
@@ -547,16 +553,19 @@ FROM_ITEM_CB_FIRST:
 			spamLimit = now;
 		}
 	}
-	//dlres = pFi->WaitForFinish(1, [&](){ SendChunk("."); return true; } );
-	if (state.fiaccess->GetStatus() < fileitem::FIST_COMPLETE)
+
+	fist = state.fiaccess->GetStatus();
+	ldbg(fist);
+
+	if (fist < fileitem::FIST_COMPLETE)
 		return eDlResult::IO_AGAIN;
 
-	if (state.fiaccess->GetStatus() == fileitem::FIST_COMPLETE && state.fiaccess->m_responseStatus.code == 200)
+	if (fist == fileitem::FIST_COMPLETE && state.fiaccess->m_responseStatus.code == 200)
 	{
 		dbgline;
 		ret = eDlResult::OK;
 		if (NEEDED_VERBOSITY_ALL_BUT_ERRORS)
-			SendFmt << " <i>(" << state.fiaccess->TakeTransferCount() / 1024 << "KiB)</i>\n";
+			SendFmt << " <i>("sv << state.fiaccess->TakeTransferCount() / 1024 << "KiB)</i>\n"sv;
 	}
 	else
 	{
@@ -565,7 +574,7 @@ FROM_ITEM_CB_FIRST:
 		if(state.fallbackUrl && state.fiaccess.get() && (!state.pResolvedDirectUrl || state.fallbackUrl != state.pResolvedDirectUrl))
 		{
 			dbgline;
-			SendChunkSZ("<i>(download error, ignored, guessing alternative URL by path)</i>\n");
+			Send("<i>(download error, ignored, guessing alternative URL by path)</i>\n"sv);
 
 			return Download(sFilePathRel, state.attr.bVolatile,
 					m_dlCtx->m_parms.msgVerbosityLevel,
@@ -580,7 +589,7 @@ FROM_ITEM_CB_FIRST:
 		if ( (cfg::follow404 && state.fiaccess->m_responseStatus.code == 404) || IsDeprecatedArchFile(sFilePathRel))
 		{
 			if (NEEDED_VERBOSITY_EVERYTHING)
-				SendChunkSZ("<i>(no longer available)</i>\n");
+				Send("<i>(no longer available)</i>\n"sv);
 			m_forceKeepInTrash[sFilePathRel] = true;
 			ret = eDlResult::GONE;
 		}
@@ -591,7 +600,7 @@ FROM_ITEM_CB_FIRST:
 		{
 			ret = eDlResult::OK;
 			if (NEEDED_VERBOSITY_EVERYTHING)
-				SendChunkSZ("<i>(ignored)</i>\n");
+				Send("<i>(ignored)</i>\n"sv);
 		}
 		else
 			GOTOREPMSG(message_detox(state.fiaccess->m_responseStatus.msg, state.fiaccess->m_responseStatus.code), eDlResult::FAIL_REMOTE);
@@ -599,7 +608,7 @@ FROM_ITEM_CB_FIRST:
 
 	rep_dlresult:
 
-	SendChunkSZ("<br>\n");
+	Send("<br>\n"sv);
 
 	if (state.fiaccess)
 	{
@@ -721,7 +730,7 @@ FROM_ITEM_CB_FIRST:
 		{
 			if(!GetFlags(sFilePathRel).hideDlErrors)
 			{
-				SendFmt << "<span class=\"ERROR\">" << state.sErr << "</span>\n";
+				SendFmt << "<span class=\"ERROR\">"sv << state.sErr << "</span>\n"sv;
 				if(0 == (m_dlCtx->m_parms.hints & DL_HINT_NOTAG))
 					AddDelCbox(sFilePathRel, state.sErr);
 			}
@@ -1412,7 +1421,7 @@ bool cacheman::UpdateVolatileFiles()
 	// just reget them as-is and we are done. Also include non-index files, to be sure...
 	if (m_bForceDownload)
 	{
-		Send("<b>Bringing index files up to date...</b><br>\n");
+		Send("<b>Bringing index files up to date...</b><br>\n"sv);
 		for (auto& f: m_metaFilesRel)
 		{
 			auto notIgnorable = !m_metaFilesRel[f.first].forgiveDlErrors;
@@ -1427,6 +1436,9 @@ bool cacheman::UpdateVolatileFiles()
 			case eDlResult::FAIL_LOCAL:
 			case eDlResult::FAIL_REMOTE:
 				m_nErrorCount += notIgnorable;
+				break;
+			case eDlResult::IO_AGAIN:
+				ASSERT(!"unreachable");
 				break;
 			}
 		}
@@ -1480,7 +1492,7 @@ bool cacheman::UpdateVolatileFiles()
 	// this runs early with the state that is present on disk, before updating any file,
 	// since it deals with the "reality" in the cache
 
-	Send("<b>Checking implicitly referenced files...</b><br>");
+	Send("<b>Checking implicitly referenced files...</b><br>"sv);
 
 	/*
 	 * Update all Release files
@@ -1511,14 +1523,14 @@ bool cacheman::UpdateVolatileFiles()
 
 			if(CheckStopSignal())
 			{
-				SendFmt << "Operation canceled." << hendl;
+				SendFmt << "Operation canceled."sv << hendl;
 				return false;
 			}
 			continue;
 		}
 	}
 
-	Send("<b>Bringing index files up to date...</b><br>\n");
+	Send("<b>Bringing index files up to date...</b><br>\n"sv);
 
 	{
 		std::unordered_set<std::string> oldReleaseFilesInRsnap;
@@ -1534,7 +1546,7 @@ bool cacheman::UpdateVolatileFiles()
 
 		if(!FixMissingByHashLinks(oldReleaseFilesInRsnap))
 		{
-			SendFmt << "Error fixing by-hash links" << hendl;
+			SendFmt << "Error fixing by-hash links"sv << hendl;
 			m_nErrorCount++;
 			LOGRET(false);
 		}
@@ -2240,11 +2252,11 @@ void cacheman::AddDelCbox(cmstring &sFileRel, cmstring& reason, bool bIsOptional
 		string bn(GetBaseName(sFileRel));
 		if(startsWithSz(bn, "/"))
 			bn.erase(0, 1);
-		SendFmtRemote <<  "<label><input type=\"checkbox\""
+		SendFmt <<  "<label><input type=\"checkbox\""
 				<< fileParm << ">(also tag " << html_sanitize(bn) << ")</label><br>";
 	}
 	else
-		SendFmtRemote <<  "<label><input type=\"checkbox\" "<< fileParm<<">Tag</label>"
+		SendFmt <<  "<label><input type=\"checkbox\" "<< fileParm<<">Tag</label>"
 			"\n<!--\n" maark << int(ControLineType::Error) << "Problem with "
 			<< html_sanitize(sFileRel) << "\n-->\n";
 }
@@ -2324,10 +2336,10 @@ void cacheman::PrintStats(cmstring &title)
 
 		if(m_pathMemory.empty())
 		{
-			SendFmtRemote << "<br><b>Action(s):</b><br>"
+			SendFmt << "<br><b>Action(s):</b><br>"
 							"<input type=\"submit\" name=\"doDelete\""
 							" value=\"Delete selected files\">";
-			SendFmtRemote << BuildCompressedDelFileCatalog();
+			SendFmt << BuildCompressedDelFileCatalog();
 		}
 		if(!m_bVerbose)
 			SendFmt << "</div>";

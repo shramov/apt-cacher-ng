@@ -669,7 +669,7 @@ void expiration::ListExpiredFiles()
 
 	mstring delURL(this->m_parms.cmd);
 	StrSubst(delURL, "justShow", "justRemove");
-	SendFmtRemote << "<a href=\""<<delURL<<"\">Delete all listed files</a> "
+	SendFmt << "<a href=\""<<delURL<<"\">Delete all listed files</a> "
 				"(no further confirmation)<br>\n";
 	return;
 }

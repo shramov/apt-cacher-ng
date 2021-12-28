@@ -109,24 +109,19 @@ public:
 	class tFmtSendObj
 	{
 	public:
-		inline tFmtSendObj(mainthandler *p, bool remoteOnly)
-		: m_parent(*p), m_bRemoteOnly(remoteOnly) { }
+		inline tFmtSendObj(mainthandler *p)
+		: m_parent(*p) { }
 		inline ~tFmtSendObj()
 		{
-			if(m_bRemoteOnly)
-				m_parent.Send(m_parent.m_fmtHelper);
-			else
-				m_parent.Send(m_parent.m_fmtHelper);
+			m_parent.Send(m_parent.m_fmtHelper);
 			m_parent.m_fmtHelper.clear();
 		}
 		mainthandler &m_parent;
 	private:
 		tFmtSendObj operator=(const mainthandler::tFmtSendObj&) = delete;
-		bool m_bRemoteOnly;
 	};
 
-#define SendFmt tFmtSendObj(this, false).m_parent.m_fmtHelper
-#define SendFmtRemote tFmtSendObj(this, true).m_parent.m_fmtHelper
+#define SendFmt tFmtSendObj(this).m_parent.m_fmtHelper
 #define SendChunkSZ(x) Send(WITHLEN(x))
 
 	bSS m_fmtHelper;

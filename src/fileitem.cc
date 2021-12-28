@@ -49,13 +49,13 @@ fileitem::fileitem(string_view sPathRel) :
 
 void fileitem::DlRefCountAdd()
 {
-	setLockGuard;
+	ASSERT_IS_MAIN_THREAD;
 	m_nDlRefsCount++;
 }
 
 void fileitem::DlRefCountDec(int code, string_view reason)
 {
-	setLockGuard;
+	ASSERT_IS_MAIN_THREAD;
 	LOGSTARTFUNC;
 
 	m_nDlRefsCount--;
@@ -82,7 +82,7 @@ fileitem::FiStatus TFileitemWithStorage::Setup()
 {
 	LOGSTARTFUNC;
 
-	setLockGuard;
+	ASSERT_IS_MAIN_THREAD;
 
 	if (m_status > FIST_FRESH)
 		return m_status;
@@ -199,7 +199,7 @@ bool TFileitemWithStorage::SaveHeader(bool truncatedKeepOnlyOrigInfo)
 bool fileitem::DlStarted(evbuffer*, size_t, const tHttpDate& modDate, cmstring& origin, tRemoteStatus status, off_t bytes2seek, off_t bytesAnnounced)
 {
 	LOGSTARTFUNCxs( modDate.view(), status.code, status.msg, bytes2seek, bytesAnnounced);
-	ASSERT_HAVE_MAIN_THREAD;
+	ASSERT_IS_MAIN_THREAD;
 
 	NotifyObservers();
 
@@ -241,7 +241,7 @@ bool fileitem::DlStarted(evbuffer*, size_t, const tHttpDate& modDate, cmstring& 
 ssize_t TFileitemWithStorage::DlConsumeData(evbuffer* src, size_t maxTake)
 {
 	LOGSTARTFUNC;
-	ASSERT_HAVE_MAIN_THREAD;
+	ASSERT_IS_MAIN_THREAD;
 
 	// something might care, most likely... also about BOUNCE action
 	NotifyObservers();
@@ -327,7 +327,7 @@ struct tSharedFd : public tLintRefcounted
 	~tSharedFd() { checkforceclose(fd); }
 	static void cbRelease(struct evbuffer_file_segment const *, int, void *arg)
 	{
-		ASSERT_HAVE_MAIN_THREAD;
+		ASSERT_IS_MAIN_THREAD;
 		((tSharedFd*)arg)->__dec_ref();
 	}
 };
@@ -379,7 +379,7 @@ public:
 
 std::unique_ptr<fileitem::ICacheDataSender> GetStoredFileSender(cmstring& sPathRel, off_t knownSize, bool considerComplete)
 {
-	setLockGuard;
+	ASSERT_IS_MAIN_THREAD;
 
 	int fd = open(SZABSPATH(sPathRel), O_RDONLY);
 
@@ -399,7 +399,7 @@ std::unique_ptr<fileitem::ICacheDataSender> GetStoredFileSender(cmstring& sPathR
 std::unique_ptr<fileitem::ICacheDataSender> TFileitemWithStorage::GetCacheSender()
 {
 	LOGSTARTFUNC;
-	setLockGuard;
+	ASSERT_IS_MAIN_THREAD;
 	USRDBG("Opening " << m_sPathRel);
 	return GetStoredFileSender(m_sPathRel, m_nSizeChecked, m_status == FIST_COMPLETE);
 }
@@ -525,7 +525,7 @@ bool TFileitemWithStorage::SafeOpenOutFile()
 
 void fileitem::MarkFaulty(bool killFile)
 {
-	setLockGuard;
+	ASSERT_IS_MAIN_THREAD;
 	DlSetError({500, "Bad Cache Item"}, killFile ? EDestroyMode::DELETE : EDestroyMode::TRUNCATE);
 }
 
@@ -625,7 +625,7 @@ void TFileitemWithStorage::MoveRelease2Sidestore()
 void fileitem::DlFinish(bool forceUpdateHeader)
 {
 	LOGSTARTFUNC;
-	ASSERT_HAVE_MAIN_THREAD;
+	ASSERT_IS_MAIN_THREAD;
 
 	NotifyObservers();
 
@@ -659,7 +659,7 @@ void fileitem::DlFinish(bool forceUpdateHeader)
 
 void fileitem::DlSetError(const tRemoteStatus& errState, fileitem::EDestroyMode kmode)
 {
-	ASSERT_HAVE_MAIN_THREAD;
+	ASSERT_IS_MAIN_THREAD;
 
 	NotifyObservers();
 

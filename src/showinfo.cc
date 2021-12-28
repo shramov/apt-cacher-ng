@@ -99,7 +99,7 @@ void tMarkupFileSend::Run()
 void tDeleter::SendProp(cmstring &key)
 {
 	if(key=="count")
-		SendFmtRemote << files.size();
+		SendFmt << files.size();
 	else if(key=="countNZs")
 		return Send((files.size()>1) ? "s" : "");
 	else if(key == "stuff")
@@ -363,7 +363,7 @@ void tMaintOverview::SendProp(cmstring &key)
 
 	if(key == "curPatTraceCol")
 	{
-		tFmtSendObj endPrinter(this, true);
+		tFmtSendObj endPrinter(this);
 
 #warning restoreme
 		int bcount=0;
@@ -430,7 +430,7 @@ void tMarkupFileSend::SendProp(cmstring &key)
 		return Send(buf);
 	}
 	if(key=="random")
-		SendFmtRemote << rand();
+		SendFmt << rand();
 	else if(key=="dataInHuman")
 	{
 		auto stats = log::GetCurrentCountersInOut();
@@ -446,14 +446,14 @@ void tMarkupFileSend::SendProp(cmstring &key)
 		auto stats = log::GetCurrentCountersInOut();
 		auto statsMax = std::max(stats.first, stats.second);
 		auto pixels = statsMax ? (stats.first * SCALEFAC / statsMax) : 0;
-		SendFmtRemote << pixels;
+		SendFmt << pixels;
 	}
 	else if(key=="dataOut")
 	{
 		auto stats = log::GetCurrentCountersInOut();
 		auto statsMax = std::max(stats.second, stats.first);
 		auto pixels = statsMax ? (SCALEFAC * stats.second / statsMax) : 0;
-		SendFmtRemote << pixels;
+		SendFmt << pixels;
 	}
 	else if (key == "dataHistInHuman")
 	{
@@ -470,22 +470,22 @@ void tMarkupFileSend::SendProp(cmstring &key)
 		auto stats = pairSum(log::GetCurrentCountersInOut(), log::GetOldCountersInOut());
 		auto statsMax = std::max(stats.second, stats.first);
 		auto pixels = statsMax ? (stats.first * SCALEFAC / statsMax) : 0;
-		SendFmtRemote << pixels;
+		SendFmt << pixels;
 	}
 	else if (key == "dataHistOut")
 	{
 		auto stats = pairSum(log::GetCurrentCountersInOut(), log::GetOldCountersInOut());
 		auto statsMax = std::max(stats.second, stats.first);
 		auto pixels = statsMax ? (SCALEFAC * stats.second/statsMax) : 0;
-		SendFmtRemote << pixels;
+		SendFmt << pixels;
 	}
 	else if (key == "taskTitle")
 	{
-		SendFmtRemote << GetTaskInfo(m_parms.type).title;
+		SendFmt << GetTaskInfo(m_parms.type).title;
 	}
 	else if (key == "taskName")
 	{
-		SendFmtRemote << GetTaskInfo(m_parms.type).typeName;
+		SendFmt << GetTaskInfo(m_parms.type).typeName;
 	}
 }
 

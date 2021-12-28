@@ -170,7 +170,7 @@ void transfer(uint64_t bytesIn,
 		cmstring& sPath,
 		bool bAsError)
 {
-	ASSERT_HAVE_MAIN_THREAD;
+	ASSERT_IS_MAIN_THREAD;
 	totalIn += bytesIn;
 	totalOut += bytesOut;
 
@@ -307,7 +307,7 @@ void ACNG_API flush()
 
 void close(bool bReopen, bool truncateDebugLog)
 {
-	ASSERT_HAVE_MAIN_THREAD;
+	ASSERT_IS_MAIN_THREAD;
 	// let's try to store a snapshot of the current stats
 	auto snapIn = offttos(totalIn);
 	auto snapOut = offttos(totalOut);

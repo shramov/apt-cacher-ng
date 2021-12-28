@@ -186,7 +186,7 @@ void IMaintJobItem::AddExtraHeaders(mstring appendix)
 
 cmstring &IMaintJobItem::GetExtraResponseHeaders()
 {
-	ASSERT_HAVE_MAIN_THREAD;
+	ASSERT_IS_MAIN_THREAD;
 	return m_extraHeaders;
 }
 

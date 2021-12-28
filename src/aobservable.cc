@@ -9,7 +9,7 @@ namespace acng
 
 aobservable::subscription ACNG_API aobservable::subscribe(const aobservable::TNotifier &newSubscriber)
 {
-	ASSERT_HAVE_MAIN_THREAD;
+	ASSERT_IS_MAIN_THREAD;
 
 	if (!newSubscriber) // XXX: not accepting invalid subscribers to avoid later checks, but what then?
 		return subscription();
@@ -26,7 +26,7 @@ aobservable::subscription ACNG_API aobservable::subscribe(const aobservable::TNo
 
 void aobservable::unsubscribe(TActionList::iterator what)
 {
-	ASSERT_HAVE_MAIN_THREAD;
+	ASSERT_IS_MAIN_THREAD;
 	// set a flag to remove the current item instead?
 	if (what == m_currentlyProcessing)
 	{
@@ -42,7 +42,7 @@ void aobservable::unsubscribe(TActionList::iterator what)
 
 void aobservable::doSchedule()
 {
-	ASSERT_HAVE_MAIN_THREAD;
+	ASSERT_IS_MAIN_THREAD;
 
 	m_bNotifyPending = true;
 	evabase::Post([me = as_lptr(this)] ()
@@ -53,7 +53,7 @@ void aobservable::doSchedule()
 
 void aobservable::doNotify()
 {
-	ASSERT_HAVE_MAIN_THREAD;
+	ASSERT_IS_MAIN_THREAD;
 
 	m_bNotifyPending = false;
 	m_currentlyProcessing = m_observers.end();

@@ -10,9 +10,8 @@
 
 #include <event.h>
 
-#define ASSERT_HAVE_MAIN_THREAD ASSERT(std::this_thread::get_id() == evabase::GetMainThreadId())
+#define ASSERT_IS_MAIN_THREAD ASSERT(std::this_thread::get_id() == evabase::GetMainThreadId())
 // repurposed the old locking macro to ensure the correct thread context
-#define setLockGuard ASSERT_HAVE_MAIN_THREAD
 
 extern "C"
 {

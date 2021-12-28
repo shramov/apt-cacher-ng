@@ -115,7 +115,7 @@ public:
 	void UpdateHeadTimestamp();
 
 	uint64_t GetTransferCountUnlocked() { return m_nIncommingCount; }
-	FiStatus GetStatus() { setLockGuard; return m_status; }
+	FiStatus GetStatus() { ASSERT_IS_MAIN_THREAD; return m_status; }
 	off_t GetCheckedSize() { return m_nSizeChecked; }
 	bool IsVolatile() { return m_spattr.bVolatile; }
 	bool IsHeadOnly() { return m_spattr.bHeadOnly; }

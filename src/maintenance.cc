@@ -106,7 +106,7 @@ IMaintJobItem *g_exclActiveJob = nullptr;
 
 void IMaintJobItem::Eof()
 {
-	ASSERT_HAVE_MAIN_THREAD;
+	ASSERT_IS_MAIN_THREAD;
 	if (g_exclActiveJob == this)
 	{
 		g_exclActiveJob = nullptr;
@@ -142,7 +142,7 @@ public:
 
 	void GotData(ssize_t l)
 	{
-		ASSERT_HAVE_MAIN_THREAD;
+		ASSERT_IS_MAIN_THREAD;
 
 		if (l < 0)
 		{
@@ -173,7 +173,7 @@ public:
 	}
 	void Eof() override
 	{
-		ASSERT_HAVE_MAIN_THREAD;
+		ASSERT_IS_MAIN_THREAD;
 		DlFinish(true);
 		IMaintJobItem::Eof();
 	}
@@ -181,7 +181,7 @@ public:
 	std::unique_ptr<fileitem::ICacheDataSender> GetCacheSender() override
 	{
 		LOGSTARTFUNC;
-		ASSERT_HAVE_MAIN_THREAD;
+		ASSERT_IS_MAIN_THREAD;
 
 		USRDBG("Opening tempfile at " << m_sPathRel);
 		return GetStoredFileSender(m_sPathRel, m_nSizeChecked, m_status == FIST_COMPLETE);
@@ -211,7 +211,7 @@ public:
 
 	~BufferedPtItem()
 	{
-		ASSERT_HAVE_MAIN_THREAD;
+		ASSERT_IS_MAIN_THREAD;
 		if (m_pipeInOut[0]) bufferevent_free(m_pipeInOut[0]);
 		if (m_pipeInOut[1]) bufferevent_free(m_pipeInOut[1]);
 	}
@@ -237,7 +237,7 @@ public:
 		:  IMaintJobItem(move(han), this)
 		// XXX: resolve the name to task type for the logs? Or replace the name with something useful later? Although, not needed, and also w/ format not fitting the purpose.
 	{
-		ASSERT_HAVE_MAIN_THREAD;
+		ASSERT_IS_MAIN_THREAD;
 
 		m_bPureStreamNoStorage = true;
 
@@ -300,7 +300,7 @@ public:
 
 	inline void GotNewData()
 	{
-		ASSERT_HAVE_MAIN_THREAD;
+		ASSERT_IS_MAIN_THREAD;
 		LOGSTARTFUNC;
 		auto len = evbuffer_get_length(PipeRx());
 		m_nSizeChecked = m_nCursor + len;
@@ -314,7 +314,7 @@ public:
 
 	const string &GetExtraResponseHeaders() override
 	{
-		ASSERT_HAVE_MAIN_THREAD;
+		ASSERT_IS_MAIN_THREAD;
 		return m_extraHeaders;
 	}
 private:
@@ -323,7 +323,7 @@ private:
 	 */
 	void Finish()
 	{
-		ASSERT_HAVE_MAIN_THREAD;
+		ASSERT_IS_MAIN_THREAD;
 		LOGSTARTFUNC;
 
 		if (m_status < FIST_DLGOTHEAD)

@@ -437,7 +437,7 @@ struct tDlJob
 		m_bIsPassThroughRequest(isPT),
 		m_orderId(id)
 	{
-		ASSERT_HAVE_MAIN_THREAD;
+		ASSERT_IS_MAIN_THREAD;
 
 		ASSERT(m_pStorageRef);
 		m_pStorageRef->DlRefCountAdd();
@@ -737,7 +737,7 @@ struct tDlJob
 	eJobResult ProcessIncomming(bufferevent* peBuf, tDlStream& parent)
 	{
 		LOGSTARTFUNC;
-		ASSERT_HAVE_MAIN_THREAD;
+		ASSERT_IS_MAIN_THREAD;
 		if (AC_UNLIKELY(!m_pStorageRef || !peBuf))
 		{
 			m_sError = "Bad cache item";
