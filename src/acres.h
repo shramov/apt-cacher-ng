@@ -22,7 +22,7 @@ class IFileItemRegistry;
  * - predefined notification clocks
  * - remote target database
  */
-class acres
+class ACNG_API acres
 {
 public:
 	virtual ~acres() =default;

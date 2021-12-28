@@ -70,8 +70,6 @@ std::error_code FileCopy(cmstring &from, cmstring &to);
 
 bool LinkOrCopy(const mstring &from, const mstring &to);
 
-
-void set_nb(int fd);
 void set_block(int fd);
 
 inline void justforceclose(int fd)

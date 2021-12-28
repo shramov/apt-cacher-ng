@@ -203,8 +203,6 @@ bool fileitem::DlStarted(evbuffer*, size_t, const tHttpDate& modDate, cmstring& 
 
 	NotifyObservers();
 
-	USRDBG( "Download started, storeHeader for " << m_sPathRel << ", current status: " << (int) m_status);
-
 	if(m_status >= FIST_DLGOTHEAD)
 	{
 		dbgline;

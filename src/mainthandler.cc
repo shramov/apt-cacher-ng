@@ -103,7 +103,7 @@ mainthandler* MakeMaintWorker(mainthandler::tRunParms&& parms)
 	return workDescriptors[EWorkType::USER_INFO].creator(move(parms));
 }
 
-void InitSpecialWorkDescriptors()
+void ACNG_API InitSpecialWorkDescriptors()
 {
 	workDescriptors[EWorkType::REGULAR] = {"UNKNOWNTYPE"sv, "Unknown Type"sv, se, nullptr, 0 }; // noop for regular jobs, also a dummy entry for wrong calls
 	workDescriptors[EWorkType::LOCALITEM] = {"LOCALITEM"sv, "Local File Server"sv, se, &creators::aclocal, BLOCKING };

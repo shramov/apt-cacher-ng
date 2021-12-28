@@ -2,13 +2,17 @@ FILE(GLOB ALL_HEADERS "*.h")
 
 set(SERVER_SPECIFIC_SRCS job.cc conn.cc acregistry.cc )
 
+set(MAINTSRCS cacheman.cc expiration.cc maintenance.cc mainthandler.cc mirror.cc pkgimport.cc showinfo.cc bgtask.cc)
+
 set(SHAREDSRCS astrop.cc sockio.cc acbuf.cc acfg.cc acfg_defaults.cc aclogger.cc caddrinfo.cc dirwalk.cc dlcon.cc fileio.cc
     fileitem.cc filereader.cc header.cc meta.cc ptitem.cc evabase.cc httpdate.cc
     csmapping.cc acerrno.cc aconnect.cc ac3rdparty.cc remotedb.cc tpool.cc ahttpurl.cc aobservable.cc
     atransport.cc aevutil.cc rex.cc
     aclocal.cc acres.cc
     aclock.cc acforwarder.cc
-    cacheman.cc expiration.cc maintenance.cc mainthandler.cc mirror.cc pkgimport.cc showinfo.cc bgtask.cc
+
+#evil trade-off: keep them in the lib or move them to server and have to expose all the meta functionality they require?
+     ${MAINTSRCS}
 
     ${SERVER_SPECIFIC_SRCS}
     ${ALL_HEADERS})

@@ -7,7 +7,7 @@ using namespace std;
 namespace acng
 {
 
-aobservable::subscription aobservable::subscribe(const aobservable::TNotifier &newSubscriber)
+aobservable::subscription ACNG_API aobservable::subscribe(const aobservable::TNotifier &newSubscriber)
 {
 	ASSERT_HAVE_MAIN_THREAD;
 

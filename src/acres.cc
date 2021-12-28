@@ -15,7 +15,7 @@ namespace acng
 
 const struct timeval defaultKeepAliveTimeout { 10, 0 }, idleTimeout { 3, 1};
 
-class acresImpl : public acres
+class ACNG_API acresImpl : public acres
 {
 	// acres interface
 

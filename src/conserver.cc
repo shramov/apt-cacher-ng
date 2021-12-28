@@ -187,7 +187,7 @@ public:
 			return;
 		}
 
-		set_nb(mSock);
+		evutil_make_socket_nonblocking(mSock);
 		auto ev = event_new(evabase::base, mSock, EV_READ|EV_PERSIST, do_accept, this);
 		if(!ev)
 		{

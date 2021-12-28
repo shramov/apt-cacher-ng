@@ -38,7 +38,7 @@ auto fatalInternalError = std::make_shared<CAddrInfo>("Fatal Internal DNS error"
 
 #define MOVE_FRONT_THERE_TO_BACK_HERE(from, to) to.emplace_back(from.front()), from.pop_front()
 
-std::string acng_addrinfo::formatIpPort(const sockaddr *pAddr, socklen_t addrLen, int ipFamily)
+std::string ACNG_API acng_addrinfo::formatIpPort(const sockaddr *pAddr, socklen_t addrLen, int ipFamily)
 {
 	char buf[300], pbuf[30];
 	getnameinfo(pAddr, addrLen, buf, sizeof(buf), pbuf, sizeof(pbuf),

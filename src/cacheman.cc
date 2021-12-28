@@ -529,7 +529,8 @@ cacheman::eDlResult cacheman::DownloadIO()
 		auto added = m_dlCtx->dler->AddJob(as_lptr(state.fiaccess.get()), state.pResolvedDirectUrl, state.pResolvedDirectUrl ? nullptr : & state.repoSrc);
 		if (!added)
 		{
-			SendChunkSZ("Cannot send download request, aborting...");
+			string msg = (state.pResolvedDirectUrl ? state.pResolvedDirectUrl->ToURI(true) : state.repoSrc.sRestPath);
+			SendFmt << "Cannot send download request, aborting " << msg << "...";
 			return eDlResult::FAIL_LOCAL;
 		}
 	}

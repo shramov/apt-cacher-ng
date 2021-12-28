@@ -152,12 +152,6 @@ void ACNG_API mkdirhier(cmstring& path)
 	}
 }
 
-void set_nb(int fd) {
-	int flags = fcntl(fd, F_GETFL);
-	//ASSERT(flags != -1);
-	flags |= O_NONBLOCK;
-	fcntl(fd, F_SETFL, flags);
-}
 void set_block(int fd) {
 	int flags = fcntl(fd, F_GETFL);
 	//ASSERT(flags != -1);
@@ -168,7 +162,7 @@ void set_block(int fd) {
  * @brief evbuffer_dumpall - store all or limited range from the front to a file descriptor
  * This is actually evbuffer_write_atmost replacement without its random aborting bug.
  */
-ssize_t eb_dump_chunks(evbuffer *inbuf, int out_fd, size_t nMax2SendNow)
+ssize_t ACNG_API eb_dump_chunks(evbuffer *inbuf, int out_fd, size_t nMax2SendNow)
 {
 	evbuffer_iovec ivs[64];
 	off_t consumed = 0;
@@ -237,7 +231,7 @@ ssize_t ACNG_API eb_dump_chunks(evbuffer* inbuf, std::function<void(string_view)
 	return consumed;
 };
 
-void event_and_fd_free(event *e)
+void ACNG_API event_and_fd_free(event *e)
 {
 	if (!e)
 		return;
