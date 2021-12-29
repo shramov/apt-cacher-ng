@@ -104,7 +104,6 @@ extern int debug;
 
 inline void dump_proc_status_always()
 {
-#if 0
 	using namespace std;
 	ifstream sf("/proc/self/status");
 	while (sf)
@@ -113,7 +112,6 @@ inline void dump_proc_status_always()
 		getline(sf, s);
 		cerr << s << endl;
 	}
-#endif
 };
 
 }

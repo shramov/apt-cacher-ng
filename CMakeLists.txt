@@ -120,6 +120,7 @@ option(USE_SSL "Use OpenSSL library for TLS and other crypto functionality" on)
 option(ENABLE_TOOL "Build the management tool (acngtool)" on)
 option(ENABLE_EXTRA_TOOLS "Build additional command line tools (acngfs, inetd client)" off)
 option(ENABLE_TESTS "Build tests (for development only)" off)
+option(EXTRA_DEBUG "Additional logging and tracing (for development only)" off)
 
 IF(CMAKE_SYSTEM MATCHES "Darwin")
     _append(ACNG_COMPFLAGS -D_DARWIN_C_SOURCE)
@@ -381,6 +382,7 @@ SET(CMAKE_SHARED_LIBRARY_LINK_C_FLAGS "")
 # all checks done, save configuration #
 #######################################
 
+set(DEBUG ${EXTRA_DEBUG})
 CONFIGURE_FILE("${CMAKE_SOURCE_DIR}/src/acsyscap.h.in" "${CMAKE_BINARY_DIR}/acsyscap.h")
 
 if(ENABLE_EXTRA_TOOLS)
@@ -415,7 +417,7 @@ CMAKE_INSTALL_PREFIX: ${CMAKE_INSTALL_PREFIX}
 CMAKE_INSTALL_FULL_SYSCONFDIR: ${CMAKE_INSTALL_FULL_SYSCONFDIR}
 LIBDIR: ${LIBDIR}
 AVAHIDIR: ${AVAHIDIR}
-DEBUG: ${DEBUG}
+EXTRA_DEBUG: ${EXTRA_DEBUG}
 CMAKE_BINARY_DIR: ${CMAKE_BINARY_DIR}
 CMAKE_BUILD_TYPE: ${CMAKE_BUILD_TYPE}
 ")

@@ -97,6 +97,8 @@ void parse_options(int argc, const char **argv)
 	std::vector<LPCSTR> cmdvars;
 	bool ignoreCfgErrors = false;
 
+	IFDEBUG(dump_proc_status_always());
+
 	for (auto p=argv+1; p<argv+argc; p++)
 	{
 		if (!strncmp(*p, "--", 2))

@@ -12,7 +12,6 @@ struct tRepoData
 {
 	// plain continuous list for the same of access simplicity
 	std::vector<tHttpUrl> m_backends;
-
 	// dirty little helper to execute custom actions when a jobs associates or forgets this data set
 	tRepoUsageHooks *m_pHooks = nullptr;
 	std::vector<mstring> m_keyfiles;
