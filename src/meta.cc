@@ -279,6 +279,25 @@ bool CsAsciiToBin(const char *a, uint8_t b[], unsigned short binLength)
 	}
 	return true;
 }
+off_t Hex2Offt(string_view s)
+{
+	bool found = false;
+	off_t ret = 0;
+	for(char c: s)
+	{
+		auto val = hexmap[(unsigned)c];
+		if (val == _inv)
+		{
+			if (found)
+				return ret;
+			continue;
+		}
+		ret *= 16;
+		ret += val;
+		found = true;
+	}
+	return found ? ret : off_t(-1);
+}
 bool Hex2buf(const char *a, size_t len, acbuf& ret)
 {
 	if(len%2)

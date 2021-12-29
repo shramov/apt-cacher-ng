@@ -240,6 +240,8 @@ mstring EncodeBase64(LPCSTR data, unsigned len);
 bool DecodeBase64(LPCSTR pAscii, size_t len, acbuf& binData);
 #endif
 
+off_t Hex2Offt(string_view s);
+
 typedef std::deque<std::pair<std::string, std::string>> tLPS;
 
 #ifdef __GNUC__

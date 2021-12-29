@@ -992,16 +992,16 @@ TRAILER_JUNK_SKIPPED:
 				ldbg("STATE_GETCHUNKHEAD");
 				// came back from reading, drop remaining newlines?
 				auto sres = evbuffer_search_eol(pBuf, nullptr, nullptr, evbuffer_eol_style::EVBUFFER_EOL_CRLF_STRICT);
-				if (sres.pos < 0)
+				if (sres.pos == -1)
 					return eJobResult::HINT_MORE;
 				auto line = inBuf.linear(sres.pos + 2);
-				unsigned len(0);
-				if (1 != sscanf(line.data(), "%x", &len))
+				off_t len = Hex2Offt(line);
+				if (len < 0)
 				{
 					m_sError = "Invalid chunked stream";
 					return eJobResult::JOB_BROKEN; // hm...?
 				}
-				inBuf.drop(line.size());
+				inBuf.drop(sres.pos + 2);
 				m_nRest = len;
 				m_DlState = len > 0 ? STATE_PROCESS_CHUNKDATA : STATE_GET_CHUNKEND_LAST;
 				break;
