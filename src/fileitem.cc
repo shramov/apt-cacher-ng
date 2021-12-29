@@ -565,7 +565,7 @@ TFileitemWithStorage::~TFileitemWithStorage()
 			{
 				Cstat st(sPathAbs);
 				if (st)
-					ignore_value(truncate(sPathAbs.c_str(), st.st_size)); // CHECKED!
+					ignore_value(truncate(sPathAbs.c_str(), st.size())); // CHECKED!
 			}
 			break;
 		}
@@ -615,8 +615,12 @@ void TFileitemWithStorage::MoveRelease2Sidestore()
 	{
 		auto tgtDir = CACHE_BASE + cfg::privStoreRelSnapSufix + sPathSep + GetDirPart(m_sPathRel);
 		mkdirhier(tgtDir);
-		auto sideFileAbs = tgtDir + ltos(st.st_ino) + ltos(st.st_mtim.tv_sec)
-				+ ltos(st.st_mtim.tv_nsec);
+		auto sideFileAbs = tgtDir;
+		// appending a unique suffix. XXX: evaluate this, still useful?
+		auto fpr = st.fpr();
+		uint8_t buf[sizeof(fpr)]; // modern compiler should see it and type-pun as needed
+		memcpy(buf, &fpr, sizeof(buf));
+		sideFileAbs += BytesToHexString(buf, sizeof(buf));
 		FileCopy(srcAbs, sideFileAbs);
 	}
 }
@@ -733,12 +737,12 @@ TResFileItem::TResFileItem(string_view fileName, string_view mimetype)
 	Cstat st(fd);
 	m_status = FIST_COMPLETE;
 	m_contentType = string(mimetype);
-	m_nContentLength = m_nSizeChecked = st.st_size;
-	m_responseModDate = tHttpDate(st.st_mtim.tv_sec);
+	m_nContentLength = m_nSizeChecked = st.size();
+	m_responseModDate = tHttpDate(st.msec());
 	m_status = FIST_COMPLETE;
 	m_responseStatus = {200, "OK"};
-	if (st.st_size > 0)
-		m_sender = make_unique<TSimpleSender>(fd, st.st_size);
+	if (st.size() > 0)
+		m_sender = make_unique<TSimpleSender>(fd, st.size());
 	else
 		justforceclose(fd);
 }

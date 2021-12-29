@@ -11,16 +11,16 @@
 #include "actypes.h"
 #include "actemplates.h"
 
+#include <cinttypes>
+#include <memory>
+#include <system_error>
+
 #include <errno.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <cstdio>
 #include <unistd.h>
-
-#include <inttypes.h>
-#include <climits>
-#include <memory>
-#include <system_error>
+#include <string.h>
 
 #ifdef HAVE_LINUX_SENDFILE
 #include <sys/sendfile.h>
@@ -53,19 +53,44 @@ int fdatasync_helper(int fd);
 
 ssize_t sendfile_generic(int out_fd, int in_fd, off_t *offset, size_t count);
 
-class Cstat : public stat
+class Cstat
 {
-	bool bResult;
+	bool bResult = false;
+	struct stat data;
 public:
-	Cstat() : bResult(false) {};
-    Cstat(cmstring &s) : bResult(false) { update(s.c_str()); }
-	Cstat(int fd) { bResult = ! fstat(fd, static_cast<struct stat*>(this)); }
-    Cstat(const char *sz) : bResult(false) { update(sz); }
+	Cstat()
+	{
+#if defined(__has_feature)
+#  if __has_feature(memory_sanitizer)
+		memset(&data, 0, sizeof(data));
+#  endif
+#endif
+	};
+	Cstat(const char *sz) : Cstat() { update(sz); }
+	Cstat(cmstring &s) : Cstat(s.c_str()) {}
+	Cstat(int fd /*, bool zinit = true */) : Cstat()
+	{
+		/* if (zinit) memset(static_cast<struct stat*>(this), 0, sizeof(struct stat)); */
+		bResult = ! fstat(fd, &data);
+	}
 	operator bool() const { return bResult; }
-    bool update(const char *sz) { return (bResult = !::stat(sz, static_cast<struct stat*>(this))); }
+	const struct stat& info() { return data; }
+	bool update(const char *sz) { return (bResult = ! stat(sz, &data)); }
+	bool isReg() { return bResult && (data.st_mode & S_IFREG); }
+	off_t size() { return data.st_size; }
+	decltype(timespec::tv_sec) msec() { return data.st_mtim.tv_sec; }
+
+	struct tID
+	{
+		struct timespec a;
+		dev_t b;
+		ino_t c;
+		bool operator==(const tID& B) const { return b == B.b && c == B.c && a.tv_nsec == B.a.tv_nsec && a.tv_sec == B.a.tv_sec; }
+	};
+	tID fpr() { return { data.st_mtim, data.st_dev, data.st_ino }; }
 };
 
-inline off_t GetFileSize(cmstring &path, off_t defret) { Cstat s(path); return s ? s.st_size : defret; }
+inline off_t GetFileSize(cmstring &path, off_t defret) { Cstat s(path); return s ? s.size() : defret; }
 std::error_code FileCopy(cmstring &from, cmstring &to);
 
 bool LinkOrCopy(const mstring &from, const mstring &to);

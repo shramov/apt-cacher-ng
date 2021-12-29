@@ -79,7 +79,7 @@ void aclocal::Run()
 		return;
 	}
 
-	if(S_ISDIR(stbuf.st_mode))
+	if(S_ISDIR(stbuf.info().st_mode))
 	{
 		// unconfuse the browser
 		if (!endsWithSzAr(m_extraParms.visPath, SZPATHSEPUNIX))
@@ -107,14 +107,14 @@ void aclocal::Run()
 			priority_queue<tRecord, deque<tRecord>, greater<tRecord>> sortHeap;
 			for(struct dirent *pdp(0); 0 != (pdp=readdir(dir));)
 			{
-				if (0 != ::stat(mstring(absPath+SZPATHSEP+pdp->d_name).c_str(), &stbuf))
+				if (!stbuf.update(mstring(absPath+SZPATHSEP+pdp->d_name).c_str()))
 					continue;
 
 				string_view nam(pdp->d_name);
 				if (nam.empty())
 					continue;
 
-				bool bDir=S_ISDIR(stbuf.st_mode);
+				bool bDir=S_ISDIR(stbuf.info().st_mode);
 				tHttpDate date;
 				auto *buf = evbuffer_new();
 				if (!buf)
@@ -139,12 +139,12 @@ void aclocal::Run()
 						<< (bDir? "/\">"sv : "\">"sv )
 						<< nam
 						<< "</a></td><td>"sv
-						<< date.Set(stbuf.st_mtime).view()
+						<< date.Set(stbuf.msec()).view()
 						<< "</td><td align=\"right\">"sv;
 				if (bDir)
 					line << "-"sv;
 				else
-					line << offttosH(stbuf.st_size);
+					line << offttosH(stbuf.size());
 				string key(bDir?"a":"b");
 				key += char(nam[0] == '.' ? 0x0 : MAX_VAL(char));
 				key += nam;
@@ -163,25 +163,25 @@ void aclocal::Run()
 		SendFmt << "<tr><td colspan=\"4\">"sv << GetFooter() << "</td></tr></table></body></html>"sv;
 		return;
 	}
-	if (!S_ISREG(stbuf.st_mode))
+	if (!S_ISREG(stbuf.info().st_mode))
 		return SetEarlySimpleResponse(403, "Unsupported data type"sv);
 
 	cmstring &sMimeType = cfg::GetMimeType(absPath);
 
 	// OKAY, that's plain file delivery now
-	if (stbuf.st_size > 0)
+	if (stbuf.size() > 0)
 	{
 		int fd = open(absPath.c_str(), O_RDONLY);
 		if (fd == -1)
 			return SetEarlySimpleResponse(500, "IO error"sv);
 
 #ifdef HAVE_FADVISE
-		posix_fadvise(fd, 0, stbuf.st_size, POSIX_FADV_SEQUENTIAL);
+		posix_fadvise(fd, 0, stbuf.size(), POSIX_FADV_SEQUENTIAL);
 #endif
 
 #warning check resuming after 3gb on 32bit build, and after 4.7 gb
 		// let's mmap it and then drop the unneeded part on delivery from reader builder
-		if (0 != evbuffer_add_file(GetTxBufferForBufferedItem(item()), fd, 0, stbuf.st_size))
+		if (0 != evbuffer_add_file(GetTxBufferForBufferedItem(item()), fd, 0, stbuf.size()))
 		{
 			checkforceclose(fd);
 			return SetEarlySimpleResponse(500, "Internal error"sv);
@@ -189,7 +189,7 @@ void aclocal::Run()
 	}
 	item().ManualStart(200, "OK",
 							   sMimeType.empty() ? "octet/stream" : sMimeType,
-							   se, stbuf.st_size, stbuf.st_mtim.tv_sec);
+							   se, stbuf.size(), stbuf.msec());
 
 }
 

@@ -110,7 +110,7 @@ void expiration::HandlePkgEntry(const tRemoteFileInfo &entry)
 				m_forceKeepInTrash[sPathRel]=true;
 				return true;
 			}
-			auto lenFromStat = realState.st_size;
+			auto lenFromStat = realState.size();
 
 			//SendFmt << "DBG-disk-size: " << lenFromStat;
 
@@ -686,7 +686,7 @@ void expiration::TrimFiles()
 		Cstat stinfo(fil);
 		if (!stinfo)
 			continue;
-		if (now - 86400 < stinfo.st_mtim.tv_sec)
+		if (now - 86400 < stinfo.msec())
 			continue;
 
 		// this is just probing, make sure not to interact with DL
@@ -764,7 +764,7 @@ void expiration::PurgeMaintLogs()
 	{
 #ifdef ENABLED
 		Cstat sb(s);
-		if (sb && sb.st_mtim.tv_sec < threshhold)
+		if (sb && sb.msec() < threshhold)
 			::unlink(s.c_str());
 #endif
 	}

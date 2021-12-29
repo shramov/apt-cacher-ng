@@ -61,7 +61,7 @@ namespace log
 bool isUdsAccessible(cmstring& path)
 {
 	Cstat s(path);
-	return s && S_ISSOCK(s.st_mode) && 0 == access(path.c_str(), W_OK);
+	return s && S_ISSOCK(s.info().st_mode) && 0 == access(path.c_str(), W_OK);
 }
 
 class tPrintItem: public fileitem
@@ -776,7 +776,7 @@ void parse_options(int argc, const char **argv, function<void (LPCSTR)> f)
 	if(szCfgDir)
 	{
 		Cstat info(szCfgDir);
-		if(!info || !S_ISDIR(info.st_mode))
+		if(!info || !S_ISDIR(info.info().st_mode))
 			g_missingCfgDir = szCfgDir;
 		else
 			cfg::ReadConfigDirectory(szCfgDir, ignoreCfgErrors);

@@ -34,14 +34,14 @@ bool acbuf::initFromFile(const char *szPath, off_t limit)
 	if (!fd.valid())
 		return false;
 	clear();
-    if(!setsize(std::min(limit, st.st_size)))
+	if(!setsize(std::min(limit, st.size())))
 		return false;
 	while (freecapa() > 0)
 	{
 		if (sysread(fd.m_p) < 0)
 			return false;
 	}
-    return size() == st.st_size;
+	return size() == st.size();
 }
 
 ssize_t acbuf::dumpall(int fd, ssize_t limit) {

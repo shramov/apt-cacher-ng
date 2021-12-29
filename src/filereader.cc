@@ -302,30 +302,30 @@ bool filereader::OpenFile(const string & sFilename, bool bNoMagic, unsigned nFak
 
 	tErrnoFmter fmt;
 
-	struct stat statbuf;
-	if(0!=fstat(m_fd, &statbuf))
+	Cstat statbuf(m_fd);
+	if(!statbuf.isReg())
 	{
-		m_sErrorString=tErrnoFmter();
+		m_sErrorString = tErrnoFmter();
 		return false;
 	}
 
 	// LFS on 32bit? That's not good for mmap. Don't risk incorrect behaviour.
-	if(uint64_t(statbuf.st_size) >  MAX_VAL(size_t))
+	if(uint64_t(statbuf.size()) > MAX_VAL(size_t))
     {
         errno=EFBIG;
         m_sErrorString=tErrnoFmter();
         return false;
     }
 	
-	if(statbuf.st_size>0)
+	if(statbuf.size()>0)
 	{
-		m_szFileBuf = (char*) mmap(0, statbuf.st_size, PROT_READ, MAP_SHARED, m_fd, 0);
+		m_szFileBuf = (char*) mmap(0, statbuf.size(), PROT_READ, MAP_SHARED, m_fd, 0);
 		if(m_szFileBuf==MAP_FAILED)
 		{
 				m_sErrorString=tErrnoFmter();
 				return false;
 		}
-		m_nBufSize = statbuf.st_size;
+		m_nBufSize = statbuf.size();
 	}
 	else if(m_Dec.get())
 	{
@@ -342,9 +342,9 @@ bool filereader::OpenFile(const string & sFilename, bool bNoMagic, unsigned nFak
 	// ORDER DOES MATTER! No returns anymore before the mmap entry was booked in "the memory"
 
 #ifdef HAVE_MADVISE
-	if (statbuf.st_size > 8000) // optimize but only for larger files
+	if (statbuf.size() > 8000) // optimize but only for larger files
 	{
-		posix_madvise(m_szFileBuf, statbuf.st_size, POSIX_MADV_SEQUENTIAL);
+		posix_madvise(m_szFileBuf, statbuf.size(), POSIX_MADV_SEQUENTIAL);
 	}
 #endif
 	

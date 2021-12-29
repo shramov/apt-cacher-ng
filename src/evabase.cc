@@ -30,12 +30,8 @@ namespace acng
 
 event_base* evabase::base = nullptr;
 
-struct tResolvConfStamp
-{
-	dev_t fsId;
-	ino_t fsInode;
-	timespec changeTime;
-} cachedDnsFingerprint { 0, 0, { 0, 1 } };
+using tResolvConfStamp = Cstat::tID;
+tResolvConfStamp cachedDnsFingerprint { { 0, 1 }, 0, 0 };
 
 struct event *handover_wakeup;
 const struct timeval timeout_asap{0,0};
@@ -145,16 +141,10 @@ void evabase::InitDnsOrCheckCfgChange()
 	Cstat info(cfg::dnsresconf);
 	if (!info) // file is missing anyway?
 		return;
-
-	if (m_cachedDnsBase &&
-			cachedDnsFingerprint.changeTime.tv_sec == info.st_mtim.tv_sec
-			&& cachedDnsFingerprint.changeTime.tv_nsec == info.st_mtim.tv_nsec
-			&& cachedDnsFingerprint.fsId == info.st_dev
-			&& cachedDnsFingerprint.fsInode == info.st_ino)
-	{
-		// still the same
+	// still the same?
+	auto fpr(info.fpr());
+	if (m_cachedDnsBase && cachedDnsFingerprint == fpr)
 		return;
-	}
 
 	ares_channel newDnsBase;
 	switch(ares_init(&newDnsBase))
@@ -178,8 +168,7 @@ void evabase::InitDnsOrCheckCfgChange()
 	if (m_cachedDnsBase)
 		delete m_cachedDnsBase;
 	m_cachedDnsBase = new CDnsBase(newDnsBase);
-	cachedDnsFingerprint = tResolvConfStamp
-	{ info.st_dev, info.st_ino, info.st_mtim };
+	cachedDnsFingerprint = fpr;
 }
 
 evabase* g_eventBase;
