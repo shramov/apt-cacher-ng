@@ -2,7 +2,6 @@
 #include "meta.h"
 #include "acfg.h"
 #include "aclogger.h"
-#include "tcpconnect.h"
 #include "acbuf.h"
 #include "aclogger.h"
 #include "dirwalk.h"

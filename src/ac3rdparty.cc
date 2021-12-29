@@ -3,7 +3,6 @@
 #include "acfg.h"
 #include "debug.h"
 
-#include <mutex>
 #include <deque>
 
 #include <event2/thread.h>

@@ -12,7 +12,6 @@
 #include "evabase.h"
 #include "acsmartptr.h"
 #include "aconnect.h"
-#include "tcpconnect.h"
 #include "astrop.h"
 #include "aclock.h"
 #include "acforwarder.h"
@@ -20,7 +19,6 @@
 #include <iostream>
 #include <thread>
 
-#include <sys/select.h>
 #include <signal.h>
 #include <string.h>
 #include <errno.h>

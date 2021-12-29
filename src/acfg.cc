@@ -17,7 +17,6 @@
 #include <list>
 #include <unordered_map>
 #include <atomic>
-#include <mutex>
 
 #include <regex.h>
 
