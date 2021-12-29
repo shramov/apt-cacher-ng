@@ -19,10 +19,12 @@ struct tRepoUsageHooks
         virtual ~tRepoUsageHooks() =default;
 };
 
-struct tRepoResolvResult {
-        cmstring* psRepoName=nullptr;
-        mstring sRestPath;
-        const tRepoData* repodata=nullptr;
+struct tRepoResolvResult
+{
+		string_view psRepoName; // backed by scratchpad memory
+		string_view sRestPath; // backed by CALLER's MEMORY!
+		const tRepoData* repodata = nullptr;
+		bool valid() { return repodata && !psRepoName.empty(); }
 };
 
 

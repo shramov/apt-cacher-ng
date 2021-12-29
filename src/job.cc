@@ -357,8 +357,8 @@ void job::Prepare(const header &h, bufferevent* be, cmstring& callerHostname, ac
 		// got something valid, has type now, trace it
 		USRDBG("Processing new job, " << h.getRequestUrl());
 		auto repoSrc = remotedb::GetInstance().GetRepNameAndPathResidual(theUrl);
-		if(repoSrc.psRepoName && !repoSrc.psRepoName->empty())
-			m_sFileLoc = *repoSrc.psRepoName + SZPATHSEP + repoSrc.sRestPath;
+		if(repoSrc.valid())
+			m_sFileLoc = Concat(repoSrc.psRepoName, sPathSep, repoSrc.sRestPath);
 		else
 			m_sFileLoc=theUrl.sHost+theUrl.sPath;
 
@@ -427,10 +427,10 @@ void job::Prepare(const header &h, bufferevent* be, cmstring& callerHostname, ac
 			if (!bPtMode)
 			{
 				// XXX: this only checks the first found backend server, what about others?
-				auto testUri = bHaveBackends ?
-							repoSrc.repodata->m_backends.front().ToURI(
-								false) + repoSrc.sRestPath :
-							theUrl.ToURI(false);
+				auto testUri = bHaveBackends
+						? Concat(repoSrc.repodata->m_backends.front()
+						  .ToURI(false), repoSrc.sRestPath)
+						: theUrl.ToURI(false);
 				if (matcher.MatchUncacheable(testUri, rex::NOCACHE_TGT))
 					m_pItem.reset(new tPassThroughFitem(m_sFileLoc));
 			}

@@ -8,6 +8,7 @@
 #include "aclogger.h"
 #include "debug.h"
 #include "portutils.h"
+#include "acworm.h"
 
 #include <list>
 #include <iostream>
@@ -22,22 +23,44 @@ namespace acng
 
 using namespace cfg;
 
-std::map<cmstring, tRepoData> repoparms;
-typedef decltype(repoparms)::iterator tPairRepoNameData;
-// maps hostname:port -> { <pathprefix,repopointer>, ... }
-std::unordered_map<string, list<pair<cmstring,tPairRepoNameData>>> mapUrl2pVname;
+acworm stringStore;
 
-unsigned ReadBackendsFile(const string & sFile, const string &sRepName);
-unsigned ReadRewriteFile(const string & sFile, cmstring& sRepName);
+std::map<string_view, tRepoData> repoparms;
+using tRepoEntry = decltype(repoparms)::iterator;
+struct tPrefixReponameData
+{
+	string_view prefix; // base path of the rewrite entry
+	tRepoEntry pRepo;
+};
+// maps key(hostname:port/proto) -> list { <pathprefix,repopointer>, ... }
+std::unordered_map<string_view, list<tPrefixReponameData>> mapUrl2pVname;
 
-inline decltype(repoparms)::iterator GetRepoEntryRef(const string & sRepName)
+unsigned ReadBackendsFile(const string & sFile, string_view sRepName);
+unsigned ReadRewriteFile(const string & sFile, string_view sRepName);
+
+inline tRepoEntry GetOrAddRepoEntry(string_view sRepName)
 {
 	auto it = repoparms.find(sRepName);
 	if(repoparms.end() != it)
 		return it;
-	// strange...
-	auto rv(repoparms.insert(make_pair(sRepName,tRepoData())));
+	auto rv(repoparms.insert(make_pair(stringStore.Add(sRepName),tRepoData())));
 	return rv.first;
+}
+
+inline string MakeDbKey(const tHttpUrl& url)
+{
+	return url.GetHostPortProtoKey();
+}
+
+inline decltype (mapUrl2pVname)::iterator GetOrAddTarget(const tHttpUrl& url)
+{
+	auto key = MakeDbKey(url);
+	auto it = mapUrl2pVname.find(key);
+	if (it != mapUrl2pVname.end())
+		return it;
+	it = mapUrl2pVname.emplace(stringStore.Add(key),
+							   list<tPrefixReponameData>()).first;
+	return it;
 }
 
 
@@ -88,8 +111,10 @@ void AddRemapFlag(const string & token, const string &repname)
 }
 
 void AddRemapInfo(bool bAsBackend, const string & token,
-		const string &repname)
+		const string &repnameIn)
 {
+	//auto repname = stringStore.Add(repnameIn);
+
 	if (0!=token.compare(0, 5, "file:"))
 	{
 		tHttpUrl url;
@@ -97,21 +122,28 @@ void AddRemapInfo(bool bAsBackend, const string & token,
 			BARF(token + " <-- bad URL detected");
 		_FixPostPreSlashes(url.sPath);
 
+		tRepoEntry pRepoEntry = GetOrAddRepoEntry(repnameIn);
+
 		if (bAsBackend)
-			repoparms[repname].m_backends.emplace_back(url);
+		{
+			pRepoEntry->second.m_backends.emplace_back(move(url));
+		}
 		else
-			mapUrl2pVname[url.GetHostPortKey()].emplace_back(
-					url.sPath, GetRepoEntryRef(repname));
+		{
+			auto tlistIt = GetOrAddTarget(url);
+			tPrefixReponameData data { stringStore.Add(url.sPath), pRepoEntry};
+			tlistIt->second.emplace_back(move(data));
+		}
 	}
 	else
 	{
 		auto func = bAsBackend ? ReadBackendsFile : ReadRewriteFile;
 		unsigned count = 0;
 		for(auto& src : ExpandFileTokens(token))
-			count += func(src, repname);
+			count += func(src, repnameIn);
 		if(!count)
 			for(auto& src : ExpandFileTokens(token + ".default"))
-				count = func(src, repname);
+				count = func(src, repnameIn);
 		if(!count && !g_bQuiet)
 			cerr << "WARNING: No configuration was read from " << token << endl;
 	}
@@ -194,32 +226,28 @@ tRepoResolvResult remotedb::GetRepNameAndPathResidual(const tHttpUrl & in)
 	tRepoResolvResult result;
 
 	// get all the URLs matching THE HOSTNAME
-	auto rangeIt=mapUrl2pVname.find(in.GetHostPortKey());
+	auto key = MakeDbKey(in);
+	auto rangeIt=mapUrl2pVname.find(key);
 	if(rangeIt == mapUrl2pVname.end())
 		return result;
 
 	tStrPos bestMatchLen(0);
-	auto pBestHit = repoparms.end();
+	auto& candList = rangeIt->second;
 
 	// now find the longest directory part which is the suffix of requested URL's path
-	for (auto& repo : rangeIt->second)
+	for (auto& candidateRepo : candList)
 	{
 		// rewrite rule path must be a real prefix
 		// it's also surrounded by /, ensured during construction
-		const string & prefix=repo.first; // path of the rewrite entry
-		tStrPos len=prefix.length();
-		if (len>bestMatchLen && in.sPath.size() > len && 0==in.sPath.compare(0, len, prefix))
+		if (in.sPath.starts_with(candidateRepo.prefix) && candidateRepo.prefix.length() > bestMatchLen)
 		{
-			bestMatchLen=len;
-			pBestHit=repo.second;
-		}
-	}
+			bestMatchLen = candidateRepo.prefix.length();
 
-	if(pBestHit != repoparms.end())
-	{
-		result.psRepoName = & pBestHit->first;
-		result.sRestPath = in.sPath.substr(bestMatchLen);
-		result.repodata = & pBestHit->second;
+			result.psRepoName = candidateRepo.pRepo->first;
+			result.sRestPath = in.sPath;
+			result.sRestPath.remove_prefix(bestMatchLen);
+			result.repodata = & candidateRepo.pRepo->second;
+		}
 	}
 	return result;
 }
@@ -232,7 +260,7 @@ const tRepoData * remotedb::GetRepoData(cmstring &vname)
 	return & it->second;
 }
 
-unsigned ReadBackendsFile(const string & sFile, const string &sRepName)
+unsigned ReadBackendsFile(const string & sFile, string_view sRepName)
 {
 	unsigned nAddCount=0;
 	string key, val;
@@ -354,7 +382,7 @@ void remotedb::PostConfig()
 /* This parses also legacy files, i.e. raw RFC-822 formated mirror catalogue from the
  * Debian archive maintenance repository.
  */
-unsigned ReadRewriteFile(const string & sFile, cmstring& sRepName)
+unsigned ReadRewriteFile(const string & sFile, string_view sRepName)
 {
 	unsigned nAddCount=0;
 	filereader reader;
@@ -378,8 +406,10 @@ unsigned ReadRewriteFile(const string & sFile, cmstring& sRepName)
 		{
 			_FixPostPreSlashes(url.sPath);
 
-			mapUrl2pVname[url.GetHostPortKey()].emplace_back(url.sPath,
-					GetRepoEntryRef(sRepName));
+			auto itRepo = GetOrAddRepoEntry(sRepName);
+			auto it = GetOrAddTarget(url);
+			tPrefixReponameData el { stringStore.Add(url.sPath), itRepo};
+			it->second.emplace_back(move(el));
 #ifdef DEBUG
 			cerr << "Mapping: " << url.ToURI(false) << " -> " << sRepName << endl;
 #endif
@@ -412,8 +442,11 @@ unsigned ReadRewriteFile(const string & sFile, cmstring& sRepName)
 					tHttpUrl url;
 					url.sHost=host;
 					url.sPath=path;
-					mapUrl2pVname[url.GetHostPortKey()].emplace_back(url.sPath,
-							GetRepoEntryRef(sRepName));
+
+					auto itRepo = GetOrAddRepoEntry(sRepName);
+					auto it = GetOrAddTarget(url);
+					tPrefixReponameData el { stringStore.Add(url.sPath), itRepo};
+					it->second.emplace_back(move(el));
 
 #ifdef DEBUG
 						cerr << "Mapping: "<< host << path

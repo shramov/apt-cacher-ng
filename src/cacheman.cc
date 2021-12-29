@@ -12,6 +12,8 @@
 #include "job.h"
 #include "remotedb.h"
 #include "fileio.h"
+#include "acworm.h"
+
 #include <errno.h>
 #include <unistd.h>
 #include <dirent.h>
@@ -250,6 +252,7 @@ struct cacheman::TDownloadState
 	TFileItemHolder fiaccess;
 	mstring sFilePathAbs;
 
+	acworm scratchpad;
 	//uint64_t prog_before = 0;
 
 	tHttpUrl parserPath, parserHead;
@@ -450,7 +453,7 @@ cacheman::eDlResult cacheman::DownloadIO()
 				&& !state.repoSrc.repodata->m_backends.empty())
 		{
 			ldbg("will use backend mode, subdirectory is path suffix relative to backend uri");
-			state.repoSrc.sRestPath = state.parserPath.sPath.substr(1);
+			state.repoSrc.sRestPath = state.scratchpad.Add(state.parserPath.sPath.substr(1));
 		}
 		else
 		{
@@ -518,9 +521,11 @@ cacheman::eDlResult cacheman::DownloadIO()
 	{
 		dbgline;
 		state.repinfo = remotedb::GetInstance().GetRepNameAndPathResidual(*state.pResolvedDirectUrl);
-		if(state.repinfo.repodata && !state.repinfo.repodata->m_backends.empty())
+		if(state.repinfo.valid())
 		{
 			dbgline;
+			// also need to use local memory, to recover in the next cycle
+			state.repinfo.sRestPath = state.scratchpad.Add(state.repinfo.sRestPath);
 			state.pResolvedDirectUrl = nullptr;
 			state.repoSrc = state.repinfo;
 		}
@@ -535,8 +540,11 @@ cacheman::eDlResult cacheman::DownloadIO()
 										   state.pResolvedDirectUrl ? nullptr : & state.repoSrc);
 		if (!added)
 		{
-			string msg = (state.pResolvedDirectUrl ? state.pResolvedDirectUrl->ToURI(true) : state.repoSrc.sRestPath);
-			SendFmt << "Cannot send download request, aborting " << msg << "...";
+			SendFmt << "Cannot send download request, aborting ";
+			if (state.pResolvedDirectUrl)
+				Send(state.pResolvedDirectUrl->ToURI(true));
+			else
+				Send(state.repoSrc.sRestPath);
 			return eDlResult::FAIL_LOCAL;
 		}
 	}

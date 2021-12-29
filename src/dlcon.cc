@@ -444,7 +444,7 @@ struct tDlJob
 
 		if (src)
 			m_remoteUri = move(*src);
-		else if (repoSrc && repoSrc->psRepoName)
+		else if (repoSrc && repoSrc->valid())
 		{
 			m_remoteUri.sPath = move(repoSrc->sRestPath);
 			m_pRepoDesc = move(repoSrc->repodata);
