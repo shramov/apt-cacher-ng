@@ -558,4 +558,25 @@ void t_logger::WriteWithContext(const char *pSourceLocation)
 
 #endif
 
+#ifdef DEBUG
+void ACNG_API dump_proc_status_always()
+{
+	using namespace std;
+	ifstream sf("/proc/self/status");
+#if defined(__has_feature)
+#  if __has_feature(memory_sanitizer)
+	// something is wrong in the STL there, bool operators shows use of uninitialized memory
+	return;
+#  endif
+#endif
+
+	while (sf)
+	{
+		string s;
+		getline(sf, s);
+		cerr << s << endl;
+	}
+};
+#endif
+
 }

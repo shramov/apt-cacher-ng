@@ -3,6 +3,7 @@
 
 #include "cacheman.h"
 #include <list>
+#include <fstream>
 #include <unordered_map>
 
 namespace acng

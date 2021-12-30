@@ -323,7 +323,11 @@ cacheman::eDlResult cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileF
 	LOGSTARTFUNC;
 
 	std::promise<eDlResult> pro;
-	auto rep = [&](cacheman::eDlResult res)	{ pro.set_value(res); };
+	auto rep = [&](cacheman::eDlResult res)	{
+		LOGSTARTFUNCs;
+		LOG("Returning: " << (int) res);
+		pro.set_value(res);
+	};
 	evabase::Post([&]()
 	{
 		if (!m_dlCtx)

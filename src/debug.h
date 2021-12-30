@@ -4,8 +4,6 @@
 
 #include "aclogger.h"
 
-#include <fstream>
-#include <iostream>
 #ifdef DEBUG
 #include <assert.h>
 #endif
@@ -102,17 +100,7 @@ extern int debug;
 #endif
 
 
-inline void dump_proc_status_always()
-{
-	using namespace std;
-	ifstream sf("/proc/self/status");
-	while (sf)
-	{
-		string s;
-		getline(sf, s);
-		cerr << s << endl;
-	}
-};
+void dump_proc_status_always();
 
 }
 

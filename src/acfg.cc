@@ -431,7 +431,8 @@ bool ReadOneConfFile(const string & szFilename, bool bReadErrorIsFatal=true)
 	while(itor.Next())
 	{
 #ifdef DEBUG
-		cerr << szFilename << " => " << itor.sLine <<endl;
+		cerr << szFilename << " => " << itor.sLine;
+		cerr << "\n";
 #endif
 		// XXX: To something about escaped/quoted version
 		tStrPos pos=itor.sLine.find('#');
@@ -498,13 +499,20 @@ tStrDeq ExpandFileTokens(cmstring &token)
 	auto suppres = ExpandFilePattern(pat, true);
 	if (suppres.size() == 1 && !Cstat(suppres.front()))
 		return res; // errrr... done here
+
 	// merge them
 	tStrSet dupeFil;
 	for(const auto& s: res)
+	{
 		dupeFil.emplace(GetBaseName(s));
+	}
+
 	for(const auto& s: suppres)
-		if(!ContHas(dupeFil, GetBaseName(s)))
+	{
+		auto bn = GetBaseName(s);
+		if(!ContHas(dupeFil, bn))
 			res.emplace_back(s);
+	}
 	return res;
 }
 
