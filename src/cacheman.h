@@ -105,12 +105,6 @@ SUTPROTECTED:
 	std::unordered_map<mstring,bool> m_forceKeepInTrash;
 	mstring m_processedIfile;
 
-	// helper object, remembering state on IO tread
-	struct TDownloadContext;
-	struct TDownloadState;
-	TDownloadContext* m_dlCtx = nullptr;
-	TDownloadContext* GetDlRes();
-
 	enumMetaType GuessMetaTypeFromURL(const mstring &sPath);
 
 	// stuff in those directories must be managed by some top-level index files
@@ -158,17 +152,28 @@ SUTPROTECTED:
 		OK,
 		GONE,
 		FAIL_LOCAL,
-		FAIL_REMOTE,
-		IO_AGAIN
+		FAIL_REMOTE
 	};
 
+	// helper object, remembering state on IO tread
+	struct TDownloadContext;
+	struct TDownloadState;
+	TDownloadContext* m_dlCtx = nullptr;
+	TDownloadContext* GetDlRes();
 	eDlResult Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 			eDlMsgPrio msgLevel,
 			const tHttpUrl *pForcedURL=nullptr, unsigned hints=0, cmstring* sGuessedFrom = nullptr, bool bForceReDownload = false);
+
+	using tAsyncStateRep = std::function<void(cacheman::eDlResult)>;
+
+	void Download(cmstring& sFilePathRel, bool bIsVolatileFile,
+				  eDlMsgPrio msgLevel,
+				  const tHttpUrl *pForcedURL, unsigned hints, cmstring* sGuessedFrom, bool bForceReDownload,
+				  tAsyncStateRep repResult);
+
 #define DL_HINT_GUESS_REPLACEMENT 0x1
 #define DL_HINT_NOTAG 0x2
-	eDlResult DownloadIO();
-	void cbDownload();
+	void DownloadIO(TDownloadState*);
 
 	void TellCount(unsigned nCount, off_t nSize);
 

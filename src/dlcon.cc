@@ -1450,6 +1450,11 @@ bool CDlConn::AddJob(lint_ptr<fileitem> fi, const tHttpUrl *src, tRepoResolvResu
 		Dispatch(j);
 		return true;
 	}
+	catch (const std::exception& ex)
+	{
+		DBGQLOG(ex.what());
+		return false;
+	}
 	catch (...)
 	{
 		dbgline;
