@@ -280,8 +280,9 @@ struct cacheman::TDownloadState : public tLintRefcounted
 
 struct cacheman::TDownloadContext
 {
-	lint_user_ptr<dlcontroller> dler;	
+	lint_user_ptr<dlcontroller> dler;
 	list<lint_ptr<TDownloadState>> states;
+	int callID = 0; // helper to avoid duplicate calls on the final reporting item
 	TDownloadContext(acres& res) { dler = dlcontroller::CreateRegular(res); }
 };
 
@@ -323,15 +324,22 @@ cacheman::eDlResult cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileF
 	LOGSTARTFUNC;
 
 	std::promise<eDlResult> pro;
-	auto rep = [&](cacheman::eDlResult res)	{
-		LOGSTARTFUNCs;
-		LOG("Returning: " << (int) res);
-		pro.set_value(res);
-	};
 	evabase::Post([&]()
 	{
 		if (!m_dlCtx)
 			m_dlCtx = new TDownloadContext(m_parms.res);
+
+		auto rep = [this, callID = m_dlCtx->callID, &pro] (cacheman::eDlResult res)
+		{
+			LOGSTARTFUNCs;
+			if (callID != m_dlCtx->callID)
+				return;
+
+			LOG("Returning: " << (int) res);
+			m_dlCtx->callID++;
+			pro.set_value(res);
+			m_dlCtx->states.clear();
+		};
 
 		Download(sFilePathRel, bIsVolatileFile, msgVerbosityLevel, pForcedURL, hints, sGuessedFrom, bForceReDownload, rep);
 		m_dlCtx->states.clear();
@@ -371,6 +379,11 @@ void cacheman::DownloadIO(TDownloadState* sp)
 	auto& sFilePathRel = sp->m_parms.sFilePathRel;
 	fileitem::FiStatus fist;
 
+	auto RETVAL = [&](eDlResult x)
+	{
+		sp->repResult(x);
+	};
+
 	if (state.requestAdded)
 	{
 		dbgline;
@@ -379,7 +392,6 @@ void cacheman::DownloadIO(TDownloadState* sp)
 
 #define NEEDED_VERBOSITY_ALL_BUT_ERRORS (sp->m_parms.msgVerbosityLevel >= eDlMsgPrio::HIDE_ERR)
 #define NEEDED_VERBOSITY_EVERYTHING (sp->m_parms.msgVerbosityLevel >= eDlMsgPrio::SHOW_ALL)
-#define RETVAL(x) sp->repResult(x)
 #define GOTOREPMSG(x, y) {state.sErr = x; ret = y; goto rep_dlresult; }
 
 	if(GetFlags(sFilePathRel).uptodate)
@@ -423,8 +435,10 @@ void cacheman::DownloadIO(TDownloadState* sp)
 	state.initState = state.fiaccess->Setup();
 
 	if (state.initState > fileitem::FIST_COMPLETE)
+	{
 		GOTOREPMSG(message_detox(state.fiaccess.get()->m_responseStatus.msg,
 								 state.fiaccess.get()->m_responseStatus.code), eDlResult::FAIL_REMOTE);
+	}
 
 	if (fileitem::FIST_COMPLETE == state.initState)
 	{
