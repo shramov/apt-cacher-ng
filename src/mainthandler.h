@@ -27,8 +27,6 @@ class mainthandler;
 class IMaintJobItem;
 struct tSpecialWorkDescription;
 
-extern std::atomic_bool g_sigTaskAbort;
-
 /**
  * @brief The IMaintJobItem class
  */
@@ -48,12 +46,17 @@ public:
 	/**
 	 * @brief Eof signals the peer to stop processing, wherever it currently was.
 	 */
-	virtual void Eof();
+	virtual void Eof() =0;
 
 	mainthandler* GetHandler() { return handler.get(); }
 
 	void AddExtraHeaders(mstring appendix);
-	cmstring &GetExtraResponseHeaders();
+	cmstring &GetExtraResponseHeaders() override;
+
+
+	// tExtRefExpirer interface
+public:
+	void Abandon() override;
 
 };
 
@@ -74,6 +77,15 @@ public:
 		SomeData* arg;
 		acres& res;
 	} m_parms;
+
+	/**
+	 * @brief m_bItemIsHot flags the current activity on this item (i.e. Run method is being executed, probbly in background
+	 */
+	std::atomic_bool m_bItemIsHot;
+	/**
+	 * @brief g_sigTaskAbort shall be set to interrupt the thread ASAP
+	 */
+	std::atomic_bool m_bSigTaskAbort = false;
 
 	/*!
 	 *  @brief Main execution method for maintenance tasks.
@@ -146,7 +158,7 @@ struct tSpecialWorkDescription
 const tSpecialWorkDescription& GetTaskInfo(EWorkType type);
 const unsigned BLOCKING = 0x1; // needs a detached thread
 const unsigned FILE_BACKED = 0x2;  // output shall be returned through a tempfile, not directly via pipe
-const unsigned EXCLUSIVE = 0x4; // shall be the only action of that kind active; output from an active sesion is shared; requires: m_bFileBacked
+const unsigned EXCLUSIVE = 0x4; // shall be the only action of that kind active; output from an active sesion is shared; requires: FILE_BACKED
 
 inline const tSpecialWorkDescription &mainthandler::desc() { return GetTaskInfo(m_parms.type); }
 

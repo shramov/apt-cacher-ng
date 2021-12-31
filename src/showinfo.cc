@@ -22,7 +22,6 @@ namespace acng
 {
 
 tRemoteStatus stOK {200, "OK"};
-std::atomic_bool g_sigTaskAbort = false;
 
 static cmstring sReportButton("<tr><td class=\"colcont\"><form action=\"#stats\" method=\"get\">"
 					"<input type=\"submit\" name=\"doCount\" value=\"Count Data\"></form>"
@@ -290,7 +289,7 @@ void tMaintOverview::Action()
 		*/
 	}
 
-	g_sigTaskAbort = (m_parms.cmd.find("&sigAbort") != stmiss);
+	m_bSigTaskAbort = (m_parms.cmd.find("&sigAbort") != stmiss);
 
 	ProcessResource("report.html");
 }
@@ -534,7 +533,7 @@ void tMaintJobBase::ProcessResource(cmstring sFilename)
 
 bool tMaintJobBase::CheckStopSignal()
 {
-	return g_sigTaskAbort || evabase::GetGlobal().IsShuttingDown();
+	return m_bSigTaskAbort || evabase::GetGlobal().IsShuttingDown();
 }
 
 }

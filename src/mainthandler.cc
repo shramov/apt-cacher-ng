@@ -12,6 +12,7 @@
 #include "debug.h"
 #include "ptitem.h"
 #include "aclocal.h"
+#include "aclock.h"
 
 namespace acng
 {
@@ -120,8 +121,8 @@ void ACNG_API InitSpecialWorkDescriptors()
 	workDescriptors[EWorkType::COUNT_STATS] = {"COUNT_STATS"sv, "Status Report With Statistics"sv, "doCount="sv, &creators::tMaintOverview, BLOCKING };
 	workDescriptors[EWorkType::AUTH_REQ] = {"AUT_REQ"sv, "Authentication Required"sv, se, &creators::tAuthRequest, 0 };
 	workDescriptors[EWorkType::AUTH_DENY] = {"AUTH_DENY"sv, "Authentication Denied"sv, se, &creators::authbounce, 0 };
-	workDescriptors[EWorkType::IMPORT] = {"IMPORT"sv, "Data Import"sv, "doImport="sv, &creators::pkgimport, BLOCKING | EXCLUSIVE };
-	workDescriptors[EWorkType::MIRROR] = {"MIRROR"sv, "Archive Mirroring"sv, "doMirror="sv, &creators::pkgmirror, BLOCKING | EXCLUSIVE};
+	workDescriptors[EWorkType::IMPORT] = {"IMPORT"sv, "Data Import"sv, "doImport="sv, &creators::pkgimport, BLOCKING | EXCLUSIVE | FILE_BACKED };
+	workDescriptors[EWorkType::MIRROR] = {"MIRROR"sv, "Archive Mirroring"sv, "doMirror="sv, &creators::pkgmirror, BLOCKING | EXCLUSIVE | FILE_BACKED};
 	workDescriptors[EWorkType::DELETE] = {"DELETE"sv, "Manual File Deletion"sv, "doDeleteYes="sv, &creators::deleter, BLOCKING };
 	workDescriptors[EWorkType::DELETE_CONFIRM] = {"DELETE_CONFIRM"sv, "Manual File Deletion (Confirmed)"sv, "doDelete="sv, &creators::deleter, BLOCKING };
 	workDescriptors[EWorkType::TRUNCATE] = {"TRUNCATE"sv, "Manual File Truncation"sv, "doTruncateYes="sv, &creators::truncator, BLOCKING };
@@ -132,6 +133,16 @@ void ACNG_API InitSpecialWorkDescriptors()
 #endif
 	workDescriptors[EWorkType::STYLESHEET] = {"STYLESHEET"sv, "SpecialOperation"sv, se, nullptr, 0};
 	workDescriptors[EWorkType::FAVICON] = {"FAVICON"sv, "SpecialOperation"sv, se, nullptr, 0};
+
+#ifdef DEBUG
+	for(auto& p: workDescriptors)
+	{
+		if (p.flags & EXCLUSIVE)
+		{
+			ASSERT(p.flags & FILE_BACKED);
+		}
+	}
+#endif
 }
 
 const string & mainthandler::GetMyHostPort()
@@ -188,6 +199,34 @@ cmstring &IMaintJobItem::GetExtraResponseHeaders()
 {
 	ASSERT_IS_MAIN_THREAD;
 	return m_extraHeaders;
+}
+
+void IMaintJobItem::Abandon()
+{
+	if (handler && handler->m_bItemIsHot)
+	{
+		handler->m_bSigTaskAbort = true;
+		if(GetStatus() < FIST_COMPLETE)
+			DlSetError({500, "Aborted"}, EDestroyMode::DELETE);
+
+		auto* han = handler.get();
+		// install an agent which self-destructs and also releases item when it's really finished
+		struct checker : public tLintRefcounted
+		{
+			tFileItemPtr what;
+			aobservable::subscription myTimer;
+		};
+		auto instChecker = make_lptr<checker>();
+		instChecker->what.reset(this);
+		instChecker->myTimer = handler->m_parms.res.GetIdleCheckBeat().AddListener(
+					[instChecker, han](){
+			bool active = han->m_bItemIsHot;
+			if (!active)
+				return instChecker->myTimer.reset();
+		}
+		);
+	}
+	return fileitem::Abandon();
 }
 
 }

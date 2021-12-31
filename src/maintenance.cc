@@ -102,17 +102,7 @@ EWorkType DetectWorkType(const tHttpUrl& reqUrl, string_view rawCmd, const char*
 	return EWorkType::REPORT;
 }
 
-IMaintJobItem *g_exclActiveJob = nullptr;
-
-void IMaintJobItem::Eof()
-{
-	ASSERT_IS_MAIN_THREAD;
-	if (g_exclActiveJob == this)
-	{
-		g_exclActiveJob = nullptr;
-		g_sigTaskAbort = false;
-	}
-}
+lint_ptr<IMaintJobItem> g_exclActiveJob;
 
 class FileBackedItem : public IMaintJobItem
 {
@@ -175,7 +165,6 @@ public:
 	{
 		ASSERT_IS_MAIN_THREAD;
 		DlFinish(true);
-		IMaintJobItem::Eof();
 	}
 
 	std::unique_ptr<fileitem::ICacheDataSender> GetCacheSender() override
@@ -285,7 +274,6 @@ public:
 	void Eof() override
 	{
 		bufferevent_flush(m_pipeInOut[0], EV_WRITE, BEV_FINISHED);
-		IMaintJobItem::Eof();
 	}
 
 	inline void BgPipeEvent(short what)
@@ -368,7 +356,7 @@ tFileItemPtr Create(EWorkType jobType, bufferevent *bev, const tHttpUrl& url, So
 
 		const auto& desc = GetTaskInfo(jobType);
 
-		IMaintJobItem* item = nullptr;
+		lint_ptr<IMaintJobItem> item;
 
 		try
 		{
@@ -377,14 +365,18 @@ tFileItemPtr Create(EWorkType jobType, bufferevent *bev, const tHttpUrl& url, So
 			if (!handler)
 				return tFileItemPtr(new errorItem("Internal processing error"));
 
-			if ((desc.flags & EXCLUSIVE) && g_exclActiveJob)
-				item = g_exclActiveJob;
+			if ((desc.flags & EXCLUSIVE) && g_exclActiveJob
+				&& ! g_exclActiveJob->GetHandler()->m_bSigTaskAbort)
+			{
+				// attach to the running special job, unless it's shutting down already
+				return static_lptr_cast<fileitem>(g_exclActiveJob);
+			}
 			else
 			{
 				if (desc.flags & FILE_BACKED)
-					item = new FileBackedItem(move(handler));
+					item.reset(new FileBackedItem(move(handler)));
 				else
-					item = new BufferedPtItem(move(handler));
+					item.reset(new BufferedPtItem(move(handler)));
 
 				if (desc.flags & EXCLUSIVE)
 					g_exclActiveJob = item;
@@ -392,29 +384,27 @@ tFileItemPtr Create(EWorkType jobType, bufferevent *bev, const tHttpUrl& url, So
 		}
 		catch(const std::exception& e)
 		{
-			tFileItemPtr err(new errorItem(e.what()));
-			delete item;
-			return err;
+			return tFileItemPtr(new errorItem(e.what()));
 		}
 		catch (...)
 		{
-			delete item;
 			return tFileItemPtr(new errorItem("Unable to start background items"));
 		}
+
+		auto ret = static_lptr_cast<fileitem>(item);;
 
 		if (item->GetStatus() > fileitem::FIST_COMPLETE)
 		{
-			delete item;
-			return tFileItemPtr(new errorItem("Unable to start background items"));
+#define CHECK_UNSET_EXCL_JOB if (item == g_exclActiveJob) g_exclActiveJob.reset();
+			CHECK_UNSET_EXCL_JOB;
+			return ret;
 		}
-
-		// that version we can return, it contains the ref
-		auto ret = as_lptr(static_cast<fileitem*>(item));
 
 		if (0 == (desc.flags & BLOCKING))
 		{
 			item->GetHandler()->Run();
 			item->Eof();
+			CHECK_UNSET_EXCL_JOB;
 			return ret;
 		}
 
@@ -422,39 +412,45 @@ tFileItemPtr Create(EWorkType jobType, bufferevent *bev, const tHttpUrl& url, So
 
 		// we only pass the bare pointer to it, release the reference on the main thread only and only after the BG thread action is finished!
 		item->__inc_ref();
-		auto runner = [item] ()
+		auto runner = [rawItem = item.get()] ()
 		{
+
 			try
 			{
-				item->GetHandler()->Run();
+				rawItem->GetHandler()->Run();
 			}
 			catch (const std::exception& exe)
 			{
 				string msg=exe.what();
-				evabase::Post([item, msg]()
+				evabase::Post([rawItem, msg]()
 				{
-					item->DlSetError({500, msg}, fileitem::EDestroyMode::DELETE);
+					rawItem->DlSetError({500, msg}, fileitem::EDestroyMode::DELETE);
 				});
 			}
 			catch (...)
 			{
-				evabase::Post([item]()
+				evabase::Post([rawItem]()
 				{
-					item->DlSetError({500, "Unknown processing error"}, fileitem::EDestroyMode::DELETE);
+					rawItem->DlSetError({500, "Unknown processing error"}, fileitem::EDestroyMode::DELETE);
 				});
 			}
 			// release the potentially last reference when done
-			evabase::Post([item]()
+			evabase::Post([rawItem]()
 			{
-				item->Eof();
-				tFileItemPtr destroyer(item, false);
+				rawItem->Eof();
+				auto item = as_lptr(static_cast<IMaintJobItem*>(rawItem), false);
+				item->GetHandler()->m_bItemIsHot = false;
+				CHECK_UNSET_EXCL_JOB;
 			});
 		};
 
+		item->GetHandler()->m_bItemIsHot = true;
+
 		if (!g_tpool->schedule(runner))
 		{
-			LOG("Unable to start background thread");
+			LOG("Unable to start background thread, tear down to avoid leaks");
 			// FAIL STATE! CLEANUP HERE ASAP!
+			item->GetHandler()->m_bItemIsHot = false;
 			item->__dec_ref();
 			return tFileItemPtr();
 		}

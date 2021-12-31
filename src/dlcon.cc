@@ -264,6 +264,8 @@ public:
 		if (m_lastUsedStream == what)
 			m_lastUsedStream = m_streams.end();
 		m_streams.erase(what);
+
+		TermOrProcBacklog();
 	}
 	void DropIdleStreams()
 	{
@@ -275,8 +277,16 @@ public:
 		}
 		m_idleStreams.clear();
 		m_idleBeat.reset();
-		TerminateAsNeeded();
+		TermOrProcBacklog();
 	}
+	/**
+	 * @brief TerminateAsNeeded
+	 *
+	 * Releases the self-lock but only after all streams were finished.
+	 * This is aligned with Abandon() activity.
+	 *
+	 * @return True if shutdown wsa initiated or performed.
+	 */
 	bool TerminateAsNeeded()
 	{
 		if (!m_bInShutdown)
@@ -287,6 +297,26 @@ public:
 		m_shutdownLock.reset();
 		return true;
 	}
+	void ProcessBacklog()
+	{
+		while (!m_backlog.empty())
+		{
+			auto item = m_backlog.pop();
+			Dispatch(item);
+		}
+	}
+	/**
+	 * @brief TermOrProcBacklog
+	 * If terminating scheduled, release this agent.
+	 * @return True if shutdown is ongoing
+	 */
+	bool TermOrProcBacklog()
+	{
+		if (TerminateAsNeeded())
+			return true;
+		ProcessBacklog();
+		return false;
+	}
 
 	void ReportStreamIdle(tDlStreamPool::iterator where)
 	{
@@ -294,27 +324,18 @@ public:
 		if (m_bInShutdown || !m_backlog.empty())
 			DeleteStream(where);
 
-		while (!m_backlog.empty())
-		{
-			auto item = m_backlog.pop();
-			Dispatch(item);
-		}
-
-		if (TerminateAsNeeded())
+		if (TermOrProcBacklog())
 			return;
 
-		if (!m_bInShutdown)
+		m_idleStreams.insert(where);
+		// keep them idle for a dynamic hold-off period, 0..3s
+		if (!m_idleBeat)
 		{
-			m_idleStreams.insert(where);
-			// keep them idle for a dynamic hold-off period, 0..3s
-			if (!m_idleBeat)
+			m_idleBeat = m_res.GetIdleCheckBeat().AddListener([pin = as_lptr(this)]()
 			{
-				m_idleBeat = m_res.GetIdleCheckBeat().AddListener([pin = as_lptr(this)]()
-				{
-					pin->DropIdleStreams();
-				}
-				);
+				pin->DropIdleStreams();
 			}
+			);
 		}
 	}
 	/**
@@ -452,6 +473,9 @@ struct tDlJob
 		}
 		else
 			throw std::invalid_argument(to_string("Exactly one source needs to be valid"sv));
+
+		if (pFi->GetStatus() < fileitem::FIST_DLPENDING)
+			pFi->m_status = fileitem::FIST_DLPENDING;
 	}
 
 	// Default move ctor is ok despite of pointers, we only need it in the beginning, list-splice operations should not move the object around
@@ -561,7 +585,7 @@ struct tDlJob
 
 	bool SetupSource(tRemoteValidator& validator)
 	{
-		LOGSTART("CDlConn::SetupJobConfig");
+		LOGSTARTFUNC;
 
 		if (m_sourceState == validator.CurrentRevision())
 			return true;
@@ -575,6 +599,8 @@ struct tDlJob
 		// try alternative backends?
 		if (m_pRepoDesc)
 		{
+			ldbg(m_pRepoDesc->m_backends.front().sHost);
+
 			while (pKnownIssues && pKnownIssues->errCount >= MAX_RETRY)
 			{
 				if (++m_pCurBackend > &m_pRepoDesc->m_backends.back())
@@ -582,7 +608,7 @@ struct tDlJob
 					setIfNotEmpty(m_sError, pKnownIssues->reason);
 					LOGRET(false);
 				}
-        pKnownIssues = validator.GetEntry(GetPeerHost());
+				pKnownIssues = validator.GetEntry(GetPeerHost());
 			}
 		}
 		else if(pKnownIssues && pKnownIssues->errCount >= MAX_RETRY)
@@ -1346,6 +1372,8 @@ off_t tDlStream::GetRemainingBodyBytes()
 
 void tDlStream::Sacrifice()
 {
+	LOGSTARTFUNC;
+
 	m_sacrificied = true;
 #warning if this is set, the item which got interrupted in the end must get an additional retry
 
@@ -1355,6 +1383,7 @@ void tDlStream::Sacrifice()
 	if (m_transport && m_transport->GetBufferEvent())
 	{
 		auto fd = bufferevent_getfd(m_transport->GetBufferEvent());
+		ldbg(fd);
 		shutdown(fd, SHUT_WR);
 	}
 }
@@ -1477,6 +1506,7 @@ deque<tDlJob*> g_localQ;
 
 void CDlConn::cbDispatchTheQueue(int, short, void *ctx)
 {
+	LOGSTARTFUNCs;
 	auto me((CDlConn*)ctx);
 	g_localQ.clear();
 	g_localQ.swap(me->m_dispatchQ);
@@ -1487,6 +1517,8 @@ void CDlConn::cbDispatchTheQueue(int, short, void *ctx)
 
 void CDlConn::DispatchDfrd(tDlJob *what)
 {
+	LOGSTARTFUNC;
+
 	if (AC_UNLIKELY(!what))
 		return;
 
@@ -1496,6 +1528,7 @@ void CDlConn::DispatchDfrd(tDlJob *what)
 			|| st == tDlJob::eResponsibility::IRRELEVANT
 			|| !what->SetupSource(m_validator))
 	{
+		dbgline;
 		return delete what;
 	}
 
@@ -1513,7 +1546,11 @@ void CDlConn::DispatchDfrd(tDlJob *what)
 	// try fast path?
 	if (m_lastUsedStream != m_streams.end()
 		&& tgt == m_lastUsedStream->second.GetPeerHost()
-		&& accept(m_lastUsedStream)) return;
+		&& accept(m_lastUsedStream))
+	{
+		dbgline;
+		return;
+	}
 
 	auto skey = tgt.GetHostPortProtoKey();
 	auto range = m_streams.equal_range(skey);
@@ -1533,18 +1570,23 @@ void CDlConn::DispatchDfrd(tDlJob *what)
 		return accept(it) ? void() : delete what;
 	}
 
-	m_backlog.push(what);
+	ldbg("2many streams, let's interrupt something");
 
+	m_backlog.push(what);
+	dbgline;
+	// pick the one with the fewest known bytes in the pipeline ATM
 	tDlStream* sacrifice = nullptr;
-	off_t remBytesMin = 0;
+	off_t remBytesMin = MAX_VAL(off_t);
 	for(auto& el: m_streams)
 	{
 		off_t rb = el.second.GetRemainingBodyBytes();
-		if (rb > remBytesMin)
-			continue;
-		sacrifice = &el.second;
-		remBytesMin = rb;
+		if (rb <= remBytesMin)
+		{
+			sacrifice = &el.second;
+			remBytesMin = rb;
+		}
 	}
+	dbgline;
 	ASSERT(sacrifice);
 	sacrifice->Sacrifice();
 

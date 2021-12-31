@@ -581,7 +581,8 @@ FROM_DL_CB:
 	}
 
 	fist = state.fiaccess->GetStatus();
-	ldbg(fist);
+	ldbg(fist);	
+	ASSERT(fist >= fileitem::FIST_DLPENDING);
 
 	if (fist < fileitem::FIST_COMPLETE)
 		return; // should came back from subscription callback
@@ -700,7 +701,7 @@ format_error:
 				pos--;
 			}
 		}
-		else if((sp->m_parms.hints & DL_HINT_GUESS_REPLACEMENT) && state.fiaccess->m_responseStatus.code == 404)
+		else if(state.fiaccess && (sp->m_parms.hints & DL_HINT_GUESS_REPLACEMENT) && state.fiaccess->m_responseStatus.code == 404)
 		{
 			// another special case, slightly ugly :-(
 			// this is explicit hardcoded repair code
