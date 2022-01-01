@@ -13,6 +13,7 @@
 
 using namespace acng;
 
+#if 0 // this is pointless since dnsbase is now initialized by resource provider on demand
 TEST(caddrinfo, test_query_not_inited)
 {
 	// std::function<void(std::shared_ptr<CAddrInfo>)> tDnsResultReporter;
@@ -32,6 +33,7 @@ TEST(caddrinfo, test_query_not_inited)
 	EXPECT_LT(0, result->getTargets().size());
 
 }
+#endif
 
 TEST(caddrinfo, test_query_inited)
 {

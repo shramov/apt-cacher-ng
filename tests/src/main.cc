@@ -20,8 +20,8 @@ acres* g_res;
 
 int main(int argc, char **argv)
 {
-	g_res = acres::Create();
 	auto p = acng::evabase::Create();
+	g_res = acres::Create();
 
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

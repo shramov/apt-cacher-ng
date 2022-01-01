@@ -15,7 +15,7 @@ TEST(fileio,fsattr)
 	Cstat st("/bin/sh");
 	Cstat st2("/etc/resolv.conf");
 	ASSERT_TRUE(st);
-	ASSERT_EQ(st.st_dev, st2.st_dev);
+	ASSERT_EQ(st.info().st_dev, st2.info().st_dev);
 }
 
 TEST(fileio, operations)
@@ -34,5 +34,5 @@ TEST(fileio, ut_acbuf)
 	x << "y";
 	ASSERT_EQ(1, x.dumpall(path, O_CREAT, PERMS, INT_MAX, true));
 	Cstat st(path);
-	ASSERT_EQ(1, st.st_size);
+	ASSERT_EQ(1, st.size());
 }

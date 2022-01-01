@@ -31,6 +31,7 @@ protected:
 
 	void SetUp() override
 	{
+		acng::cfg::udspath.clear(); // don't care for now
 		acng::cfg::port = TESTPORT;
 		serva = conserver::Create(*g_res);
 		server_okay = serva->Setup();
@@ -44,7 +45,7 @@ protected:
 
 TEST_F(TransportTest, server_started)
 {
-	// NOTE: expecting IPv6 functionality here, so two sockets
+	// NOTE: expecting IPv6 functionality here, hence two sockets
 	ASSERT_TRUE(server_okay);
 }
 
