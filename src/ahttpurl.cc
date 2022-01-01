@@ -21,7 +21,7 @@ bool tHttpUrl::SetHttpUrl(cmstring &sUrlRaw, bool unescape)
 	tStrPos hStart(0), l=url.length(), hEndSuc(0), pStart(0), p;
 	bool bCheckBrac=false, noPort = false;
 
-	if(0==strncasecmp(url.c_str(), "http://", 7))
+	if (0 == strncasecmp(url.c_str(), "http://", 7))
 		{
 				hStart=7;
 			m_schema = EProtoType::HTTP;
@@ -56,23 +56,22 @@ bool tHttpUrl::SetHttpUrl(cmstring &sUrlRaw, bool unescape)
 	if(hStart>=l)
 		return false;
 
-	hEndSuc=url.find('/', hStart);
-	if(stmiss==hEndSuc)
+	hEndSuc=url.find_first_of("/?", hStart);
+	if (stmiss == hEndSuc)
 	{
-		// also match http://foo?param=X
-		hEndSuc=url.find('?', hStart);
-		if(stmiss!=hEndSuc)
-		{
-			sPath = mstring("/") + url.substr(hEndSuc);
-			goto extract_host_check_port;
-		}
-
+		// okay, the hostname is all we have
 		hEndSuc = l;
 		goto extract_host_and_path_and_check_port;
-
 	}
-	pStart=hEndSuc;
-	while(pStart<l && url[pStart]=='/') pStart++;
+	if(url[hEndSuc] == '?') // matched http://foo?param=X
+	{
+		sPath = mstring("/") + url.substr(hEndSuc);
+		goto extract_host_check_port;
+	}
+
+	pStart = hEndSuc;
+	while(pStart<l && url[pStart]=='/')
+		pStart++;
 	pStart--;
 
 extract_host_and_path_and_check_port:
@@ -86,7 +85,7 @@ extract_host_check_port:
 	if(url[hStart]=='_') // those are reserved
 		return false;
 
-	sHost=url.substr(hStart, hEndSuc-hStart);
+	sHost=url.substr(hStart, hEndSuc - hStart);
 
 	// credentials might be in there, strip them off
 	l=sHost.rfind('@');
@@ -101,7 +100,7 @@ extract_host_check_port:
 		noPort=true;
 	}
 
-	l=sHost.size();
+	l = sHost.size();
 	if (!noPort)
 	{
 		if (bCheckBrac)

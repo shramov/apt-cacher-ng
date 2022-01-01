@@ -246,6 +246,24 @@ TEST(http, url_url)
 		ASSERT_EQ(url.sHost, "2001:db8::");
 		ASSERT_EQ(url.GetPort(), 443);
 		ASSERT_EQ(url.sPath, "/bar");
+
+		ASSERT_TRUE(url.SetHttpUrl("http://example.org/script?fragment"));
+		ASSERT_EQ(url.sUserPass, "");
+		ASSERT_EQ(url.sHost, "example.org");
+		ASSERT_EQ(url.GetPort(), 80);
+		ASSERT_EQ(url.sPath, "/script?fragment");
+
+		ASSERT_TRUE(url.SetHttpUrl("/foo"));
+		ASSERT_EQ(url.sUserPass, "");
+		ASSERT_EQ(url.sHost, "foo");
+		ASSERT_EQ(url.GetPort(), 80);
+		ASSERT_EQ(url.sPath, "/");
+
+		ASSERT_TRUE(url.SetHttpUrl("/ReportPage?abortOnErrors=aOe&doExpire=Start+Scan+and/or+Expiration&calcSize=cs&asNeeded=an"));
+		ASSERT_EQ(url.sUserPass, "");
+		ASSERT_EQ(url.sHost, "ReportPage");
+		ASSERT_EQ(url.GetPort(), 80);
+		ASSERT_EQ(url.sPath, "/?abortOnErrors=aOe&doExpire=Start+Scan+and/or+Expiration&calcSize=cs&asNeeded=an");
 }
 
 TEST(http, url_host_port_ipv4)
