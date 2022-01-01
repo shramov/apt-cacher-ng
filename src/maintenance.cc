@@ -43,11 +43,11 @@ public:
 	std::unique_ptr<ICacheDataSender> GetCacheSender() override { return std::unique_ptr<ICacheDataSender>(); }
 };
 
-EWorkType DetectWorkType(const tHttpUrl& reqUrl, string_view rawCmd, const char* auth)
+EWorkType DetectWorkType(const tHttpUrl& reqUrl, const char* auth)
 {
 	LOGSTARTs("DispatchMaintWork");
 
-	LOG("cmd: " << rawCmd);
+	LOG("cmd: " << reqUrl.ToURI(false));
 
 	if (reqUrl.sHost == "style.css")
 		return EWorkType::STYLESHEET;
@@ -55,7 +55,7 @@ EWorkType DetectWorkType(const tHttpUrl& reqUrl, string_view rawCmd, const char*
 	if (reqUrl.sHost == "favicon.ico")
 		return EWorkType::FAVICON;
 
-	if (reqUrl.sHost == cfg::reportpage && reqUrl.sPath == "/")
+	if (reqUrl.sHost == cfg::reportpage && (reqUrl.sPath == "/" || reqUrl.sPath.empty()))
 		return EWorkType::REPORT;
 
 	// others are passed through the report page extra functions
@@ -63,19 +63,14 @@ EWorkType DetectWorkType(const tHttpUrl& reqUrl, string_view rawCmd, const char*
 	if (cfg::reportpage.empty())
 		return EWorkType::REGULAR;
 
-	trimBack(rawCmd);
-	trimFront(rawCmd, "/");
+	string_view rawHost = reqUrl.sHost;
+	trimFront(rawHost, "/?");
+	trimBack(rawHost, "/?");
 
-	if (!startsWith(rawCmd, cfg::reportpage))
+	if (rawHost != cfg::reportpage)
 		return EWorkType::REGULAR;
 
-	rawCmd.remove_prefix(cfg::reportpage.length());
-	if (rawCmd.empty() || rawCmd[0] != '?')
-		return EWorkType::REPORT;
-	rawCmd.remove_prefix(1);
-
-	// not shorter, was already compared, can be only longer, means having parameters,
-	// -> means needs authorization
+	// okay, internal job, which type?
 
 	// all of the following need authorization if configured, enforce it
 	switch(cfg::CheckAdminAuth(auth))
@@ -94,7 +89,7 @@ EWorkType DetectWorkType(const tHttpUrl& reqUrl, string_view rawCmd, const char*
 	for (unsigned i = EWorkType::REGULAR + 1; i < EWorkType::WORK_TYPE_MAX; ++i)
 	{
 		const auto& trigger = GetTaskInfo((EWorkType)i).trigger;
-		if (!trigger.empty() && rawCmd.find(trigger) != stmiss)
+		if (!trigger.empty() && reqUrl.sPath.find(trigger) != stmiss)
 			return (EWorkType) i;
 	}
 
@@ -336,7 +331,7 @@ private:
 	}
 };
 
-tFileItemPtr Create(EWorkType jobType, bufferevent *bev, const tHttpUrl& url, SomeData* arg, acres& reso)
+tFileItemPtr CreateSpecialWork(EWorkType jobType, bufferevent *bev, const tHttpUrl& url, SomeData* arg, acres& reso)
 {
 	LOGSTARTFUNCsx(url.ToURI(true));
 

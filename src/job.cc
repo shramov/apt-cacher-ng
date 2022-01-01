@@ -221,7 +221,7 @@ void job::Prepare(const header &h, bufferevent* be, cmstring& callerHostname, ac
 		if(!theUrl.SetHttpUrl(sReqPath, false))
 		{
 			LOG("work type: USERINFO");
-			m_pItem.reset(Create(EWorkType::USER_INFO, be, theUrl, nullptr, res));
+			m_pItem.reset(CreateSpecialWork(EWorkType::USER_INFO, be, theUrl, nullptr, res));
 			return m_pItem ? void() : report_overload(__LINE__);;
 		}
 		LOG("refined path: " << theUrl.sPath << "\n on host: " << theUrl.sHost);
@@ -247,15 +247,15 @@ void job::Prepare(const header &h, bufferevent* be, cmstring& callerHostname, ac
 		bPtMode=matcher.MatchUncacheable(theUrl.ToURI(false), rex::NOCACHE_REQ);
 
 		LOG("input uri: "<<theUrl.ToURI(false)<<" , dontcache-flag? " << bPtMode
-			<< ", admin-page: " << cfg::reportpage);
+			<< ", vs. admin-page: " << cfg::reportpage);
 
 		try
 		{
-			auto t = DetectWorkType(theUrl, sReqPath, h.h[header::AUTHORIZATION]);
+			auto t = DetectWorkType(theUrl, h.h[header::AUTHORIZATION]);
 			ldbg("type: " << (int) t);
 			if (t)
 			{
-				m_pItem.reset(Create(t, be, theUrl, nullptr, res));
+				m_pItem.reset(CreateSpecialWork(t, be, theUrl, nullptr, res));
 				return m_pItem ? void() : report_overload(__LINE__);
 			}
 		}
@@ -279,7 +279,7 @@ void job::Prepare(const header &h, bufferevent* be, cmstring& callerHostname, ac
 				serveParms.fsBase = it->second;
 				serveParms.fsSubpath = theUrl.sPath;
 				serveParms.offset = m_nReqRangeFrom < 0 ? 0 : m_nReqRangeFrom;
-				m_pItem.reset(Create(EWorkType::LOCALITEM, be, theUrl, &serveParms, res));
+				m_pItem.reset(CreateSpecialWork(EWorkType::LOCALITEM, be, theUrl, &serveParms, res));
 				return;
 			}
 		}
@@ -327,7 +327,7 @@ void job::Prepare(const header &h, bufferevent* be, cmstring& callerHostname, ac
 			if (data_type == rex::FILE_INVALID)
 			{
 				LOG("generic user information page for " << theUrl.sPath);
-				m_pItem.reset(Create(EWorkType::USER_INFO, be, theUrl, nullptr, res));
+				m_pItem.reset(CreateSpecialWork(EWorkType::USER_INFO, be, theUrl, nullptr, res));
 				return m_pItem ? void() : report_overload(__LINE__);;
 			}
 		}

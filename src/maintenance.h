@@ -43,7 +43,7 @@ enum EWorkType : unsigned
 	, WORK_TYPE_MAX
 };
 
-EWorkType DetectWorkType(const tHttpUrl& reqUrl, string_view rawCmd, const char* auth);
+EWorkType DetectWorkType(const tHttpUrl& reqUrl, const char* auth);
 
 /**
  * @brief Create a new "hot" fileitem (might have a thread attached already).
@@ -54,7 +54,7 @@ EWorkType DetectWorkType(const tHttpUrl& reqUrl, string_view rawCmd, const char*
  * @return New fileitem object pointer, nullptr if the request is not supposed to be served by us
  */
 
-tFileItemPtr Create(EWorkType jobType, bufferevent *bev, const tHttpUrl& url, SomeData* arg, acres& reso);
+tFileItemPtr CreateSpecialWork(EWorkType jobType, bufferevent *bev, const tHttpUrl& url, SomeData* arg, acres& reso);
 
 }
 

@@ -501,7 +501,11 @@ void expiration::Action()
 		break;
 	}
 
-	bool tradeOffCheck = cfg::exstarttradeoff && !StrHas(m_parms.cmd, "force=1") && !m_bByChecksum && !Cstat(SZABSPATH("_actmp/.ignoreTradeOff"));
+	bool tradeOffCheck = cfg::exstarttradeoff
+						 && !StrHas(m_parms.cmd, "force=1")
+						 && !StrHas(m_parms.cmd, "ignoreTradeOff=iTO")
+						 && !m_bByChecksum
+						 && !Cstat(SZABSPATH("_actmp/.ignoreTradeOff"));
 
 	off_t newLastIncommingOffset = 0;
 
