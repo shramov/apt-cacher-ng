@@ -6,6 +6,7 @@ namespace acng {
 
 using namespace std;
 
+// See RFC3986
 bool tHttpUrl::SetHttpUrl(cmstring &sUrlRaw, bool unescape)
 {
 	clear();
@@ -93,6 +94,11 @@ extract_host_check_port:
 	{
 		sUserPass = UrlUnescape(sHost.substr(0, l));
 		sHost.erase(0, l+1);
+	}
+
+	if (!bCheckBrac && 2 <= count(sHost.begin(), sHost.end(), ':'))
+	{
+		noPort=true;
 	}
 
 	l=sHost.size();
