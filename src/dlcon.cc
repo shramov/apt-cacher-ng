@@ -442,7 +442,7 @@ struct tDlJob
 	 * Returns a reference to http url where host and port and protocol match the current host
 	 * Other fields in that member have undefined contents. ;-)
 	 */
-	inline const tHttpUrl& GetPeerHost()
+	const tHttpUrl& GetPeerHost()
 	{
 		return m_pCurBackend ? *m_pCurBackend : m_remoteUri;
 	}

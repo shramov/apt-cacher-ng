@@ -255,16 +255,16 @@ struct tConnContext : public tLintRefcounted
 	void onReadFromProxy(bufferevent* bev)
 	{
 		ABORT_IF_CANCELED;
-
 		header h;
-		beconsum rdr(bev);
-		auto r = h.Load(rdr.buf());
+		auto r = h.Load(bereceiver(bev));
 		if (!r)
 			return;
+
 		// are we good?
 		if (r > 0)
 		{
-			rdr.drop(r);
+			evbuffer_drain(bereceiver(bev), r);
+
 			auto status = h.getStatus();
 			if (AC_UNLIKELY(h.type != header::eHeadType::ANSWER))
 				status = { 503, to_string("Bad proxy response"sv)};
