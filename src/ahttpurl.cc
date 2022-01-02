@@ -180,7 +180,7 @@ string tHttpUrl::ToURI(bool bUrlEscaped, bool hostOnly) const
 
 string tHttpUrl::GetHostPortKey() const
 {
-	return makeHostPortKey(sHost, GetPort());
+	return HostPortKeyMaker(sHost, GetPort());
 }
 
 string tHttpUrl::GetHostPortProtoKey() const

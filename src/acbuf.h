@@ -223,6 +223,28 @@ struct bSS : public ebstream
 	evbuffer* release() { auto ret = be; be = nullptr; return ret; }
 };
 
+/**
+ * Little helper for fluent APIs which stashes all appended parts in a local buffer (which can be reused from outside)
+ * prior to handing it over to the target sending object in the end.
+ */
+template<typename Tsender, typename Tbuf>
+class tBufFmter
+{
+	tBufFmter operator=(const tBufFmter &) = delete;
+	Tsender &m_sender;
+	Tbuf& m_buf;
+public:
+	tBufFmter(Tsender &p, Tbuf& buf) : m_sender(p), m_buf(buf)
+	{
+		m_buf.clear();
+	}
+	~tBufFmter()
+	{
+		m_sender << m_buf;
+		m_buf.clear();
+	}
+};
+
 }
 
 #endif

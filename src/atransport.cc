@@ -11,6 +11,8 @@
 #include "debug.h"
 #include "aevutil.h"
 #include "ac3rdparty.h"
+#include "header.h"
+#include "acomcommon.h"
 
 #include <map>
 
@@ -116,7 +118,8 @@ public:
 		bufferevent_setcb(*m_buf, nullptr, nullptr, cbCachedKill, this);
 		bufferevent_set_timeouts(*m_buf, GetKeepTimeout(), nullptr);
 		bufferevent_enable(*m_buf, EV_READ);
-		m_cleanIt = g_con_cache.get().emplace(makeHostPortKey(GetHost(), GetPort()), lint_ptr<atransport>(this));
+		m_cleanIt = g_con_cache.get().emplace(HostPortKeyMaker(GetHost(), GetPort()),
+											  lint_ptr<atransport>(this));
 	}
 	// restore operation after hibernation
 	void GotReused()
@@ -125,6 +128,9 @@ public:
 		bufferevent_setcb(*m_buf, nullptr, nullptr, nullptr, this);
 		m_cleanIt = g_con_cache.get().end();
 	}
+	/**
+	 * @brief cbCachedKill can only be triggered by a timeout or other error
+	 */
 	static void cbCachedKill(struct bufferevent *, short , void *ctx)
 	{
 		auto delIfLast = as_lptr((atransportEx*) ctx);
@@ -151,13 +157,14 @@ struct tConnContext : public tLintRefcounted
 {
 	atransport::TConnectParms m_hints;
 	atransport::tCallBack m_reporter;
-#warning use a derived class with iterator selfref
 	lint_ptr<atransportEx> m_result;
+#define ABORT_IF_CANCELED if (!m_result || !m_reporter) return;
 	TFinalAction m_connBuilder;
 	acres& m_res;
 
-#warning reenable specific modes?
+	unique_bufferevent& bev() { return m_result->m_buf; }
 
+	// XXX: reenable specific insecure modes?
 	bool m_disableNameValidation = cfg::nsafriendly == 1;// || (bGuessedTls * cfg::nsafriendly == 2);
 	bool m_disableAllValidation = cfg::nsafriendly == 1; // || (bGuessedTls * (cfg::nsafriendly == 2 || cfg::nsafriendly == 3));
 
@@ -200,8 +207,7 @@ struct tConnContext : public tLintRefcounted
 
 	void OnFirstConnect(aconnector::tConnResult &&res)
 	{
-		if (!m_result || !m_reporter)
-			return;
+		ABORT_IF_CANCELED;
 
 		if (!res.sError.empty())
 		{
@@ -225,12 +231,59 @@ struct tConnContext : public tLintRefcounted
 		bool doAskConnect = m_prInfo && ( m_hints.directConnection || m_result->m_url.m_schema == tHttpUrl::EProtoType::HTTPS);
 
 		if (doAskConnect)
-		{
-			ASSERT(!"implementme");
-			// return DoConnectNegotiation();
-		}
+			return DoConnectNegotiation();
 
 		return m_reporter({0, static_lptr_cast<atransport>(m_result)});
+	}
+
+	void DoConnectNegotiation()
+	{
+		ABORT_IF_CANCELED;
+		ASSERT(m_result.get());
+		auto bev = m_result->GetBufferEvent();
+		ASSERT(bev);
+
+		bufferevent_setcb(bev, cbReadProxy, nullptr, cbStatusProxy, this);
+		ebstream(bev) << "CONNECT "sv << m_result->m_url.sHost << ":" << m_result->m_url.sPath << " HTTP/1.1\r\n\r\n"sv;
+		bufferevent_enable(bev, EV_READ|EV_WRITE);
+	}
+
+	static void cbReadProxy(struct bufferevent *bev, void *ctx)	{ ((tConnContext*)ctx)->onReadFromProxy(bev); }
+	static void cbStatusProxy(struct bufferevent *bev, short what, void *ctx) { ((tConnContext*)ctx)->onStatusFromProxy(bev, what); }
+	static void cbStatusSslCheck(struct bufferevent *bev, short what, void *ctx) { ((tConnContext*)ctx)->onStatusSslCheck(bev, what); }
+
+	void onReadFromProxy(bufferevent* bev)
+	{
+		ABORT_IF_CANCELED;
+
+		header h;
+		beconsum rdr(bev);
+		auto r = h.Load(rdr.buf());
+		if (!r)
+			return;
+		// are we good?
+		if (r > 0)
+		{
+			rdr.drop(r);
+			auto status = h.getStatus();
+			if (AC_UNLIKELY(h.type != header::eHeadType::ANSWER))
+				status = { 503, to_string("Bad proxy response"sv)};
+
+			if (h.getStatus().code == 200)
+			{
+				bufferevent_disable(bev, EV_READ | EV_WRITE);
+				bufferevent_setcb(bev, nullptr, nullptr, nullptr, nullptr);
+				return m_reporter({ 0, as_lptr<atransport>(m_result)});
+			}
+			return m_reporter({ eTransErrors::TRANS_STREAM_ERR_FATAL | eTransErrors::TRANS_FAULTY_SSL_PEER, status.msg });
+		}
+		return m_reporter({ eTransErrors::TRANS_STREAM_ERR_FATAL | eTransErrors::TRANS_FAULTY_SSL_PEER, "Bad SSL tunnel response"sv });
+	}
+	void onStatusFromProxy(struct bufferevent *bev, short what)
+	{
+		ABORT_IF_CANCELED;
+		if (what & (BEV_EVENT_EOF | BEV_EVENT_ERROR | BEV_EVENT_TIMEOUT))
+			return m_reporter({ eTransErrors::TRANS_STREAM_ERR_FATAL | eTransErrors::TRANS_FAULTY_SSL_PEER, "Bad SSL tunnel response"sv });
 	}
 
 	void DoTlsSwitch(unique_fd ufd)
@@ -289,13 +342,13 @@ struct tConnContext : public tLintRefcounted
 		__inc_ref();
 	}
 
-	static void cbStatusSslCheck(struct bufferevent *bev, short what, void *ctx)
+	void onStatusSslCheck(struct bufferevent *bev, short what)
 	{
-		lint_ptr<tConnContext> me((tConnContext*) ctx); // get ownership back, with type
+		ABORT_IF_CANCELED;
 
 		if (what & (BEV_EVENT_EOF | BEV_EVENT_ERROR | BEV_EVENT_TIMEOUT))
 		{
-			return me->m_reporter({TRANS_FAULTY_SSL_PEER, pfxSslError + "Handshake aborted"});
+			return m_reporter({TRANS_FAULTY_SSL_PEER, pfxSslError + "Handshake aborted"});
 		}
 
 		if (what & BEV_EVENT_CONNECTED)
@@ -305,7 +358,7 @@ struct tConnContext : public tLintRefcounted
 			{
 				auto err = X509_verify_cert_error_string(hret);
 				if (!err) err = "Handshake failed";
-				return me->m_reporter({TRANS_FAULTY_SSL_PEER, pfxSslError + err});
+				return m_reporter({TRANS_FAULTY_SSL_PEER, pfxSslError + err});
 			}
 			auto remote_cert = SSL_get_peer_certificate(bufferevent_openssl_get_ssl(bev));
 			if(remote_cert)
@@ -315,11 +368,11 @@ struct tConnContext : public tLintRefcounted
 				X509_free(remote_cert);
 			}
 			else // The handshake was successful although the server did not provide a certificate
-				return me->m_reporter({TRANS_FAULTY_SSL_PEER, pfxSslError + "Incompatible remote certificate"});
+				return m_reporter({TRANS_FAULTY_SSL_PEER, pfxSslError + "Incompatible remote certificate"});
 
 			bufferevent_disable(bev, EV_READ | EV_WRITE);
 			bufferevent_setcb(bev, nullptr, nullptr, nullptr, nullptr);
-			return me->m_reporter({ 0, static_lptr_cast<atransport>(me->m_result)});
+			return m_reporter({ 0, static_lptr_cast<atransport>(m_result)});
 		}
 		ASSERT(!"unknown event?");
 	}

@@ -61,9 +61,8 @@ acng::acng_addrinfo::operator mstring() const {
 	return formatIpPort((const sockaddr *) &ai_addr, ai_addrlen, ai_family);
 }
 
-string makeHostPortKey(const string & sHostname, uint16_t nPort)
+string HostPortKeyMaker(const string & sHostname, uint16_t nPort)
 {
-#warning test this
 	string ret;
 	ret.reserve(sHostname.length()+2);
 	ret += char(nPort);
@@ -387,7 +386,7 @@ tDnsResContext::~tDnsResContext()
 		if (cfg::dnscachetime > 0) // keep a copy for other users
 		{
 			ret->clean_dns_cache();
-			auto newIt = dns_cache.emplace(makeHostPortKey(sHost, nPort), ret);
+			auto newIt = dns_cache.emplace(HostPortKeyMaker(sHost, nPort), ret);
 			dns_exp_q.push_back(newIt.first);
 		}
 		return;
@@ -422,7 +421,7 @@ void CAddrInfo::Resolve(cmstring & sHostname, uint16_t nPort, tDnsResultReporter
 				return;
 			}
 
-			auto key = makeHostPortKey(sHostname, nPort);
+			auto key = HostPortKeyMaker(sHostname, nPort);
 			if(cfg::dnscachetime > 0)
 			{
 				auto caIt = dns_cache.find(key);

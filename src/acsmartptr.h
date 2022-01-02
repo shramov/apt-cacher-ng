@@ -302,10 +302,17 @@ inline lint_ptr<C> as_lptr(C* a, bool initialyTakeRef = true)
 	return lint_ptr<C>(a, initialyTakeRef);
 };
 
+
 template<typename C, typename Torig>
 inline lint_ptr<C> static_lptr_cast(lint_ptr<Torig> a)
 {
 	return lint_ptr<C>(static_cast<C*>(a.get()));
+};
+
+template<typename C, typename Torig>
+inline lint_ptr<C> as_lptr(lint_ptr<Torig> a)
+{
+	return static_lptr_cast<C>(a);
 };
 
 template<class C>

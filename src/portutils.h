@@ -28,7 +28,7 @@ private:
 	char buf[6];
 };
 
-std::string makeHostPortKey(const std::string & sHostname, uint16_t nPort);
+std::string HostPortKeyMaker(const std::string & sHostname, uint16_t nPort);
 
 }
 

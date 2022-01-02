@@ -68,6 +68,7 @@ struct beconsum
 	beconsum(bufferevent* eb) : m_eb(bufferevent_get_input(eb)) {}
     size_t size() { return evbuffer_get_length(m_eb); }
 	beconsum& drop(size_t howMuch) { evbuffer_drain(m_eb, howMuch); return *this; }
+	evbuffer* buf() { return m_eb; }
 	/**
 	 * @brief front_view gets contigous view on the first chunk in the buffer.
 	 * @param limit if negative, grab the maximum size of the first chunk. If positive, then the size of the first chunk but not more than limit value

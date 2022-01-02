@@ -1,5 +1,7 @@
 FIXME:
 
+Add dead proxy detection (disabling and restoration) handling
+
 Fix and improve maint log purging
 
 Too many newlines in downloadIO output
@@ -9,14 +11,11 @@ Maybe... restore data collector, or maybe drop it and add a log scanner script i
 
 Move dnsbase into custom source, access through resources!
 
-Check Cancel link in maint page, seems to be broken.
-
 Add tests:
 
 import of files
 delivery of imported files
 sanity check of the headers of imported files
-
 add proxy handling
 CONNECT through proxy handling
 accessing https through a https proxy (fully authorized, no authorization, denied access)

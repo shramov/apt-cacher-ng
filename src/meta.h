@@ -325,6 +325,7 @@ class NoCaseStringMap : public std::map<mstring, mstring, ltstring>
 };
 
 static constexpr string_view svRN = szRN;
+static constexpr string_view svRN2 = szRN szRN;
 static constexpr string_view svLF = "\n";
 static constexpr string_view svEmpty = "";
 
