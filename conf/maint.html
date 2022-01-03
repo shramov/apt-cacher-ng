@@ -38,15 +38,16 @@ function copycheck(src, clname)
 
 	       function doCancel()
 	       {
+		      // get rid of all parameters
 		      var baseLink = window.location.href.split('?')[0];
 		      var canLink = baseLink + "?sigAbort=1";
-		      window.location.assign(canLink);
+		      window.location.href = canLink;
 	      }
 
 	       function doForce()
 	       {
-		      var canLink = window.location.href + "&force=1";
-		      window.location.assign(canLink);
+		      window.location.href = window.location.href.replace( /\?|$/, "?force=1&" );
+//			window.location.reload(true);
 	      }
 
       </script>
