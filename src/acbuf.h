@@ -200,7 +200,7 @@ struct ebstream
 	ebstream(bufferevent* pbe) : be(bufferevent_get_output(pbe)) {}
 	ebstream(evbuffer* pbe) : be(pbe) {}
 
-	ebstream& operator<<(string_view sv) { if (0 == evbuffer_add(be, sv.data(), sv.size())) return *this; throw std::bad_alloc(); }
+	ebstream& operator<<(string_view sv) { if (sv.empty()) return *this; if (0 == evbuffer_add(be, sv.data(), sv.size())) return *this; throw std::bad_alloc(); }
 	ebstream & operator<<(imode mode) { m_imode = mode; return *this;}
 	ebstream & operator<<(bmode mode) { m_bmode = mode; return *this;}
 	ebstream & operator<<(tSS::fmtflags) =delete; // XXX: detect legacy code causing bad conversion to integer

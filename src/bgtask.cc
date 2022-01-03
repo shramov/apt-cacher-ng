@@ -1,10 +1,3 @@
-/*
- * bgtask.cpp
- *
- *  Created on: 18.09.2009
- *      Author: ed
- */
-
 #include <cstring>
 
 #include "bgtask.h"
@@ -13,8 +6,6 @@
 #include "meta.h"
 #include "filereader.h"
 #include "evabase.h"
-
-#include <condition_variable>
 
 #include <limits.h>
 #include <errno.h>
@@ -26,50 +17,45 @@
 using namespace std;
 
 #define LOG_DECO_START "<html><head><style type=\"text/css\">" \
-".WARNING { color: orange; }\n.ERROR { color: red; }\n" \
-"</style></head><body>"
+	".WARNING { color: orange; }\n.ERROR { color: red; }\n" \
+	"</style></head><body>"
 #define LOG_DECO_END "</body></html>"
 
 namespace acng
 {
 
-#ifdef HAVE_ZLIB
-mstring tExclusiveUserAction::BuildCompressedDelFileCatalog()
+unsigned tExclusiveUserAction::Add2KillBill(cmstring &sPathRel)
 {
-	mstring ret;
-	tSS buf;
-
-	// add the recent command, then the file records
-
-	auto addLine = [&buf](unsigned id, cmstring& s)
-		{
-		unsigned len=s.size();
-		buf.add((const char*) &id, sizeof(id))
-				.add((const char*) &len, sizeof(len))
-				.add(s.data(), s.length());
-		};
-	// don't care about the ID, compression will solve it
-	addLine(0, m_parms.cmd);
-	for(const auto& kv: m_pathMemory)
-		addLine(kv.second.id, kv.first);
-
-	unsigned uncompSize=buf.size();
-	tSS gzBuf;
-	uLongf gzSize = compressBound(buf.size())+32; // extra space for length header
-	gzBuf.setsize(gzSize);
-	// length header
-	gzBuf.add((const char*)&uncompSize, sizeof(uncompSize));
-	if(Z_OK == compress((Bytef*) gzBuf.wptr(), &gzSize,
-			(const Bytef*)buf.rptr(), buf.size()))
+	tSS nam;
+	nam << CACHE_BASE << MJSTORE_SUBPATH << "/" << GetCacheKey() << ".kb"sv;
+	if (!m_bHaveDeletionCandidates)
 	{
-		ret = "<input type=\"hidden\" name=\"blob\"\nvalue=\"";
-		ret += EncodeBase64(gzBuf.rptr(), (unsigned short) gzSize+sizeof(uncompSize));
-		ret += "\">";
-		return ret;
+		// XXX: error handling?
+		mkdirhier(nam);
+		m_bHaveDeletionCandidates = true;
 	}
-	return "";
+	nam << "/" << m_nKbInitVec;
+
+	auto tgt = (string("../../..") + sPathRel);
+	auto r = symlink(tgt.c_str(), nam.c_str());
+	if (r)
+	{
+		USRDBG("SYMLINK FAIL! " << r << " to " << nam << " at " << tgt );
+	}
+	return m_nKbInitVec++;
 }
 
-#endif
+void tExclusiveUserAction::SendProp(cmstring &key)
+{
+	if (key == "purgeactionmeta")
+	{
+		if (m_bHaveDeletionCandidates)
+		{
+			SendFmt << "<input type=\"hidden\" name=\"kbid\"\nvalue=\""sv << GetCacheKey() << "\">"sv;
+		}
+	}
+	else
+		return tMaintJobBase::SendProp(key);
+}
 
 }

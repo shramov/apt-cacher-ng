@@ -4,7 +4,7 @@
       <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
       <meta http-equiv="X-UA-Compatible" content="IE=8" />
       <meta name="MSSmartTagsPreventParsing" content="true" />
-      <title>Apt-Cacher NG maintenance task progress</title>
+      <title>Apt-Cacher NG maintenance: ${taskTitle}</title>
       <link rel="stylesheet" type="text/css" href="/style.css" />
 
       
@@ -79,6 +79,7 @@ function  appendData()
       </script-->
    </head>
    <body>
+	   <form id="mainForm">
          <table class="maxwid center noborders" cellspacing=0 cellpadding=0>
             <tr>
 		    <td class="title">Apt-Cacher NG maintenance tasks on ${hostname}</td>
@@ -93,8 +94,20 @@ function  appendData()
                   </div>
                </td>
             </tr>
+	    <tr class="visarea maxwid" style="display:${:/purgeActionVisible/block/none}">
+		    <td style="width:100%">
+			    <div class="visarea maxwid" style="white-space:nowrap;height:100%;width:100%">${purgeactionmeta}
+				<b>Action(s):</b><br>
+				<input type="submit" name="doDelete" value="Delete selected files" class="btnmargin">
+				<input type="submit" name="doTruncate" value="Truncate selected files to zero size" class="btnmargin">
+				<button type="button" onclick="checkOrUncheck(true);" class="btnmargin">Check all</button>
+				<button type="button" onclick="checkOrUncheck(false);" class="btnmargin">Uncheck all</button>
+			    </div>
+		    </td>
+	    </tr>
 	    <tr><td><div class="visarea maxwid">${footer}</div></td></tr>
          </table>
+	   </form>
    </body>
 </html>
 

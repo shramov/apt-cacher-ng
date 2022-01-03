@@ -16,21 +16,13 @@ namespace acng
 
 class ACNG_API tExclusiveUserAction : public tMaintJobBase
 {
+	unsigned m_nKbInitVec = 0;
 public:
 	using tMaintJobBase::tMaintJobBase;
-
-private:
-
-	// XXX: this code sucks and needs a full review. It abuses shared_ptr as stupid reference
-	// counter. Originally written with some uber-protective considerations in mind like
-	// not letting a listener block the work of an operator by any means.
-
-	protected:
-	// value is an ID number assigned to the string (key) in the moment of adding it
-	struct pathMemEntry { mstring msg; unsigned id;};
-	std::map<mstring,pathMemEntry> m_pathMemory;
-	// generates a lookup blob as hidden form parameter
-	mstring BuildCompressedDelFileCatalog();
+protected:
+	unsigned Add2KillBill(cmstring& sPathRel);
+	// adds "purgeactionmeta"
+	virtual void SendProp(cmstring &key) override;
 };
 
 enum ControLineType : uint8_t
@@ -41,7 +33,7 @@ enum ControLineType : uint8_t
 };
 #define maark "41d_a6aeb8-26dfa" // random enough to not match anything existing *g*
 
-#define MJSTORE_SUBPATH "_xstore/maintjobs"
+#define MJSTORE_SUBPATH "_xstore/maintjobs"sv
 
 }
 

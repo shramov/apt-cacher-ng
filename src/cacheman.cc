@@ -2290,15 +2290,9 @@ void cacheman::TellCount(unsigned nCount, off_t nSize)
 
 mstring cacheman::AddLookupGetKey(cmstring &sFilePathRel, cmstring& errorReason)
 {
-	unsigned id = m_pathMemory.size();
-	auto it = m_pathMemory.find(sFilePathRel);
-	if(it==m_pathMemory.end())
-		m_pathMemory[sFilePathRel] = {errorReason, id};
-	else
-		id = it->second.id;
-
+	auto id = Add2KillBill(sFilePathRel);
 	mstring ret(WITHLEN(" name=\"kf\" value=\""));
-	ret += to_base36(id);
+	ret += ltos(id);
 	ret += "\"";
 	return ret;
 }
@@ -2355,13 +2349,6 @@ void cacheman::PrintStats(cmstring &title)
 		}
 		SendFmt << "</tbody></table>";
 
-		if(m_pathMemory.empty())
-		{
-			SendFmt << "<br><b>Action(s):</b><br>"
-							"<input type=\"submit\" name=\"doDelete\""
-							" value=\"Delete selected files\">";
-			SendFmt << BuildCompressedDelFileCatalog();
-		}
 		if(!m_bVerbose)
 			SendFmt << "</div>";
 }

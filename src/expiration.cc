@@ -760,7 +760,7 @@ void expiration::HandleDamagedFiles()
 
 void expiration::PurgeMaintLogs()
 {
-	tStrDeq logs = ExpandFilePattern(SZABSPATH(MJSTORE_SUBPATH "/*.html"));
+	tStrDeq logs = ExpandFilePattern(Concat(CACHE_BASE, MJSTORE_SUBPATH "/*.html"sv));
 	if (logs.size() > 2)
 		Send("Found required cleanup tasks: purging maintenance logs...<br>\n"sv);
 	auto threshhold = GetTime() - cfg::extreshhold * 24*60*60;

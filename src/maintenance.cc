@@ -110,11 +110,11 @@ public:
 
 		tSS nam;
 		nam << CACHE_BASE << MJSTORE_SUBPATH;
-		mkdirhier(nam.c_str());
+		mkdirhier(nam);
 		nam << "/" << handler->GetCacheKey() << ".html";
 		m_outFile.reset(open(nam.c_str(), O_WRONLY | O_CREAT | O_BINARY, cfg::fileperms));
 		nam.drop(CACHE_BASE_LEN);
-		m_sPathRel = nam.view();
+		m_sPathRel = nam;
 
 		if (!AC_UNLIKELY(m_outFile.valid()))
 		{

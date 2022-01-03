@@ -1,15 +1,16 @@
-apt-cacher-ng (4.0) 4-ELIZA; urgency=low
+apt-cacher-ng (3.99-pre-alpha-0) 4-ELIZA; urgency=low
 
-  * A new(er) generation of Apt-Cacher NG is emerging!
 
-  [ NEW FEATURES AND IMPROVEMENTS ]
+  * A new(er) generation of Apt-Cacher NG is emerging! (FIXME: WIP, has emerged)
 
-FIXME: WIP
+  [ NEW FEATURES AND IMPROVEMENTS ] (FIXME: WIP)
+
    * HTTPS connections behind a HTTPS proxy possible
    * Storing maintenance processing (HTML) logs in internal cache, not in
      logdir anymore. This allows for password protected access and precise
      control of their expiration, and controlled expiration of those logs
      without additional tricks outside.
+   * better interaction in the maintenance pages
 
   [ INTERNAL IMPROVEMENTS AND BUGFIXES ]
 

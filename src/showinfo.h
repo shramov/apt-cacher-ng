@@ -31,6 +31,7 @@ protected:
 	tRemoteStatus m_httpStatus;
 
 	bool m_bFatalError = false;
+	bool m_bHaveDeletionCandidates = false;
 
 	// uses fallback lookup map, can be feed with data in subclass constructor
 	virtual void SendProp(cmstring &key);

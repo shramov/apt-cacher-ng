@@ -514,9 +514,9 @@ void tMaintJobBase::SendProp(cmstring &key)
 int tMaintJobBase::CheckCondition(string_view key)
 {
 	if (key == "showCancel"sv)
-	{
 		return ! (GetTaskInfo(m_parms.type).flags & EXCLUSIVE);
-	}
+	if (key == "purgeActionVisible"sv)
+		return ! m_bHaveDeletionCandidates;
 	return tMarkupFileSend::CheckCondition(key);
 }
 
