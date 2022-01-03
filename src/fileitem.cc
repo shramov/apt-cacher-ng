@@ -45,6 +45,7 @@ aobservable::subscription fileitem::Subscribe(const tAction &pokeAction)
 fileitem::fileitem(string_view sPathRel) :
 	m_sPathRel(sPathRel)
 {
+	ASSERT_IS_MAIN_THREAD;
 }
 
 void fileitem::DlRefCountAdd()

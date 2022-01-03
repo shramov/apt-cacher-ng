@@ -238,20 +238,25 @@ class CDlConn : public dlcontroller
 	unique_event m_dispatchNotifier;
 
 	tDlStreamPool m_streams;
+	aobservable::subscription m_idleBeat;
+
+#warning drop them. They are dangerous and proper bookkeeping is probably more costly then the benefits, considered the low count of streams.
 	tDlStreamPool::iterator m_lastUsedStream = m_streams.end();
 	set<tDlStreamPool::iterator, tCompStreamIterators> m_idleStreams;
-	aobservable::subscription m_idleBeat;
+
 
 public:
 
 	CDlConn(acres& res_) : m_res(res_)
 	{
 		LOGSTARTFUNC;
+		ASSERT_IS_MAIN_THREAD;
 		m_dispatchNotifier.reset(evtimer_new(evabase::base, cbDispatchTheQueue, this));
 	}
 	~CDlConn()
 	{
 		LOGSTARTFUNC;
+		ASSERT_IS_MAIN_THREAD;
 	}
 	tRemoteValidator& GetValidator() { return m_validator; }
 	acres& GetAppRes() { return m_res; }
@@ -269,6 +274,8 @@ public:
 	}
 	void DropIdleStreams()
 	{
+		auto pin = as_lptr(this);
+
 		for(auto& it: m_idleStreams)
 		{
 			if (it == m_lastUsedStream)
@@ -320,6 +327,8 @@ public:
 
 	void ReportStreamIdle(tDlStreamPool::iterator where)
 	{
+		ASSERT_IS_MAIN_THREAD;
+
 		// if no time for idling, move it!
 		if (m_bInShutdown || !m_backlog.empty())
 			DeleteStream(where);
@@ -343,6 +352,7 @@ public:
 	 */
 	void Abandon() override
 	{
+		ASSERT_IS_MAIN_THREAD;
 		m_bInShutdown = true;
 		m_backlog.m_data.clear();
 
@@ -1349,6 +1359,7 @@ void tDlStream::DropBacklog()
 tDlStream::~tDlStream()
 {
 	ASSERT(m_waiting.empty() && m_requested.empty());
+	ASSERT_IS_MAIN_THREAD;
 	if (m_transport && !m_dirty && m_requested.empty())
 		atransport::Return(m_transport);
 

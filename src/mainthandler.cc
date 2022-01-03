@@ -21,6 +21,7 @@ using namespace std;
 mainthandler::mainthandler(tRunParms&& parms) :
 		m_parms(move(parms))
 {
+	gettimeofday(&m_startTime, nullptr);
 }
 
 class authbounce : public mainthandler
@@ -179,6 +180,11 @@ const string & mainthandler::GetMyHostPort()
 	m_sHostPort += ':';
 	m_sHostPort += tPortFmter().fmt(cfg::port);
 	return m_sHostPort;
+}
+
+tSS mainthandler::GetCacheKey()
+{
+	return tSS(50) << desc().typeName << "." << m_startTime.tv_sec << "." << m_startTime.tv_usec;
 }
 
 IMaintJobItem::IMaintJobItem(std::unique_ptr<mainthandler> &&han, IMaintJobItem *owner) :

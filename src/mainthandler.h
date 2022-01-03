@@ -64,7 +64,7 @@ class ACNG_API mainthandler
 {
 protected:
 	friend class BufferedPtItem;
-
+	static std::atomic_int g_genSfx;
 public:
 	// common data to be passed through constructors and kept in the base object
 	struct tRunParms
@@ -97,13 +97,12 @@ public:
 	mainthandler(tRunParms&& parms);
 
 protected:
+	struct timeval m_startTime;
 
-	inline void Send(const char *data, size_t size)	{ return Send(string_view(data, size));	}
-	inline void Send(ebstream& data) { return Send(data.be); }
+	void Send(const char *data, size_t size)	{ return Send(string_view(data, size));	}
+	void Send(ebstream& data) { return Send(data.be); }
 	void Send(evbuffer *data) { m_parms.owner->Send(data); };
 	void Send(string_view sv) { m_parms.owner->Send(sv); };
-
-	cmstring & GetMyHostPort();
 
 private:
 	mainthandler(const mainthandler&);
@@ -114,6 +113,19 @@ public:
 
 	inline fileitem& item() { return * m_parms.owner; }
 	const tSpecialWorkDescription& desc();
+
+	cmstring & GetMyHostPort();
+	/**
+	 * @brief GetCacheKey formats something like <internalname>.<seconds>.<microseconds>
+	 * @return
+	 */
+	tSS GetCacheKey();
+
+	/**
+	 * @brief GetCacheKeyEx returns a GetCacheKey() result with .<autoincremented-suffix>.
+	 * @return
+	 */
+	tSS GetCacheKeyEx() { return GetCacheKey() << g_genSfx++;  }
 
 	// dirty little RAII helper to send data after formating it, uses a shared
 	// buffer presented to the user via macro. This two-stage design should

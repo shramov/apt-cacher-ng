@@ -345,7 +345,6 @@ void tMarkupFileSend::SendIfElse(LPCSTR pszBeginSep, LPCSTR pszEnd)
 
 tMaintOverview::tMaintOverview(tRunParms &&parms) : tMaintJobBase(std::move(parms))
 {
-	m_startTime = GetTime();
 }
 
 void tMaintOverview::SendProp(cmstring &key)
@@ -504,7 +503,8 @@ void tMaintJobBase::SendProp(cmstring &key)
 		return Action();
 	if (key == "startTime")
 	{
-		SendFmt << tHttpDate(m_startTime).view();
+#warning apply local time somehow?
+		SendFmt << tHttpDate(m_startTime.tv_sec).view();
 		return;
 	}
 

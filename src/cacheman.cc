@@ -2298,7 +2298,7 @@ mstring cacheman::AddLookupGetKey(cmstring &sFilePathRel, cmstring& errorReason)
 		id = it->second.id;
 
 	mstring ret(WITHLEN(" name=\"kf\" value=\""));
-	ret +=to_base36(id);
+	ret += to_base36(id);
 	ret += "\"";
 	return ret;
 }

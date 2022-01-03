@@ -64,7 +64,6 @@ protected:
 	void ProcessResource(cmstring sFilename);
 
 	bool CheckStopSignal();
-	time_t m_startTime = GetTime();
 };
 
 class tDeleter : public tMarkupFileSend

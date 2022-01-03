@@ -108,12 +108,10 @@ public:
 	{
 		m_bPureStreamNoStorage = false;
 
-		timeval tv;
-		gettimeofday(&tv, 0);
 		tSS nam;
 		nam << CACHE_BASE << MJSTORE_SUBPATH;
 		mkdirhier(nam.c_str());
-		nam << "/" << handler->desc().typeName << "." << tv.tv_sec << "." << tv.tv_usec << ".html";
+		nam << "/" << handler->GetCacheKey() << ".html";
 		m_outFile.reset(open(nam.c_str(), O_WRONLY | O_CREAT | O_BINARY, cfg::fileperms));
 		nam.drop(CACHE_BASE_LEN);
 		m_sPathRel = nam.view();

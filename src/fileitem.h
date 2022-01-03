@@ -103,7 +103,7 @@ public:
 	virtual std::unique_ptr<ICacheDataSender> GetCacheSender() =0;
 
 	fileitem(string_view sPathRel);
-	virtual ~fileitem() =default;
+	virtual ~fileitem() { ASSERT_IS_MAIN_THREAD; }
 	
 	// initialize file item, return the status
 	virtual FiStatus Setup() { return FIST_DLERROR; };
