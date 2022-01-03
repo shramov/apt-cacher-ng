@@ -175,6 +175,7 @@ struct tDlStream : public tLintRefcounted
 				OnRead(m_transport->GetBufferEvent());
 		});
 	}
+	bool IsIdle() { return m_waiting.empty() && m_requested.empty();};
 
 
 	~tDlStream();
@@ -212,20 +213,12 @@ private:
 	//bool m_bShutdownLosingData = false;
 };
 
-struct tCompStreamIterators
-{
-	bool operator() (const tDlStreamPool::iterator &a, const tDlStreamPool::iterator &b)
-	const
-	{
-		return & a->second < & b->second;
-	}
-};
-
 class CDlConn : public dlcontroller
 {
 	acres& m_res;
 
 	unsigned m_nJobIdgen = 0;
+//	unsigned m_nIdleCount = 0;
 	bool m_bInShutdown = false;
 	// self-reference which is set when the shutdown phase starts and there are external users of some of the served items
 	lint_ptr<dlcontroller> m_shutdownLock;
@@ -240,9 +233,7 @@ class CDlConn : public dlcontroller
 	tDlStreamPool m_streams;
 	aobservable::subscription m_idleBeat;
 
-#warning drop them. They are dangerous and proper bookkeeping is probably more costly then the benefits, considered the low count of streams.
 	tDlStreamPool::iterator m_lastUsedStream = m_streams.end();
-	set<tDlStreamPool::iterator, tCompStreamIterators> m_idleStreams;
 
 
 public:
@@ -263,26 +254,18 @@ public:
 
 	void DeleteStream(tDlStreamPool::iterator what)
 	{
-		m_idleStreams.erase(what);
-		if (m_idleStreams.empty())
-			m_idleBeat.reset();
-		if (m_lastUsedStream == what)
-			m_lastUsedStream = m_streams.end();
+		ASSERT_IS_MAIN_THREAD;
+		m_lastUsedStream = m_streams.end();
 		m_streams.erase(what);
-
 		TermOrProcBacklog();
 	}
 	void DropIdleStreams()
 	{
+		ASSERT_IS_MAIN_THREAD;
 		auto pin = as_lptr(this);
-
-		for(auto& it: m_idleStreams)
-		{
-			if (it == m_lastUsedStream)
-				m_lastUsedStream = m_streams.end();
-			m_streams.erase(it);
-		}
-		m_idleStreams.clear();
+		m_lastUsedStream = m_streams.end();
+		for (auto it = m_streams.begin(); it != m_streams.end();)
+			it = it->second.IsIdle() ? m_streams.erase(it) : ++it;
 		m_idleBeat.reset();
 		TermOrProcBacklog();
 	}
@@ -292,9 +275,9 @@ public:
 	 * Releases the self-lock but only after all streams were finished.
 	 * This is aligned with Abandon() activity.
 	 *
-	 * @return True if shutdown wsa initiated or performed.
+	 * @return True if shutdown was initiated or performed.
 	 */
-	bool TerminateAsNeeded()
+	bool TermUnlockIfPossible()
 	{
 		if (!m_bInShutdown)
 			return false;
@@ -319,13 +302,13 @@ public:
 	 */
 	bool TermOrProcBacklog()
 	{
-		if (TerminateAsNeeded())
+		if (TermUnlockIfPossible())
 			return true;
 		ProcessBacklog();
 		return false;
 	}
 
-	void ReportStreamIdle(tDlStreamPool::iterator where)
+	void ReportIdleOrDeleteStream(tDlStreamPool::iterator where)
 	{
 		ASSERT_IS_MAIN_THREAD;
 
@@ -336,7 +319,6 @@ public:
 		if (TermOrProcBacklog())
 			return;
 
-		m_idleStreams.insert(where);
 		// keep them idle for a dynamic hold-off period, 0..3s
 		if (!m_idleBeat)
 		{
@@ -362,7 +344,7 @@ public:
 		for(auto& kv : m_streams)
 			kv.second.DropBacklog();
 
-		if(!TerminateAsNeeded())
+		if(!TermUnlockIfPossible())
 			m_shutdownLock.reset(this);
 	};
 
@@ -1320,8 +1302,8 @@ void tDlStream::OnRead(bufferevent *pBE)
 		}
 	}
 
-	if (m_waiting.empty() && m_requested.empty())
-		m_parent->ReportStreamIdle(m_meRef);
+	if (IsIdle())
+		m_parent->ReportIdleOrDeleteStream(m_meRef);
 }
 
 void tDlStream::OnStatus(bufferevent *, short what)
@@ -1464,7 +1446,11 @@ void tDlStream::handleDisconnect(string_view why, tComError cause)
 
 	m_connectionToken.reset();
 	m_transport.reset();
-	m_parent->ReportStreamIdle(m_meRef);
+
+	if (m_dirty)
+		m_parent->DeleteStream(m_meRef);
+	else
+		m_parent->ReportIdleOrDeleteStream(m_meRef);
 }
 
 void CDlConn::StraightToBacklog(tDlJob *j)
@@ -1549,7 +1535,6 @@ void CDlConn::DispatchDfrd(tDlJob *what)
 	{
 		if (!it->second.TakeJob(what))
 			return false;
-		m_idleStreams.erase(it);
 		m_lastUsedStream = it;
 		return true;
 	};
