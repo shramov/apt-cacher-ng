@@ -16,9 +16,7 @@ be observed.
 
 New scheme uses symlinks, old gets the protected paths from the blob -> adjust it
 
-### Test check/uncheck all buttons
-
-### Maybe add link to control page to footer?
+### Add reliable auto-bottom-scrolling to maint pages
 
 ### Change the exclusive page handling:
 - opening while active -> new info page about activity, options: cancel-and-replace or attach

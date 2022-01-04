@@ -260,14 +260,30 @@ std::string PathCombine(string_view a, string_view b);
 inline std::string Concat(string_view a, string_view b, string_view c = string_view())
 {
 	std::string ret;
-	if (!a.empty())
-		ret.append(a);
-	if (!b.empty())
-		ret.append(b);
-	if (!c.empty())
-		ret.append(c);
+	ret.reserve(a.size() + b.size() + c.size());
+	if (!a.empty()) ret.append(a);
+	if (!b.empty()) ret.append(b);
+	if (!c.empty())	ret.append(c);
 	return ret;
 }
+inline std::string Concat(string_view a,
+						  string_view b,
+						  string_view c,
+						  string_view d,
+						  string_view e = string_view(),
+						  string_view f = string_view())
+{
+	std::string ret;
+	ret.reserve(a.size() + b.size() + c.size() + d.size() + e.size() + f.size());
+	if (!a.empty()) ret.append(a);
+	if (!b.empty()) ret.append(b);
+	if (!c.empty())	ret.append(c);
+	if (!d.empty()) ret.append(d);
+	if (!e.empty()) ret.append(e);
+	if (!f.empty())	ret.append(f);
+	return ret;
+}
+
 
 bool scaseequals(string_view a, string_view b);
 
