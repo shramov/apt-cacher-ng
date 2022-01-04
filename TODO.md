@@ -2,7 +2,15 @@
 
 ## Maint stuff
 
+### Maybe add some sequencing of download jobs
+
+Could push all requests (parms of Download()) into a list, run the download
+with that list, which returns a vector of results with cond_var on it which can
+be observed.
+
 ### Fix and improve maint log purging
+
+### Restore Injecting item, check patching result processing
 
 ### Restore the delete / truncate tasks
 
@@ -71,7 +79,7 @@ Maybe... restore data collector, or maybe drop it and add a log scanner script i
 
 # MISC
 
-Add guided precaching functionality to acngtool.
+Move guided precaching functionality to acngtool.
 
 Drop "curl" functionality from acngtool. As transitional solution, call
 curl/wget/http(from-apt) as client instead. Then drop DL code usage from UDS
@@ -84,6 +92,11 @@ Rework acfg namespace to use a builder object.
 Redesign the config file format to add sections for remap-stuff instead of
 pushing everything into the same config line.  Basic idea: git-config extended
 ini format.
+
+Add better collaboration with a frontend HTTP server like nginx. Maybe offer
+special paramters for specific server ports, so X-Forwarded-For is only
+accepted from those ports. Better configuration file would be needed here, as
+mentioned above.
 
 Better cleanup for orphaned .gpg files
 
