@@ -432,6 +432,7 @@ tFileItemPtr CreateSpecialWork(EWorkType jobType, bufferevent *bev, const tHttpU
 			{
 				rawItem->Eof();
 				auto item = as_lptr(static_cast<IMaintJobItem*>(rawItem), false);
+				item->GetHandler()->m_bSigTaskAbort = false;
 				item->GetHandler()->m_bItemIsHot = false;
 				item->GetHandler()->m_itemLock.reset();
 				CHECK_UNSET_EXCL_JOB;

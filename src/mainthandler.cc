@@ -214,7 +214,8 @@ void IMaintJobItem::Abandon()
 	if (handler && handler->m_bItemIsHot)
 	{
 		handler->m_bSigTaskAbort = true;
-		handler->m_itemLock = as_lptr(this);
+		if (AC_LIKELY(!handler->m_itemLock))
+			handler->m_itemLock = as_lptr(this);
 	}
 	return fileitem::Abandon();
 }
