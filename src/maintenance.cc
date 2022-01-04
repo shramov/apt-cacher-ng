@@ -113,14 +113,15 @@ public:
 		mkdirhier(nam);
 		nam << "/" << handler->GetCacheKey() << ".html";
 		m_outFile.reset(open(nam.c_str(), O_WRONLY | O_CREAT | O_BINARY, cfg::fileperms));
-		nam.drop(CACHE_BASE_LEN);
-		m_sPathRel = nam;
-
-		if (!AC_UNLIKELY(m_outFile.valid()))
+		if (!m_outFile.valid())
 		{
 			m_responseStatus = { 500, "Internal error"};
 			m_status = FIST_DLERROR;
+			USRDBG("Unable to create temporary task log storage " << nam << ": " << tErrnoFmter());
 		}
+		// even on error assign the name here to be on the safe side
+		nam.drop(CACHE_BASE_LEN);
+		m_sPathRel = nam;
 	}
 
 	void GotData(ssize_t l)
