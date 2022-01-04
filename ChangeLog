@@ -1,5 +1,13 @@
 apt-cacher-ng (3.99-pre-alpha-0) 4-ELIZA; urgency=low
 
+  * This is an early pre-alpha release of upcoming version 4 of ACNG
+    + EXPECT THIS CHANGELOG ENTRY TO BE REDACTED
+    + EXPECT BUGS AND DEFICIENCIES ALL OVER THE PLACE
+    + EXPECT THIS GIT BRANCH TO BE AMENDED
+    + see TODO.md and compiler warnings for outstanding issues to solve
+    + please report bugs and inconveniences at
+      https://salsa.debian.org/blade/apt-cacher-ng/-/issues and tag them with
+      label "v4"
 
   * A new(er) generation of Apt-Cacher NG is emerging! (FIXME: WIP, has emerged)
 
