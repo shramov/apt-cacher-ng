@@ -81,11 +81,14 @@ public:
 	/**
 	 * @brief m_bItemIsHot flags the current activity on this item (i.e. Run method is being executed, probbly in background
 	 */
-	std::atomic_bool m_bItemIsHot;
+	std::atomic_bool m_bItemIsHot = false;
 	/**
 	 * @brief g_sigTaskAbort shall be set to interrupt the thread ASAP
 	 */
 	std::atomic_bool m_bSigTaskAbort = false;
+
+	// to be released AFTER executing thread is finished but on the main task
+	lint_ptr<IMaintJobItem> m_itemLock;
 
 	/*!
 	 *  @brief Main execution method for maintenance tasks.

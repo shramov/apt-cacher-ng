@@ -117,7 +117,6 @@ public:
 	}
 };
 
-#warning init this everywhere evabase init is performed
 std::shared_ptr<tpool> tpool::Create(unsigned maxBacklog, unsigned maxActive, unsigned maxStandby)
 {
 	return std::make_shared<tpoolImpl>(maxBacklog, maxActive, maxStandby);

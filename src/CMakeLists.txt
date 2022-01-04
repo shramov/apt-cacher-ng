@@ -57,16 +57,6 @@ if (ENABLE_TOOL)
     INSTALL(TARGETS acngtool DESTINATION ${LIBDIR})
 endif()
 
-option(ENABLE_EXPERIMENTAL "Enables incomplete of unsafe features" off)
-if (ENABLE_EXPERIMENTAL)
-    ADD_LIBRARY(supacng_experimental STATIC atransport.cc)
-    #    ADD_EXECUTABLE(acngtoolX acngtool.cc)
-    #SET_TARGET_PROPERTIES(acngtoolX PROPERTIES COMPILE_FLAGS "${ACNG_COMPFLAGS} ${ACNG_CXXFLAGS} ${CFLAGS_PTHREAD} -DENABLE_EXPERIMENTAL")
-    #TARGET_LINK_LIBRARIES(acngtoolX supacng ${BaseNetworkLibs} ${CompLibs} ${SSL_LIB_LIST} ${CMAKE_THREAD_LIBS_INIT} ${EXTRA_LIBS_ACNGTOOL} supacng_experimental)
-    ADD_LIBRARY(devlib STATIC aclogger.cc conn.cc)
-endif()
-
-
 # build a special version for test with full symbol visibility
 if(ENABLE_TESTS)
 	ADD_LIBRARY(supacngTEST STATIC ${SHAREDSRCS})

@@ -209,28 +209,12 @@ cmstring &IMaintJobItem::GetExtraResponseHeaders()
 
 void IMaintJobItem::Abandon()
 {
+	ASSERT_IS_MAIN_THREAD;
+
 	if (handler && handler->m_bItemIsHot)
 	{
 		handler->m_bSigTaskAbort = true;
-		if(GetStatus() < FIST_COMPLETE)
-			DlSetError({500, "Aborted"}, EDestroyMode::DELETE);
-
-		auto* han = handler.get();
-		// install an agent which self-destructs and also releases item when it's really finished
-		struct checker : public tLintRefcounted
-		{
-			tFileItemPtr what;
-			aobservable::subscription myTimer;
-		};
-		auto instChecker = make_lptr<checker>();
-		instChecker->what.reset(this);
-		instChecker->myTimer = handler->m_parms.res.GetIdleCheckBeat().AddListener(
-					[instChecker, han](){
-			bool active = han->m_bItemIsHot;
-			if (!active)
-				return instChecker->myTimer.reset();
-		}
-		);
+		handler->m_itemLock = as_lptr(this);
 	}
 	return fileitem::Abandon();
 }
