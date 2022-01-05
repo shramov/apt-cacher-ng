@@ -129,18 +129,15 @@ inline void checkForceFclose(FILE* &fh)
 	}
 }
 
-// more efficient than tDtorEx with lambda
-struct FILE_RAII
+inline void forceFclose(FILE* fh)
 {
-	FILE *p = nullptr;
-	inline FILE_RAII() {};
-	inline ~FILE_RAII() { close(); }
-	operator FILE* () const { return p; }
-	inline void close() { checkForceFclose(p); };
-private:
-	FILE_RAII(const FILE_RAII&);
-	FILE_RAII operator=(const FILE_RAII&);
-};
+	int fd = fileno(fh);
+	if (0 != ::fclose(fh) && errno != EBADF)
+	{
+		checkforceclose(fd);
+	}
+	fh = nullptr;
+}
 
 void mkdirhier(cmstring& path);
 bool xtouch(cmstring &wanted);
@@ -166,6 +163,7 @@ using unique_fd = auto_raii<int, justforceclose, -1>;
 
 void event_and_fd_free(event*);
 using unique_fdevent = auto_raii<event*, event_and_fd_free, nullptr>;
+using FILE_RAII = auto_raii<FILE*, forceFclose, nullptr>;
 
 }
 

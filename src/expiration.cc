@@ -393,14 +393,14 @@ inline void expiration::RemoveAndStoreStatus(bool bPurgeNow)
     {
         DropExceptionalVersions();
         string sDbFileAbs=CACHE_BASE+FNAME_PENDING;
-        f.p = fopen(sDbFileAbs.c_str(), "w");
-        if(!f)
+		f.m_p = fopen(sDbFileAbs.c_str(), "w");
+		if(!f.valid())
         {
 			Send(WITHLEN("Unable to open " FNAME_PENDING
             		" for writing, attempting to recreate... "));
             ::unlink(sDbFileAbs.c_str());
-            f.p=::fopen(sDbFileAbs.c_str(), "w");
-            if(f)
+			f.m_p=::fopen(sDbFileAbs.c_str(), "w");
+			if(f.valid())
 				Send(WITHLEN("OK\n<br>\n"));
             else
             {
@@ -458,7 +458,7 @@ inline void expiration::RemoveAndStoreStatus(bool bPurgeNow)
 				::rmdir(SZABSPATH(dir_props.first));
 #endif
 			}
-			else if (f)
+			else if (f.valid())
 			{
 				SendFmt << "Tagging " << sPathRel;
 				if (m_bVerbose)
@@ -467,7 +467,7 @@ inline void expiration::RemoveAndStoreStatus(bool bPurgeNow)
 
 				nCount++;
 				tagSpace += desc.fpr.size;
-				fprintf(f, "%lu\t%s\t%s\n",
+				fprintf(f.get(), "%lu\t%s\t%s\n",
 						(unsigned long) desc.nLostAt,
 						dir_props.first.c_str(),
 						fileGroup.first.c_str());

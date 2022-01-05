@@ -1250,7 +1250,7 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 		for(const auto& histLine: csHist)
 		{
 			// quick filter
-			if(!pf.p && !startsWith(histLine, probeCS))
+			if(!pf.m_p && !startsWith(histLine, probeCS))
 				continue;
 
 			// analyze the state line
@@ -1258,7 +1258,7 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 			if(!split.Next() || !split.Next())
 				continue;
 			// at size token
-			if(!pf.p && probeSize != split.str())
+			if(!pf.m_p && probeSize != split.str())
 				return PATCH_FAIL; // faulty data?
 			if(!split.Next())
 				continue;
@@ -1274,12 +1274,12 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 			return PATCH_FAIL;
 
 		// ok, first patch of the sequence found
-		if(!pf.p)
+		if(!pf.m_p)
 		{
 			acng::mkbasedir(sPatchCombinedAbs);
 			// append mode!
-			pf.p=fopen(sPatchCombinedAbs.c_str(), "w");
-			if(!pf.p)
+			pf.m_p=fopen(sPatchCombinedAbs.c_str(), "w");
+			if(!pf.m_p)
 			{
 				Send("Failed to create intermediate patch file, stop patching...<br>");
 				return PATCH_FAIL;
@@ -1298,7 +1298,7 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 
 		// append context to combined diff while unpacking
 		// XXX: probe result can be checked against contents["SHA256-History"]
-		if(!probe.ScanFile(SABSPATH(patchPathRel), CSTYPE_SHA256, true, pf.p))
+		if(!probe.ScanFile(SABSPATH(patchPathRel), CSTYPE_SHA256, true, pf.m_p))
 		{
 			if(m_bVerbose)
 				SendFmt << "Failure on checking of intermediate patch data in " << patchPathRel << ", stop patching...<br>";
@@ -1310,16 +1310,16 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 			return PATCH_FAIL;
 		}
 
-		if(pf.p)
+		if(pf.valid())
 		{
-			::fprintf(pf.p, "w patch.result\n");
-			::fflush(pf.p); // still a slight risk of file closing error but it's good enough for now
-			if(::ferror(pf.p))
+			::fprintf(pf.m_p, "w patch.result\n");
+			::fflush(pf.m_p); // still a slight risk of file closing error but it's good enough for now
+			if(::ferror(pf.m_p))
 			{
 				Send("Patch application error<br>");
 				return PATCH_FAIL;
 			}
-			checkForceFclose(pf.p);
+			checkForceFclose(pf.m_p);
 
 	#ifndef DEBUGIDX
 			if(m_bVerbose)
@@ -1372,19 +1372,19 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 			FILE_RAII df;
 			DelTree(SABSPATH("_actmp"));
 			acng::mkbasedir(sPatchInputAbs);
-			df.p = fopen(sPatchInputAbs.c_str(), "w");
-			if(!df.p)
+			df.m_p = fopen(sPatchInputAbs.c_str(), "w");
+			if(!df.m_p)
 			{
 				SendFmt << "Cannot write temporary patch data to "
 						<< sPatchInputRel << "<br>";
 				return PATCH_FAIL;
 			}
 			if(!probeOrig.ScanFile(SABSPATH(pb),
-					CSTYPE_SHA256, true, df.p))
+					CSTYPE_SHA256, true, df.get()))
 			{
 				continue;
 			}
-			df.close();
+			df.reset();
 			if(probeStateWanted == probeOrig)
 			{
 				SetFlags(pb).uptodate = true;
