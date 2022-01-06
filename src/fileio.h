@@ -115,7 +115,6 @@ inline void checkforceclose(int &fd)
 	}
 }
 
-
 inline void checkForceFclose(FILE* &fh)
 {
 	if (fh)

@@ -127,7 +127,7 @@ bool LinkOrCopy(const std::string &from, const std::string &to)
 	// hardlinks don't work with symlinks properly, create a similar symlink then
 	struct stat stinfo, toinfo;
 	
-	if(0==lstat(from.c_str(), &stinfo) && S_ISLNK(stinfo.st_mode))
+	if(0 == lstat(from.c_str(), &stinfo) && S_ISLNK(stinfo.st_mode))
 	{
 		char buf[PATH_MAX+1];
 		buf[PATH_MAX]=0x0;
@@ -291,17 +291,18 @@ void pkgimport::HandlePkgEntry(const tRemoteFileInfo &entry)
 	else
 		sDestAbs+=(entry.sDirectory+entry.sFileName);
 
-	string sDestHeadAbs=sDestAbs+".head";
+	auto sDestHeadAbs = sDestAbs + ".head"sv;
 	cmstring& sFromAbs=hit->second.sPath;
 
-	Send(string("<font color=green>HIT: ")+sFromAbs
-			+ "<br>\nDESTINATION: "+sDestAbs+"</font><br>\n");
+	SendFmt << "<font color=green>HIT: "sv  << sFromAbs
+			<< "<br>\nDESTINATION: "sv << sDestAbs << "</font><br>\n"sv;
 
 	// linking and moving would shred them when the link leads to the same target
-	struct stat tmp1, tmp2;
+	Cstat stDest(sDestAbs), stFrom(sFromAbs);
 
-	if (0 == stat(sDestAbs.c_str(), &tmp1) && 0==stat(sFromAbs.c_str(), &tmp2)
-			&& tmp1.st_ino==tmp2.st_ino&& tmp1.st_dev==tmp2.st_dev)
+	if (stDest && stFrom
+			&& stDest.info().st_ino == stFrom.info().st_ino
+			&& stDest.info().st_dev == stFrom.info().st_dev)
 	{
 		//cerr << "Same target file, ignoring."<<endl;
 		hit->second.bFileUsed=true;

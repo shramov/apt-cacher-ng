@@ -187,6 +187,11 @@ tSS mainthandler::GetCacheKey()
 	return tSS(50) << desc().typeName << "." << m_startTime.tv_sec << "." << m_startTime.tv_usec;
 }
 
+tSS mainthandler::GetKbLocation()
+{
+	return tSS(500) << CACHE_BASE << MJSTORE_SUBPATH << "/" << GetCacheKey() << ".kb"sv;
+}
+
 IMaintJobItem::IMaintJobItem(std::unique_ptr<mainthandler> &&han, IMaintJobItem *owner) :
 	fileitem("_internal_task"),
 	handler(std::move(han))
@@ -197,7 +202,7 @@ IMaintJobItem::IMaintJobItem(std::unique_ptr<mainthandler> &&han, IMaintJobItem 
 void IMaintJobItem::AddExtraHeaders(mstring appendix)
 {
 	if (! evabase::IsMainThread())
-		return evabase::Post([this, appendix ]() { m_extraHeaders = move(appendix); });
+		return evabase::Post([this, appendix]() { m_extraHeaders = move(appendix); });
 	m_extraHeaders = move(appendix);
 }
 

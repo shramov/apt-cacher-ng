@@ -1,8 +1,14 @@
 # FIXMEs
 
+## Data management
+
+### Review init sequence of **filePattern** regexps
+
+Order or evaluation must be consistent with documentation and previous behavior.
+
 ## Maint stuff
 
-### Maybe add some sequencing of download jobs
+### Restore Injecting item, check patching result processing
 
 Could push all requests (parms of Download()) into a list, run the download
 with that list, which returns a vector of results with cond_var on it which can
@@ -10,17 +16,17 @@ be observed.
 
 ### Fix and improve maint log purging
 
-### Restore Injecting item, check patching result processing
-
-### Restore the delete / truncate tasks
-
-New scheme uses symlinks, old gets the protected paths from the blob -> adjust it
-
 ### Add reliable auto-bottom-scrolling to maint pages
+
+### Merge delconfirm.html template into the regular maint.html template
+
+Making the buttons visibility more conditional with dedicated properties.
 
 ### Change the exclusive page handling:
 - opening while active -> new info page about activity, options: cancel-and-replace or attach
 - cancel function -> abort the active job immediately, wait for it to finish, start a new job
+
+### Maybe add some sequencing of download jobs
 
 ### Add Control bubble in JS, content requirements:
 - Authenticate link if not authenticated (and until authenticated, disable the action buttons on the control page!)
@@ -29,12 +35,16 @@ New scheme uses symlinks, old gets the protected paths from the blob -> adjust i
 - if errors are detected: buttons to jump up/down between the errors, and jump to the control bar
 - small icons to jump to the particular links of the control bar
 
-- move the advanced log analysis to a dedicated page, and use Chart.js or similar to render it nicely.
+### Cosmetics
 - use dark page theme (or adaptive theme depending on Browser settings)
 
 ### Add a dedicated cleanup page
 
 (or just a special mode of Expiration task which does not abort on errors and does not remove stuff, focusing on the distro expiration issue)
+
+### Add a dedicated stats analysis page page
+
+- move the advanced log analysis to a dedicated page, and use Chart.js or similar to render it nicely.
 
 ### Expire-Trade-Off
 Change expire-trade-off setting and make it adaptive, learning the cost of metdata fetching from the last time?

@@ -284,6 +284,15 @@ inline std::string Concat(string_view a,
 	return ret;
 }
 
+// XXX: maybe STL provides those, add a configuration test
+inline mstring operator+(cmstring& a, string_view b)
+{
+	return Concat(a, b);
+}
+inline mstring operator+(const string_view a, cmstring& b)
+{
+	return Concat(a, b);
+}
 
 bool scaseequals(string_view a, string_view b);
 

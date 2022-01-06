@@ -16,32 +16,17 @@
 
 using namespace std;
 
-#define LOG_DECO_START "<html><head><style type=\"text/css\">" \
-	".WARNING { color: orange; }\n.ERROR { color: red; }\n" \
-	"</style></head><body>"
-#define LOG_DECO_END "</body></html>"
-
 namespace acng
 {
 
 unsigned tExclusiveUserAction::Add2KillBill(cmstring &sPathRel)
 {
-	tSS nam;
-	nam << CACHE_BASE << MJSTORE_SUBPATH << "/" << GetCacheKey() << ".kb"sv;
-	if (!m_bHaveDeletionCandidates)
-	{
-		// XXX: error handling?
-		mkdirhier(nam);
-		m_bHaveDeletionCandidates = true;
-	}
-	nam << "/" << m_nKbInitVec;
-
-	auto tgt = (string("../../..") + sPathRel);
-	auto r = symlink(tgt.c_str(), nam.c_str());
-	if (r)
-	{
-		USRDBG("SYMLINK FAIL! " << r << " to " << nam << " at " << tgt );
-	}
+	if (!m_killBill.valid())
+		m_killBill.reset(fopen(GetKbLocation().c_str(), "w"));
+	if (!m_killBill.valid()) // XXX: error handling?
+		return 0;
+	m_bHaveDeletionCandidates = true;
+	fprintf(m_killBill.get(), "%u:%s\n", m_nKbInitVec, sPathRel.c_str());
 	return m_nKbInitVec++;
 }
 

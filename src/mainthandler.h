@@ -64,7 +64,7 @@ class ACNG_API mainthandler
 {
 protected:
 	friend class BufferedPtItem;
-	static std::atomic_int g_genSfx;
+
 public:
 	// common data to be passed through constructors and kept in the base object
 	struct tRunParms
@@ -125,10 +125,10 @@ public:
 	tSS GetCacheKey();
 
 	/**
-	 * @brief GetCacheKeyEx returns a GetCacheKey() result with .<autoincremented-suffix>.
+	 * @brief Absolute location of the "kill bill".
 	 * @return
 	 */
-	tSS GetCacheKeyEx() { return GetCacheKey() << g_genSfx++;  }
+	tSS GetKbLocation();
 
 	// dirty little RAII helper to send data after formating it, uses a shared
 	// buffer presented to the user via macro. This two-stage design should

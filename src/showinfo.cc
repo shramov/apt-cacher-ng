@@ -6,9 +6,13 @@
 #include "fileio.h"
 #include "job.h"
 #include "rex.h"
+#include "meta.h"
+#include "bgtask.h"
 
 #include <iostream>
-#include "meta.h"
+#include <fstream>
+
+#include <cstdlib>
 
 #ifdef HAVE_ZLIB
 #include <zlib.h>
@@ -98,15 +102,15 @@ void tMarkupFileSend::Run()
 void tDeleter::SendProp(cmstring &key)
 {
 	if(key=="count")
-		SendFmt << files.size();
+		return SendFmt << files.size(), void();
 	else if(key=="countNZs")
 		return Send((files.size()>1) ? "s" : "");
 	else if(key == "stuff")
 		return Send(sHidParms);
 	else if(key=="vmode")
 		return Send(sVisualMode.data(), sVisualMode.size());
-	else
-		return tMarkupFileSend::SendProp(key);
+
+	return tMarkupFileSend::SendProp(key);
 }
 
 // and deserialize it from GET parameter into m_delCboxFilter
@@ -126,9 +130,10 @@ tDeleter::tDeleter(tRunParms&& parms, const mstring& vmode)
 	}
 
 	auto del = (m_parms.type == EWorkType::DELETE);
-
+	mstring src;
 	mstring params(m_parms.cmd, qpos+1);
-	mstring blob;
+
+	// repack GET parameters into hidden form values again
 	for(tSplitWalk split(params, "&"); split.Next();)
 	{
 		mstring tok(split);
@@ -139,56 +144,40 @@ tDeleter::tDeleter(tRunParms&& parms, const mstring& vmode)
 			if(*end == 0 || *end=='&')
 				files.emplace(val);
 		}
-		else if(startsWithSz(tok, "blob="))
-			tok.swap(blob);
+		else if(startsWithSz(tok, "kbid="))
+		{
+			mstring sSourceJobId = tok;
+			if (sSourceJobId.find("..") != stmiss)
+			{
+				sSourceJobId.clear();
+				return;
+			}
+			sSourceJobId = sSourceJobId.substr(5);
+			sHidParms << "<input type=\"hidden\" name=\"kbid\" value=\""sv << sSourceJobId <<  "\">\n"sv;
+			src = CACHE_BASE + MJSTORE_SUBPATH + "/" + sSourceJobId + ".kb";
+		}
 	}
-	sHidParms << "<input type=\"hidden\" name=\"blob\" value=\"";
-	if(!blob.empty())
-		sHidParms.append(blob.data()+5, blob.size()-5);
-	sHidParms <<  "\">\n";
 
 	tStrDeq filePaths;
-	acbuf buf;
 	mstring redoLink;
 
-#ifdef HAVE_DECB64 // this page isn't accessible with crippled configuration anyway
-	if (!blob.empty())
+	std::ifstream in;
+	in.open(src);
+	string cs;
+	if(!in.is_open())
+		return;
+
+	mstring line;
+	while (!in.eof() && !in.fail())
 	{
-		// let's decode the blob and pickup what counts
-		tSS gzBuf;
-		//if(!Hex2buf(blob.data()+5, blob.size()-5, gzBuf)) return;
-		if (!DecodeBase64(blob.data()+5, blob.size()-5, gzBuf)) return;
-		if(gzBuf.size() < 2 * sizeof(unsigned)) return;
-		unsigned ulen = 123456;
-		memcpy(&ulen, gzBuf.rptr(), sizeof(unsigned));
-		if (ulen > 100000) // no way...
-			return;
-		gzBuf.drop(sizeof(unsigned));
-		buf.setsize(ulen);
-		uLongf uncompSize = ulen;
-		auto gzCode = uncompress((Bytef*) buf.wptr(), &uncompSize, (const Bytef*) gzBuf.rptr(),
-				gzBuf.size());
-		if (Z_OK != gzCode)
-			return;
-		buf.got(uncompSize);
-	}
-#endif
-	while(true)
-	{
-		unsigned id, slen;
-		if(buf.size() < 2*sizeof(unsigned))
-			break;
-		memcpy(&id, buf.rptr(), sizeof(unsigned));
-		buf.drop(sizeof(unsigned));
-		memcpy(&slen, buf.rptr(), sizeof(unsigned));
-		buf.drop(sizeof(unsigned));
-		if(slen > buf.size()) // looks fishy
-			return;
-		if(redoLink.empty()) // don't care about id in the first line
-			redoLink.assign(buf.rptr(), slen);
-		else if(ContHas(files, id))
-			filePaths.emplace_back(buf.rptr(), slen);
-		buf.drop(slen);
+		std::getline(in, line);
+		char* ep;
+		auto beg = line.c_str();
+		auto id = strtoul(beg, &ep, 10);
+		if (ep == nullptr || *ep != ':' || !files.contains(id))
+			continue;
+		++ep;
+		filePaths.emplace_back(ep, beg + line.length() - ep);
 	}
 
 	// do stricter path checks and prepare the query page data
