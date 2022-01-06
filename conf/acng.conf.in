@@ -458,8 +458,7 @@ LocalDirs: acng-doc @CMAKE_INSTALL_FULL_DOCDIR@
 # PassThroughPattern: private-ppa\.launchpad\.net:443$
 # PassThroughPattern: .* # this would allow CONNECT to everything
 #
-# Default: ^(bugs\.debian\.org|changelogs\.ubuntu\.com):443$
-# PassThroughPattern: ^(bugs\.debian\.org|changelogs\.ubuntu\.com):443$
+# Default: ^(metadata\.ftp-master\.debian\.org|bugs\.debian\.org|changelogs\.ubuntu\.com):443$
 
 # Interval an overaged local cache item (i.e. active file descriptor) can be
 # considered broken so that a new forced download can be started. Such

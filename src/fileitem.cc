@@ -405,6 +405,8 @@ std::unique_ptr<fileitem::ICacheDataSender> TFileitemWithStorage::GetCacheSender
 	return GetStoredFileSender(m_sPathRel, m_nSizeChecked, m_status == FIST_COMPLETE);
 }
 
+static const int flags = O_WRONLY | O_CREAT | O_BINARY;
+
 bool TFileitemWithStorage::SafeOpenOutFile()
 {
 	LOGSTARTFUNC;
@@ -416,8 +418,6 @@ bool TFileitemWithStorage::SafeOpenOutFile()
 	MoveRelease2Sidestore();
 
 	auto sPathAbs(SABSPATH(m_sPathRel));
-
-	int flags = O_WRONLY | O_CREAT | O_BINARY;
 
 	mkbasedir(sPathAbs);
 

@@ -702,9 +702,6 @@ void PostProcConfig()
 	if(!port) // heh?
 		port=ACNG_DEF_PORT;
 
-	if(connectPermPattern == "~~~")
-	   connectPermPattern="^(bugs\\.debian\\.org|changelogs\\.ubuntu\\.com):443$";
-
 	// let's also apply the umask to the directory permissions
 	{
 		mode_t mask = umask(0);

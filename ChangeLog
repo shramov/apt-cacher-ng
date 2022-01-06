@@ -18,7 +18,10 @@ apt-cacher-ng (3.99-pre-alpha-0) 4-ELIZA; urgency=low
      logdir anymore. This allows for password protected access and precise
      control of their expiration, and controlled expiration of those logs
      without additional tricks outside.
-   * better interaction in the maintenance pages
+   * better user interaction in the maintenance pages
+   * Add metadata.ftp-master.debian.org to the default CONNECT ACL
+     Debian bug #1002987. Also move the default definition to the others,
+     a usecase for delayed processing has never emerged.
 
   [ INTERNAL IMPROVEMENTS AND BUGFIXES ]
 

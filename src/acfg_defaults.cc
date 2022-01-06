@@ -148,7 +148,7 @@ string ACNG_API dnsresconf("/etc/resolv.conf");
 
 string ACNG_API requestapx;
 string sigbuscmd;
-mstring connectPermPattern("~~~");
+mstring connectPermPattern("^(metadata\\.ftp-master\\.debian\\.org|bugs\\.debian\\.org|changelogs\\.ubuntu\\.com):443$");
 
 #ifdef DEBUG
 int debug(3), foreground(true);
