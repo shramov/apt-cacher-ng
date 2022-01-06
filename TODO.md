@@ -68,7 +68,7 @@ Change expire-trade-off setting and make it adaptive, learning the cost of metda
 Too many newlines in downloadIO output, also spam from retries, simplifies this whole mess and print result summary after the job was processed,
 and apply whitespace:nowrap (HOWEVER: too many dots might overflow it all the time and garble the page -> more analysis required)
 
-## Info stuff
+## Interaction stuff
 
 Maybe... restore data collector, or maybe drop it and add a log scanner script instead?
 
@@ -84,6 +84,15 @@ Maybe... restore data collector, or maybe drop it and add a log scanner script i
 - UTs for local file delivery and various sizes (1gb, 2gb, 2.5gb, 5gb)
 
 # MISC
+
+## Complexity
+
+Check ExpandFilePattern with all related costs (copying filenames to internal
+allocated buffers, copying again out of them into strdeq, processing that
+strdeq). Maybe cheaper to use DirWalk with fnmatch for most cases, using a
+little convenience facade on top?
+
+## Move functionality
 
 Move guided precaching functionality to acngtool.
 

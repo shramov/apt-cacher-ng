@@ -158,6 +158,22 @@ bool ParseKeyValLine(const string & sIn, string & sOutKey, string & sOutVal)
 
 #if defined(HAVE_WORDEXP) || defined(HAVE_GLOB)
 
+/** Future API, use iterator style instead of repacking the data again
+struct ACNG_API FilePatternScan
+{
+	FilePatternScan(const char* pattern);
+	~FilePatternScan();
+	int failed(); // non-zero if an error was found
+	int count();
+	const char* next();
+	tStrDeq makeDQ(bool sorted);
+private:
+	FilePatternScan() =delete;
+	FilePatternScan(const FilePatternScan&) =delete;
+	wordexp_t data;
+};
+*/
+
 ACNG_API tStrDeq ExpandFilePattern(cmstring& pattern, bool bSorted, bool bQuiet)
 {
 	tStrDeq srcs;
