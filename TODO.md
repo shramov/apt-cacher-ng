@@ -14,8 +14,6 @@ Could push all requests (parms of Download()) into a list, run the download
 with that list, which returns a vector of results with cond_var on it which can
 be observed.
 
-### Fix and improve maint log purging
-
 ### Add reliable auto-bottom-scrolling to maint pages
 
 ### Merge delconfirm.html template into the regular maint.html template

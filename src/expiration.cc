@@ -594,7 +594,7 @@ void expiration::Action()
 
 	Send(WITHLEN("<b>Reviewing candidates for removal...</b><br>\n"));
 	RemoveAndStoreStatus(StrHas(m_parms.cmd, "purgeNow"));
-	PurgeMaintLogs();
+	PurgeMaintLogsAndObsoleteFiles();
 
 	DelTree(CACHE_BASE+"_actmp");
 
@@ -758,30 +758,34 @@ void expiration::HandleDamagedFiles()
 	return;
 }
 
-void expiration::PurgeMaintLogs()
+void expiration::PurgeMaintLogsAndObsoleteFiles()
 {
-	tStrDeq logs = ExpandFilePattern(Concat(CACHE_BASE, MJSTORE_SUBPATH "/*.html"sv));
-	if (logs.size() > 2)
-		Send("Found required cleanup tasks: purging maintenance logs...<br>\n"sv);
-	auto threshhold = GetTime() - cfg::extreshhold * 24*60*60;
-	for (const auto &s: logs)
+	bool suppr = false;
+	for (auto pat: {"/*.html"sv, "/*.kb"sv})
 	{
-#ifdef ENABLED
-		Cstat sb(s);
-		if (sb && sb.msec() < threshhold)
-			::unlink(s.c_str());
-#endif
-	}
-	if(!m_killBill.empty())
-	{
-		Send("Removing deprecated files...<br>\n"sv);
-		for(const auto &s: m_killBill)
+		tStrDeq logs = ExpandFilePattern(Concat(CACHE_BASE, MJSTORE_SUBPATH, pat));
+		if (logs.size() > 2 && !suppr)
+			Send("Found required cleanup tasks: purging maintenance logs...<br>\n"sv);
+		suppr = true;
+		auto threshhold = GetTime() - cfg::extreshhold * 24*60*60;
+		for (const auto &s: logs)
 		{
-			Send(s+sBRLF);
+#ifdef ENABLED
+			Cstat sb(s);
+			if (sb && sb.msec() < threshhold)
+				::unlink(s.c_str());
+#endif
+		}
+	}
+	if(!m_obsoleteStuff.empty())
+	{
+		Send("Removing obsolete items...<br>\n"sv);
+		for(const auto &s: m_obsoleteStuff)
+		{
+			SendFmt << s << sBRLF;
 			::unlink(SZABSPATH(s));
 		}
 	}
-
 }
 
 bool expiration::ProcessDirBefore(const std::string &sPath, const struct stat &st)
@@ -1004,7 +1008,7 @@ inline bool expiration::CheckAndReportError()
 
 void expiration::MarkObsolete(cmstring& sPathRel)
 {
-	m_killBill.emplace_back(sPathRel);
+	m_obsoleteStuff.emplace_back(sPathRel);
 }
 
 bool expiration::_checkSolidHashOnDisk(cmstring& hexname, const tRemoteFileInfo& entry,

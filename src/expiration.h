@@ -41,7 +41,7 @@ protected:
 
 	void LoadHints();
 
-	void PurgeMaintLogs();
+	void PurgeMaintLogsAndObsoleteFiles();
 
 	void DropExceptionalVersions();
 
@@ -49,7 +49,7 @@ protected:
 	bool m_bIncompleteIsDamaged = false, m_bScanVolatileContents = false;
 
 	void MarkObsolete(cmstring&) override;
-	tStrVec m_killBill;
+	tStrVec m_obsoleteStuff;
 
 	virtual bool _checkSolidHashOnDisk(cmstring& hexname, const tRemoteFileInfo &entry,
 			cmstring& srcPrefix) override;
