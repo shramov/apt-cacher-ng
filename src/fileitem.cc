@@ -197,7 +197,7 @@ bool TFileitemWithStorage::SaveHeader(bool truncatedKeepOnlyOrigInfo)
 	return StoreHeadToStorage(headPath, m_nContentLength, &m_responseModDate, &m_responseOrigin);
 };
 
-bool fileitem::DlStarted(evbuffer*, size_t, const tHttpDate& modDate, cmstring& origin, tRemoteStatus status, off_t bytes2seek, off_t bytesAnnounced)
+bool fileitem::DlStarted(evbuffer*, size_t headLen, const tHttpDate& modDate, cmstring& origin, tRemoteStatus status, off_t bytes2seek, off_t bytesAnnounced)
 {
 	LOGSTARTFUNCxs( modDate.view(), status.code, status.msg, bytes2seek, bytesAnnounced);
 	ASSERT_IS_MAIN_THREAD;
@@ -236,6 +236,7 @@ bool fileitem::DlStarted(evbuffer*, size_t, const tHttpDate& modDate, cmstring& 
 	m_responseOrigin = move(origin);
 	m_responseModDate = modDate;
 	m_nContentLength = bytesAnnounced;
+	m_nIncommingCount += headLen;
 	return true;
 }
 

@@ -81,7 +81,7 @@ bool tPassThroughFitem::DlStarted(evbuffer *rawData, size_t headerLen, const tHt
 {
 	//bool tPassThroughFitem::DlStarted(string_view rawHeader, const tHttpDate &, cmstring &origin, tRemoteStatus status, off_t seekPos, off_t bytesAnnounced)
 	LOGSTARTFUNC;
-	if (m_status > FIST_COMPLETE)
+	if (m_status > FIST_COMPLETE || !rawData)
 		return false;
 	else if (m_status < FIST_DLGOTHEAD)
 		m_status = FIST_DLGOTHEAD;
@@ -95,6 +95,7 @@ bool tPassThroughFitem::DlStarted(evbuffer *rawData, size_t headerLen, const tHt
 	m_responseOrigin = origin;
 	m_responseStatus = status;
 	m_nContentLength = bytesAnnounced;
+	m_nIncommingCount += headerLen;
 	return true;
 }
 
