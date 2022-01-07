@@ -44,10 +44,20 @@ using unique_eb = auto_raii<evbuffer*, evbuffer_free, nullptr>;
  */
 void be_free_close(bufferevent*);
 void be_flush_free_close(bufferevent*);
+
+#ifdef DEBUG
+inline void BEV_FREE(bufferevent* bev)
+{
+	bufferevent_free(bev);
+}
+#else
+#define BEV_FREE bufferevent_free
+#endif
+
 /**
  * This will simply finish the bufferent by freeing, closing of the FD must be handled by bufferevent (... CLOSE_ON_FREE)
  */
-using unique_bufferevent = auto_raii<bufferevent*, bufferevent_free, nullptr>;
+using unique_bufferevent = auto_raii<bufferevent*, BEV_FREE, nullptr>;
 /**
  * Free the event when finishing and close its FD explicitly.
  */

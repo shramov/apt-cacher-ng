@@ -11,7 +11,7 @@ struct timeval;
 
 namespace acng
 {
-class tClock;
+class tBeatNotifier;
 class tSslConfig;
 class rex;
 class IFileItemRegistry;
@@ -27,14 +27,14 @@ class ACNG_API acres
 public:
 	virtual ~acres() =default;
 	static acres* Create();
-	virtual tClock& GetKeepAliveBeat() =0;
-	virtual tClock& GetIdleCheckBeat() =0;
+	virtual tBeatNotifier& GetKeepAliveBeat() =0;
+	virtual tBeatNotifier& GetIdleCheckBeat() =0;
 	/**
 	 * @brief GetCustomBeat register an own clock category, ID must be maintained manually
 	 * @param id
 	 * @return
 	 */
-	virtual tClock& GetCustomBeat(int id, const struct timeval& interval) =0;
+	virtual tBeatNotifier& GetCustomBeat(int id, const struct timeval& interval) =0;
 	virtual tSslConfig &GetSslConfig() =0;
 	virtual rex& GetMatchers() =0;
 

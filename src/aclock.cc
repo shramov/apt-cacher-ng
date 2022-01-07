@@ -5,65 +5,75 @@
 namespace acng
 {
 
-void cbKaPing(evutil_socket_t, short, void *);
-
-class ackeepaliveImpl : public tClock
+// XXX: legacy, maybe better remove it
+class ackeepaliveImpl : public tBeatNotifier, public tClock
 {
-	const struct timeval m_interval;
 public:
-	lint_ptr<aobservable> m_notifier;
-	unique_event m_event;
-	bool m_active = false;
+	aobservable m_notifier;
 
 	aobservable::subscription AddListener(const tAction& act) override
 	{
-		if (!m_notifier)
-			m_notifier.reset(new aobservable);
-
-		if (!m_event.valid())
-			m_event.reset(event_new(evabase::base, -1, EV_TIMEOUT|EV_PERSIST, cbKaPing, this));
-
-		Enable();
-
-		return m_notifier->subscribe(act);
+		Resume();
+		return m_notifier.subscribe(act);
 	}
-	void Disable()
+	// constructed in suspended state
+	ackeepaliveImpl(const struct timeval& interval) : tClock(interval)
 	{
-		LOGSTARTFUNC;
-		if (!m_active)
-			return;
-		m_active = false;
-
-		event_del(m_event.get());
+		Suspend();
 	}
-	void Enable()
+
+	void OnClockTimeout() override
 	{
-		LOGSTARTFUNC;
-		if (m_active)
-			return;
-		m_active = true;
-
-		event_add(m_event.get(), &m_interval);
+		if (!m_notifier.notify())
+			Suspend();
 	}
-	ackeepaliveImpl(const struct timeval& interval);
 };
 
-ackeepaliveImpl::ackeepaliveImpl(const timeval &interval)
-	: m_interval(interval)
+std::unique_ptr<tBeatNotifier> tBeatNotifier::Create(const timeval &val)
 {
+	return std::unique_ptr<tBeatNotifier>(new ackeepaliveImpl(val));
 }
 
-void cbKaPing(evutil_socket_t, short, void *arg)
+struct tClock::XD
 {
-	auto me = ((ackeepaliveImpl*)arg);
-	if (me->m_notifier->notify())
+	struct timeval m_interval;
+	bool m_bEnabled = false;
+	unique_event m_event;
+};
+void cbClock(evutil_socket_t, short, void *arg)
+{
+	auto me = ((tClock*)arg);
+	me->OnClockTimeout();
+	if (me->m_data->m_bEnabled)
+		event_add(me->m_data->m_event.get(), & me->m_data->m_interval);
+}
+
+tClock::tClock(const timeval &interval)
+{
+	m_data = new XD;
+	memcpy(& m_data->m_interval, &interval, sizeof(interval));
+	m_data->m_event.reset(event_new(evabase::base, -1, EV_TIMEOUT, cbClock, this));
+}
+
+tClock::~tClock()
+{
+	delete m_data;
+}
+
+void tClock::Suspend()
+{
+	if (!m_data->m_bEnabled)
 		return;
-	me->Disable();
+	m_data->m_bEnabled = false;
+	event_del(m_data->m_event.get());
 }
 
-std::unique_ptr<tClock> tClock::Create(const timeval &val)
+void tClock::Resume()
 {
-	return std::unique_ptr<tClock>(new ackeepaliveImpl(val));
+	if (m_data->m_bEnabled)
+		return;
+	m_data->m_bEnabled = true;
+	event_add(m_data->m_event.get(), & m_data->m_interval);
 }
 
 }

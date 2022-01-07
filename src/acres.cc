@@ -13,14 +13,15 @@
 namespace acng
 {
 
-const struct timeval defaultKeepAliveTimeout { 10, 0 }, idleTimeout { 3, 1};
+#warning make idle shorter, 3s
+const struct timeval defaultKeepAliveTimeout { 10, 0 }, idleTimeout { 30, 1};
 
 class ACNG_API acresImpl : public acres
 {
 	// acres interface
 
-	std::unique_ptr<tClock> kaClock, idleClock;
-	std::map<int, std::unique_ptr<tClock>> customClocks;
+	std::unique_ptr<tBeatNotifier> kaClock, idleClock;
+	std::map<int, std::unique_ptr<tBeatNotifier>> customClocks;
 	tSslConfig m_ssl_setup;
 	rex *rx = nullptr;
 	aobservable::subscription m_shutdownSub;
@@ -28,8 +29,8 @@ class ACNG_API acresImpl : public acres
 public:
 	acresImpl()
 	{
-		kaClock = tClock::Create(defaultKeepAliveTimeout);
-		idleClock = tClock::Create(idleTimeout);
+		kaClock = tBeatNotifier::Create(defaultKeepAliveTimeout);
+		idleClock = tBeatNotifier::Create(idleTimeout);
 		m_shutdownSub = evabase::GetGlobal().subscribe([&]()
 		{
 			kaClock.reset();
@@ -43,19 +44,19 @@ public:
 		delete rx;
 	}
 
-	tClock &GetKeepAliveBeat() override
+	tBeatNotifier &GetKeepAliveBeat() override
 	{
 		return *kaClock;
 	}
-	tClock &GetIdleCheckBeat() override
+	tBeatNotifier &GetIdleCheckBeat() override
 	{
 		return *idleClock;
 	}
-	tClock &GetCustomBeat(int id, const struct timeval& interval) override
+	tBeatNotifier &GetCustomBeat(int id, const struct timeval& interval) override
 	{
 		auto& ret = customClocks[id];
 		if (!ret)
-			ret = tClock::Create(interval);
+			ret = tBeatNotifier::Create(interval);
 		return *ret;
 	}
 

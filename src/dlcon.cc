@@ -143,6 +143,8 @@ struct tDlStream : public tLintRefcounted
 	bool m_sacrificied = false;
 	bool m_bWasRecycled = false;
 
+	time_t m_idleSince = END_OF_TIME;
+
 	tDlStream(const tHttpUrl& targetInfo) : m_targetInfo(targetInfo) {}
 
 	tStrMap& GetBlackList();
@@ -175,8 +177,6 @@ struct tDlStream : public tLintRefcounted
 				OnRead(m_transport->GetBufferEvent());
 		});
 	}
-	bool IsIdle() { return m_waiting.empty() && m_requested.empty();};
-
 
 	~tDlStream();
 	/**
@@ -213,7 +213,9 @@ private:
 	//bool m_bShutdownLosingData = false;
 };
 
-class CDlConn : public dlcontroller
+const timeval idleCheckInterval { 7, 345678 };
+
+class CDlConn : public dlcontroller, public tClock
 {
 	acres& m_res;
 
@@ -231,14 +233,12 @@ class CDlConn : public dlcontroller
 	unique_event m_dispatchNotifier;
 
 	tDlStreamPool m_streams;
-	aobservable::subscription m_idleBeat;
 
 	tDlStreamPool::iterator m_lastUsedStream = m_streams.end();
 
-
 public:
 
-	CDlConn(acres& res_) : m_res(res_)
+	CDlConn(acres& res_) : tClock(idleCheckInterval), m_res(res_)
 	{
 		LOGSTARTFUNC;
 		ASSERT_IS_MAIN_THREAD;
@@ -254,21 +254,14 @@ public:
 
 	void DeleteStream(tDlStreamPool::iterator what)
 	{
+		LOGSTARTFUNC;
 		ASSERT_IS_MAIN_THREAD;
-		m_lastUsedStream = m_streams.end();
+		if (m_lastUsedStream == what)
+			m_lastUsedStream = m_streams.end();
 		m_streams.erase(what);
 		TermOrProcBacklog();
 	}
-	void DropIdleStreams()
-	{
-		ASSERT_IS_MAIN_THREAD;
-		auto pin = as_lptr(this);
-		m_lastUsedStream = m_streams.end();
-		for (auto it = m_streams.begin(); it != m_streams.end();)
-			it = it->second.IsIdle() ? m_streams.erase(it) : ++it;
-		m_idleBeat.reset();
-		TermOrProcBacklog();
-	}
+
 	/**
 	 * @brief TerminateAsNeeded
 	 *
@@ -308,27 +301,18 @@ public:
 		return false;
 	}
 
-	void ReportIdleOrDeleteStream(tDlStreamPool::iterator where)
+	void TermOrProcBacklog(tDlStreamPool::iterator idlingReporter)
 	{
-		ASSERT_IS_MAIN_THREAD;
-
-		// if no time for idling, move it!
-		if (m_bInShutdown || !m_backlog.empty())
-			DeleteStream(where);
-
-		if (TermOrProcBacklog())
-			return;
-
-		// keep them idle for a dynamic hold-off period, 0..3s
-		if (!m_idleBeat)
+		if (m_bInShutdown || evabase::GetGlobal().IsShuttingDown())
 		{
-			m_idleBeat = m_res.GetIdleCheckBeat().AddListener([pin = as_lptr(this)]()
-			{
-				pin->DropIdleStreams();
-			}
-			);
+			if (m_lastUsedStream == idlingReporter)
+				m_lastUsedStream = m_streams.end();
+			m_streams.erase(idlingReporter);
+
 		}
+		TermOrProcBacklog();
 	}
+
 	/**
 	 * @brief Initiate a graceful shutdown, preparing for destruction but collaborating with potential external users.
 	 */
@@ -338,23 +322,28 @@ public:
 		m_bInShutdown = true;
 		m_backlog.m_data.clear();
 
-		// they will probably not be needed, and their event's self-lock keeps references active
-		DropIdleStreams();
+		m_lastUsedStream = m_streams.end();
 
-		for(auto& kv : m_streams)
-			kv.second.DropBacklog();
-
-		if(!TermUnlockIfPossible())
-			m_shutdownLock.reset(this);
+		for (auto it = m_streams.begin(); it != m_streams.end();)
+		{
+			it->second.DropBacklog();
+			if (it->second.m_requested.empty())
+				it = m_streams.erase(it);
+			else
+				++it;
+		}
+		if (m_streams.empty())
+			return;
+		// okay, will be torn down by the stream later
+		m_shutdownLock.reset(this);
 	};
 
 	void TeardownASAP() override
 	{
 		m_bInShutdown = true;
+		OnClockTimeout();
 		m_backlog.m_data.clear();
 		m_dispatchQ.clear();
-		DropIdleStreams();
-		m_lastUsedStream = m_streams.end();
 		m_streams.clear();
 	}
 
@@ -364,6 +353,26 @@ public:
 	bool AddJob(lint_ptr<fileitem> fi, const tHttpUrl* src, tRepoResolvResult* repoSrc, bool isPT, mstring extraHeaders) override;
 	void Dispatch(tDlJob* what);
 	void StraightToBacklog(tDlJob* j);
+
+	// tClock interface
+public:
+	void OnClockTimeout() override
+	{
+		auto thold = GetTime() - idleCheckInterval.tv_sec;
+
+		for (auto it = m_streams.begin(); it != m_streams.end();)
+		{
+			if (it->second.m_idleSince < thold)
+			{
+				if (it == m_lastUsedStream)
+					m_lastUsedStream = m_streams.end();
+
+				it = m_streams.erase(it);
+			}
+			else
+				++it;
+		}
+	}
 };
 
 lint_user_ptr<dlcontroller> dlcontroller::CreateRegular(acres& res)
@@ -1235,6 +1244,7 @@ private:
 
 void tDlStream::Connect()
 {
+	LOGSTARTFUNC;
 	ASSERT(m_waiting.size());
 	auto* el = m_waiting.top();
 	auto onConnect = [this](atransport::tResult result)
@@ -1279,7 +1289,7 @@ void tDlStream::OnRead(bufferevent *pBE)
 		case eJobResult::HINT_RECONNECT: // uplink fscked, not sure why, should have the reason inside already
 			return handleDisconnect(se, TRANS_STREAM_ERR_TRANSIENT);
 		case eJobResult::MIRROR_BROKEN_KILL_LAST_FILE:
-      ASSERT(!"something is wrong");
+			 ASSERT(!"something is wrong");
 			if (m_memberLastItem)
 				m_memberLastItem->DlSetError({500, "Damaged Stream"}, fileitem::EDestroyMode::TRUNCATE);
 			__just_fall_through;
@@ -1302,8 +1312,11 @@ void tDlStream::OnRead(bufferevent *pBE)
 		}
 	}
 
-	if (IsIdle())
-		m_parent->ReportIdleOrDeleteStream(m_meRef);
+	if (m_requested.empty() && m_waiting.empty())
+	{
+		m_idleSince = GetTime();
+		m_parent->TermOrProcBacklog(m_meRef);
+	}
 }
 
 void tDlStream::OnStatus(bufferevent *, short what)
@@ -1328,6 +1341,7 @@ bool tDlStream::TakeJob(tDlJob *pJob)
 	else if (!m_connectionToken)
 		Connect();
 
+	m_idleSince = END_OF_TIME;
 	return true;
 }
 
@@ -1340,8 +1354,11 @@ void tDlStream::DropBacklog()
 
 tDlStream::~tDlStream()
 {
+	LOGSTARTFUNCx(m_dirty, m_transport.get());
+
 	ASSERT(m_waiting.empty() && m_requested.empty());
 	ASSERT_IS_MAIN_THREAD;
+
 	if (m_transport && !m_dirty && m_requested.empty())
 		atransport::Return(m_transport);
 
@@ -1449,8 +1466,6 @@ void tDlStream::handleDisconnect(string_view why, tComError cause)
 
 	if (m_dirty)
 		m_parent->DeleteStream(m_meRef);
-	else
-		m_parent->ReportIdleOrDeleteStream(m_meRef);
 }
 
 void CDlConn::StraightToBacklog(tDlJob *j)
@@ -1540,12 +1555,17 @@ void CDlConn::DispatchDfrd(tDlJob *what)
 	};
 
 	// try fast path?
-	if (m_lastUsedStream != m_streams.end()
-		&& tgt == m_lastUsedStream->second.GetPeerHost()
-		&& accept(m_lastUsedStream))
+	if (m_lastUsedStream != m_streams.end())
 	{
-		dbgline;
-		return;
+		if (tgt == m_lastUsedStream->second.GetPeerHost())
+		{
+			dbgline;
+			if(accept(m_lastUsedStream))
+			{
+				dbgline;
+				return;
+			}
+		}
 	}
 
 	auto skey = tgt.GetHostPortProtoKey();

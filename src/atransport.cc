@@ -113,7 +113,7 @@ public:
 	// stop operations for storing in the cache, respond to timeout only
 	void Moothball()
 	{
-		if (!m_buf.valid() || g_con_cache.Full())
+		if (m_bCanceled || !m_buf.valid() || g_con_cache.Full())
 			return;
 		bufferevent_setcb(*m_buf, nullptr, nullptr, cbCachedKill, this);
 		bufferevent_set_timeouts(*m_buf, GetKeepTimeout(), nullptr);
@@ -139,6 +139,7 @@ public:
 #endif
 	~atransportEx()
 	{
+		LOGSTARTFUNCx("Destroying con", this->GetHost());
 		if (GetBufferEvent() && m_bIsSslStream)
 		{
 			auto ssl = bufferevent_openssl_get_ssl(GetBufferEvent());
@@ -158,7 +159,7 @@ struct tConnContext : public tLintRefcounted
 	atransport::TConnectParms m_hints;
 	atransport::tCallBack m_reporter;
 	lint_ptr<atransportEx> m_result;
-#define ABORT_IF_CANCELED if (!m_result || !m_reporter) return;
+#define ABORT_IF_CANCELED if (!m_result || !m_reporter || m_result->m_bCanceled) return;
 	TFinalAction m_connBuilder;
 	acres& m_res;
 
@@ -181,6 +182,8 @@ struct tConnContext : public tLintRefcounted
 
 	void Abort()
 	{
+		if (m_result)
+			m_result->m_bCanceled = true;
 		m_result.reset();
 	}
 
@@ -324,7 +327,7 @@ struct tConnContext : public tLintRefcounted
 			BUFFEREVENT_SSL_CONNECTING,
 			BEV_OPT_CLOSE_ON_FREE));
 
-		if (AC_LIKELY(m_result->m_buf.valid()))
+		if (AC_LIKELY(m_result->m_buf.valid() && !m_result->m_bCanceled))
 		{
 			// those will eventually freed by BEV_OPT_CLOSE_ON_FREE
 			m_result->m_bIsSslStream = true;
@@ -381,12 +384,13 @@ struct tConnContext : public tLintRefcounted
 
 TFinalAction atransport::Create(tHttpUrl url, const tCallBack &cback, acres& res, TConnectParms extHints)
 {
+	LOGSTARTFUNCxs(url.ToURI(false));
 	ASSERT(cback);
 
 	if (!extHints.noCache && !extHints.noTlsOnTarget && !extHints.directConnection)
 	{
 #ifdef REUSE_TARGET_CONN
-		auto cacheKey = url.GetHostPortKey();
+		auto cacheKey = HostPortKeyMaker(url.sHost, url.GetPort());
 		auto anyIt = g_con_cache.get().find(cacheKey);
 		if (anyIt != g_con_cache.get().end())
 		{
@@ -400,7 +404,7 @@ TFinalAction atransport::Create(tHttpUrl url, const tCallBack &cback, acres& res
 					if (ret->m_buf.valid())
 						cback({TRANS_WAS_USED, move(ret)});
 				});
-				return TFinalAction([ret](){ ret->m_buf.reset(); });
+				return TFinalAction([ret](){ ret->m_bCanceled = true; });
 			}
 		}
 #endif
@@ -421,9 +425,13 @@ TFinalAction atransport::Create(tHttpUrl url, const tCallBack &cback, acres& res
 
 void atransport::Return(lint_ptr<atransport> &stream)
 {
+	LOGSTARTFUNCs;
 #ifdef REUSE_TARGET_CONN
-	if (!evabase::GetGlobal().IsShuttingDown())
+	if (!evabase::GetGlobal().IsShuttingDown() && AC_LIKELY(stream))
+	{
+		LOG(stream->GetHost());
 		static_lptr_cast<atransportEx>(stream)->Moothball();
+	}
 #endif
 	stream.reset();
 }

@@ -15,8 +15,11 @@ struct tConnContext;
 class acres;
 
 /**
-  * This implement second level connection establishment, which serves
-  * various purposes and automates the setup flow.
+  * A transport represents an established stream which transports plain HTTP protocol (proxy-style or not),
+  * it handles the proxy selection, connect-through scheme if needed and TLS handshake and internal crypto overlay setup
+  * (unless specified otherwise).
+  *
+  * "host" and "port" are the main target parameters.
   */
 class ACNG_API atransport : public acng::tLintRefcounted
 {
@@ -24,6 +27,7 @@ protected:
 	unique_bufferevent m_buf;
 	bool m_bPeerIsProxy = false;
 	bool m_bIsSslStream = false;
+	bool m_bCanceled = false;
 	tHttpUrl m_url;
 	friend struct tConnContext;
 
@@ -58,10 +62,6 @@ public:
 
 	/**
 	 * @brief Create a new stream, optionally through proxy
-	 * @param forceFresh Don't use a cached connection
-	 * @param forceTimeout If positive value, override the regular timeout
-	 * @param connectThrough If using a proxy, do a CONNECT to establish a virtual connection to the actual host
-	 * @param sslUpgrade Overlay the stream with TLS stream after connecting
 	 * @param cback
 	 */
 	static TFinalAction Create(tHttpUrl, const tCallBack&, acres& res, TConnectParms extHints = TConnectParms());
@@ -75,12 +75,6 @@ public:
 	cmstring& GetHost() { return m_url.sHost; }
 	uint16_t GetPort() { return m_url.GetPort(); }
 	bool PeerIsProxy() { return m_bPeerIsProxy; }
-
-	/**
-	 * @brief GetConnKey creates an identifier which describes the connection.
-	 * @return
-	 */
-	std::string GetConnKey();
 };
 
 }
