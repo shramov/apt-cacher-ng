@@ -159,7 +159,7 @@ tDeleter::tDeleter(tRunParms&& parms, const mstring& vmode)
 	}
 
 	tStrDeq filePaths;
-	mstring redoLink;
+	//mstring redoLink;
 
 	std::ifstream in;
 	in.open(src);
@@ -259,7 +259,7 @@ tDeleter::tDeleter(tRunParms&& parms, const mstring& vmode)
 					doFile(path);
 
 		}
-		sHidParms << "<br><a href=\""<< redoLink << "\">Repeat the last action</a><br>" << sBRLF;
+		//sHidParms << "<br><a href=\""<< redoLink << "\">Repeat the last action</a><br>" << sBRLF;
 	}
 }
 
