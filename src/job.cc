@@ -212,11 +212,12 @@ void job::Prepare(const header &h, bufferevent* be, cmstring& callerHostname, ac
 
 	try
 	{
-		if (startsWithSz(sReqPath, "/HTTPS///"))
-			sReqPath.replace(0, 6, PROT_PFX_HTTPS);
-		// special case: proxy-mode AND special prefix are there
-		if(0==strncasecmp(sReqPath.c_str(), WITHLEN("http://https///")))
-			sReqPath.replace(0, 13, PROT_PFX_HTTPS);
+		static const auto httpsPfx = "/HTTPS///"sv, httpHttpsPfx = "http://https///"sv;
+		if (startsWith(sReqPath, httpsPfx))
+			sReqPath.replace(0, httpsPfx.size(), PROT_PFX_HTTPS);
+		// special case: proxy-mode AND special prefix are there; XXX: where exactly needed?
+		if (0==strncasecmp(sReqPath.c_str(), httpHttpsPfx.data(), httpHttpsPfx.size()))
+			sReqPath.replace(0, httpHttpsPfx.size(), PROT_PFX_HTTPS);
 
 		if(!theUrl.SetHttpUrl(sReqPath, false))
 		{
@@ -237,7 +238,7 @@ void job::Prepare(const header &h, bufferevent* be, cmstring& callerHostname, ac
 			if(!cfg::pUserPorts->test(nPort))
 				return report_invport();
 		}
-		else if(nPort != 80)
+		else if(AC_UNLIKELY(nPort != 80 && nPort != 443))
 			return report_invport();
 
 		// kill multiple slashes

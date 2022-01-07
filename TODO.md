@@ -49,8 +49,6 @@ Change expire-trade-off setting and make it adaptive, learning the cost of metda
 
 ## Transport
 
-### Check/fix /HTTPS/// rewriting
-
 ### Add a "total timeout" in the dlcontroller. Maybe let the keepalive beat report it, and if processed, the beat value will be stored (or maybe just UTC time?). Hard stop after n seconds (NetworkTimeout).
 
 ### Fix and reconsider proxy use, currently running multiple connections although could use only one.
