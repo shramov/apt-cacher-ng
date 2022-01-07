@@ -889,60 +889,80 @@ tFingerprint * BuildPatchList(string sFilePathAbs, deque<tPatchEntry> &retList)
  * TODO: optionally fetch HEAD from remote and use the date from there if the size is matching.
  */
 bool cacheman::Inject(cmstring &fromRel, cmstring &toRel,
-		bool bSetIfileFlags, off_t contLen, tHttpDate lastModified, LPCSTR forceOrig)
+		bool bSetIfileFlags, off_t contLen, tHttpDate lastModified, cmstring & forceOrig)
 {
-#warning implement as detached client
-#if 0
 	LOGSTARTFUNCx(fromRel, toRel, bSetIfileFlags, contLen, lastModified.value(0), forceOrig);
+
 	// XXX should it really filter it here?
 	if(GetFlags(toRel).uptodate)
-        return true;
-	filereader data;
-	if(!data.OpenFile(SABSPATH(fromRel), true))
+		return true;
+
+	int fd = open(SZABSPATH(fromRel), O_RDONLY);
+	if (fd == -1)
 		return false;
-	off_t fileSize = data.GetSize();
-	// incomplete might be ok, too large is just wrong
-	if (contLen < 0)
-		contLen = fileSize;
-	else if (fileSize > contLen)
+	unique_eb src(evbuffer_new());
+	if (!src.valid() || 0 != evbuffer_add_file(*src, fd, 0, -1))
 		return false;
+	auto haveLen = off_t(evbuffer_get_length(*src));
+	LOG(haveLen << " vs. " << contLen);
+	if (contLen >= 0 && haveLen != contLen)
+		return false;
+	auto& res = m_parms.res;
 
 	fileitem::tSpecialPurposeAttr attr;
-	attr.bVolatile = rex::GetFiletype(toRel) == rex::FILE_VOLATILE;
-	auto hodler = GetDlRes().GetItemRegistry()->Create(toRel, ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY, attr);
-	if (!hodler.get())
-		return false;
-	auto fi = hodler.get();
-	hodler.get()->Setup();
-	lockuniq g(*fi);
-    // it's ours, let's play the downloader
-    if (fi->GetStatusUnlocked() > fileitem::FIST_INITED)
-        return false; // already being processing by someone
-    // feed it with some old attributes for now
-    if (!fi->DlStarted(string_view(),
-					   lastModified,
-                       forceOrig ? forceOrig : fi->m_responseOrigin,
-                       {200, "OK"},
-                       0,
-					   contLen))
-    {
-        return false;
-    }
-	if (!fi->DlAddData(data.getView(), g))
-        return false;
-	if (fileSize == contLen)
-		fi->DlFinish(true);
-	// and if not, hodler will mark it as interrupted download on exit
+	attr.bVolatile = m_parms.res.GetMatchers().GetFiletype(toRel) == rex::FILE_VOLATILE;
+	auto act = [&]()
+	{
 
-	if (fileitem::FIST_COMPLETE != fi->GetStatusUnlocked())
-        return false;
-	if (bSetIfileFlags)
-    {
-        tIfileAttribs &atts = SetFlags(toRel);
-        atts.uptodate = atts.vfile_ondisk = true;
-    }
-#endif
-    return true;
+		auto hodler = res.GetItemRegistry()->Create(toRel, ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY, attr);
+		if (!hodler.get())
+			return false;
+		auto fi = hodler.get();
+		hodler.get()->Setup();
+		auto fist = fi->GetStatus();
+		if (fist > fileitem::FIST_COMPLETE)
+		{
+			return false;
+		}
+		if (fist == fileitem::FIST_COMPLETE)
+		{
+			return true;
+		}
+		if (fist >= fileitem::FIST_DLASSIGNED)
+		{
+			return false; // item is fresh (forced), there should be no downloader here yet
+		}
+		auto xorig = forceOrig.empty() ? fi->m_responseOrigin : forceOrig;
+		// otherwise process here
+		if (!fi->DlStarted(nullptr, 0, lastModified, xorig, { 200, "OK" }, 0, contLen))
+		{
+			return false;
+		}
+		for (int i = 0; i < 10; ++i)
+		{
+			auto rest = evbuffer_get_length(*src);
+			if (rest == 0)
+			{
+				fi->DlFinish(true);
+				return fi->GetStatus() == fileitem::FIST_COMPLETE;
+			}
+			auto r = fi->DlConsumeData(*src, rest);
+			if (r < 0)
+				return false;
+		}
+		return false;
+	};
+	auto result = evabase::GetGlobal().SyncRunOnMainThread([&](){ return (uintptr_t) act(); });
+	if (result)
+	{
+		if (bSetIfileFlags)
+		{
+			tIfileAttribs &atts = SetFlags(toRel);
+			atts.uptodate = atts.vfile_ondisk = true;
+		}
+		return true;
+	}
+	return false;
 }
 
 void cacheman::ExtractAllRawReleaseDataFixStrandedPatchIndex(tFileGroups& idxGroups,
@@ -1698,7 +1718,7 @@ void cacheman::SyncSiblings(cmstring &srcPathRel,const tStrDeq& targets)
 			&& srcDirFile.second == tgtDirFile.second)
 				//&& 0 == strcmp(srcType, GetTypeSuffix(targetDirFile.second)))
 		{
-			Inject(srcPathRel, tgt, true, -1, tHttpDate(1));
+			Inject(srcPathRel, tgt, true, -1, tHttpDate(1), "");
 		}
 	}
 }

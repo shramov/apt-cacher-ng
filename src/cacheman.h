@@ -184,7 +184,7 @@ SUTPROTECTED:
 			const mstring &sPath, enumMetaType idxType, bool byHashMode = false);
 
 	bool GetAndCheckHead(cmstring & sHeadfile, cmstring &sFilePathRel, off_t nWantedSize);
-	virtual bool Inject(cmstring &fromRel, cmstring &toRel, bool bSetIfileFlags, off_t contLen, tHttpDate lastModified, LPCSTR forceOrig = nullptr);
+	virtual bool Inject(cmstring &fromRel, cmstring &toRel, bool bSetIfileFlags, off_t contLen, tHttpDate lastModified, cmstring& forceOrig);
 
 	void PrintStats(cmstring &title);
 
