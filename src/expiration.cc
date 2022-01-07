@@ -671,9 +671,8 @@ void expiration::ListExpiredFiles()
 		}
 	this->TellCount(cnt, nSpace);
 
-	mstring delURL(this->m_parms.cmd);
-	StrSubst(delURL, "justShow", "justRemove");
-	SendFmt << "<a href=\""<<delURL<<"\">Delete all listed files</a> "
+	auto delURL = mstring("/") + cfg::reportpage + "?justRemove=1";
+	SendFmt << "<a href=\"" << delURL << "\">Delete all listed files</a> "
 				"(no further confirmation)<br>\n";
 	return;
 }
