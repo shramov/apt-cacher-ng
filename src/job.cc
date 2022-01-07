@@ -195,6 +195,8 @@ void job::Prepare(const header &h, bufferevent* be, cmstring& callerHostname, ac
 			m_keepAlive = KEEP;
 	}
 	else if (m_bIsHttp11)
+		m_keepAlive = KEEP;
+	else
 		m_keepAlive = CLOSE;
 
 	constexpr string_view fname = "/_actmp";
