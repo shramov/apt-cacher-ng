@@ -25,10 +25,10 @@ class ACNG_API atransport : public acng::tLintRefcounted
 {
 protected:
 	unique_bufferevent m_buf;
-	bool m_bPeerIsProxy = false;
 	bool m_bIsSslStream = false;
 	bool m_bCanceled = false;
 	tHttpUrl m_url;
+	const tHttpUrl* m_pProxy = nullptr;
 	friend struct tConnContext;
 
 public:
@@ -52,12 +52,14 @@ public:
 		bool noTlsOnTarget = false; // (even for HTTPS urls), don't do the final switch to TLS layer
 		int timeoutSeconds = -1; // timeout value, -1 for config default, 0 to disable timeout
 
+		const tHttpUrl* forcedProxy = nullptr;
+
 		TConnectParms& SetTimeout(int n) { timeoutSeconds = n; return *this; }
-		TConnectParms& SetDirectConnection(bool val) { directConnection = val ; return *this; }
-		TConnectParms& SetNoTlsOnTarget(bool val) { noTlsOnTarget = val ; return *this; }
+		TConnectParms& SetDirectConnection(bool val) { directConnection = val; return *this; }
+		TConnectParms& SetNoTlsOnTarget(bool val) { noTlsOnTarget = val; return *this; }
+		TConnectParms& SetProxy(const tHttpUrl* forcedProxy_) { forcedProxy = forcedProxy_; return *this; }
 
 		TConnectParms() {};
-		//void AppendFingerprint(mstring& prefix) const;
 	};
 
 	/**
@@ -72,9 +74,15 @@ public:
 	static void Return(lint_ptr<atransport>& stream);
 
 	bufferevent *GetBufferEvent() { return *m_buf; }
-	cmstring& GetHost() { return m_url.sHost; }
-	uint16_t GetPort() { return m_url.GetPort(); }
-	bool PeerIsProxy() { return m_bPeerIsProxy; }
+	const tHttpUrl& GetTargetHost() { return m_url; }
+	const tHttpUrl* GetUsedProxy() { return m_pProxy; }
+
+	/**
+	 * Check whether the proxy was blocked temporarily; this is static for
+	 * now because this failure timeout is a global option, might be changed
+	 * in future to transport specific blocking
+	 */
+	static bool IsProxyNowBroken();
 };
 
 }

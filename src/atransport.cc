@@ -40,6 +40,8 @@ namespace acng
 const mstring pfxSslError("Fatal TLS error: "sv);
 
 cmstring siErr("Internal Error"sv);
+
+#warning implement the setting and evaluation of this
 time_t g_proxyBackOffUntil = 0;
 
 using unique_ssl = auto_raii<SSL*,SSL_free,nullptr>;
@@ -73,6 +75,12 @@ public:
 	}
 	bool Full() {return get().size() > CACHE_SIZE_MAX; }
 } g_con_cache;
+
+
+bool atransport::IsProxyNowBroken()
+{
+	return (GetTime() < g_proxyBackOffUntil);
+}
 
 
 static const timeval* GetKeepTimeout()
@@ -118,7 +126,8 @@ public:
 		bufferevent_setcb(*m_buf, nullptr, nullptr, cbCachedKill, this);
 		bufferevent_set_timeouts(*m_buf, GetKeepTimeout(), nullptr);
 		bufferevent_enable(*m_buf, EV_READ);
-		m_cleanIt = g_con_cache.get().emplace(HostPortKeyMaker(GetHost(), GetPort()),
+		auto& tgt = GetTargetHost();
+		m_cleanIt = g_con_cache.get().emplace(HostPortKeyMaker(tgt.sHost, tgt.GetPort()),
 											  lint_ptr<atransport>(this));
 	}
 	// restore operation after hibernation
@@ -139,7 +148,7 @@ public:
 #endif
 	~atransportEx()
 	{
-		LOGSTARTFUNCx("Destroying con", this->GetHost());
+		LOGSTARTFUNCx("Destroying con", GetTargetHost().ToURI(false));
 		if (GetBufferEvent() && m_bIsSslStream)
 		{
 			auto ssl = bufferevent_openssl_get_ssl(GetBufferEvent());
@@ -190,14 +199,15 @@ struct tConnContext : public tLintRefcounted
 	void Start()
 	{
 		m_currentTarget = &m_result->m_url;
-		m_prInfo = cfg::GetProxyInfo();
+		m_prInfo = m_hints.forcedProxy;
+		OPTSET(m_prInfo, cfg::GetProxyInfo());
 		if (m_prInfo)
 		{
 			if (cfg::optproxytimeout > 0 && GetTime() < g_proxyDeadUntil)
 				m_prInfo = nullptr; // unusable for now
 			if (m_prInfo)
 			{
-				m_result->m_bPeerIsProxy = true;
+				m_result->m_pProxy = m_prInfo;
 				m_currentTarget = m_prInfo;
 			}
 		}
@@ -351,7 +361,7 @@ struct tConnContext : public tLintRefcounted
 
 		if (what & (BEV_EVENT_EOF | BEV_EVENT_ERROR | BEV_EVENT_TIMEOUT))
 		{
-			return m_reporter({TRANS_FAULTY_SSL_PEER, pfxSslError + "Handshake aborted"});
+			return m_reporter({TRANS_FAULTY_SSL_PEER, pfxSslError + " - Handshake aborted"});
 		}
 
 		if (what & BEV_EVENT_CONNECTED)
@@ -360,7 +370,8 @@ struct tConnContext : public tLintRefcounted
 			if( hret != X509_V_OK)
 			{
 				auto err = X509_verify_cert_error_string(hret);
-				if (!err) err = "Handshake failed";
+				if (!err)
+					err = "Handshake failed";
 				return m_reporter({TRANS_FAULTY_SSL_PEER, pfxSslError + err});
 			}
 			auto remote_cert = SSL_get_peer_certificate(bufferevent_openssl_get_ssl(bev));
@@ -371,7 +382,7 @@ struct tConnContext : public tLintRefcounted
 				X509_free(remote_cert);
 			}
 			else // The handshake was successful although the server did not provide a certificate
-				return m_reporter({TRANS_FAULTY_SSL_PEER, pfxSslError + "Incompatible remote certificate"});
+				return m_reporter({TRANS_FAULTY_SSL_PEER, pfxSslError + " - Incompatible remote certificate"});
 
 			bufferevent_disable(bev, EV_READ | EV_WRITE);
 			bufferevent_setcb(bev, nullptr, nullptr, nullptr, nullptr);
@@ -429,7 +440,7 @@ void atransport::Return(lint_ptr<atransport> &stream)
 #ifdef REUSE_TARGET_CONN
 	if (!evabase::GetGlobal().IsShuttingDown() && AC_LIKELY(stream))
 	{
-		LOG(stream->GetHost());
+		LOG(stream->GetTargetHost().ToURI(false));
 		static_lptr_cast<atransportEx>(stream)->Moothball();
 	}
 #endif

@@ -48,7 +48,8 @@ public:
 
 		tHttpUrl & operator=(const tHttpUrl &a)
         {
-                if(&a == this) return *this;
+				if (this == &a)
+					return *this;
                 sHost = a.sHost;
 				nPort = a.nPort;
                 sPath = a.sPath;
@@ -58,9 +59,11 @@ public:
         }
         bool operator==(const tHttpUrl &a) const
         {
-				return a.sHost == sHost && a.nPort == nPort && a.sPath == sPath
-								&& a.sUserPass == sUserPass && m_schema == a.m_schema;;
-        }
+			if (this == &a)
+				return true;
+			return a.sHost == sHost && a.nPort == nPort && a.sPath == sPath
+					&& a.sUserPass == sUserPass && m_schema == a.m_schema;;
+		}
 
 		bool operator!=(const tHttpUrl &a) const
         {
@@ -104,6 +107,13 @@ public:
 
 		tHttpUrl& SetHost(string_view host) { sHost = host; return *this; }
 		tHttpUrl& SetHost(mstring&& host) { sHost = move(host); return *this; }
+
+		inline bool EqualHostPortProto(const tHttpUrl& other) const
+		{
+			if (this == &other)
+				return true;
+			return sHost == other.sHost && nPort == other.nPort && m_schema == other.m_schema;
+		}
 };
 /*
 struct tHttpUrlAssignable : public tHttpUrl

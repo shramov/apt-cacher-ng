@@ -363,6 +363,7 @@ remotedb &remotedb::GetInstance()
 void remotedb::PostConfig()
 {
 	mapUrl2pVname.rehash(mapUrl2pVname.size());
+
 	if (debug & log::LOG_DEBUG)
 	{
 		unsigned nUrls = 0;
@@ -370,10 +371,10 @@ void remotedb::PostConfig()
 			nUrls += x.second.size();
 
 		if ((debug & log::LOG_MORE) && repoparms.size() > 0)
-	{
+		{
 			cerr << "Loaded " << repoparms.size() << " backend descriptors\nLoaded mappings for "
-					<< mapUrl2pVname.size() << " hosts and " << nUrls << " paths\n";
-	}
+				 << mapUrl2pVname.size() << " hosts and " << nUrls << " paths\n";
+		}
 	}
 
 }

@@ -369,7 +369,7 @@ public:
 
 	bool AddJob(lint_ptr<fileitem> fi, const tHttpUrl* src, tRepoResolvResult* repoSrc, bool isPT, mstring extraHeaders) override;
 	void TriggerDispatch();
-	void ToBacklog(tDlJob* j);
+	bool ToBacklog(tDlJob* j);
 
 	// tClock interface
 public:
@@ -413,6 +413,8 @@ struct tDlJob
 	bool m_bIsPassThroughRequest = false;
 	bool m_bAllowStoreData = true;
 	bool m_bFileItemAssigned = false;
+	bool m_bConnectionClose = false;
+	bool m_bRevalidationNeeded = false;
 
 	int m_nRedirRemaining = cfg::redirmax;
 
@@ -463,6 +465,11 @@ struct tDlJob
 	const tHttpUrl& GetPeerHost()
 	{
 		return m_pCurBackend ? *m_pCurBackend : m_remoteUri;
+	}
+
+	const tHttpUrl* GetJobProxyInfo()
+	{
+		return m_pRepoDesc && m_pRepoDesc->m_pProxy ? m_pRepoDesc->m_pProxy : cfg::GetProxyInfo();
 	}
 
 	inline tRepoUsageHooks* GetConnStateTracker()
@@ -771,8 +778,17 @@ struct tDlJob
 #endif
 	}
 
-#warning move it
-	bool m_bConnectionClose = false;
+	bool ValidateTargetConnection(atransport& tr)
+	{
+		// explicite hit? Perfect
+		if (GetPeerHost().EqualHostPortProto(tr.GetTargetHost()))
+			return true;
+
+		// consider using a shared proxy, does it suit our job?
+		const auto* trProxy = tr.GetUsedProxy();
+		const auto* jobProxy = GetJobProxyInfo();
+		return trProxy && jobProxy && !atransport::IsProxyNowBroken() && trProxy == jobProxy;
+	}
 
 	/*!
 	 *
@@ -1276,7 +1292,8 @@ void tDlStream::Connect()
 			handleDisconnect(result.err, result.flags);
 		}
 	};
-	m_connectionToken = atransport::Create(el->GetPeerHost(), move(onConnect), m_parent->GetAppRes());
+	m_connectionToken = atransport::Create(el->GetPeerHost(), move(onConnect), m_parent->GetAppRes(),
+										   atransport::TConnectParms().SetProxy(el->GetJobProxyInfo()));
 }
 
 void tDlStream::OnRead(bufferevent *pBE)
@@ -1348,8 +1365,23 @@ bool tDlStream::TakeJob(tDlJob *pJob)
 		return false;
 	if (!m_requested.empty() && pJob->GetId() < m_requested.back()->GetId())
 		return false;
+	// if already connected - can we serve that job from this connection?
+	if (m_transport && !pJob->ValidateTargetConnection(*m_transport))
+		return false;
+	if (!m_transport)
+	{
+		// analyze whether there is a good chance that this connection will be able to serve it or not
+#warning add target-specific-proxy check when implemented
+		if (cfg::GetProxyInfo()
+			|| (!m_waiting.empty() && m_waiting.top()->GetPeerHost() == pJob->GetPeerHost())
 
-	// otherwise, yeah, we can do request this
+			)
+		{
+			pJob->m_bRevalidationNeeded = true;
+		}
+	}
+
+	// otherwise, yeah, we can probably handle this, connect as needed
 	m_waiting.push(pJob);
 	pJob->m_DlState = tDlJob::STATE_GETHEADER;
 
@@ -1412,8 +1444,18 @@ void tDlStream::tryRequestMore()
 	while (!m_waiting.empty() && m_requested.size() < REQUEST_LIMIT)
 	{
 		auto p = m_waiting.pop();
-		p->AppendRequest(besender(m_transport->GetBufferEvent()),
-									   m_transport->PeerIsProxy() ? cfg::GetProxyInfo() : nullptr);
+
+		if (p->m_bRevalidationNeeded)
+		{
+			p->m_bRevalidationNeeded = false;
+			if (!p->ValidateTargetConnection(*m_transport))
+			{
+				m_parent->ToBacklog(p);
+				return;
+			}
+		}
+
+		p->AppendRequest(besender(m_transport->GetBufferEvent()), m_transport->GetUsedProxy());
 		m_requested.emplace_back(p);
 	}
 }
@@ -1477,7 +1519,7 @@ void tDlStream::handleDisconnect(string_view why, tComError cause)
 		m_parent->DeleteStream(m_meRef);
 }
 
-void CDlConn::ToBacklog(tDlJob *j)
+bool CDlConn::ToBacklog(tDlJob *j)
 {
 	try
 	{
@@ -1486,8 +1528,10 @@ void CDlConn::ToBacklog(tDlJob *j)
 	catch (const std::bad_alloc&)
 	{
 		delete j;
+		return false;
 	}
 	TriggerDispatch();
+	return true;
 }
 
 bool CDlConn::AddJob(lint_ptr<fileitem> fi, const tHttpUrl *src, tRepoResolvResult *repoSrc, bool isPT, mstring extraHeaders)
@@ -1498,9 +1542,6 @@ bool CDlConn::AddJob(lint_ptr<fileitem> fi, const tHttpUrl *src, tRepoResolvResu
 	try
 	{
 		j = new tDlJob(m_nJobIdgen++, fi, src, repoSrc, isPT, move(extraHeaders));
-		m_backlog.push(j);
-		TriggerDispatch();
-		return true;
 	}
 	catch (const std::exception& ex)
 	{
@@ -1512,10 +1553,7 @@ bool CDlConn::AddJob(lint_ptr<fileitem> fi, const tHttpUrl *src, tRepoResolvResu
 		dbgline;
 		return false;
 	}
-	dbgline;
-	if (j)
-		delete j;
-	return false;
+	return ToBacklog(j);
 }
 
 void CDlConn::TriggerDispatch()
@@ -1558,14 +1596,15 @@ void CDlConn::DispatchDfrd(tDlJob *what, tDlJobPrioQ& unhandled)
 	// drop broken or assigned to others, and check configuration
 	auto st = what->WhoIsResponsible();
 	if(st == tDlJob::eResponsibility::NOT_US
-			|| st == tDlJob::eResponsibility::IRRELEVANT
-			|| ! what->SetupSource(m_validator))
+			|| st == tDlJob::eResponsibility::IRRELEVANT)
 	{
 		dbgline;
-		return delete what;
+		if (! what->SetupSource(m_validator))
+		{
+			dbgline;
+			return delete what;
+		}
 	}
-
-	const auto& tgt = what->GetPeerHost();
 
 	auto accept = [&](tDlStreamPool::iterator it)
 	{
@@ -1578,14 +1617,11 @@ void CDlConn::DispatchDfrd(tDlJob *what, tDlJobPrioQ& unhandled)
 	// try fast path?
 	if (m_lastUsedStream != m_streams.end())
 	{
-		if (tgt == m_lastUsedStream->GetPeerHost())
+		dbgline;
+		if(accept(m_lastUsedStream))
 		{
 			dbgline;
-			if(accept(m_lastUsedStream))
-			{
-				dbgline;
-				return;
-			}
+			return;
 		}
 	}
 	// XXX: subject to optimization! There no preferrence of taking idle or busy streams first yet.
@@ -1593,20 +1629,13 @@ void CDlConn::DispatchDfrd(tDlJob *what, tDlJobPrioQ& unhandled)
 	{
 		if (m_lastUsedStream == it)
 			continue;
-#warning add more considerations for SHARED proxy
-		auto ho = it->GetPeerHost();
-		if (what->GetPeerHost().sHost == it->GetPeerHost().sHost
-			&& what->GetPeerHost().GetPort() ==  it->GetPeerHost().GetPort())
-		{
-			dbgline;
-			if (accept(it))
-				return;
-		}
+		if (accept(it))
+			return;
 	}
 	// okay, not accepted by any existing stream, create a new one if allowed
 	if (m_streams.size() <= MAX_STREAMS_PER_USER)
 	{
-		if (!accept(AddStream(tgt)))
+		if (!accept(AddStream(what->GetPeerHost())))
 			delete what;
 		return;
 	}
