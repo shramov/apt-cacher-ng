@@ -4,6 +4,10 @@
 #include "actypes.h"
 
 using tComError = unsigned;
+
+/**
+ * @brief The eTransErrors enum descries the nature of a fault occured somewhere.
+ */
 enum eTransErrors : tComError
 {
 TRANS_DNS_NOTFOUND=0x1,
@@ -16,6 +20,6 @@ TRANS_STREAM_ERR_FATAL = 0x40
 };
 
 // codes which mean that the connection shall not be retried for that peer
-#define TRANS_STREAM_FATAL(n) (0 != (n & (TRANS_INTERNAL_ERROR|TRANS_DNS_NOTFOUND|TRANS_TIMEOUT|TRANS_STREAM_ERR_FATAL)))
+#define IS_STREAM_FATAL_ERROR(n) (0 != (n & (TRANS_INTERNAL_ERROR|TRANS_DNS_NOTFOUND|TRANS_TIMEOUT|TRANS_STREAM_ERR_FATAL)))
 
 #endif // ACOMCOMMON_H

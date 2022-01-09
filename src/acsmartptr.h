@@ -57,7 +57,7 @@ public:
 		if(rawPtr && initialyTakeRef)
 			rawPtr->__inc_ref();
 	}
-	T* spawn()
+	T* construct()
 	{
 		reset(new T);
 		return m_ptr;

@@ -306,7 +306,7 @@ void cacheman::Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 {
 	ASSERT_IS_MAIN_THREAD;
 
-	auto* sp = m_dlCtx->states.emplace_back().spawn();
+	auto* sp = m_dlCtx->states.emplace_back().construct();
 	sp->m_parms = { sFilePathRel, msgVerbosityLevel, pForcedURL, hints, sGuessedFrom, bForceReDownload };
 	sp->sFilePathAbs = SABSPATH(sFilePathRel);
 	sp->attr.bVolatile = bIsVolatileFile;

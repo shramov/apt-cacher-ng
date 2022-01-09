@@ -38,7 +38,7 @@ void fileitem::NotifyObservers()
 aobservable::subscription fileitem::Subscribe(const tAction &pokeAction)
 {
 	if (!m_notifier)
-		m_notifier.spawn();
+		m_notifier.construct();
 	return m_notifier->subscribe(pokeAction);
 }
 

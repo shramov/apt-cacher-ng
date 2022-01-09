@@ -50,7 +50,7 @@ static const fileitem::tSpecialPurposeAttr g_dummy_attributes;
 class CDlConn;
 struct tDlJob;
 struct tDlStream;
-using tDlStreamPool = multimap<string, tDlStream>;
+using tDlStreamPool = list<tDlStream>;
 #define MOVE_FRONT_THERE_TO_BACK_HERE(there, here) here.splice(here.end(), there, there.begin())
 static const struct timeval timeout_asap{0,0};
 
@@ -103,12 +103,13 @@ struct tRemoteValidator
 // custom priority queue which is transparent for special uses and also returns the popped element directly
 struct tDlJobPrioQ
 {
+public:
+	~tDlJobPrioQ() { clear(); }
 	using T = tDlJob*;
 	struct tCompJobPtrById
 	{
 		bool operator() (const T &a, const T &b) const;
 	} m_comparator;
-	std::deque<T> m_data;
 
 	inline void push(T element)
 	{
@@ -125,6 +126,11 @@ struct tDlJobPrioQ
 	inline T top() { return m_data.at(0); }
 	inline bool empty() { return m_data.empty(); }
 	inline bool size() { return m_data.size(); }
+	void clear();
+	inline void swap(tDlJobPrioQ& other) { other.m_data.swap(m_data); }
+private:
+	std::vector<T> m_data;
+
 };
 
 struct tDlStream : public tLintRefcounted
@@ -154,6 +160,11 @@ struct tDlStream : public tLintRefcounted
 		m_parent = parent;
 		m_meRef = meRef;
 	}
+	bool Cancel()
+	{
+		m_waiting.clear();
+		return m_requested.empty();
+	}
 
 	void Connect();
 
@@ -167,7 +178,6 @@ struct tDlStream : public tLintRefcounted
 	 */
 	bool TakeJob(tDlJob*);
 	const tHttpUrl& GetPeerHost() { return m_targetInfo; }
-	void DropBacklog();
 
 	void Subscribe2BlockingItem(tFileItemPtr fi)
 	{
@@ -221,7 +231,7 @@ class CDlConn : public dlcontroller, public tClock
 
 	unsigned m_nJobIdgen = 0;
 //	unsigned m_nIdleCount = 0;
-	bool m_bInShutdown = false;
+	bool m_bInShutdown = false, m_bDispatchPending = false;
 	// self-reference which is set when the shutdown phase starts and there are external users of some of the served items
 	lint_ptr<dlcontroller> m_shutdownLock;
 	tRemoteValidator m_validator;
@@ -229,7 +239,6 @@ class CDlConn : public dlcontroller, public tClock
 	friend struct tDlJob;
 	// queue for jobs which are blocked until a new stream can handle them
 	tDlJobPrioQ m_backlog;
-	deque<tDlJob*> m_dispatchQ;
 	unique_event m_dispatchNotifier;
 
 	tDlStreamPool m_streams;
@@ -242,7 +251,7 @@ public:
 	{
 		LOGSTARTFUNC;
 		ASSERT_IS_MAIN_THREAD;
-		m_dispatchNotifier.reset(evtimer_new(evabase::base, cbDispatchTheQueue, this));
+		m_dispatchNotifier.reset(evtimer_new(evabase::base, cbDispatchBacklog, this));
 	}
 	~CDlConn()
 	{
@@ -251,6 +260,15 @@ public:
 	}
 	tRemoteValidator& GetValidator() { return m_validator; }
 	acres& GetAppRes() { return m_res; }
+
+	decltype (m_streams)::iterator AddStream(const tHttpUrl& tgt)
+	{
+		m_streams.emplace_back(tgt);
+		auto refIt = m_streams.end();
+		--refIt;
+		m_streams.back().Start(this, refIt);
+		return refIt;
+	}
 
 	void DeleteStream(tDlStreamPool::iterator what)
 	{
@@ -274,7 +292,7 @@ public:
 	{
 		if (!m_bInShutdown)
 			return false;
-		if (!m_streams.empty() || !m_dispatchQ.empty())
+		if (!m_streams.empty() || !m_backlog.empty())
 			return false;
 		// potentially destroyting *this
 		m_shutdownLock.reset();
@@ -282,11 +300,11 @@ public:
 	}
 	void ProcessBacklog()
 	{
-		while (!m_backlog.empty())
-		{
-			auto item = m_backlog.pop();
-			Dispatch(item);
-		}
+		if (m_streams.size() >= MAX_STREAMS_PER_USER)
+			return; // pointless, wait for a free slot
+
+		if (!m_backlog.empty())
+			TriggerDispatch();
 	}
 	/**
 	 * @brief TermOrProcBacklog
@@ -320,14 +338,14 @@ public:
 	{
 		ASSERT_IS_MAIN_THREAD;
 		m_bInShutdown = true;
-		m_backlog.m_data.clear();
+		m_backlog.clear();
 
 		m_lastUsedStream = m_streams.end();
 
+		// try to abort all streams; if some are busy, self-lock and wait for the stream to report it's termination
 		for (auto it = m_streams.begin(); it != m_streams.end();)
 		{
-			it->second.DropBacklog();
-			if (it->second.m_requested.empty())
+			if (it->Cancel())
 				it = m_streams.erase(it);
 			else
 				++it;
@@ -342,17 +360,16 @@ public:
 	{
 		m_bInShutdown = true;
 		OnClockTimeout();
-		m_backlog.m_data.clear();
-		m_dispatchQ.clear();
+		m_backlog.clear();
 		m_streams.clear();
 	}
 
-	void DispatchDfrd(tDlJob* what);
-	static void cbDispatchTheQueue(evutil_socket_t, short, void *);
+	void DispatchDfrd(tDlJob* what, tDlJobPrioQ& unhandled);
+	static void cbDispatchBacklog(evutil_socket_t, short, void *);
 
 	bool AddJob(lint_ptr<fileitem> fi, const tHttpUrl* src, tRepoResolvResult* repoSrc, bool isPT, mstring extraHeaders) override;
-	void Dispatch(tDlJob* what);
-	void StraightToBacklog(tDlJob* j);
+	void TriggerDispatch();
+	void ToBacklog(tDlJob* j);
 
 	// tClock interface
 public:
@@ -362,7 +379,7 @@ public:
 
 		for (auto it = m_streams.begin(); it != m_streams.end();)
 		{
-			if (it->second.m_idleSince < thold)
+			if (it->m_idleSince < thold)
 			{
 				if (it == m_lastUsedStream)
 					m_lastUsedStream = m_streams.end();
@@ -592,7 +609,7 @@ struct tDlJob
 			return true;
 
 		auto* pKnownIssues = m_sourceState > 0 
-            ? validator.RegisterError(GetPeerHost(), m_sError, TRANS_STREAM_FATAL(m_sourceState))
+			? validator.RegisterError(GetPeerHost(), m_sError, IS_STREAM_FATAL_ERROR(m_sourceState))
             : validator.GetEntry(GetPeerHost());
 
 		m_sourceState = validator.CurrentRevision();
@@ -1345,13 +1362,6 @@ bool tDlStream::TakeJob(tDlJob *pJob)
 	return true;
 }
 
-void tDlStream::DropBacklog()
-{
-	for(auto p: m_waiting.m_data)
-		delete p;
-	m_waiting.m_data.clear();
-}
-
 tDlStream::~tDlStream()
 {
 	LOGSTARTFUNCx(m_dirty, m_transport.get());
@@ -1362,7 +1372,6 @@ tDlStream::~tDlStream()
 	if (m_transport && !m_dirty && m_requested.empty())
 		atransport::Return(m_transport);
 
-	DropBacklog();
 	for (auto el: m_requested)
 		delete el;
 	m_requested.clear();
@@ -1387,9 +1396,9 @@ void tDlStream::Sacrifice()
 	m_sacrificied = true;
 #warning if this is set, the item which got interrupted in the end must get an additional retry
 
-	for(auto el: m_waiting.m_data)
-		m_parent->StraightToBacklog(el);
-	m_waiting.m_data.clear();
+	while (!m_waiting.empty())
+		m_parent->ToBacklog(m_waiting.pop());
+
 	if (m_transport && m_transport->GetBufferEvent())
 	{
 		auto fd = bufferevent_getfd(m_transport->GetBufferEvent());
@@ -1445,21 +1454,21 @@ void tDlStream::handleDisconnect(string_view why, tComError cause)
 
 		// dispatch would also do it but can make a quick check here ASAP, the result is cached anyway
 		if (!what->SetupSource(m_parent->GetValidator()))
-			delete what;
-		else
+			return delete what;
+
+		evabase::Post([what, pin = as_lptr(m_parent)]()
 		{
-			evabase::Post([what, pin = as_lptr(m_parent)]()
-			{
-				pin->Dispatch(what);}
-			);
-		}
+			pin->ToBacklog(what);
+		});
 	};
+
+	// return all jobs to parent
 	for (auto el: m_requested)
 		putBack(el);
 	m_requested.clear();
-	for (auto el: m_waiting.m_data)
-		putBack(el);
-	m_waiting.m_data.clear();
+
+	while (!m_waiting.empty())
+		putBack(m_waiting.pop());
 
 	m_connectionToken.reset();
 	m_transport.reset();
@@ -1468,7 +1477,7 @@ void tDlStream::handleDisconnect(string_view why, tComError cause)
 		m_parent->DeleteStream(m_meRef);
 }
 
-void CDlConn::StraightToBacklog(tDlJob *j)
+void CDlConn::ToBacklog(tDlJob *j)
 {
 	try
 	{
@@ -1478,6 +1487,7 @@ void CDlConn::StraightToBacklog(tDlJob *j)
 	{
 		delete j;
 	}
+	TriggerDispatch();
 }
 
 bool CDlConn::AddJob(lint_ptr<fileitem> fi, const tHttpUrl *src, tRepoResolvResult *repoSrc, bool isPT, mstring extraHeaders)
@@ -1488,7 +1498,8 @@ bool CDlConn::AddJob(lint_ptr<fileitem> fi, const tHttpUrl *src, tRepoResolvResu
 	try
 	{
 		j = new tDlJob(m_nJobIdgen++, fi, src, repoSrc, isPT, move(extraHeaders));
-		Dispatch(j);
+		m_backlog.push(j);
+		TriggerDispatch();
 		return true;
 	}
 	catch (const std::exception& ex)
@@ -1507,27 +1518,37 @@ bool CDlConn::AddJob(lint_ptr<fileitem> fi, const tHttpUrl *src, tRepoResolvResu
 	return false;
 }
 
-void CDlConn::Dispatch(tDlJob *what)
+void CDlConn::TriggerDispatch()
 {
-	m_dispatchQ.emplace_back(what);
-	if (m_dispatchQ.size() == 1)
-		evtimer_add(m_dispatchNotifier.get(), &timeout_asap);
+	if (m_bDispatchPending)
+		return;
+
+	m_bDispatchPending = true;
+	evtimer_add(m_dispatchNotifier.get(), &timeout_asap);
 }
 
-deque<tDlJob*> g_localQ;
+tDlJobPrioQ unhandled;
 
-void CDlConn::cbDispatchTheQueue(int, short, void *ctx)
+void CDlConn::cbDispatchBacklog(int, short, void *ctx)
 {
 	LOGSTARTFUNCs;
 	auto me((CDlConn*)ctx);
-	g_localQ.clear();
-	g_localQ.swap(me->m_dispatchQ);
-	for(auto p: g_localQ)
-		me->DispatchDfrd(p);
-	g_localQ.clear();
+	me->m_bDispatchPending = false;
+	try
+	{
+		unhandled.clear();
+		while (!me->m_backlog.empty())
+			me->DispatchDfrd(me->m_backlog.pop(), unhandled);
+		unhandled.swap(me->m_backlog);
+	}
+	catch (...)
+	{
+		unhandled.clear();
+		me->m_backlog.clear();
+	}
 }
 
-void CDlConn::DispatchDfrd(tDlJob *what)
+void CDlConn::DispatchDfrd(tDlJob *what, tDlJobPrioQ& unhandled)
 {
 	LOGSTARTFUNC;
 
@@ -1538,7 +1559,7 @@ void CDlConn::DispatchDfrd(tDlJob *what)
 	auto st = what->WhoIsResponsible();
 	if(st == tDlJob::eResponsibility::NOT_US
 			|| st == tDlJob::eResponsibility::IRRELEVANT
-			|| !what->SetupSource(m_validator))
+			|| ! what->SetupSource(m_validator))
 	{
 		dbgline;
 		return delete what;
@@ -1548,7 +1569,7 @@ void CDlConn::DispatchDfrd(tDlJob *what)
 
 	auto accept = [&](tDlStreamPool::iterator it)
 	{
-		if (!it->second.TakeJob(what))
+		if (!it->TakeJob(what))
 			return false;
 		m_lastUsedStream = it;
 		return true;
@@ -1557,7 +1578,7 @@ void CDlConn::DispatchDfrd(tDlJob *what)
 	// try fast path?
 	if (m_lastUsedStream != m_streams.end())
 	{
-		if (tgt == m_lastUsedStream->second.GetPeerHost())
+		if (tgt == m_lastUsedStream->GetPeerHost())
 		{
 			dbgline;
 			if(accept(m_lastUsedStream))
@@ -1567,71 +1588,49 @@ void CDlConn::DispatchDfrd(tDlJob *what)
 			}
 		}
 	}
-
-	auto skey = tgt.GetHostPortProtoKey();
-	auto range = m_streams.equal_range(skey);
 	// XXX: subject to optimization! There no preferrence of taking idle or busy streams first yet.
-	for (auto it = range.first; it != range.second; ++it)
+	for (auto it = m_streams.begin(); it != m_streams.end(); ++it)
 	{
 		if (m_lastUsedStream == it)
 			continue;
-		if (accept(it))
-			return;
+#warning add more considerations for SHARED proxy
+		auto ho = it->GetPeerHost();
+		if (what->GetPeerHost().sHost == it->GetPeerHost().sHost
+			&& what->GetPeerHost().GetPort() ==  it->GetPeerHost().GetPort())
+		{
+			dbgline;
+			if (accept(it))
+				return;
+		}
 	}
 	// okay, not accepted by any existing stream, create a new one if allowed
 	if (m_streams.size() <= MAX_STREAMS_PER_USER)
 	{
-		auto it = m_streams.emplace(skey, tgt);
-		it->second.Start(this, it);
-		return accept(it) ? void() : delete what;
+		if (!accept(AddStream(tgt)))
+			delete what;
+		return;
 	}
 
 	ldbg("2many streams, let's interrupt something");
 
-	m_backlog.push(what);
+	unhandled.push(what);
 	dbgline;
+
 	// pick the one with the fewest known bytes in the pipeline ATM
 	tDlStream* sacrifice = nullptr;
 	off_t remBytesMin = MAX_VAL(off_t);
 	for(auto& el: m_streams)
 	{
-		off_t rb = el.second.GetRemainingBodyBytes();
+		off_t rb = el.GetRemainingBodyBytes();
 		if (rb <= remBytesMin)
 		{
-			sacrifice = &el.second;
+			sacrifice = &el;
 			remBytesMin = rb;
 		}
 	}
 	dbgline;
 	ASSERT(sacrifice);
 	sacrifice->Sacrifice();
-
-	// XXX: smarter guessing of the best sacrifice, probably pointless
-#if 0
-	// now check whether this item is a high-prio task and if needed, terminate some lesser-prio stream
-	decltype (m_nJobIdgen) idMin = 0, idMax = 0;
-	auto executorMin = m_streams.end(), executorMax = m_streams.end();
-	for(auto it = m_streams.begin(); it != m_streams.end(); ++it)
-	{
-		if (it->second.m_requested.empty())
-			continue;
-		auto id = it->second.m_requested.front()->GetId();
-		if (id < idMin)
-		{
-
-			executorMin = it;
-			idMin = id;
-		}
-		else if (id > idMax)
-		{
-			executorMax = it;
-			idMax = id;
-		}
-	}
-	if (executorMax == m_streams.end()) // they are all more urgent, wait to become available
-		return;
-	executorMax->second.StartSoftDisconnect();
-#endif
 }
 
 bool tDlJobPrioQ::tCompJobPtrById::operator()(const T &a, const T &b) const
@@ -1641,6 +1640,8 @@ auto idB = b->m_orderId;
 // we actually want a min_heap
 return idB < idA;
 }
+
+void tDlJobPrioQ::clear() { for(auto*p: m_data) delete(p); m_data.clear(); }
 
 }
 
