@@ -5,6 +5,7 @@
 #include "filereader.h"
 
 #include <map>
+#include <cstdint>
 
 // XXX: allocate this dynamically?
 #define MAXCSLEN 64
@@ -72,7 +73,7 @@ class csumBase
 {
 public:
 	virtual ~csumBase() {};
-	virtual void add(const char *data, size_t size) = 0;
+	virtual void add(const char *data, std::size_t size) = 0;
 	virtual void finish(uint8_t* ret) = 0;
 	static std::unique_ptr<csumBase> GetChecker(CSTYPES);
 };
