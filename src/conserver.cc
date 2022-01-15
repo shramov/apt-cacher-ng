@@ -10,6 +10,7 @@
 #include "acregistry.h"
 #include "portutils.h"
 #include "aclock.h"
+#include "conn.h"
 
 #include <signal.h>
 #include <arpa/inet.h>
@@ -40,11 +41,9 @@ namespace acng
 {
 
 int yes(1);
+int g_adminFd(-1);
 
 const struct timeval g_resumeTimeout { 2, 11 };
-
-// from conn.cc
-void StartServing(unique_fd&& fd, string clientName, acres& res);
 
 class conserverImpl : public conserver
 {
@@ -61,12 +60,12 @@ class conserverImpl : public conserver
 
 public:
 
-	void SetupConAndGo(unique_fd&& man_fd, string clientName, LPCSTR clientPort)
+	void SetupConAndGo(unique_fd&& man_fd, string clientName, LPCSTR clientPort, bool isAdmin)
 	{
 		USRDBG("Client name: " << clientName << ":" << clientPort);
 		try
 		{
-			StartServing(move(man_fd), move(clientName), m_res);
+			StartServing(move(man_fd), move(clientName), m_res, isAdmin);
 		}
 		catch (const std::bad_alloc&)
 		{
@@ -123,8 +122,11 @@ public:
 			evutil_make_socket_nonblocking(fd);
 			if (addr.ss_family == AF_UNIX)
 			{
-				USRDBG("Detected incoming connection from the UNIX socket");
-				((conserverImpl*) arg)->SetupConAndGo(move(man_fd), "<UNIX>", "unix");
+				auto isAdmin = server_fd == g_adminFd;
+				USRDBG("Detected incoming connection from the UNIX socket and it's "
+					   << ( isAdmin ? " ADMIN socket" : " NOT admin socket" ));
+
+				((conserverImpl*) arg)->SetupConAndGo(move(man_fd), "<UNIX>", "unix", isAdmin);
 			}
 			else
 			{
@@ -155,7 +157,7 @@ public:
 								"WARNING: attempted to use libwrap which was not enabled at build time");
 #endif
 				}
-				((conserverImpl*) arg)->SetupConAndGo(move(man_fd), hbuf, pbuf);
+				((conserverImpl*) arg)->SetupConAndGo(move(man_fd), hbuf, pbuf, false);
 			}
 		}
 	}
@@ -180,6 +182,15 @@ public:
 			close(mSock);
 			return;
 		}
+
+		if (g_adminFd == mSock && 0 != chmod(cfg::adminpath.c_str(), 0770))
+		{
+			cerr << "Failed to change socket permissions ("
+				 << (string) tErrnoFmter()
+				 << "), refusing admin behavior on " << cfg::adminpath << endl;
+#warning fixme, document the special permissions of the admin socket, maybe also create a dedicated permission option
+		}
+
 		if (listen(mSock, SO_MAXCONN))
 		{
 			perror("Couldn't listen on socket");
@@ -263,35 +274,37 @@ public:
 	bool Setup() override
 	{
 		LOGSTARTFUNCs;
-
+#warning add a prividledged adminpath
 		if (cfg::udspath.empty() && (!cfg::port && cfg::bindaddr.empty()))
 		{
 			cerr << "Neither TCP nor UNIX interface configured, cannot proceed.\n";
 			exit(EXIT_FAILURE);
 		}
 
-		if (cfg::udspath.empty())
-			cerr << "Not creating Unix Domain Socket, fifo_path not specified";
-		else
+		auto die = [](cmstring& path)
 		{
-			string & sPath = cfg::udspath;
+			cerr << "Error creating Unix Domain Socket, ";
+			cerr.flush();
+			perror(path.c_str());
+			cerr << "Check socket file and directory permissions" <<endl;
+			exit(EXIT_FAILURE);
+		};
+
+		for(auto* p : { &cfg::udspath, &cfg::adminpath })
+		{
+			const mstring& sPath(*p);
+
+			if (sPath.empty())
+				continue;
+
 			auto addr_unx = sockaddr_un();
 
 			size_t size = sPath.length() + 1 + offsetof(struct sockaddr_un, sun_path);
 
-			auto die = []()
-			{
-				cerr << "Error creating Unix Domain Socket, ";
-				cerr.flush();
-				perror(cfg::udspath.c_str());
-				cerr << "Check socket file and directory permissions" <<endl;
-				exit(EXIT_FAILURE);
-			};
-
 			if (sPath.length() > sizeof(addr_unx.sun_path))
 			{
 				errno = ENAMETOOLONG;
-				die();
+				die(sPath);
 			}
 
 			addr_unx.sun_family = AF_UNIX;
@@ -301,13 +314,16 @@ public:
 			unlink(sPath.c_str());
 
 			auto sockFd = socket(PF_UNIX, SOCK_STREAM, 0);
-			if(sockFd < 0) die();
+			if(sockFd < 0)
+				die(sPath);
+
+			if (& cfg::adminpath == &sPath)
+				g_adminFd = sockFd;
 
 			addrinfo ai;
 			ai.ai_addr =(struct sockaddr *) &addr_unx;
 			ai.ai_addrlen = size;
 			ai.ai_family = PF_UNIX;
-
 			bind_and_listen(sockFd, &ai, 0);
 		}
 

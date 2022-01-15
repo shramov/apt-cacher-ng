@@ -43,7 +43,7 @@ enum EWorkType : unsigned
 	, WORK_TYPE_MAX
 };
 
-EWorkType DetectWorkType(const tHttpUrl& reqUrl, const char* auth);
+EWorkType DetectWorkType(const tHttpUrl& reqUrl, const char* auth, bool preAuthedAdmin);
 
 /**
  * @brief Create a new "hot" fileitem (might have a thread attached already).

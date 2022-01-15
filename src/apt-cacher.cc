@@ -29,9 +29,9 @@
 #include <ctime>
 #include <cstdio>
 #include <cstring>
+#include <cstddef>
 
 #include <fcntl.h>
-#include <stddef.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -159,7 +159,8 @@ std::list<unique_event> sigEvents;
 
 static void usage(int retCode)
 {
-	cout <<"Usage: apt-cacher-ng [options] [ -c configdir ] <var=value ...>\n\n"
+	auto& chan = retCode ? cerr : cout;
+	chan << "Usage: apt-cacher-ng [options] [ -c configdir ] <var=value ...>\n\n"
 		"Options:\n"
 		"-h: this help message\n"
 		"-c: configuration directory\n"
@@ -177,6 +178,7 @@ static void usage(int retCode)
 		"\n"
 		"See configuration examples for all directives or run:\n"
 		"acngtool cfgdump\n\n";
+	chan.flush();
 	exit(retCode);
 }
 

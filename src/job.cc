@@ -247,14 +247,14 @@ void job::Prepare(const header &h, bufferevent* be, cmstring& callerHostname, ac
 		for(tStrPos pos=0; stmiss != (pos = theUrl.sPath.find("//", pos, 2)); )
 			theUrl.sPath.erase(pos, 1);
 
-		bPtMode=matcher.MatchUncacheable(theUrl.ToURI(false), rex::NOCACHE_REQ);
+		bPtMode = matcher.MatchUncacheable(theUrl.ToURI(false), rex::NOCACHE_REQ);
 
 		LOG("input uri: "<<theUrl.ToURI(false)<<" , dontcache-flag? " << bPtMode
 			<< ", vs. admin-page: " << cfg::reportpage);
 
 		try
 		{
-			auto t = DetectWorkType(theUrl, h.h[header::AUTHORIZATION]);
+			auto t = DetectWorkType(theUrl, h.h[header::AUTHORIZATION], false);
 			ldbg("type: " << (int) t);
 			if (t)
 			{
@@ -395,7 +395,7 @@ void job::Prepare(const header &h, bufferevent* be, cmstring& callerHostname, ac
 
 		if (bPtMode && fistate != fileitem::FIST_COMPLETE)
 		{
-			m_pItem.reset(new tPassThroughFitem(m_sFileLoc));
+			m_pItem.reset(static_cast<fileitem*>(new tPassThroughFitem(m_sFileLoc)));
 			fistate = fileitem::FIST_DLPENDING;
 		}
 
@@ -486,6 +486,22 @@ void job::Prepare(const header &h, bufferevent* be, cmstring& callerHostname, ac
 void job::PrepareFatalError(string_view errorStatus)
 {
 	SetEarlySimpleResponse(errorStatus, true);
+}
+
+void job::PrepareAdmin(const header &h, bufferevent *be, acres &res)
+{
+	string sReqPath;
+	UrlUnescapeAppend(h.getRequestUrl(), sReqPath);
+	m_bIsHttp11 = true;
+	m_keepAlive = EKeepAliveMode::CLOSE;
+	tHttpUrl theUrl;
+	if(!theUrl.SetHttpUrl(sReqPath, false))
+		return; // huh?
+
+	auto t = DetectWorkType(theUrl, nullptr, true);
+	if (t == EWorkType::REGULAR)
+		return; // heh?
+	m_pItem.reset(CreateSpecialWork(t, be, theUrl, nullptr, res));
 }
 
 inline job::eJobResult job::subscribeAndExit(int IFDEBUG(line))

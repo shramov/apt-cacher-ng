@@ -29,7 +29,8 @@ extern mstring cachedir, logdir, confdir, udspath, user, group, pidfile, suppdir
 reportpage, vfilepat, pfilepat, wfilepat, agentname, adminauth, adminauthB64,
 bindaddr, sUmask,
 tmpDontcacheReq, tmpDontcacheTgt, tmpDontcache, mirrorsrcs, requestapx,
-cafile, capath, spfilepat, svfilepat, badredmime, sigbuscmd, connectPermPattern;
+cafile, capath, spfilepat, svfilepat, badredmime, sigbuscmd, connectPermPattern,
+adminpath;
 
 extern mstring pfilepatEx, vfilepatEx, wfilepatEx, spfilepatEx, svfilepatEx; // for customization by user
 
@@ -77,6 +78,8 @@ ACNG_API const struct timeval * GetFurtherConTimeout();
 
 extern std::map<mstring,mstring> localdirs;
 cmstring & GetMimeType(string_view path);
+
+// a block of 8KiB is considered a good trade-off
 #define TCP_PORT_MAX 65536
 extern std::bitset<TCP_PORT_MAX> *pUserPorts;
 

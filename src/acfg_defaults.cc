@@ -18,7 +18,8 @@ namespace cfg
 
 string ACNG_API cachedir(CACHEDIR), logdir(LOGDIR), udspath(UDSPATH), pidfile, reportpage,
 confdir, adminauth, adminauthB64, bindaddr, mirrorsrcs, suppdir(LIBDIR),
-capath("/etc/ssl/certs"), cafile, badredmime("text/html");
+capath("/etc/ssl/certs"), cafile, badredmime("text/html"),
+adminpath;
 
 #define INFOLDER "(^|.*/)"
 #define COMPRLIST "(\\.gz|\\.bz2|\\.lzma|\\.xz|\\.zst)"

@@ -5,7 +5,10 @@
 #include "header.h"
 #include "httpdate.h"
 #include "evabase.h"
+
 #include <map>
+
+#include <cstdint>
 
 namespace acng
 {
@@ -92,7 +95,7 @@ public:
 		 * @param maxTake Limits the data to be transfered
 		 * @return How much data was added to target, -1 on error
 		 */
-		virtual ssize_t SendData(bufferevent* target, off_t& sendPos, size_t maxTake) =0;
+		virtual ssize_t SendData(bufferevent* target, off_t& sendPos, std::size_t maxTake) =0;
 		virtual ~ICacheDataSender() = default;
 	};
 	/**
@@ -197,7 +200,7 @@ protected:
 	 * @param semiRawHeader The incoming processing header which was already partly processed for the remaining parameters
 	 * @return true when accepted
 	 */
-	virtual bool DlStarted(evbuffer* rawData, size_t headerLen, const tHttpDate& modDate, cmstring& origin, tRemoteStatus status, off_t bytes2seek, off_t bytesAnnounced);
+	virtual bool DlStarted(evbuffer* rawData, std::size_t headerLen, const tHttpDate& modDate, cmstring& origin, tRemoteStatus status, off_t bytes2seek, off_t bytesAnnounced);
 	/**
 	* @return false to abort processing (report error)
 	*
@@ -205,7 +208,7 @@ protected:
 	*
 	* @return Number of bytes consumed, -1 on error
 	*/
-	virtual ssize_t DlConsumeData(evbuffer*, size_t maxTake) { (void) maxTake; return false; }
+	virtual ssize_t DlConsumeData(evbuffer*, std::size_t maxTake) { (void) maxTake; return false; }
 	/**
 	 * @brief Mark the download as finished, and verify that sizeChecked as sane at that moment or move to error state.
 	 */
@@ -284,7 +287,7 @@ private:
 
 	// fileitem interface
 protected:
-	ssize_t DlConsumeData(evbuffer*, size_t maxTake) override;
+	ssize_t DlConsumeData(evbuffer*, std::size_t maxTake) override;
 
 	// fileitem interface
 public:

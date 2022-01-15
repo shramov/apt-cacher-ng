@@ -31,9 +31,9 @@
 #include <ctime>
 #include <cstdio>
 #include <cstring>
+#include <cstddef>
 
 #include <fcntl.h>
-#include <stddef.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -63,7 +63,7 @@ bool isUdsAccessible(cmstring& path)
 	return s && S_ISSOCK(s.info().st_mode) && 0 == access(path.c_str(), W_OK);
 }
 
-class tPrintItem: public fileitem
+class tPrintItem : public fileitem
 {
 public:
 	tPrintItem() : fileitem("<STREAM>")
@@ -596,11 +596,11 @@ int maint_job()
 		DBGQLOG("Trying UDS path");
 
 		auto fi = make_lptr<tRepItem, fileitem>();
-		url.sHost = FAKE_UDS_HOSTNAME;
+		url.sHost = cfg::adminpath;
 		url.m_schema = tHttpUrl::EProtoType::UDS;
 		url.SetPort(0);
 		response_ok = DownloadItem(url, fi);
-		DBGQLOG("UDS result: " << response_ok)
+		DBGQLOG("UDS result: " << response_ok);
 	}
 	if(!response_ok && try_tcp)
 	{
@@ -1008,6 +1008,7 @@ int main(int argc, const char **argv)
 	cfg::g_bQuiet = false;
 	cfg::g_bNoComplex = true; // no DB for just single variables
 	cfg::minilog = true;	// no fancy timestamps and only STDERR output
+	GetComStack();			// init the event base
 
 	parm* parm = nullptr;
 	LPCSTR mode = nullptr;

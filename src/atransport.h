@@ -67,6 +67,7 @@ public:
 	 * @param cback
 	 */
 	static TFinalAction Create(tHttpUrl, const tCallBack&, acres& res, TConnectParms extHints = TConnectParms());
+
 	/**
 	 * @brief Return an item to cache for reuse by others, or destroy if not cacheable
 	 * @param stream
@@ -83,6 +84,10 @@ public:
 	 * in future to transport specific blocking
 	 */
 	static bool IsProxyNowBroken();
+
+private:
+	static TFinalAction CreateUds(tHttpUrl, const tCallBack&);
+
 };
 
 }

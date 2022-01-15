@@ -19,6 +19,9 @@
 #include <event.h>
 #include <event2/bufferevent.h>
 
+#include <sys/socket.h>
+#include <sys/un.h>
+
 #ifdef HAVE_SSL
 #include <openssl/ssl.h>
 #include <openssl/err.h>
@@ -398,7 +401,10 @@ TFinalAction atransport::Create(tHttpUrl url, const tCallBack &cback, acres& res
 	LOGSTARTFUNCxs(url.ToURI(false));
 	ASSERT(cback);
 
-	if (!extHints.noCache && !extHints.noTlsOnTarget && !extHints.directConnection)
+	if (!extHints.noCache
+			&& !extHints.noTlsOnTarget
+			&& !extHints.directConnection
+			&& url.m_schema != tHttpUrl::EProtoType::UDS)
 	{
 #ifdef REUSE_TARGET_CONN
 		auto cacheKey = HostPortKeyMaker(url.sHost, url.GetPort());
@@ -423,6 +429,9 @@ TFinalAction atransport::Create(tHttpUrl url, const tCallBack &cback, acres& res
 
 	try
 	{
+		if (url.m_schema == tHttpUrl::EProtoType::UDS)
+			return CreateUds(url, cback);
+
 		lint_ptr<tConnContext> tr;
 		tr.reset(new tConnContext(move(url), cback, move(extHints), res));
 		tr->Start();
@@ -432,6 +441,52 @@ TFinalAction atransport::Create(tHttpUrl url, const tCallBack &cback, acres& res
 	{
 		return TFinalAction();
 	}
+}
+
+TFinalAction atransport::CreateUds(tHttpUrl url, const tCallBack &cback)
+{
+	tResult result {0, se};
+	int fd = -1;
+
+	if (url.sPath.length() >= sizeof(sockaddr_un::sun_path)-2)
+	{
+		result.err = "Insufficient Space";
+		result.flags = TRANS_STREAM_ERR_FATAL;
+	}
+
+	auto setErrno = [&]()
+	{
+		result.err = tErrnoFmter();
+		result.flags = TRANS_STREAM_ERR_FATAL;
+		checkforceclose(fd);
+	};
+
+	fd = socket(PF_UNIX, SOCK_STREAM, 0);
+
+	if (fd == -1)
+		setErrno();
+	else
+	{
+		struct sockaddr_un addr;
+		addr.sun_family = PF_UNIX;
+		strncpy(addr.sun_path, url.sPath.c_str(), _countof(sockaddr_un::sun_path));
+		socklen_t adlen = url.sPath.length() + 1 + offsetof(struct sockaddr_un, sun_path);
+
+		if (connect(fd, (struct sockaddr*) &addr, adlen))
+			setErrno();
+		else
+		{
+			auto* bev = bufferevent_socket_new(evabase::base, fd, BEV_OPT_CLOSE_ON_FREE);
+			if (!bev)
+				setErrno();
+			else
+				result.strm.construct()->m_buf.reset(bev);
+		}
+	}
+
+	evabase::Post([result, cback](){ cback(move(result)); });
+
+	return TFinalAction([result]() mutable { result.strm.reset(); });
 }
 
 void atransport::Return(lint_ptr<atransport> &stream)

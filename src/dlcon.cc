@@ -1025,7 +1025,7 @@ TRAILER_JUNK_SKIPPED:
 						return eJobResult::HINT_MORE;
 					}
 				}
-				else
+				else if (nToStore > 0)
 				{
 					m_nRest -= nToStore;
 					inBuf.drop(nToStore);
@@ -1074,6 +1074,12 @@ TRAILER_JUNK_SKIPPED:
 			case STATE_GET_CHUNKEND:
 			case STATE_GET_CHUNKEND_LAST:
 			{
+#ifdef DEBUG
+				auto curLen = evbuffer_get_length(pBuf);
+				auto what = evbuffer_pullup(pBuf, curLen);
+				if (curLen < 2)
+					return eJobResult::HINT_MORE;
+#endif
 				// drop two bytes of the newline
 				auto sres = evbuffer_search_eol(pBuf, nullptr, nullptr, evbuffer_eol_style::EVBUFFER_EOL_CRLF_STRICT);
 				if (sres.pos < 0)

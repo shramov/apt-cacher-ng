@@ -11,6 +11,22 @@ apt-cacher-ng (3.99-pre-alpha-0) 4-ELIZA; urgency=low
 
   * A new(er) generation of Apt-Cacher NG is emerging! (FIXME: WIP, has emerged)
 
+  [ BREAKING CHANGES ]
+
+   * The Unix Domain Socket access is split into two variants and both are
+     strictly optional features:
+
+     + regular stream socket which is available to tools which can run HTTP
+       communication over UDS
+     + dedicated administration task socket, which is a) only capable to run
+       maintenance jobs through it, and b) gets permissions to run those tasks
+       directly, therefore relying on the filesystem to protect access to that
+       socket while not requiring to keep credentials readable to the caller
+       tool
+
+     The creation of those sockets is controlled by setting the SocketPath
+     (legacy) option resp. the new AdminSocket option.
+
   [ NEW FEATURES AND IMPROVEMENTS ] (FIXME: WIP)
 
    * HTTPS connections behind a HTTPS proxy possible

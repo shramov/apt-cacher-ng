@@ -95,6 +95,7 @@ MapNameToString n2sTbl[] = {
 		,{  "LogDir",                  &logdir}
 		,{  "SupportDir",              &suppdir}
 		,{  "SocketPath",              &udspath}
+		,{  "AdminSocket",             &adminpath}
 		,{  "PidFile",                 &pidfile}
 		,{  "ReportPage",              &reportpage}
 		,{  "VfilePattern",            &vfilepat}

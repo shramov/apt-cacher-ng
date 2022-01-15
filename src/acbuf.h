@@ -173,7 +173,7 @@ public:
 protected:
 	fmtflags m_fmtmode;
 	/// make sure to have at least minWriteCapa bytes extra available for writing
-	inline void reserve_atleast(size_t minWriteCapa)
+	inline void reserve_atleast(std::size_t minWriteCapa)
 	{
 		if(w+minWriteCapa+1 < m_nCapacity) return;
 		auto capaNew=2*(w+minWriteCapa);
@@ -208,9 +208,9 @@ struct ebstream
 	ebstream & operator<<(long val) { evbuffer_add_printf(be, (m_imode == imode::dec ? "%ld" : "%lx"), val); return *this; }
 	// XXX: this consumes the contents, should be better documented
 	ebstream & operator<<(evbuffer* donor) { m_bmode == bmode::buftake ? evbuffer_add_buffer(be, donor) : evbuffer_add_buffer_reference(be, donor); return *this; }
-	ebstream & drop(size_t howMuch) { evbuffer_drain(be, howMuch); return *this; }
+	ebstream & drop(std::size_t howMuch) { evbuffer_drain(be, howMuch); return *this; }
 	ebstream & clear() { return drop(size()); }
-	size_t size() { return evbuffer_get_length(be); }
+	std::size_t size() { return evbuffer_get_length(be); }
 };
 
 /**

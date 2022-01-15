@@ -30,6 +30,7 @@ public:
 
 	void Prepare(const header &h, bufferevent* be, cmstring& callerHostname, acres& res);
 	void PrepareFatalError(string_view errorStatus);
+	void PrepareAdmin(const header &h, bufferevent* be, acres& res);
 	eJobResult Resume(bool canSend, bufferevent* be);
 
 	uint_fast32_t GetId() { return IFDEBUGELSE(m_id, 0); }

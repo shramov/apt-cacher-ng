@@ -33,8 +33,9 @@ public:
  * @brief StartServing prepares the request serving stream and attached an appropriate handler to it
  * @param fd File descriptor, call of this method takes responsibility for it
  * @param clientName
+ * @param isAdmin a special flog which creates a shortcut, running maintainenance task as the one and only job, and running already preauthorized
  */
-void ACNG_API StartServing(unique_fd&& fd, std::string clientName, acres&);
+void ACNG_API StartServing(unique_fd&& fd, std::string clientName, acres&, bool isAdmin);
 
 }
 

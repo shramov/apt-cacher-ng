@@ -43,47 +43,50 @@ public:
 	std::unique_ptr<ICacheDataSender> GetCacheSender() override { return std::unique_ptr<ICacheDataSender>(); }
 };
 
-EWorkType DetectWorkType(const tHttpUrl& reqUrl, const char* auth)
+EWorkType DetectWorkType(const tHttpUrl& reqUrl, const char* auth, bool preAuthedAdmin)
 {
 	LOGSTARTs("DispatchMaintWork");
 
-	LOG("cmd: " << reqUrl.ToURI(false));
-
-	if (reqUrl.sHost == "style.css")
-		return EWorkType::STYLESHEET;
-
-	if (reqUrl.sHost == "favicon.ico")
-		return EWorkType::FAVICON;
-
-	if (reqUrl.sHost == cfg::reportpage && (reqUrl.sPath == "/" || reqUrl.sPath.empty()))
-		return EWorkType::REPORT;
-
-	// others are passed through the report page extra functions
-
-	if (cfg::reportpage.empty())
-		return EWorkType::REGULAR;
-
-	string_view rawHost = reqUrl.sHost;
-	trimFront(rawHost, "/?");
-	trimBack(rawHost, "/?");
-
-	if (rawHost != cfg::reportpage)
-		return EWorkType::REGULAR;
-
-	// okay, internal job, which type?
-
-	// all of the following need authorization if configured, enforce it
-	switch(cfg::CheckAdminAuth(auth))
+	if (!preAuthedAdmin)
 	{
-	 case 0:
+		LOG("cmd: " << reqUrl.ToURI(false));
+
+		if (reqUrl.sHost == "style.css")
+			return EWorkType::STYLESHEET;
+
+		if (reqUrl.sHost == "favicon.ico")
+			return EWorkType::FAVICON;
+
+		if (reqUrl.sHost == cfg::reportpage && (reqUrl.sPath == "/" || reqUrl.sPath.empty()))
+			return EWorkType::REPORT;
+
+		// others are passed through the report page extra functions
+
+		if (cfg::reportpage.empty())
+			return EWorkType::REGULAR;
+
+		string_view rawHost = reqUrl.sHost;
+		trimFront(rawHost, "/?");
+		trimBack(rawHost, "/?");
+
+		if (rawHost != cfg::reportpage)
+			return EWorkType::REGULAR;
+
+		// okay, internal job, which type?
+
+		// all of the following need authorization if configured, enforce it
+		switch(cfg::CheckAdminAuth(auth))
+		{
+		case 0:
 #ifdef HAVE_CHECKSUM
-		break; // auth is ok or no passwort is set
+			break; // auth is ok or no passwort is set
 #else
-		// most data modifying tasks cannot be run safely without checksumming support
-		return ESpecialWorkType::workAUTHREJECT;
+			// most data modifying tasks cannot be run safely without checksumming support
+			return ESpecialWorkType::workAUTHREJECT;
 #endif
-	 case 1: return EWorkType::AUTH_REQ;
-	 default: return EWorkType::AUTH_DENY;
+		case 1: return EWorkType::AUTH_REQ;
+		default: return EWorkType::AUTH_DENY;
+		}
 	}
 
 	for (unsigned i = EWorkType::REGULAR + 1; i < EWorkType::WORK_TYPE_MAX; ++i)

@@ -40,6 +40,7 @@ class connImpl : public IConnBase
 	ssize_t m_hSize = 0;
 
 	bool m_bPrepTypeChange = false;
+	bool m_bIsLocalAdmin = false;
 
 	deque<job> m_jobs;
 	lint_user_ptr<dlcontroller> m_pDlClient;
@@ -57,8 +58,9 @@ public:
 	void writeAnotherLogRecord(const mstring &pNewFile,
 			const mstring &pNewClient);
 
-	connImpl(mstring&& clientName, acres& res) :
+	connImpl(mstring&& clientName, acres& res, bool isAdmin) :
 		m_res(res),
+		m_bIsLocalAdmin(isAdmin),
 		m_sClientHost(move(clientName))
 	{
 		LOGSTARTFUNCx(m_sClientHost);
@@ -147,6 +149,8 @@ public:
 			m_jobs.emplace_back(*this);
 			if (!errorStatus.empty())
 				m_jobs.back().PrepareFatalError(errorStatus);
+			else if (m_bIsLocalAdmin)
+				m_jobs.back().PrepareAdmin(m_h, *m_be, m_res);
 			else
 				m_jobs.back().Prepare(m_h, *m_be, m_sClientHost, m_res);
 			evbuffer_drain(bereceiver(*m_be), m_hSize);
@@ -272,7 +276,7 @@ public:
 	}
 };
 
-void StartServing(unique_fd&& fd, string clientName, acres& res)
+void StartServing(unique_fd&& fd, string clientName, acres& res, bool isAdmin)
 {
 	evutil_make_socket_nonblocking(fd.get());
 	evutil_make_socket_closeonexec(fd.get());
@@ -282,13 +286,12 @@ void StartServing(unique_fd&& fd, string clientName, acres& res)
 
 	try
 	{
-		auto session = as_lptr(new connImpl(move(clientName), res));
+		auto session = as_lptr(new connImpl(move(clientName), res, isAdmin));
 		session->spawn(move(be));
 		ignore_ptr(session.release());
 	}
 	catch (...)
 	{
-
 	}
 }
 }
