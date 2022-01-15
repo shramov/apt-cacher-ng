@@ -652,16 +652,16 @@ struct tDlJob
 
 		ebstream head(outBuf);
 
-#define CRLF "\r\n"
+#define CRLF "\r\n"sv
 
 		if (GetFiAttributes().bHeadOnly)
 		{
-			head << "HEAD ";
+			head << "HEAD "sv;
 			m_bAllowStoreData = false;
 		}
 		else
 		{
-			head << "GET ";
+			head << "GET "sv;
 			m_bAllowStoreData = true;
 		}
 
@@ -677,9 +677,9 @@ struct tDlJob
 
 		ldbg(RemoteUri(true));
 
-		head << " HTTP/1.1" CRLF
+		head << " HTTP/1.1"sv CRLF
 			 << cfg::agentheader
-			 << "Host: " << GetPeerHost().sHost << CRLF;
+			 << "Host: "sv << GetPeerHost().sHost << CRLF;
 
 		if (proxy) // proxy stuff, and add authorization if there is any
 		{
@@ -688,20 +688,20 @@ struct tDlJob
 			{
 				// could cache it in a static string but then again, this makes it too
 				// easy for the attacker to extract from memory dump
-				head << "Proxy-Authorization: Basic "
+				head << "Proxy-Authorization: Basic "sv
 						<< EncodeBase64Auth(proxy->sUserPass) << CRLF;
 			}
 			// Proxy-Connection is a non-sensical copy of Connection but some proxy
 			// might listen only to this one so better add it
 			head << (cfg::persistoutgoing ?
-						 "Proxy-Connection: keep-alive" CRLF :
-						 "Proxy-Connection: close" CRLF);
+						 "Proxy-Connection: keep-alive"sv CRLF :
+						 "Proxy-Connection: close"sv CRLF);
 		}
 
 		const auto &pSourceHost = GetPeerHost();
 		if (!pSourceHost.sUserPass.empty())
 		{
-			head << "Authorization: Basic "
+			head << "Authorization: Basic "sv
 					<< EncodeBase64Auth(pSourceHost.sUserPass) << CRLF;
 		}
 
@@ -752,8 +752,8 @@ struct tDlJob
 		if (m_nUsedRangeStartPos > 0)
 		{
 			if (m_pStorageRef->m_responseModDate.isSet())
-				head << "If-Range: " << m_pStorageRef->m_responseModDate.view() << CRLF;
-			head << "Range: bytes=" << m_nUsedRangeStartPos << "-";
+				head << "If-Range: "sv << m_pStorageRef->m_responseModDate.view() << CRLF;
+			head << "Range: bytes="sv << m_nUsedRangeStartPos << "-";
 			if (m_nUsedRangeLimit > 0)
 				head << m_nUsedRangeLimit;
 			head << CRLF;
@@ -761,16 +761,16 @@ struct tDlJob
 
 		if (m_pStorageRef->IsVolatile())
 		{
-			head << "Cache-Control: " /*no-store,no-cache,*/ "max-age=0" CRLF;
+			head << "Cache-Control: "sv /*no-store,no-cache,*/ "max-age=0"sv CRLF;
 		}
 
 		head << cfg::requestapx << m_extraHeaders
-			 << "Accept: application/octet-stream" CRLF;
+			 << "Accept: application/octet-stream"sv CRLF;
 		if (!m_bIsPassThroughRequest)
 		{
-			head << "Accept-Encoding: identity" CRLF
-					"Connection: " << (cfg::persistoutgoing ?
-										   "keep-alive" CRLF : "close" CRLF);
+			head << "Accept-Encoding: identity"sv CRLF
+					"Connection: "sv << (cfg::persistoutgoing ?
+										   "keep-alive"sv CRLF : "close"sv CRLF);
 
 		}
 		head << CRLF;
