@@ -95,11 +95,8 @@ job::~job()
 	log::transfer(inCount, m_nAllDataCount, sClient, move(repName), bErr);
 }
 
-
-
-inline bool job::ParseRangeAndIfMo(const header& h)
+inline bool job::ParseRangeAndIfMo(const header& h, acres& res)
 {
-
 	/*
 	 * Range: bytes=453291-
 	 * ...
@@ -113,22 +110,12 @@ inline bool job::ParseRangeAndIfMo(const header& h)
 	// working around a bug in old curl versions
 	if (!pRange)
 		pRange = h.h[header::CONTENT_RANGE];
-	if (pRange)
-	{
-		int nRangeItems = sscanf(pRange, "bytes=" OFF_T_FMT
-								 "-" OFF_T_FMT, &m_nReqRangeFrom, &m_nReqRangeTo);
-		// working around bad (old curl style) requests
-		if (nRangeItems <= 0)
-		{
-			nRangeItems = sscanf(pRange, "bytes "
-			OFF_T_FMT "-" OFF_T_FMT, &m_nReqRangeFrom, &m_nReqRangeTo);
-		}
-
-		if (nRangeItems < 1) // weird...
-			m_nReqRangeFrom = m_nReqRangeTo = -2;
-		else
-			return true;
-	}
+	if (!pRange)
+		return true;
+	auto reErr = res.GetMatchers().ParseRanges(pRange, m_nReqRangeFrom, &m_nReqRangeTo, nullptr);
+	if (reErr.empty())
+		return true;
+	m_nReqRangeFrom = m_nReqRangeTo = -2;
 	return false;
 }
 
@@ -152,6 +139,10 @@ void job::Prepare(const header &h, bufferevent* be, cmstring& callerHostname, ac
 	}
 
 	// some macros, to avoid goto style
+	auto report_400 = [this]()
+	{
+		SetEarlySimpleResponse("400 Bad Request"sv);
+	};
 	auto report_invport = [this]()
 	{
 		SetEarlySimpleResponse("403 Configuration error (confusing proxy mode) or prohibited port (see AllowUserPorts)"sv);
@@ -276,7 +267,9 @@ void job::Prepare(const header &h, bufferevent* be, cmstring& callerHostname, ac
 			auto it = cfg::localdirs.find(theUrl.sHost);
 			if (it != cfg::localdirs.end())
 			{
-				ParseRangeAndIfMo(h);
+				if (!ParseRangeAndIfMo(h, res))
+					return report_400();
+
 				aclocal::TParms serveParms;
 				serveParms.visPath = sReqPath;
 				serveParms.fsBase = it->second;
@@ -373,7 +366,8 @@ void job::Prepare(const header &h, bufferevent* be, cmstring& callerHostname, ac
 					""
         };
 
-		ParseRangeAndIfMo(h);
+		if (!ParseRangeAndIfMo(h, res))
+			return report_400();
 
 		m_pItem = res.GetItemRegistry()->Create(m_sFileLoc,
 												attr.bVolatile ?

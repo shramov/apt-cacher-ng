@@ -17,11 +17,11 @@
 #include "sockio.h"
 #include "evabase.h"
 #include "aclock.h"
+#include "rex.h"
 
 #include <algorithm>
 #include <list>
 #include <map>
-#include <regex>
 #include <unordered_map>
 #include <stdexcept>
 #include <queue>
@@ -155,6 +155,7 @@ struct tDlStream : public tLintRefcounted
 	tDlStream(const tHttpUrl& targetInfo) : m_targetInfo(targetInfo) {}
 
 	tStrMap& GetBlackList();
+	CDlConn& GetParent() { return *m_parent; }
 
 	void Start(CDlConn* parent, tDlStreamPool::iterator meRef)
 	{
@@ -872,7 +873,7 @@ TRAILER_JUNK_SKIPPED:
 				if (h.type != header::ANSWER)
 				{
 					dbgline;
-					m_sError = "Unexpected response type";
+					m_sError = "Unexpected response type"sv;
 					// smells fatal...
 					return eJobResult::MIRROR_BROKEN;
 				}
@@ -975,7 +976,7 @@ TRAILER_JUNK_SKIPPED:
 				}
 
 				// ok, can pass the data to the file handler
-				auto storeResult = CheckAndSaveHeader(move(h),
+				auto storeResult = CheckAndSaveHeader(parent, move(h),
 													  peBuf, hDataLen, contentLength);
 				inBuf.drop(size_t(hDataLen));
 
@@ -1097,7 +1098,7 @@ TRAILER_JUNK_SKIPPED:
 		return eJobResult::JOB_BROKEN;
 	}
 
-	EResponseEval CheckAndSaveHeader(header&& h, bufferevent* peBuf, size_t headerLen, off_t contLen)
+	EResponseEval CheckAndSaveHeader(tDlStream& parent, header&& h, bufferevent* peBuf, size_t headerLen, off_t contLen)
 	{
 		LOGSTARTFUNC;
 
@@ -1171,21 +1172,11 @@ TRAILER_JUNK_SKIPPED:
 			if(!p)
 				return withError("Missing Content-Range in Partial Response");
 
-			const static std::regex re("bytes(\\s*|=)(\\d+)-(\\d+|\\*)/(\\d+|\\*)");
-
-			std::cmatch reRes;
-			if (!std::regex_search(p, reRes, re))
-			{
-				return withError("Bad range");
-			}
-			auto tcount = reRes.size();
-			if (tcount != 5)
-			{
-				return withError("Bad range format");
-			}
-			// * would mean -1
-			contLen = atoofft(reRes[4].first, -1);
-			auto startPos = atoofft(reRes[2].first, -1);
+			off_t startPos = -1;
+			const auto& reErr = parent.GetParent().GetAppRes().GetMatchers()
+								.ParseRanges(p, startPos, nullptr, &contLen);
+			if (!reErr.empty())
+				return withError(reErr);
 
 			// identify the special probe request which reports what we already knew
 			if (m_pStorageRef->IsVolatile() &&

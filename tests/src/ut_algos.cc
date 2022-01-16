@@ -206,7 +206,7 @@ TEST(strop,splitter)
     ASSERT_FALSE(yspliter.Next());
 }
 
-TEST(algorithms, rextest)
+TEST(algorithms, rextypematching)
 {
 	using namespace acng;
 	rex matcher;
@@ -261,4 +261,46 @@ http://ftp.ch.debian.org/debian/dists/unstable/contrib/Contents-all.xz
 		type = matcher.GetFiletype(split);
 		EXPECT_EQ(type, rex::FILE_VOLATILE);
 	}
+}
+
+TEST(algorithms, rexrangeparsing)
+{
+	auto test = "bytes 453291-7725119/7725120";
+	acng::rex matcher;
+	off_t from, len, to;
+	auto res = matcher.ParseRanges(test, from, nullptr, &len);
+	EXPECT_TRUE(res.empty());
+	EXPECT_EQ(from, 453291);
+	EXPECT_EQ(len, 7725120);
+	from = len = to = -2;
+	test = "bytes 453291-7725119/*";
+	res = matcher.ParseRanges(test, from, &to, &len);
+	ASSERT_TRUE(res.empty());
+	EXPECT_EQ(from, 453291);
+	EXPECT_EQ(len, -1);
+	EXPECT_EQ(to, 7725119);
+
+	from = len = to = -2;
+	test = "bytes=453291-*/*";
+	res = matcher.ParseRanges(test, from, &to, &len);
+	ASSERT_TRUE(res.empty());
+	EXPECT_EQ(from, 453291);
+	EXPECT_EQ(len, -1);
+	EXPECT_EQ(to, -1);
+
+	test = "bytesi 453291-*/*";
+	res = matcher.ParseRanges(test, from, &to, &len);
+	ASSERT_FALSE(res.empty());
+
+	test = "bytes 453291-772a119/*";
+	res = matcher.ParseRanges(test, from, &to, &len);
+	ASSERT_FALSE(res.empty());
+
+	from = len = to = -2;
+	test = "bytes=453291-";
+	res = matcher.ParseRanges(test, from, &to, &len);
+	ASSERT_TRUE(res.empty());
+	EXPECT_EQ(from, 453291);
+	EXPECT_EQ(len, -1);
+	EXPECT_EQ(to, -1);
 }

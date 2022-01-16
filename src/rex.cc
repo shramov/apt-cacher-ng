@@ -14,11 +14,12 @@ using namespace std;
 namespace acng
 {
 
+const string_view badRange("Bad Range"sv);
+
 struct tRex : public regex_t
 {
 	int m_error = 1;
 	tRex() =default;
-//	tRex(const tRex&& other) { std::swap(other, this);};
 	~tRex()
 	{
 		if (!m_error)
@@ -26,7 +27,7 @@ struct tRex : public regex_t
 	}
 	bool match(cmstring& in)
 	{
-		return !m_error && 0 == regexec(this, in.c_str(), 0, 0, 0);
+		return !m_error && 0 == regexec(this, in.c_str(), 0, nullptr, 0);
 	}
 	tRex(cmstring& ps)
 	{
@@ -43,6 +44,14 @@ struct rex::tImpl
 	// this has the exact order of the "regular" types in the enum, and extra two lists for the uncached patterns
 	std::array<std::deque<tRex>, ematchtype_max+2> typeMatcher;
 #define NOCAPOS(type) (ematchtype_max + (NOCACHE_TGT == type ? 0 : 1))
+
+	tRex rangePat;
+	regmatch_t rangeResults[6];
+
+	tImpl() : rangePat("bytes([ =]*)([0-9]+)-(([0-9]+|\\*)/([0-9]+|\\*))?$")
+	{
+		errorCount = rangePat.m_error;
+	}
 
 	int compile(unsigned pos, cmstring& ps)
 	{
@@ -65,7 +74,7 @@ struct rex::tImpl
 	{
 #warning FIXME: review order, which patterns takes precedence in which context, and add UT
 		using namespace cfg;
-		errorCount = compile(FILE_SOLID, pfilepat)
+		errorCount += compile(FILE_SOLID, pfilepat)
 				+ compile(FILE_VOLATILE, vfilepat)
 				+ compile(FILE_WHITELIST, wfilepat)
 				+ compile(FILE_SOLID, pfilepatEx)
@@ -164,11 +173,45 @@ struct rex::tImpl
 		}
 		return false;
 	}
+	const string_view& ParseRanges(LPCSTR input, off_t& from, off_t* to, off_t* bodyLength)
+	{
+		auto n = regexec(&rangePat, input, _countof(rangeResults), rangeResults, 0);
 
+#define FROM_RESULT 2
+#define TO_RESULT 4
+#define LEN_RESULT 5
+
+		if (n || rangeResults[FROM_RESULT].rm_so == -1)
+			return badRange;
+
+		if (rangeResults[FROM_RESULT].rm_so == -1)
+			return badRange;
+		from = atoofft(input + rangeResults[FROM_RESULT].rm_so);
+
+		if (to)
+		{
+			if (rangeResults[TO_RESULT].rm_so == -1)
+				*to = -1;
+			else
+				*to = input[rangeResults[TO_RESULT].rm_so] == '*'
+					? -1
+					: atoofft(input + rangeResults[TO_RESULT].rm_so);
+		}
+
+		if (bodyLength)
+		{
+			if (rangeResults[LEN_RESULT].rm_so == -1)
+				*bodyLength = -1;
+			else
+				*bodyLength = input[rangeResults[LEN_RESULT].rm_so] == '*'
+					? -1
+					: atoofft(input + rangeResults[LEN_RESULT].rm_so);
+		}
+		return svEmpty;
+	}
 };
 
-rex::rex()
-	: m_pImpl(new tImpl)
+rex::rex() : m_pImpl(new tImpl)
 {
 	using namespace cfg;
 	m_pImpl->compileDefaultMatcher();
@@ -181,22 +224,27 @@ rex::~rex()
 
 bool rex::Match(cmstring &in, eMatchType type)
 {
-return m_pImpl->Match(in, type);
+	return m_pImpl->Match(in, type);
 }
 
 bool rex::HasErrors()
 {
-return m_pImpl->errorCount > 0;
+	return m_pImpl->errorCount > 0;
 }
 
 rex::eMatchType rex::GetFiletype(const mstring &sPath)
 {
-return m_pImpl->GetFiletype(sPath);
+	return m_pImpl->GetFiletype(sPath);
 }
 
 bool rex::MatchUncacheable(const mstring &sPath, NOCACHE_PATTYPE patype)
 {
-return m_pImpl->MatchUncacheable(sPath, patype);
+	return m_pImpl->MatchUncacheable(sPath, patype);
+}
+
+const string_view& rex::ParseRanges(LPCSTR input, off_t& from, off_t* to, off_t* bodyLength)
+{
+	return m_pImpl->ParseRanges(input, from, to, bodyLength);
 }
 
 LPCSTR ReTest(LPCSTR s, rex& matcher)

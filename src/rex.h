@@ -32,6 +32,7 @@ public:
 	eMatchType GetFiletype(const mstring &);
 	bool MatchUncacheable(const mstring &, NOCACHE_PATTYPE);
 	//bool CompileUncExpressions(NOCACHE_PATTYPE type, cmstring& pat);
+	const string_view& ParseRanges(LPCSTR input, off_t& from, off_t* to, off_t* bodyLength);
 
 private:
 	rex(const rex&) =delete; // shall not be simply copied

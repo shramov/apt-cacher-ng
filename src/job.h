@@ -90,7 +90,7 @@ public:
 
 	void SetEarlySimpleResponse(string_view message, bool nobody = false);
 
-	inline bool ParseRangeAndIfMo(const header& h);
+	inline bool ParseRangeAndIfMo(const header& h, acres& res);
 	inline void CookResponseHeader();
 	inline void AddPtHeader(cmstring& remoteHead);
 	/**
