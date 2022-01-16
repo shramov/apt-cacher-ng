@@ -15,7 +15,6 @@ class IConnBase;
 class header;
 class acres;
 
-extern uint_fast32_t g_genJobId;
 class job
 {
 public:
@@ -24,6 +23,7 @@ public:
 	{
 		R_DONE = 0, R_DISCON = 2, R_WILLNOTIFY
     };
+	static uint_fast32_t g_genJobId;
 	job(IConnBase& parent) : m_parent(parent) {}
 
 	~job();

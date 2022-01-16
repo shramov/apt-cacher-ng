@@ -30,19 +30,16 @@
 
 using namespace std;
 
-//#define FORCE_CHUNKED
-
-#define PT_BUF_MAX 64000
-
-
 // hunting Bug#955793: [Heisenbug] evbuffer_write_atmost returns -1 w/o updating errno
 //#define DBG_DISCONNECT //std::cerr << "DISCO? " << __LINE__ << std::endl;
 
 namespace acng
 {
 
-uint_fast32_t g_genJobId = 0;
-string_view sHttp11("HTTP/1.1");
+uint_fast32_t acng::job::g_genJobId = 1;
+
+auto sHttp11("HTTP/1.1"sv);
+
 #warning restoreme
 /*
 tTraceData traceData;
@@ -329,13 +326,13 @@ void job::Prepare(const header &h, bufferevent* be, cmstring& callerHostname, ac
 		}
 
 		// in PT mode we don't care about how to handle it, it's what user wants to do
-		if(data_type == rex::FILE_INVALID && bPtMode)
+		if (data_type == rex::FILE_INVALID && bPtMode)
 			data_type = rex::FILE_SOLID;
 
-		if(data_type == rex::FILE_INVALID)
+		if (data_type == rex::FILE_INVALID)
 			data_type = matcher.GetFiletype(theUrl.sPath);
 
-		if ( data_type == rex::FILE_INVALID )
+		if (data_type == rex::FILE_INVALID )
 		{
 			if(!cfg::patrace)
 			{
@@ -356,7 +353,7 @@ void job::Prepare(const header &h, bufferevent* be, cmstring& callerHostname, ac
 		if(repoSrc.valid())
 			m_sFileLoc = Concat(repoSrc.psRepoName, sPathSep, repoSrc.sRestPath);
 		else
-			m_sFileLoc=theUrl.sHost+theUrl.sPath;
+			m_sFileLoc = theUrl.sHost + theUrl.sPath;
 
 		fileitem::tSpecialPurposeAttr attr {
 			! cfg::offlinemode && data_type == rex::FILE_VOLATILE,
@@ -373,7 +370,7 @@ void job::Prepare(const header &h, bufferevent* be, cmstring& callerHostname, ac
 												attr.bVolatile ?
 													ESharingHow::AUTO_MOVE_OUT_OF_THE_WAY :
 													ESharingHow::ALWAYS_TRY_SHARING, attr);
-		if( ! m_pItem.get())
+		if (! m_pItem.get())
 		{
 			USRERR("Error creating file item for "sv << m_sFileLoc << " -- check file permissions!"sv);
 			return report_badcache();
@@ -394,21 +391,23 @@ void job::Prepare(const header &h, bufferevent* be, cmstring& callerHostname, ac
 		}
 
 		// might need to update the filestamp because nothing else would trigger it
-		if(cfg::trackfileuse && fistate >= fileitem::FIST_DLGOTHEAD && fistate < fileitem::FIST_DLERROR)
+		if (cfg::trackfileuse && fistate >= fileitem::FIST_DLGOTHEAD && fistate < fileitem::FIST_DLERROR)
 			m_pItem.get()->UpdateHeadTimestamp();
 
-		if(fistate == fileitem::FIST_COMPLETE)
+		if (fistate == fileitem::FIST_COMPLETE)
 			return; // perfect, done here
 
-		if(cfg::offlinemode) { // make sure there will be no problems later in SendData or prepare a user message
+		if (cfg::offlinemode)
+		{
+			// make sure there will be no problems later in SendData or prepare a user message
 			// error or needs download but freshness check was disabled, so it's really not complete.
 			return SetEarlySimpleResponse("503 Unable to download in offline mode"sv);
 		}
 		dbgline;
-		if( fistate < fileitem::FIST_DLASSIGNED) // we should assign a downloader then
+		if (fistate < fileitem::FIST_DLASSIGNED) // we should assign a downloader then
 		{
 			dbgline;
-			if(!m_parent.GetDownloader())
+			if (!m_parent.GetDownloader())
 			{
 				USRDBG( "Error creating download handler for "<<m_sFileLoc);
 				return report_overload(__LINE__);
@@ -471,7 +470,7 @@ void job::Prepare(const header &h, bufferevent* be, cmstring& callerHostname, ac
 		USRDBG("Out of memory");
 		return report_overload(__LINE__);
 	}
-	catch(const std::out_of_range&) // better safe...
+	catch (const std::out_of_range&) // better safe...
 	{
 		return report_invpath();
 	}
@@ -509,7 +508,8 @@ inline job::eJobResult job::subscribeAndExit(int IFDEBUG(line))
 	{
 #warning better function for range start -> compare right there at the source and don't call us until condition is satisfied. must also check dl-receiving state and other conditions, though
 		ASSERT(m_pItem); // very unlikely to fail
-		m_subKey = m_pItem->Subscribe([this]() {
+		m_subKey = m_pItem->Subscribe([this]()
+		{
 			return m_parent.poke(GetId());
 		});
 		return R_WILLNOTIFY;
@@ -738,7 +738,7 @@ inline void job::AddPtHeader(cmstring& remoteHead)
 	// since it's too messy to support, use the plain close-on-end strategy here
 	auto szTEHeader = strcasestr(szHeadBegin, badTE.c_str());
 	auto SB = GetBufFmter();
-	if(szTEHeader == nullptr)
+	if (szTEHeader == nullptr)
 		SB << remoteHead;
 	else
 	{
@@ -952,7 +952,7 @@ inline void job::AppendMetaHeaders()
 	if (fi && ! fi->GetExtraResponseHeaders().empty())
 		SB << fi->GetExtraResponseHeaders();
 
-	if(m_keepAlive == KEEP)
+	if (m_keepAlive == KEEP)
 		SB << "Connection: Keep-Alive\r\n"sv;
 	else if(m_keepAlive == CLOSE)
 		SB << "Connection: close\r\n"sv;
