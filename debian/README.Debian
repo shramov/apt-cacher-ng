@@ -79,7 +79,7 @@ repositories, improving the cache performance.
 
 This databases can be updated manually using the scripts included in the
 examples/dbgenerator.tar.xz archive. After extracting, run "make" to run the
-lengthy cycle of mirror data retrival, remote host checking, then run (as root)
+lengthy cycle of mirror data retrieval, remote host checking, then run (as root)
 "make install".
 
 INETD USAGE

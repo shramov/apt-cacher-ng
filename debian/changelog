@@ -514,7 +514,7 @@ apt-cacher-ng (0.8.0~rc4-1) unstable; urgency=low
 
 apt-cacher-ng (0.8.0~rc3-1) unstable; urgency=low
 
-  * New upstream version, first Sid upload of 0.8.x 
+  * New upstream version, first Sid upload of 0.8.x
     + systemd related changes: startup notification, restart on crashes
       (closes: #752255)
     + Now really fixes lookup of .default files in the resource directory
@@ -543,7 +543,7 @@ apt-cacher-ng (0.8.0~pre2-1) experimental; urgency=low
 apt-cacher-ng (0.8.0~pre1-1) experimental; urgency=low
 
   * New upstream prerelease version
-    + handles side effects on mmaped files more carefully (maybe a fix
+    + handles side effects on mapped files more carefully (maybe a fix
       for #722360)
     + adds special handling for .gpg files without impact on static file
       patterns (closes: #720165)
@@ -617,7 +617,7 @@ apt-cacher-ng (0.7.24-1) unstable; urgency=medium
   * Review of maintainer scripts, now responsive to modification of
     CacheDir in existing configuration file(s)
   * Defensive behavior of Debconf integration (closes: #732606) and including
-    NEWS.Debian to explain the extended config handling 
+    NEWS.Debian to explain the extended config handling
   * added libssl-dev to build dependencies (now really closes: #729508)
   * fixing build failure on architectures where ancgfs is not built (i.e. Hurd)
   * Debconf description improvement in better German translation
@@ -630,7 +630,7 @@ apt-cacher-ng (0.7.23-1) unstable; urgency=medium
     + fixes reading of certain .xz files (closes: #729941, #731804)
     + HTTPS support (closes: #729508)
   * more debconf controlled settings injected through a separate config
-    file, partially based on the patch from 
+    file, partially based on the patch from
     Geert Stappers <stappers@stappers.nl> (closes: #726656)
   * policy version bump, and no longer recommending perl, there are enough
     functionality replacements implemented to work with just perl-base
@@ -812,7 +812,7 @@ apt-cacher-ng (0.7.5-1) unstable; urgency=low
 
 apt-cacher-ng (0.7.4-1) unstable; urgency=medium
 
-  * New upstream release 
+  * New upstream release
     + prevents endless looping in certain situations (LP: #999915)
     + more tolerance to unstable connections and behavior fix for conflicting
       downloads in maintenance mode (closes: #672801)
@@ -1005,7 +1005,7 @@ apt-cacher-ng (0.5.13-1) unstable; urgency=low
 apt-cacher-ng (0.5.12-1) unstable; urgency=low
 
   * New upstream version
-    + implements easier removal of cruft via web the inteface (closes: #546790)
+    + implements easier removal of cruft via web the interface (closes: #546790)
     + added http://ftp.debian.org/debian/ to the regular mirror list in
       deb_mirrors.gz (closes: #605426)
   * fixed last-resort Ubuntu mirror picking code, now including the /ubuntu
@@ -1113,7 +1113,7 @@ apt-cacher-ng (0.5-1) unstable; urgency=low
 
 apt-cacher-ng (0.4.9-2) unstable; urgency=low
 
-  * Minor change to support Ubuntu release notes delivery with GET 
+  * Minor change to support Ubuntu release notes delivery with GET
     parameters (closes: #588662)
 
  -- Eduard Bloch <blade@debian.org>  Sun, 11 Jul 2010 11:06:49 +0200
@@ -1139,7 +1139,7 @@ apt-cacher-ng (0.4.8-1) unstable; urgency=low
 
 apt-cacher-ng (0.4.7-1) unstable; urgency=low
 
-  * New upstream version 
+  * New upstream version
     + supports fallback backends descriptions which are used when the file is
       specified in the config but not configured properly. Intended to help
       in a heterogeneous Debian/Ubuntu environment (closes Ubuntu tasks
@@ -1164,7 +1164,7 @@ apt-cacher-ng (0.4.5-1) unstable; urgency=low
 
   * New upstream release
     + documented DnsCacheSeconds (Ubuntu bug 530524)
-    + Added simple implementation of SOAP request forwarding for PTS 
+    + Added simple implementation of SOAP request forwarding for PTS
       access (closes: #453277)
     + Typo fix in userinfo.html (closes: #572171)
 
@@ -1176,7 +1176,7 @@ apt-cacher-ng (0.4.4-1) unstable; urgency=low
     + adds a more meaningful message for incorrect backend mirror
       settings (closes: #549222)
     + internal improvements, still hunting bug #558133
-  * init script and policy compliancy updates
+  * init script and policy compliance updates
 
  -- Eduard Bloch <blade@debian.org>  Sun, 21 Feb 2010 23:04:58 +0100
 
@@ -1208,7 +1208,7 @@ apt-cacher-ng (0.4.1-1) unstable; urgency=low
     - Czech (closes: #552452)
     - Basque (closes: #552806)
     - Japanese (closes: #553029)
-    - Portugese (closes: #554119)
+    - Portuguese (closes: #554119)
     - Swedish (closes: #554137)
     - French (closes: #554366)
     - Galician (closes: #554634)
@@ -1224,7 +1224,7 @@ apt-cacher-ng (0.4.1-1) unstable; urgency=low
     + passing HTTP redirection target through to user (closes: #556234)
   * Unconfuse crontab expiration script when BindAdress contains multiple
     entries (patch by Hellekin O\. Wolf, closes: #554707)
- 
+
  -- Eduard Bloch <blade@debian.org>  Sun, 22 Nov 2009 19:06:32 +0100
 
 apt-cacher-ng (0.4-1) unstable; urgency=low
@@ -1309,7 +1309,7 @@ apt-cacher-ng (0.3.5-1) unstable; urgency=low
     + adds hostname to DNS error messages in the expiration output, to help
       users who do not read config files, documentation or logfiles like
       apt-cacher.err (closes: #520824)
-  * init script fixes: checking the running state before overwritting the PID
+  * init script fixes: checking the running state before overwriting the PID
     file, attempt to terminate harder on stop command when PID file is lost.
     Also fixes path name of the PID removed in the stop action (closes: #520565).
 
@@ -1609,7 +1609,7 @@ apt-cacher-ng (0.1-2) unstable; urgency=low
 
 apt-cacher-ng (0.1-1) unstable; urgency=low
 
-  * New "upsteam" version, includes manpage and inetd client
+  * New "upstream" version, includes manpage and inetd client
   * First upload to Unstable
 
  -- Eduard Bloch <blade@debian.org>  Wed, 14 Nov 2007 01:36:36 +0100
@@ -1625,4 +1625,3 @@ apt-cacher-ng (0.0.9-1) experimental; urgency=low
   * Initial release (Closes: #447514), going to experimental for first testing
 
  -- Eduard Bloch <blade@debian.org>  Thu, 01 Nov 2007 18:22:27 +0100
-

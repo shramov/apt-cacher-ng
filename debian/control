@@ -2,17 +2,17 @@ Source: apt-cacher-ng
 Section: net
 Priority: optional
 Maintainer: Eduard Bloch <blade@debian.org>
-Build-Depends: debhelper (>= 10), cmake (>= 2.6.2), libbz2-dev, zlib1g-dev, liblzma-dev, libfuse-dev [!hurd-i386], pkg-config, libwrap0-dev, lsb-base (>> 3.0-6), debhelper (>= 9.20160709), po-debconf, libssl-dev, libsystemd-dev (>= 210) [linux-any], libpthread-stubs0-dev, libevent-dev, libc-ares-dev (>> 1.15)
+Build-Depends: debhelper-compat (= 13), cmake, libbz2-dev, zlib1g-dev, liblzma-dev, libfuse-dev [!hurd-i386], pkg-config, libwrap0-dev, lsb-base, po-debconf, libssl-dev, libsystemd-dev [linux-any], libpthread-stubs0-dev, libevent-dev, libc-ares-dev (>> 1.15)
+Rules-Requires-Root: no
 Standards-Version: 4.5.1
-Homepage: http://www.unix-ag.uni-kl.de/~bloch/acng/
+Homepage: https://www.unix-ag.uni-kl.de/~bloch/acng/
 Vcs-Git: https://salsa.debian.org/blade/apt-cacher-ng.git
 Vcs-Browser: https://salsa.debian.org/blade/apt-cacher-ng/
 
 Package: apt-cacher-ng
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}, adduser, lsb-base (>= 3.0-6)
-Pre-Depends: dpkg (>= 1.15.6)
-Conflicts: logrotate (<< 3.8.0)
+Depends: ${shlibs:Depends}, ${misc:Depends}, adduser, lsb-base
+Pre-Depends: ${misc:Pre-Depends}
 Recommends: ca-certificates
 Suggests: doc-base, avahi-daemon
 Description: caching proxy server for software repositories

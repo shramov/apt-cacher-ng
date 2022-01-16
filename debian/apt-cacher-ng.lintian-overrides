@@ -1,2 +1,2 @@
 apt-cacher-ng: package-name-doesnt-match-sonames libsupacng
-apt-cacher-ng: shlib-without-versioned-soname
+apt-cacher-ng: shared-library-lacks-version
