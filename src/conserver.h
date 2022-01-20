@@ -11,6 +11,7 @@ class conserver
 public:
 	virtual ~conserver() = default;
 	virtual bool Setup() = 0;
+	virtual void ReleaseConnection(tLintRefcounted*) =0;
 	static conserver* Create(acres& res);
 };
 

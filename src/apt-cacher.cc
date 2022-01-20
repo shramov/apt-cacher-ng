@@ -258,7 +258,6 @@ void CloseAllCachedConnections();
 void InitSpecialWorkDescriptors();
 
 std::unique_ptr<acres> sharedResources;
-conserver *g_server = nullptr;
 
 void daemon_init()
 {

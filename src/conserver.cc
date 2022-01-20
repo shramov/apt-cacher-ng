@@ -58,6 +58,15 @@ class conserverImpl : public conserver
 */
 	ACNG_API void static FinishConnection(int fd);
 
+	// conserver interface
+public:
+#warning optimize this, use a unordered_set and custom comparer or similar
+	std::unordered_map<void*,lint_ptr<tLintRefcounted>> m_conns;
+	void ReleaseConnection(tLintRefcounted *p) override
+	{
+		m_conns.erase(p);
+	}
+
 public:
 
 	void SetupConAndGo(unique_fd&& man_fd, string clientName, LPCSTR clientPort, bool isAdmin)
@@ -65,7 +74,9 @@ public:
 		USRDBG("Client name: " << clientName << ":" << clientPort);
 		try
 		{
-			StartServing(move(man_fd), move(clientName), m_res, isAdmin);
+			auto p = StartServing(move(man_fd), move(clientName), m_res, isAdmin);
+			if (p)
+				m_conns.emplace(p.get(), p);
 		}
 		catch (const std::bad_alloc&)
 		{

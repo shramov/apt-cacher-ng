@@ -13,6 +13,8 @@
 namespace acng
 {
 
+conserver ACNG_API *g_server = nullptr;
+
 #warning make idle shorter, 3s
 const struct timeval defaultKeepAliveTimeout { 10, 0 }, idleTimeout { 30, 1};
 
@@ -59,27 +61,23 @@ public:
 			ret = tBeatNotifier::Create(interval);
 		return *ret;
 	}
-
-public:
 	tSslConfig &GetSslConfig() override
 	{
 		return m_ssl_setup;
 	}
-
-	// acres interface
-public:
 	rex &GetMatchers() override
 	{
 		if (!rx)
 			rx = new rex;
 		return *rx;
 	}
-
-	// acres interface
-public:
 	acng::lint_ptr<IFileItemRegistry> GetItemRegistry() override
 	{
 		return SetupServerItemRegistry();
+	}
+	conserver *GetLastConserver() override
+	{
+		return g_server;
 	}
 };
 

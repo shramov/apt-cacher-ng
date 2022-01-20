@@ -35,7 +35,7 @@ public:
  * @param clientName
  * @param isAdmin a special flog which creates a shortcut, running maintainenance task as the one and only job, and running already preauthorized
  */
-void ACNG_API StartServing(unique_fd&& fd, std::string clientName, acres&, bool isAdmin);
+lint_ptr<tLintRefcounted> ACNG_API StartServing(unique_fd&& fd, std::string clientName, acres&, bool isAdmin);
 
 }
 

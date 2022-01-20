@@ -15,6 +15,9 @@ class tBeatNotifier;
 class tSslConfig;
 class rex;
 class IFileItemRegistry;
+class conserver;
+
+extern conserver *g_server;
 
 /**
  * @brief The acres class provides access to certain shared resources
@@ -39,6 +42,8 @@ public:
 	virtual rex& GetMatchers() =0;
 
 	virtual lint_ptr<IFileItemRegistry> GetItemRegistry() =0;
+
+	virtual conserver* GetLastConserver() =0;
 };
 
 }

@@ -15,6 +15,7 @@
 #include "astrop.h"
 #include "aclock.h"
 #include "acforwarder.h"
+#include "conserver.h"
 
 #include <iostream>
 #include <thread>
@@ -41,11 +42,11 @@ class connImpl : public IConnBase
 
 	bool m_bPrepTypeChange = false;
 	bool m_bIsLocalAdmin = false;
+	bool m_bTerminated = false;
 
 	deque<job> m_jobs;
 	lint_user_ptr<dlcontroller> m_pDlClient;
 	mstring m_sClientHost;
-	aobservable::subscription m_baseSub;
 
 public:
 	dlcontroller* GetDownloader() override
@@ -64,7 +65,6 @@ public:
 		m_sClientHost(move(clientName))
 	{
 		LOGSTARTFUNCx(m_sClientHost);
-		m_baseSub = evabase::GetGlobal().subscribe([this](){ cbStatus(nullptr, BEV_EVENT_EOF, this);} );
 	}
 
 	virtual ~connImpl()
@@ -75,8 +75,17 @@ public:
 		// our user's connection is released but the downloader task created here may still be serving others
 		// tell it to stop when it gets the chance and delete it then
 		m_pDlClient.reset();
-
 	}
+
+	void requestShutdown()
+	{
+		if (m_bTerminated)
+			return;
+		m_bTerminated = true;
+		auto* serva = m_res.GetLastConserver();
+		if (serva)
+			serva->ReleaseConnection(this);
+	};
 
 	/**
 	 * @brief poke
@@ -86,6 +95,8 @@ public:
 	void poke(uint_fast32_t jobId) override
 	{
 		LOGSTARTFUNCx(jobId);
+		if (AC_UNLIKELY(m_bTerminated))
+			return;
 		NONDEBUGVOID(jobId);
 		continueJobs();
 	}
@@ -107,24 +118,18 @@ public:
 
 	void spawn(unique_bufferevent_flushclosing&& pBE)
 	{
-		try
-		{
-			m_be.reset(move(pBE));
-			setup_regular();
-		}
-		catch (const bad_alloc&)
-		{
-			delete this;
-		}
+		m_be.reset(move(pBE));
+		setup_regular();
 	}
 
 	static void cbStatus(bufferevent*, short what, void* ctx)
 	{
 		if (what & (BEV_EVENT_EOF | BEV_EVENT_ERROR | BEV_EVENT_TIMEOUT))
 		{
-			auto destroyer = as_lptr((connImpl*)ctx, false);
-			if (!evabase::GetGlobal().IsShuttingDown() && destroyer->m_be.get())
-				be_free_close(destroyer->m_be.release());
+			auto me = as_lptr((connImpl*)ctx);
+			if (!evabase::GetGlobal().IsShuttingDown() && me->m_be.get())
+				be_free_close(me->m_be.release());
+			return me->requestShutdown();
 		}
 	}
 	static void cbRead(bufferevent* pBE, void* ctx)	{ ((connImpl*)ctx)->onRead(pBE); }
@@ -189,8 +194,8 @@ public:
 			{
 				DBGQLOG("Discon for " << m_jobs.front().GetId());
 				m_jobs.clear();
-				auto destroyer = as_lptr(this);
 				be_flush_free_close(m_be.release());
+				requestShutdown();
 				return false;
 			}
 			case job::eJobResult::R_DONE:
@@ -224,7 +229,7 @@ public:
 		{
 			sout << "HTTP/1.0 400 Bad Request\r\n"sv;
 			AppendMetaHeaders(sout);
-			return delete this;
+			return requestShutdown();
 		}
 
 		if (m_h.type == header::CONNECT)
@@ -232,7 +237,7 @@ public:
 			evbuffer_drain(bereceiver(*m_be), m_hSize);
 			// this will replace the callbacks and continue, we are done here
 			PassThrough(move(m_be), tgt, m_h, m_res);
-			return delete this;
+			return requestShutdown();
 		}
 		// is this something we support?
 		if (m_h.type == header::POST)
@@ -250,12 +255,12 @@ public:
 				sout << "HTTP/1.0 403 Forbidden\r\n"sv;
 
 			AppendMetaHeaders(sout);
-			return delete this;
+			return requestShutdown();
 		}
 		sout << "HTTP/1.0 403 Forbidden\r\n"sv;
 		AppendMetaHeaders(sout);
 		// flusher will take over
-		return delete this;
+		return requestShutdown();
 	}
 
 	static void AppendMetaHeaders(ebstream& sout)
@@ -276,7 +281,7 @@ public:
 	}
 };
 
-void StartServing(unique_fd&& fd, string clientName, acres& res, bool isAdmin)
+lint_ptr<tLintRefcounted> StartServing(unique_fd&& fd, string clientName, acres& res, bool isAdmin)
 {
 	evutil_make_socket_nonblocking(fd.get());
 	evutil_make_socket_closeonexec(fd.get());
@@ -288,10 +293,11 @@ void StartServing(unique_fd&& fd, string clientName, acres& res, bool isAdmin)
 	{
 		auto session = as_lptr(new connImpl(move(clientName), res, isAdmin));
 		session->spawn(move(be));
-		ignore_ptr(session.release());
+		return static_lptr_cast<tLintRefcounted>(session);
 	}
 	catch (...)
 	{
+		return lint_ptr<tLintRefcounted>();
 	}
 }
 }
