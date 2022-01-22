@@ -102,36 +102,16 @@ struct tRemoteValidator
 
 using tDlJobPtr = unique_ptr<tDlJob>;
 
-// custom priority queue which is transparent for special uses and also returns the popped element directly
-struct tDlJobPrioQ
+struct tCompJobPtrById
 {
-public:
-	using T = tDlJobPtr;
-	struct tCompJobPtrById
-	{
-		bool operator() (const T &a, const T &b) const;
-	} m_comparator;
-
-	inline void push(T&& element)
-	{
-		m_data.emplace_back(move(element));
-		push_heap(m_data.begin(), m_data.end(), m_comparator);
-	}
-	inline T pop()
-	{
-		std::pop_heap(m_data.begin(), m_data.end(), m_comparator);
-		auto ret = move(m_data.back());
-		m_data.pop_back();
-		return ret;
-	}
-	inline const T& top() { return m_data.at(0); }
-	inline bool empty() { return m_data.empty(); }
-	inline bool size() { return m_data.size(); }
-	void clear() { m_data.clear(); }
-	inline void swap(tDlJobPrioQ& other) { other.m_data.swap(m_data); }
-private:
-	std::vector<T> m_data;
-
+	bool operator() (const tDlJobPtr &a, const tDlJobPtr &b) const;
+};
+using tBaseDlJobPrioQ = std::priority_queue<tDlJobPtr, std::vector<tDlJobPtr>, tCompJobPtrById>;
+// adapted priority queue, suitable for move-only elements like tDlJobPrioQ
+struct tDlJobPrioQ : public tBaseDlJobPrioQ
+{
+	void clear() { c.clear(); }
+	tDlJobPtr pop() { auto ret(move(c.at(0))); tBaseDlJobPrioQ::pop(); return ret; }
 };
 
 struct tDlStream : public tLintRefcounted, public Dumpable
@@ -1662,7 +1642,7 @@ void CDlConn::DispatchDfrd(tDlJobPtr&& what, tDlJobPrioQ& unhandled)
 	sacrifice->Sacrifice();
 }
 
-bool tDlJobPrioQ::tCompJobPtrById::operator()(const T &a, const T &b) const
+bool tCompJobPtrById::operator()(const tDlJobPtr &a, const tDlJobPtr &b) const
 {
 auto idA = a->m_orderId;
 auto idB = b->m_orderId;
