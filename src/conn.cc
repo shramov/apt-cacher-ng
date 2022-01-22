@@ -70,22 +70,28 @@ public:
 	virtual ~connImpl()
 	{
 		LOGSTARTFUNC;
+		Abandon();
+	}
+private:
+	void requestShutdown()
+	{
+		if (m_bTerminated)
+			return;
+		m_bTerminated = true;
+		auto* owner = m_res.GetLastConserver();
+		if (owner)
+			owner->ReleaseConnection(this);
+	};
+
+public:
+	void Abandon() override
+	{
 		// in that order!
 		m_jobs.clear();
 		// our user's connection is released but the downloader task created here may still be serving others
 		// tell it to stop when it gets the chance and delete it then
 		m_pDlClient.reset();
 	}
-
-	void requestShutdown()
-	{
-		if (m_bTerminated)
-			return;
-		m_bTerminated = true;
-		auto* serva = m_res.GetLastConserver();
-		if (serva)
-			serva->ReleaseConnection(this);
-	};
 
 	/**
 	 * @brief poke
@@ -285,22 +291,13 @@ public:
 public:
 	void DumpInfo(Dumper &dumper) override
 	{
-		if (!m_jobs.empty())
-			DUMPFMT << "JOBS:"sv;
-		for(auto& el: m_jobs)
-		{
-			dumper.DumpFurther(el);
-		}
-		if (m_pDlClient)
-		{
-			DUMPFMT << "DLER:"sv;
-			dumper.DumpFurther(*m_pDlClient);
-		}
+		DUMPLIST(m_jobs, "JOBS:");
+		DUMPIFSET(m_pDlClient, "DLER:"sv);
 	}
 #endif
 };
 
-lint_ptr<IConnBase> StartServing(unique_fd&& fd, string clientName, acres& res, bool isAdmin)
+lint_user_ptr<IConnBase> StartServing(unique_fd&& fd, string clientName, acres& res, bool isAdmin)
 {
 	evutil_make_socket_nonblocking(fd.get());
 	evutil_make_socket_closeonexec(fd.get());
@@ -312,11 +309,11 @@ lint_ptr<IConnBase> StartServing(unique_fd&& fd, string clientName, acres& res, 
 	{
 		auto session = as_lptr(new connImpl(move(clientName), res, isAdmin));
 		session->spawn(move(be));
-		return static_lptr_cast<IConnBase>(session);
+		return lint_user_ptr(static_lptr_cast<IConnBase>(session));
 	}
 	catch (...)
 	{
-		return lint_ptr<IConnBase>();
+		return lint_user_ptr<IConnBase>();
 	}
 }
 

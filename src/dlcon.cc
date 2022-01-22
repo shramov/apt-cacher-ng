@@ -112,6 +112,7 @@ struct tDlJobPrioQ : public tBaseDlJobPrioQ
 {
 	void clear() { c.clear(); }
 	tDlJobPtr pop() { auto ret(move(c.at(0))); tBaseDlJobPrioQ::pop(); return ret; }
+	const decltype(c) & data() { return c; }
 };
 
 struct tDlStream : public tLintRefcounted, public Dumpable
@@ -203,6 +204,12 @@ private:
 	//unsigned m_requestLimit = DEFAULT_REQUEST_LIMIT;
 	// shutdown condition where further request data is dropped and connection is closed ASAP
 	//bool m_bShutdownLosingData = false;
+
+#ifdef DEBUG
+	// Dumpable interface
+public:
+	void DumpInfo(Dumper &dumper) override;
+#endif
 };
 
 const timeval idleCheckInterval { 7, 345678 };
@@ -372,6 +379,12 @@ public:
 				++it;
 		}
 	}
+
+#ifdef DEBUG
+	// Dumpable interface
+public:
+	void DumpInfo(Dumper &dumper) override;
+#endif
 };
 
 lint_user_ptr<dlcontroller> dlcontroller::CreateRegular(acres& res)
@@ -1255,6 +1268,17 @@ private:
 	// not to be copied ever
 	tDlJob(const tDlJob&);
 	tDlJob& operator=(const tDlJob&);
+
+#ifdef DEBUG
+	// Dumpable interface
+public:
+	void DumpInfo(Dumper &dumper) override
+	{
+		DUMPFMT << GetPeerHost().ToURI(false) << " : " << m_nRest
+				<< " , " << m_sourceState
+				<< " , " << m_DlState;
+	}
+#endif
 };
 
 void tDlStream::Connect()
@@ -1500,6 +1524,15 @@ void tDlStream::handleDisconnect(string_view why, tComError cause)
 		m_parent->DeleteStream(m_meRef);
 }
 
+#ifdef DEBUG
+void tDlStream::DumpInfo(Dumper &dumper)
+{
+	DUMPFMT << GetPeerHost().ToURI(false) << ": " << m_bWasRecycled << "/" << m_dirty << "/" << m_sacrificied;
+	DUMPLISTPTRS(m_requested, "REQUESTED: ");
+	DUMPLISTPTRS(m_waiting.data(), "REQUESTED: ");
+}
+#endif
+
 bool CDlConn::ToBacklog(tDlJobPtr&& j)
 {
 	try
@@ -1514,6 +1547,14 @@ bool CDlConn::ToBacklog(tDlJobPtr&& j)
 	TriggerDispatch();
 	return true;
 }
+#ifdef DEBUG
+void CDlConn::DumpInfo(Dumper &dumper)
+{
+	DUMPFMT << "Flags: " << m_bDispatchPending << "/" << m_bInShutdown << "/" << m_nJobIdgen;
+	DUMPLIST(m_streams, "STREAMS:");
+	DUMPLISTPTRS(m_backlog.data(), "BACKLOG (unsorted):");
+}
+#endif
 
 bool CDlConn::AddJob(lint_ptr<fileitem> fi, const tHttpUrl *src, tRepoResolvResult *repoSrc, bool isPT, mstring extraHeaders)
 {

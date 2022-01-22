@@ -35,6 +35,10 @@ public:
 		static cmstring nix;
 		return nix;
 	};
+
+	// tExtRefExpirer interface
+public:
+	void Abandon() override {}
 } conn_dummy;
 
 TEST(job, create_invalid)

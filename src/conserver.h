@@ -9,13 +9,13 @@ namespace acng
 {
 class IConnBase;
 
-class conserver : public Dumpable
+class conserver : public Dumpable, public tLintRefcounted, public tExtRefExpirer
 {
 public:
 	virtual ~conserver() = default;
 	virtual bool Setup() = 0;
 	virtual void ReleaseConnection(IConnBase*) =0;
-	static conserver* Create(acres& res);
+	static lint_user_ptr<conserver> Create(acres& res);
 };
 
 }

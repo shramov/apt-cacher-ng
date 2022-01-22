@@ -40,6 +40,10 @@ private:
 };
 
 #define DUMPFMT tFmtSendTempRaii<Dumper,tSS>(dumper).GetFmter()
+
+#define DUMPIFSET(o, pfx) { DUMPFMT << pfx; dumper.DumpFurther(*o); }
+#define DUMPLIST(what, pfx) if (!what .empty()) { DUMPFMT << pfx ; for(auto& el: what) dumper.DumpFurther(el); }
+#define DUMPLISTPTRS(what, pfx) if (!what .empty()) { DUMPFMT << pfx ; for(auto& el: what) dumper.DumpFurther(*el); }
 #else
 class Dumper
 {

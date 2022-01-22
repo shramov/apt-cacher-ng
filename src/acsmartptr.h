@@ -146,16 +146,16 @@ public:
 	{
 		return m_ptr == vs.m_ptr;
 	}
-        /**
-         * @brief release returns the pointer and makes this invalid while keeping the refcount
-         * @return Raw pointer
-         */
-        T* release() noexcept WARN_UNUSED
-        {
-            auto ret = m_ptr;
-            m_ptr = nullptr;
-            return ret;
-        }
+	/**
+	 * @brief release returns the pointer and makes this invalid while keeping the refcount
+	 * @return Raw pointer
+	 */
+	T* release() noexcept WARN_UNUSED
+	{
+		auto ret = m_ptr;
+		m_ptr = nullptr;
+		return ret;
+	}
 };
 
 /**
@@ -226,7 +226,7 @@ public:
 		m_ptr->__dec_user_ref();
 		m_ptr->__dec_ref();
 	}
-	T* get()
+	T* get() const
 	{
 		return m_ptr;
 	}
@@ -293,6 +293,14 @@ public:
 	inline bool operator<(const lint_user_ptr<T> &vs) const noexcept
 	{
 		return m_ptr < vs.m_ptr;
+	}
+	inline bool operator==(const lint_ptr<T> &vs) const noexcept
+	{
+		return m_ptr == vs.m_ptr;
+	}
+	inline bool operator==(const lint_user_ptr<T> &vs) const noexcept
+	{
+		return m_ptr == vs.m_ptr;
 	}
 };
 

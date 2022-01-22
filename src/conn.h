@@ -18,7 +18,7 @@ class dlcontroller;
 /**
  * @brief Common functionality needed by the own jobs.
  */
-class IConnBase : public tLintRefcounted, public Dumpable
+class IConnBase : public tLintRefcounted, public tExtRefExpirer, public Dumpable
 {
 public:
 	virtual dlcontroller* GetDownloader() =0;
@@ -36,7 +36,7 @@ public:
  * @param clientName
  * @param isAdmin a special flog which creates a shortcut, running maintainenance task as the one and only job, and running already preauthorized
  */
-lint_ptr<IConnBase> ACNG_API StartServing(unique_fd&& fd, std::string clientName, acres&, bool isAdmin);
+lint_user_ptr<IConnBase> ACNG_API StartServing(unique_fd&& fd, std::string clientName, acres&, bool isAdmin);
 
 }
 

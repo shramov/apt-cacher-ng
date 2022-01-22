@@ -50,9 +50,11 @@ const struct timeval g_resumeTimeout { 2, 11 };
 void DumpConn(tLintRefcounted*, Dumper&);
 #endif
 
+using tConnPtr = lint_user_ptr<IConnBase>;
+
 struct TLintprHasher
 {
-	size_t operator()(const lint_ptr<IConnBase> &el) const
+	size_t operator()(const tConnPtr& el) const
 	{
 		return std::hash<long>{}((long)el.get());
 	}
@@ -61,9 +63,9 @@ struct TLintprHasher
 class conserverImpl : public conserver
 {
 	std::list<unique_fdevent> m_listeners;
-	std::unordered_set<lint_ptr<IConnBase>, TLintprHasher> m_conns;
+	std::unordered_set<tConnPtr, TLintprHasher> m_conns;
 	acres& m_res;
-	aobservable::subscription m_shutdownSub, m_resumeSub;
+	aobservable::subscription m_resumeSub;
 
 	//	auto nSockets = conserver::Setup([](unique_fd&& fd, std::string name) { StartServing(move(fd), name, *sharedResources); });
 
@@ -76,8 +78,7 @@ class conserverImpl : public conserver
 public:
 	void ReleaseConnection(IConnBase *p) override
 	{
-		lint_ptr<IConnBase> xp(p);
-		m_conns.erase(xp);
+		m_conns.erase(lint_user_ptr<IConnBase>(p));
 	}
 
 public:
@@ -373,16 +374,14 @@ public:
 		if(!custom_listen_ip)
 			setup_tcp_listeners(nullptr, cfg::port);
 
-		if (m_listeners.empty())
-			return false;
+		return ! m_listeners.empty();
+	}
 
-		m_shutdownSub = evabase::GetGlobal().subscribe([&]()
-		{
-			m_listeners.clear();
-			m_resumeSub.reset();
-			m_shutdownSub.reset();
-		});
-		return true;
+	void Abandon() override
+	{
+		m_listeners.clear();
+		m_conns.clear();
+		m_resumeSub.reset();
 	}
 
 	conserverImpl(acres& res) : m_res(res) {}
@@ -400,20 +399,15 @@ public:
 			auto fd(event_get_fd(p.get()));
 			DUMPFMT << fd << (g_adminFd == fd ? " (admin)" : "");
 		}
-		DUMPFMT << "Active connections:"sv;
-		for(auto& p: m_conns)
-		{
-			DUMPFMT << (long) p.get();
-			dumper.DumpFurther(*p);
-		}
+		DUMPLISTPTRS(m_conns, "Active connections:"sv);
 	}
 #endif
 
 };
 
-conserver *conserver::Create(acres &res)
+lint_user_ptr<conserver> conserver::Create(acres &res)
 {
-	return new conserverImpl(res);
+	return lint_user_ptr<conserver>(new conserverImpl(res));
 }
 
 }

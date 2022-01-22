@@ -27,7 +27,7 @@ class TransportTest : public ::testing::Test
 protected:
 	bool server_okay = false;
 	std::list<unique_fd> parkedFds;
-	conserver *serva;
+	lint_user_ptr<conserver> serva;
 
 	void SetUp() override
 	{

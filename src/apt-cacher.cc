@@ -159,8 +159,6 @@ const sigMap[] =
 #endif
 };
 
-std::list<unique_event> sigEvents;
-
 static void usage(int retCode)
 {
 	auto& chan = retCode ? cerr : cout;
@@ -268,85 +266,91 @@ void term_handler(evutil_socket_t signum, short, void*)
 void CloseAllCachedConnections();
 void InitSpecialWorkDescriptors();
 
-std::unique_ptr<acres> sharedResources;
-
-void daemon_init()
+struct tDaemon
 {
-	auto lerr = log::open();
-	if (!lerr.empty())
+	std::unique_ptr<acres> sharedResources;
+	std::list<unique_event> sigEvents;
+	lint_user_ptr<conserver> m_server;
+
+	tDaemon()
 	{
-		cerr
-				<< "Problem creating log files in "
-				<< cfg::logdir
-				<< ". " << lerr << ".\n";
-
-		exit(EXIT_FAILURE);
-	}
-
-	check_algos();
-
-	for(auto& el: sigMap)
-	{
-		event_add(sigEvents
-				  .emplace_back(event_new(evabase::base, el.snum, EV_SIGNAL|EV_PERSIST, el.cb, 0)).m_p,
-				  nullptr);
-	}
-
-	SetupCacheDir();
-
-	//DelTree(cfg::cacheDirSlash + sReplDir);
-	SetupServerItemRegistry();
-	InitSpecialWorkDescriptors();
-	sharedResources.reset(acres::Create());
-
-	if (sharedResources->GetMatchers().HasErrors())
-	{
-		cerr << "An error occurred while compiling file type regular expression!" << endl;
-		exit(EXIT_FAILURE);
-	}
-
-	g_tpool = tpool::Create(300, 30);
-	g_server = conserver::Create(*sharedResources);
-#warning double-check that actual sockets were created, even if port was busy
-	if (!g_server || !g_server->Setup())
-	{
-		cerr
-				<< "No listening socket(s) could be created/prepared. "
-				   "Check the network, check or unset the BindAddress directive.\n";
-		exit(EXIT_FAILURE);
-	}
-
-	if (!cfg::foreground && !fork_away())
-	{
-		tErrnoFmter ef("Failed to change to daemon mode");
-		cerr << ef << endl;
-		exit(43);
-	}
-
-	if (!cfg::pidfile.empty())
-	{
-		mkbasedir(cfg::pidfile);
-		auto* PID_FILE = fopen(cfg::pidfile.c_str(), "w");
-		if (PID_FILE != nullptr)
+		auto lerr = log::open();
+		if (!lerr.empty())
 		{
-			fprintf(PID_FILE, "%d", getpid());
-			checkForceFclose(PID_FILE);
+			cerr
+					<< "Problem creating log files in "
+					<< cfg::logdir
+					<< ". " << lerr << ".\n";
+
+			exit(EXIT_FAILURE);
+		}
+
+		check_algos();
+
+		for(auto& el: sigMap)
+		{
+			event_add(sigEvents
+					  .emplace_back(event_new(evabase::base, el.snum, EV_SIGNAL|EV_PERSIST, el.cb, 0)).m_p,
+					  nullptr);
+		}
+
+		SetupCacheDir();
+
+		//DelTree(cfg::cacheDirSlash + sReplDir);
+		SetupServerItemRegistry();
+		InitSpecialWorkDescriptors();
+		sharedResources.reset(acres::Create());
+
+		if (sharedResources->GetMatchers().HasErrors())
+		{
+			cerr << "An error occurred while compiling file type regular expression!" << endl;
+			exit(EXIT_FAILURE);
+		}
+
+		g_tpool = tpool::Create(300, 30);
+		m_server = conserver::Create(*sharedResources);
+		g_server = m_server.get();
+
+		if (!m_server || !m_server->Setup())
+		{
+			cerr
+					<< "No listening socket(s) could be created/prepared. "
+					   "Check the network, check or unset the BindAddress directive.\n";
+			exit(EXIT_FAILURE);
+		}
+
+		if (!cfg::foreground && !fork_away())
+		{
+			tErrnoFmter ef("Failed to change to daemon mode");
+			cerr << ef << endl;
+			exit(43);
+		}
+
+		if (!cfg::pidfile.empty())
+		{
+			mkbasedir(cfg::pidfile);
+			auto* PID_FILE = fopen(cfg::pidfile.c_str(), "w");
+			if (PID_FILE != nullptr)
+			{
+				fprintf(PID_FILE, "%d", getpid());
+				checkForceFclose(PID_FILE);
+			}
 		}
 	}
-}
 
-void daemon_deinit()
-{
-	if (!cfg::pidfile.empty())
-		unlink(cfg::pidfile.c_str());
-	delete g_server;
-	g_tpool->stop();
-	sharedResources.reset();
-	//		CloseAllCachedConnections();
+	~tDaemon()
+	{
+		if (!cfg::pidfile.empty())
+			unlink(cfg::pidfile.c_str());
+		g_tpool->stop();
+		sigEvents.clear();
+		sharedResources.reset();
 #warning bring all users of itemregistry down!
-	TeardownServerItemRegistry();
-	log::close(false);
-}
+		TeardownServerItemRegistry();
+		log::close(false);
+	}
+
+};
 
 }
 
@@ -359,16 +363,7 @@ int main(int argc, const char **argv)
 	atexit(ac3rdparty_deinit);
 
 	auto eBase = evabase::Create();
-
 	parse_options(argc, argv);
-
-	daemon_init();
-
-	auto ret = eBase->MainLoop();
-
-	atexit(daemon_deinit);
-
-	sigEvents.clear();
-
-	return ret;
+	tDaemon daemonContext;
+	return eBase->MainLoop();
 }
