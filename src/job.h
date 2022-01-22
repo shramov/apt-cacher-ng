@@ -7,6 +7,7 @@
 #include "sockio.h"
 #include "debug.h"
 #include "aevutil.h"
+#include "dumper.h"
 
 namespace acng
 {
@@ -15,7 +16,7 @@ class IConnBase;
 class header;
 class acres;
 
-class job
+class job : public Dumpable
 {
 public:
 
@@ -106,6 +107,12 @@ public:
 	 * @return Format object usable for convenient data adding, which is sent ASAP in the next operation cycles
 	 */
 	inline ebstream GetBufFmter();
+
+#ifdef DEBUG
+	// Analyzed interface
+public:
+	void DumpInfo(Dumper &) override;
+#endif
 };
 
 }

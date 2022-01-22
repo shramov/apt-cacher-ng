@@ -48,6 +48,7 @@ static void usage(int nRetCode=0);
 static void SetupCacheDir();
 void term_handler(evutil_socket_t fd, short what, void *arg);
 void log_handler(evutil_socket_t fd, short what, void *arg);
+void dbg_handler(evutil_socket_t fd, short what, void *arg);
 void dump_handler(evutil_socket_t fd, short what, void *arg);
 void noop_handler(evutil_socket_t fd, short what, void *arg);
 void handle_sigbus();
@@ -146,6 +147,9 @@ const sigMap[] =
 {SIGINT, term_handler},
 {SIGQUIT, term_handler},
 {SIGUSR1, log_handler},
+#ifdef DEBUG
+{SIGUSR2, dbg_handler},
+#endif
 {SIGPIPE, noop_handler},
 #ifdef SIGIO
 {SIGIO, noop_handler},
@@ -227,6 +231,13 @@ void noop_handler(evutil_socket_t, short, void*)
 	//XXX: report weird signals?
 }
 
+#ifdef DEBUG
+void dbg_handler(evutil_socket_t, short, void*)
+{
+	Dumper dumper;
+	g_server->DumpInfo(dumper);
+}
+#endif
 
 void term_handler(evutil_socket_t signum, short, void*)
 {

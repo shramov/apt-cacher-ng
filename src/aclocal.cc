@@ -84,10 +84,9 @@ void aclocal::Run()
 		// unconfuse the browser
 		if (!endsWithSzAr(m_extraParms.visPath, SZPATHSEPUNIX))
 		{
-			tFmtSendObj tx(this);
-			m_fmtHelper << "<!DOCTYPE html>\n<html lang=\"en\"><head><title>301 Moved Permanently</title></head><body><h1>Moved Temporarily</h1>"
-				 "<p>The document has moved <a href=\""sv << UrlEscape(m_extraParms.visPath) << "/\">here</a>.</p></body></html>"sv;
 			item().ManualStart(301, "Moved Permanently", "text/html", m_extraParms.visPath + "/", m_fmtHelper.size());
+			SendFmt << "<!DOCTYPE html>\n<html lang=\"en\"><head><title>301 Moved Permanently</title></head><body><h1>Moved Temporarily</h1>"
+				 "<p>The document has moved <a href=\""sv << UrlEscape(m_extraParms.visPath) << "/\">here</a>.</p></body></html>"sv;
 			return;
 		}
 		item().ManualStart(200, "OK", "text/html");

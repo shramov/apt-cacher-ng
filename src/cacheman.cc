@@ -658,10 +658,10 @@ format_error:
 			// oh, that crap: in a repo, but no backends configured, and no original source
 			// to look at because head file is probably damaged :-(
 			// try to re-resolve relative to InRelease and retry download
-			SendChunkSZ("<span class=\"WARNING\">"
-					"Warning, running out of download locations (probably corrupted "
-					"cache). Trying an educated guess...<br>\n"
-					")</span>\n<br>\n");
+			Send("<span class=\"WARNING\">"sv
+					"Warning, running out of download locations (probably corrupted "sv
+					"cache). Trying an educated guess...<br>\n"sv
+					")</span>\n<br>\n"sv);
 
 			cmstring::size_type pos=sFilePathRel.length();
 			while (true)
@@ -691,7 +691,7 @@ format_error:
 					tHttpUrl tu;
 					if (tu.SetHttpUrl(url, false))
 					{
-						SendChunkSZ("Restarting download...");
+						Send("Restarting download..."sv);
 						return Download(sFilePathRel, state.attr.bVolatile,
 										sp->m_parms.msgVerbosityLevel, &tu, 0, nullptr, true, sp->repResult);
 					}
@@ -711,7 +711,7 @@ format_error:
 			{
 				if (!endsWith(sFilePathRel, fix.fromEnd) || !StrHas(sFilePathRel, fix.extraCheck))
 					continue;
-				SendChunkSZ("Attempting to download the alternative version...");
+				Send("Attempting to download the alternative version..."sv);
 				// if we have it already, use it as-is
 				if (!state.pResolvedDirectUrl)
 				{

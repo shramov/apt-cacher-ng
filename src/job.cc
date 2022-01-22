@@ -526,7 +526,27 @@ inline ebstream job::GetBufFmter()
 	if (!m_preHeadBuf.valid())
 		m_preHeadBuf.reset(evbuffer_new());
 	return ebstream(*m_preHeadBuf);
+}
+
+#ifdef DEBUG
+void job::DumpInfo(Dumper &dumper)
+{
+	DUMPFMT << (void*) this << ": "
+			<< m_id << ", "
+			<< m_sFileLoc << ", "
+			<< m_nReqRangeFrom << "/"
+			<< m_nReqRangeTo << "/"
+			<< m_nSendPos << "/"
+			<< m_nChunkEnd << " ~ "
+			<< int(m_activity);
+	if (m_pItem)
+	{
+		DUMPFMT << "FITEM: ";
+		dumper.DumpFurther(m_pItem.get());
+	}
+//); (m_pItem ? m_pItem->Get : se);
 };
+#endif
 
 job::eJobResult job::Resume(bool canSend, bufferevent* be)
 {

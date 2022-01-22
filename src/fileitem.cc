@@ -48,6 +48,15 @@ fileitem::fileitem(string_view sPathRel) :
 	ASSERT_IS_MAIN_THREAD;
 }
 
+#ifdef DEBUG
+void fileitem::DumpInfo(Dumper &dumper)
+{
+	DUMPFMT << "{" << m_responseStatus.code << ", " << m_responseStatus.msg << "}, "
+			<< m_sPathRel << ", DLCOUNT: " << m_nDlRefsCount;
+}
+#endif
+
+
 void fileitem::DlRefCountAdd()
 {
 	ASSERT_IS_MAIN_THREAD;
@@ -152,35 +161,6 @@ void fileitem::UpdateHeadTimestamp()
 		return;
 	utimes(SZABSPATH(m_sPathRel + ".head"), nullptr);
 }
-
-#if 0
-std::pair<fileitem::FiStatus, tRemoteStatus> fileitem::WaitForFinish()
-{
-	lockuniq g(this);
-	while (m_status < FIST_COMPLETE)
-		wait(g);
-	return std::pair<fileitem::FiStatus, tRemoteStatus>(m_status, m_responseStatus);
-}
-
-std::pair<fileitem::FiStatus, tRemoteStatus>
-fileitem::WaitForFinish(unsigned timeout, const std::function<bool()> &waitInterrupted)
-{
-	lockuniq g(this);
-	while (m_status < FIST_COMPLETE)
-	{
-		if(wait_for(g, timeout, 1)) // on timeout
-		{
-			if (waitInterrupted)
-			{
-				if(waitInterrupted())
-					continue;
-				return std::pair<fileitem::FiStatus, tRemoteStatus>(FIST_DLERROR,  {500, "E_TIMEOUT"});
-			}
-		}
-	}
-	return std::pair<fileitem::FiStatus, tRemoteStatus>(m_status, m_responseStatus);
-}
-#endif
 
 void TFileitemWithStorage::LogSetError(string_view message, fileitem::EDestroyMode destruction)
 {

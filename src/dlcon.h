@@ -5,6 +5,7 @@
 #include "ahttpurl.h"
 #include "acsmartptr.h"
 #include "acres.h"
+#include "dumper.h"
 
 #include <functional>
 
@@ -27,7 +28,7 @@ struct dlrequest;
 struct tDlJob;
 
 
-class ACNG_API dlcontroller : public tLintRefcounted, public tExtRefExpirer
+class ACNG_API dlcontroller : public tLintRefcounted, public tExtRefExpirer, public Dumpable
 {
 public:
 	static lint_user_ptr<dlcontroller> CreateRegular(acres& res);

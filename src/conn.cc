@@ -279,9 +279,28 @@ public:
 	{
 		return m_sClientHost;
 	}
+
+#ifdef DEBUG
+	// Analyzed interface
+public:
+	void DumpInfo(Dumper &dumper) override
+	{
+		if (!m_jobs.empty())
+			DUMPFMT << "JOBS:"sv;
+		for(auto& el: m_jobs)
+		{
+			dumper.DumpFurther(el);
+		}
+		if (m_pDlClient)
+		{
+			DUMPFMT << "DLER:"sv;
+			dumper.DumpFurther(*m_pDlClient);
+		}
+	}
+#endif
 };
 
-lint_ptr<tLintRefcounted> StartServing(unique_fd&& fd, string clientName, acres& res, bool isAdmin)
+lint_ptr<IConnBase> StartServing(unique_fd&& fd, string clientName, acres& res, bool isAdmin)
 {
 	evutil_make_socket_nonblocking(fd.get());
 	evutil_make_socket_closeonexec(fd.get());
@@ -293,11 +312,12 @@ lint_ptr<tLintRefcounted> StartServing(unique_fd&& fd, string clientName, acres&
 	{
 		auto session = as_lptr(new connImpl(move(clientName), res, isAdmin));
 		session->spawn(move(be));
-		return static_lptr_cast<tLintRefcounted>(session);
+		return static_lptr_cast<IConnBase>(session);
 	}
 	catch (...)
 	{
-		return lint_ptr<tLintRefcounted>();
+		return lint_ptr<IConnBase>();
 	}
 }
+
 }

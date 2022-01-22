@@ -332,6 +332,27 @@ public:
 	}
 };
 
+
+// dirty little RAII helper to send data after formating it, uses a shared
+// buffer presented to the user via macro. This two-stage design should
+// reduce needed locking operations on the output.
+template<class Tparent, class Tfmter>
+class tFmtSendTempRaii
+{
+public:
+	inline tFmtSendTempRaii(Tparent &p)
+	: m_parent(p) { }
+	inline ~tFmtSendTempRaii()
+	{
+		m_parent.SendTempFmt();
+	}
+	inline Tfmter& GetFmter()
+	{
+		return m_parent.GetTempFmt();
+	}
+	Tparent &m_parent;
+};
+
 }
 
 

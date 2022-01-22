@@ -348,13 +348,14 @@ void tMaintOverview::SendProp(cmstring &key)
 	if(key == "aOeDefaultChecked")
 		return Send(cfg::exfailabort ? defStringChecked : se);
 
+
+#warning restoreme
+#if 0
 	if(key == "curPatTraceCol")
 	{
 		tFmtSendObj endPrinter(this);
 
-#warning restoreme
 		int bcount=0;
-#if 0
 		auto& tr(tTraceData::getInstance());
 		lguard g(tr);
 		for(cmstring& x: tr)
@@ -368,10 +369,10 @@ void tMaintOverview::SendProp(cmstring &key)
 			if(&x != &(*tr.rbegin()))
 				m_fmtHelper << "<br>"sv;
 		}
-#endif
 		if(bcount)
 			m_fmtHelper << "<br>some strings not considered due to security restrictions<br>"sv;
 	}
+#endif
 	return tMaintJobBase::SendProp(key);
 }
 /*

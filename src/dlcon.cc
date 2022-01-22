@@ -114,7 +114,7 @@ public:
 
 	inline void push(T&& element)
 	{
-		m_data.push_back(move(element));
+		m_data.emplace_back(move(element));
 		push_heap(m_data.begin(), m_data.end(), m_comparator);
 	}
 	inline T pop()
@@ -134,7 +134,7 @@ private:
 
 };
 
-struct tDlStream : public tLintRefcounted
+struct tDlStream : public tLintRefcounted, public Dumpable
 {
 	deque<tDlJobPtr> m_requested;
 	tDlJobPrioQ m_waiting;
@@ -399,7 +399,7 @@ lint_user_ptr<dlcontroller> dlcontroller::CreateRegular(acres& res)
 	return lint_user_ptr<dlcontroller>(new CDlConn(res));
 }
 
-struct tDlJob
+struct tDlJob: public Dumpable
 {
 	tFileItemPtr m_pStorageRef;
 	mstring m_sError;

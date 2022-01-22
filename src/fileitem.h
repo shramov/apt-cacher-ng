@@ -5,6 +5,7 @@
 #include "header.h"
 #include "httpdate.h"
 #include "evabase.h"
+#include "dumper.h"
 
 #include <map>
 
@@ -24,7 +25,7 @@ typedef std::map<mstring, tFileItemPtr> tFiGlobMap;
 struct tAppStartStop;
 
 //! Base class containing all required data and methods for communication with the download sources
-class ACNG_API fileitem : public tLintRefcounted, public tExtRefExpirer
+class ACNG_API fileitem : public tLintRefcounted, public tExtRefExpirer, public Dumpable
 {
 	friend struct tDlJob;
 	friend class cacheman;
@@ -254,6 +255,11 @@ public:
 	// tLintRefcountedIndexable interface
 	void Abandon() override;
 
+#ifdef DEBUG
+	// Dumpable interface
+public:
+	void DumpInfo(Dumper &dumper) override;
+#endif
 };
 
 enum class ESharingHow

@@ -23,6 +23,7 @@
 #include <iostream>
 #include <algorithm>    // std::min_element, std::max_element
 #include <thread>
+#include <utility>
 
 #ifdef HAVE_LIBWRAP
 #include <tcpd.h>
@@ -45,9 +46,22 @@ int g_adminFd(-1);
 
 const struct timeval g_resumeTimeout { 2, 11 };
 
+#ifdef DEBUG
+void DumpConn(tLintRefcounted*, Dumper&);
+#endif
+
+struct TLintprHasher
+{
+	size_t operator()(const lint_ptr<IConnBase> &el) const
+	{
+		return std::hash<long>{}((long)el.get());
+	}
+};
+
 class conserverImpl : public conserver
 {
 	std::list<unique_fdevent> m_listeners;
+	std::unordered_set<lint_ptr<IConnBase>, TLintprHasher> m_conns;
 	acres& m_res;
 	aobservable::subscription m_shutdownSub, m_resumeSub;
 
@@ -60,11 +74,10 @@ class conserverImpl : public conserver
 
 	// conserver interface
 public:
-#warning optimize this, use a unordered_set and custom comparer or similar
-	std::unordered_map<void*,lint_ptr<tLintRefcounted>> m_conns;
-	void ReleaseConnection(tLintRefcounted *p) override
+	void ReleaseConnection(IConnBase *p) override
 	{
-		m_conns.erase(p);
+		lint_ptr<IConnBase> xp(p);
+		m_conns.erase(xp);
 	}
 
 public:
@@ -74,9 +87,9 @@ public:
 		USRDBG("Client name: " << clientName << ":" << clientPort);
 		try
 		{
-			auto p = StartServing(move(man_fd), move(clientName), m_res, isAdmin);
-			if (p)
-				m_conns.emplace(p.get(), p);
+			auto xp = StartServing(move(man_fd), move(clientName), m_res, isAdmin);
+			if (xp)
+				m_conns.emplace(xp);
 		}
 		catch (const std::bad_alloc&)
 		{
@@ -377,6 +390,25 @@ public:
 	{
 		// actually it's all self-releasing
 	}
+
+#ifdef DEBUG
+	void DumpInfo(Dumper &dumper) override
+	{
+		DUMPFMT << "Serving ports:"sv;
+		for(auto& p: m_listeners)
+		{
+			auto fd(event_get_fd(p.get()));
+			DUMPFMT << fd << (g_adminFd == fd ? " (admin)" : "");
+		}
+		DUMPFMT << "Active connections:"sv;
+		for(auto& p: m_conns)
+		{
+			DUMPFMT << (long) p.get();
+			dumper.DumpFurther(*p);
+		}
+	}
+#endif
+
 };
 
 conserver *conserver::Create(acres &res)

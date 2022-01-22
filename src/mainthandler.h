@@ -6,6 +6,7 @@
 #include "sockio.h"
 #include "acbuf.h"
 #include "acres.h"
+#include "astrop.h"
 
 static const std::string sBRLF("<br>\n");
 
@@ -130,28 +131,10 @@ public:
 	 */
 	tSS GetKbLocation();
 
-	// dirty little RAII helper to send data after formating it, uses a shared
-	// buffer presented to the user via macro. This two-stage design should
-	// reduce needed locking operations on the output.
-	class tFmtSendObj
-	{
-	public:
-		inline tFmtSendObj(mainthandler *p)
-		: m_parent(*p) { }
-		inline ~tFmtSendObj()
-		{
-			m_parent.Send(m_parent.m_fmtHelper);
-			m_parent.m_fmtHelper.clear();
-		}
-		mainthandler &m_parent;
-	private:
-		tFmtSendObj operator=(const mainthandler::tFmtSendObj&) = delete;
-	};
-
-#define SendFmt tFmtSendObj(this).m_parent.m_fmtHelper
-#define SendChunkSZ(x) Send(WITHLEN(x))
-
+#define SendFmt tFmtSendTempRaii<mainthandler, bSS>(*this).GetFmter()
 	bSS m_fmtHelper;
+	void SendTempFmt() { Send(m_fmtHelper); m_fmtHelper.clear(); }
+	bSS& GetTempFmt() { return m_fmtHelper; }
 };
 
 mainthandler* creatorPrototype(mainthandler::tRunParms&& parms);

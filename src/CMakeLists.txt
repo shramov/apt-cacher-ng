@@ -8,7 +8,7 @@ set(SHAREDSRCS astrop.cc sockio.cc acbuf.cc acfg.cc acfg_defaults.cc aclogger.cc
     fileitem.cc filereader.cc header.cc meta.cc ptitem.cc evabase.cc httpdate.cc
     csmapping.cc acerrno.cc aconnect.cc ac3rdparty.cc remotedb.cc tpool.cc ahttpurl.cc aobservable.cc
     atransport.cc aevutil.cc rex.cc acworm.cc
-    aclocal.cc acres.cc
+    aclocal.cc acres.cc dumper.cc
     aclock.cc acforwarder.cc
 
 #evil trade-off: keep them in the lib or move them to server and have to expose all the meta functionality they require?
