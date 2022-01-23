@@ -33,6 +33,16 @@
 #define BUFSIZEMIN 4095 // makes one page on i386 and should be enough for typical index files
 #define BUFSIZEMAX 256*1024
 
+/*
+ * From the doc:
+windowBits can also be greater than 15 for optional gzip decoding.  Add
+32 to windowBits to enable zlib and gzip decoding with automatic header
+detection, or add 16 to decode only the gzip format (the zlib format will
+return a Z_DATA_ERROR).
+*/
+
+#define WINDOW_BITS_MAX 15
+#define WINDOW_BITS_FMTDETECT 32
 
 #ifdef MINIBUILD
 #undef HAVE_LIBBZ2
@@ -125,11 +135,12 @@ static const uint8_t bz2Magic[] =
 #include <zlib.h>
 class tGzDec : public IDecompressor
 {
-	z_stream strm = z_stream();
+	z_stream strm;
 public:
 	bool Init() override
 	{
-		if (Z_OK == inflateInit2(&strm, 47))
+		memset(&strm, 0, sizeof(z_stream));
+		if (Z_OK == inflateInit2(&strm, WINDOW_BITS_FMTDETECT | WINDOW_BITS_MAX))
 			return true;
 		if (psError)
 			psError->assign("ZLIB initialization error");
@@ -137,7 +148,7 @@ public:
 	}
 	~tGzDec()
 	{
-		deflateEnd(&strm);
+		inflateEnd(&strm);
 	}
 	virtual bool UncompMore(char *szInBuf, size_t nBufSize, size_t &nBufPos, acbuf &UncompBuf) override
 	{
@@ -474,6 +485,9 @@ bool filereader::GetOneLine(string & sOut, bool bForceUncompress) {
 
 			m_bError = ! m_Dec->UncompMore(m_szFileBuf, m_nBufSize, m_nBufPos, m_UncompBuf);
 		}
+
+		if (m_bError)
+			return false;
 
 		nRest=m_UncompBuf.size();
 		rbuf=m_UncompBuf.rptr();
