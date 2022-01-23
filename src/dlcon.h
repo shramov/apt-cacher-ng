@@ -34,7 +34,7 @@ public:
 	static lint_user_ptr<dlcontroller> CreateRegular(acres& res);
 	virtual ~dlcontroller() =default;
 	/**
-	 * Forced Shutdown. Unlike the lazy shutdown, it will terminate all pending jobs immediatelly and stop all idle streams.
+	 * Forced Shutdown. Unlike the lazy shutdown, it will terminate all pending jobs immediatelly and stop all streams.
 	 * */
 	virtual void TeardownASAP() =0;
 

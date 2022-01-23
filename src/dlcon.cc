@@ -41,6 +41,10 @@ using namespace std;
 #define REQUEST_LIMIT 5
 #define MAX_STREAMS_PER_USER 8
 
+#warning EVALUATE: in case of malicious attacker, maybe restrict this to 30k in the begining and adjust later?
+// empirically found values which represent usual package sizes and are still less than usual socket buffer size
+const std::array<int, 6> wmValues = { 120000, 90000, 56000, 40000, 30000};
+
 namespace acng
 {
 
@@ -233,6 +237,7 @@ class CDlConn : public dlcontroller, public tClock
 	tDlStreamPool m_streams;
 
 	tDlStreamPool::iterator m_lastUsedStream = m_streams.end();
+	inline tDlStreamPool::iterator EraseStream(tDlStreamPool::iterator it) { if (it == m_lastUsedStream) m_lastUsedStream = m_streams.end(); return m_streams.erase(it); }
 
 public:
 
@@ -259,13 +264,11 @@ public:
 		return refIt;
 	}
 
-	void DeleteStream(tDlStreamPool::iterator what)
+	void DeleteStreamAndContinue(tDlStreamPool::iterator what)
 	{
 		LOGSTARTFUNC;
 		ASSERT_IS_MAIN_THREAD;
-		if (m_lastUsedStream == what)
-			m_lastUsedStream = m_streams.end();
-		m_streams.erase(what);
+		EraseStream(what);
 		TermOrProcBacklog();
 	}
 
@@ -291,7 +294,6 @@ public:
 	{
 		if (m_streams.size() >= MAX_STREAMS_PER_USER)
 			return; // pointless, wait for a free slot
-
 		if (!m_backlog.empty())
 			TriggerDispatch();
 	}
@@ -311,12 +313,7 @@ public:
 	void TermOrProcBacklog(tDlStreamPool::iterator idlingReporter)
 	{
 		if (m_bInShutdown || evabase::GetGlobal().IsShuttingDown())
-		{
-			if (m_lastUsedStream == idlingReporter)
-				m_lastUsedStream = m_streams.end();
-			m_streams.erase(idlingReporter);
-
-		}
+			EraseStream(idlingReporter);
 		TermOrProcBacklog();
 	}
 
@@ -329,28 +326,22 @@ public:
 		m_bInShutdown = true;
 		m_backlog.clear();
 
-		m_lastUsedStream = m_streams.end();
-
 		// try to abort all streams; if some are busy, self-lock and wait for the stream to report it's termination
 		for (auto it = m_streams.begin(); it != m_streams.end();)
-		{
-			if (it->Cancel())
-				it = m_streams.erase(it);
-			else
-				++it;
-		}
-		if (m_streams.empty())
-			return;
-		// okay, will be torn down by the stream later
-		m_shutdownLock.reset(this);
+			it = it->Cancel() ? EraseStream(it) : ++it;
+		if (!m_streams.empty())	// okay, will be torn down by the stream later
+			m_shutdownLock.reset(this);
 	};
 
 	void TeardownASAP() override
 	{
 		m_bInShutdown = true;
-		OnClockTimeout();
 		m_backlog.clear();
+		m_lastUsedStream = m_streams.end();
 		m_streams.clear();
+#warning FIXME, reset idle timer?
+		m_dispatchNotifier.reset();
+		m_shutdownLock.reset();
 	}
 
 	void DispatchDfrd(tDlJobPtr&& what, tDlJobPrioQ& unhandled);
@@ -365,19 +356,8 @@ public:
 	void OnClockTimeout() override
 	{
 		auto thold = GetTime() - idleCheckInterval.tv_sec;
-
 		for (auto it = m_streams.begin(); it != m_streams.end();)
-		{
-			if (it->m_idleSince < thold)
-			{
-				if (it == m_lastUsedStream)
-					m_lastUsedStream = m_streams.end();
-
-				it = m_streams.erase(it);
-			}
-			else
-				++it;
-		}
+			it = (it->m_idleSince < thold) ? EraseStream(it) : ++it;
 	}
 
 #ifdef DEBUG
@@ -1250,16 +1230,9 @@ TRAILER_JUNK_SKIPPED:
 			m_pStorageRef->DlFinish(true);
 		}
 
-#warning EVALUATE: in case of malicious attacker, maybe restrict this to 30k in the begining and adjust later?
-		for (auto n: { 120000, 90000, 56000, 40000, 30000 })
-		{
-			if (m_nRest > n)
-			{
-				m_nWatermark = n;
-				bufferevent_setwatermark(peBuf, EV_READ, m_nWatermark, 2*m_nWatermark);
-				break;
-			}
-		}
+		auto pWM = find_if(wmValues.begin(), wmValues.end(), [this](int n){ return n < m_nRest; });
+		if (pWM != wmValues.end())
+			bufferevent_setwatermark(peBuf, EV_READ, m_nWatermark = *pWM, *pWM * 2);
 
 		return EResponseEval::GOOD;
 	}
@@ -1476,7 +1449,7 @@ void tDlStream::handleDisconnect(string_view why, tComError cause)
 		cause = TRANS_STREAM_ERR_TRANSIENT;
 
 	if (m_requested.empty() && m_waiting.empty())
-		return m_parent->DeleteStream(m_meRef);
+		return m_parent->DeleteStreamAndContinue(m_meRef);
 
 	// hardcopy, no matter where it came from
 	auto rsn(to_string(why));
@@ -1521,7 +1494,7 @@ void tDlStream::handleDisconnect(string_view why, tComError cause)
 	m_transport.reset();
 
 	if (m_dirty)
-		m_parent->DeleteStream(m_meRef);
+		m_parent->DeleteStreamAndContinue(m_meRef);
 }
 
 #ifdef DEBUG

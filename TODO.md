@@ -72,6 +72,10 @@ Maybe... restore data collector, or maybe drop it and add a log scanner script i
 
 ## Tests
 
+## Stress tests
+
+- reduce number of connection per user and feed with URL mix
+
 ## To perform
 - import of files
 - delivery of imported files
