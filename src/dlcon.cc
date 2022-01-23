@@ -223,7 +223,6 @@ class CDlConn : public dlcontroller, public tClock
 	acres& m_res;
 
 	unsigned m_nJobIdgen = 0;
-//	unsigned m_nIdleCount = 0;
 	bool m_bInShutdown = false, m_bDispatchPending = false;
 	// self-reference which is set when the shutdown phase starts and there are external users of some of the served items
 	lint_ptr<dlcontroller> m_shutdownLock;
@@ -269,7 +268,7 @@ public:
 		LOGSTARTFUNC;
 		ASSERT_IS_MAIN_THREAD;
 		EraseStream(what);
-		TermOrProcBacklog();
+		ExitOrProcessBacklog();
 	}
 
 	/**
@@ -302,7 +301,7 @@ public:
 	 * If terminating scheduled, release this agent.
 	 * @return True if shutdown is ongoing
 	 */
-	bool TermOrProcBacklog()
+	bool ExitOrProcessBacklog()
 	{
 		if (TermUnlockIfPossible())
 			return true;
@@ -310,11 +309,13 @@ public:
 		return false;
 	}
 
-	void TermOrProcBacklog(tDlStreamPool::iterator idlingReporter)
+	void StreamIsIdling(tDlStreamPool::iterator idlingReporter)
 	{
 		if (m_bInShutdown || evabase::GetGlobal().IsShuttingDown())
 			EraseStream(idlingReporter);
-		TermOrProcBacklog();
+		else
+			Resume();
+		ExitOrProcessBacklog();
 	}
 
 	/**
@@ -355,9 +356,12 @@ public:
 public:
 	void OnClockTimeout() override
 	{
+		LOGSTARTFUNC;
 		auto thold = GetTime() - idleCheckInterval.tv_sec;
 		for (auto it = m_streams.begin(); it != m_streams.end();)
 			it = (it->m_idleSince < thold) ? EraseStream(it) : ++it;
+		if (m_streams.empty())
+			Suspend();
 	}
 
 #ifdef DEBUG
@@ -1325,7 +1329,7 @@ void tDlStream::OnRead(bufferevent *pBE)
 	if (m_requested.empty() && m_waiting.empty())
 	{
 		m_idleSince = GetTime();
-		m_parent->TermOrProcBacklog(m_meRef);
+		m_parent->StreamIsIdling(m_meRef);
 	}
 }
 
