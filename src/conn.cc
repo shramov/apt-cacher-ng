@@ -32,6 +32,9 @@ namespace acng
 {
 
 class connImpl;
+#ifdef DEBUG
+int g_connId = 0;
+#endif
 
 class connImpl : public IConnBase
 {
@@ -47,6 +50,9 @@ class connImpl : public IConnBase
 	deque<job> m_jobs;
 	lint_user_ptr<dlcontroller> m_pDlClient;
 	mstring m_sClientHost;
+#ifdef DEBUG
+	int m_connId = g_connId++;
+#endif
 
 public:
 	dlcontroller* GetDownloader() override
@@ -291,6 +297,7 @@ public:
 public:
 	void DumpInfo(Dumper &dumper) override
 	{
+		DUMPFMT << "CONN: " << m_connId << "/"  << m_sClientHost << "/" << bufferevent_getfd(*m_be);
 		DUMPLIST(m_jobs, "JOBS:");
 		DUMPIFSET(m_pDlClient, "DLER:"sv);
 	}

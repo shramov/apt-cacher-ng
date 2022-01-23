@@ -163,7 +163,7 @@ struct tDlStream : public tLintRefcounted, public Dumpable
 	 * @brief TakeJob accepts a job but only if that doesn't overtake an already requested one
 	 * @return
 	 */
-	bool TakeJob(tDlJobPtr&&);
+	bool TakeJob(tDlJobPtr&);
 	const tHttpUrl& GetPeerHost() { return m_targetInfo; }
 
 	void Subscribe2BlockingItem(tFileItemPtr fi)
@@ -1339,9 +1339,9 @@ void tDlStream::OnStatus(bufferevent *, short what)
 		handleDisconnect("Remote disconnect"sv, TRANS_STREAM_ERR_TRANSIENT);
 }
 
-bool tDlStream::TakeJob(tDlJobPtr&& pJob)
+bool tDlStream::TakeJob(tDlJobPtr& pJob)
 {
-	if (!pJob)
+	if (!pJob || m_sacrificied)
 		return false;
 	if (!m_requested.empty() && pJob->GetId() < m_requested.back()->GetId())
 		return false;
@@ -1413,6 +1413,9 @@ void tDlStream::Sacrifice()
 		ldbg(fd);
 		shutdown(fd, SHUT_WR);
 	}
+	// this is not truely finished but should be expired by the same rules if the connection gets stuck
+	m_idleSince = GetTime();
+	m_parent->StreamIsIdling(m_meRef);
 }
 
 void tDlStream::tryRequestMore()
@@ -1607,7 +1610,7 @@ void CDlConn::DispatchDfrd(tDlJobPtr&& what, tDlJobPrioQ& unhandled)
 
 	auto accept = [&](tDlStreamPool::iterator it)
 	{
-		if (!it->TakeJob(move(what)))
+		if (!it->TakeJob(what))
 			return false;
 		m_lastUsedStream = it;
 		return true;
@@ -1634,7 +1637,7 @@ void CDlConn::DispatchDfrd(tDlJobPtr&& what, tDlJobPrioQ& unhandled)
 	// okay, not accepted by any existing stream, create a new one if allowed
 	if (m_streams.size() <= MAX_STREAMS_PER_USER)
 	{
-		if (!accept(AddStream(what->GetPeerHost())))
+		if (accept(AddStream(what->GetPeerHost())))
 			return what.reset();
 	}
 
