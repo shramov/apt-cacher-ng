@@ -29,6 +29,8 @@ namespace acng
 
 bool bIsHashedPwd=false;
 
+volatile size_t trace_ptr;
+
 #define BARF(x) {if(!g_bQuiet) { cerr << x << endl;} exit(EXIT_FAILURE); }
 
 namespace cfg {

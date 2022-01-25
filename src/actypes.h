@@ -84,5 +84,7 @@ enum class YesNoErr : int8_t
 	YES = 1, NO = 0, ERROR = -1
 };
 
+extern volatile size_t trace_ptr;
+
 }
 #endif // ACTYPES_H

@@ -80,6 +80,11 @@ public:
 	{
 		m_conns.erase(lint_user_ptr<IConnBase>(p));
 	}
+	void ReplaceConnection(IConnBase *p, lint_user_ptr<IConnBase>(pNew)) override
+	{
+		m_conns.emplace(pNew);
+		m_conns.erase(lint_user_ptr<IConnBase>(p));
+	}
 
 public:
 

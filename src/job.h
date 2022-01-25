@@ -16,7 +16,10 @@ class IConnBase;
 class header;
 class acres;
 
-class job : public Dumpable
+class job
+		#ifdef DEBUG
+		: public Dumpable
+		#endif
 {
 public:
 

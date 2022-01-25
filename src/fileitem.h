@@ -25,7 +25,10 @@ typedef std::map<mstring, tFileItemPtr> tFiGlobMap;
 struct tAppStartStop;
 
 //! Base class containing all required data and methods for communication with the download sources
-class ACNG_API fileitem : public tLintRefcounted, public tExtRefExpirer, public Dumpable
+class ACNG_API fileitem : public tLintRefcounted, public tExtRefExpirer
+		#ifdef DEBUG
+				, public Dumpable
+		#endif
 {
 	friend struct tDlJob;
 	friend class cacheman;

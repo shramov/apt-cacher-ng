@@ -18,7 +18,10 @@ class dlcontroller;
 /**
  * @brief Common functionality needed by the own jobs.
  */
-class IConnBase : public tLintRefcounted, public tExtRefExpirer, public Dumpable
+class IConnBase : public tLintRefcounted, public tExtRefExpirer
+#ifdef DEBUG
+		, public Dumpable
+#endif
 {
 public:
 	virtual dlcontroller* GetDownloader() =0;

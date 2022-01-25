@@ -28,7 +28,10 @@ struct dlrequest;
 struct tDlJob;
 
 
-class ACNG_API dlcontroller : public tLintRefcounted, public tExtRefExpirer, public Dumpable
+class ACNG_API dlcontroller : public tLintRefcounted, public tExtRefExpirer
+		#ifdef DEBUG
+				, public Dumpable
+		#endif
 {
 public:
 	static lint_user_ptr<dlcontroller> CreateRegular(acres& res);

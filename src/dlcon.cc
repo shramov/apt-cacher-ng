@@ -119,7 +119,10 @@ struct tDlJobPrioQ : public tBaseDlJobPrioQ
 	const decltype(c) & data() { return c; }
 };
 
-struct tDlStream : public tLintRefcounted, public Dumpable
+struct tDlStream : public tLintRefcounted
+		#ifdef DEBUG
+				, public Dumpable
+		#endif
 {
 	deque<tDlJobPtr> m_requested;
 	tDlJobPrioQ m_waiting;
@@ -376,7 +379,10 @@ lint_user_ptr<dlcontroller> dlcontroller::CreateRegular(acres& res)
 	return lint_user_ptr<dlcontroller>(new CDlConn(res));
 }
 
-struct tDlJob: public Dumpable
+struct tDlJob
+		#ifdef DEBUG
+				: public Dumpable
+		#endif
 {
 	tFileItemPtr m_pStorageRef;
 	mstring m_sError;

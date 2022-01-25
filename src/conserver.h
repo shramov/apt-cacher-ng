@@ -9,12 +9,16 @@ namespace acng
 {
 class IConnBase;
 
-class conserver : public Dumpable, public tLintRefcounted, public tExtRefExpirer
+class conserver : public tLintRefcounted, public tExtRefExpirer
+		#ifdef DEBUG
+				, public Dumpable
+		#endif
 {
 public:
 	virtual ~conserver() = default;
 	virtual bool Setup() = 0;
 	virtual void ReleaseConnection(IConnBase*) =0;
+	virtual void ReplaceConnection(IConnBase *p, lint_user_ptr<IConnBase>(pNew)) =0;
 	static lint_user_ptr<conserver> Create(acres& res);
 };
 
