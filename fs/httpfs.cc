@@ -14,7 +14,6 @@
 #include "sockio.h"
 #include "acbuf.h"
 #include "acfg.h"
-#include "tcpconnect.h"
 #include "ebrunner.h"
 #include "fileitem.h"
 #include "fileio.h"

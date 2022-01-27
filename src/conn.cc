@@ -155,6 +155,7 @@ public:
 		set_serving_sock_flags(bufferevent_getfd(*m_be));
 		bufferevent_setcb(*m_be, cbRead, cbCanWrite, cbStatus, this);
 		bufferevent_enable(*m_be, EV_WRITE|EV_READ);
+		setReadTimeout(true);
 	}
 
 	void spawn(unique_bufferevent_flushclosing&& pBE)
@@ -199,6 +200,10 @@ public:
 				ad.m_jobs.back().PrepareAdmin(ad.m_h, *m_be, m_res);
 			else
 				ad.m_jobs.back().Prepare(ad.m_h, *m_be, m_sClientHost, m_res);
+
+			if (ad.m_jobs.size() == 1)
+				setReadTimeout(false);
+
 			evbuffer_drain(bereceiver(*m_be), ad.m_hSize);
 		}
 		else
@@ -240,6 +245,8 @@ public:
 			}
 			case job::eJobResult::R_DONE:
 				ad.m_jobs.pop_front();
+				if (ad.m_jobs.empty())
+					setReadTimeout(true);
 				continue;
 			case job::eJobResult::R_WILLNOTIFY:
 				return;
@@ -251,7 +258,7 @@ public:
 	}
 
 	/**
-	 * @brief PerformTypeChange handles special requests and might move the eventbuffer to another type of connection handler and destroy this object
+	 * @brief PerformTypeChange handles special requests and might convert to another type of handling OR send a decissive response and terminate (client shall be redirected as needed)
 	 */
 	void PerformTypeChange()
 	{
@@ -260,6 +267,7 @@ public:
 		ASSERT(ad.m_hSize > 0);
 
 		m_bPrepTypeChange = false;
+		setReadTimeout(false);
 
 		ebstream sout(*m_be);
 		const auto& tgt = ad.m_h.getRequestUrl();
@@ -304,6 +312,11 @@ public:
 			 << "\r\nServer: Debian Apt-Cacher NG/" ACVERSION "\r\n\r\n"sv;
 		// flusher will take over
 		return requestShutdown();
+	}
+
+	void setReadTimeout(bool set)
+	{
+		bufferevent_set_timeouts(*m_be, set ? cfg::GetNetworkTimeout() : nullptr, cfg::GetNetworkTimeout());
 	}
 
 	cmstring &getClientName() override
@@ -425,7 +438,7 @@ lint_user_ptr<IConnBase> StartServing(unique_fd&& fd, string clientName, acres& 
 	evutil_make_socket_closeonexec(fd.get());
 	// fd ownership moves to bufferevent closer
 	unique_bufferevent_flushclosing be(bufferevent_socket_new(evabase::base, fd.release(), BEV_OPT_DEFER_CALLBACKS));
-#warning watermarks? timeout?
+#warning watermarks? backpressure when sending is stuck?
 
 	try
 	{

@@ -1449,8 +1449,10 @@ void tDlStream::wireTransport(lint_ptr<atransport>&& result)
 {
 	ASSERT(result);
 	m_transport = move(result);
-	bufferevent_setcb(m_transport->GetBufferEvent(), cbRead, nullptr, cbStatus, this);
-	bufferevent_enable(m_transport->GetBufferEvent(), EV_READ|EV_WRITE);
+	auto* bev = m_transport->GetBufferEvent();
+	bufferevent_setcb(bev, cbRead, nullptr, cbStatus, this);
+	bufferevent_enable(bev, EV_READ|EV_WRITE);
+	bufferevent_set_timeouts(bev, cfg::GetNetworkTimeout(), nullptr);
 }
 
 void tDlStream::handleDisconnect(string_view why, tComError cause)
