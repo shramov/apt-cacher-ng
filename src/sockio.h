@@ -81,6 +81,8 @@ void set_serving_sock_flags(evutil_socket_t fd);
 
 void FinishConnection(int fd);
 
+void TuneSendWindow(bufferevent* bev);
+
 }
 
 #endif /*SOCKIO_H_*/

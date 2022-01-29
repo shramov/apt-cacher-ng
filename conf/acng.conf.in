@@ -201,17 +201,12 @@ FollowIndexFileRemoval: 1
 
 ###############################################################################
 #
-# WARNING: don't modify thread and file matching parameters without a clear
-# idea of what is happening behind the scene!
+# Target stream window sizes for incoming data (ReceiveWindow) and data sent to
+# the client (SendWindow). If not specified, a system specific value will be
+# chosen (typically similar to the default TCP window size, at least 128KiB).
 #
-# Max. count of connection threads kept ready (for faster response in the
-# future). Should be a sane value between 0 and average number of connections,
-# and depend on the amount of spare RAM.
-# MaxStandbyConThreads: 8
-#
-# Hard limit of active thread count for incoming connections, i.e. operation
-# is refused when this value is reached (below zero = unlimited).
-# MaxConThreads: -1
+# ReceiveWindow = -1
+# SendWindow = -1
 #
 # Timeout for a forced disconnect in cases where a client connection is about
 # to be closed but remote refuses to confirm the disconnect request. Setting
@@ -220,9 +215,9 @@ FollowIndexFileRemoval: 1
 # of data.
 # DisconnectTimeout: 15
 
-# By default, if a remote suddenly reconnects, ACNG tries at least two times to
+# By default, if a remote suddenly reconnects, ACNG tries at some times to
 # redownload from the same or different location (if known).
-# DlMaxRetries: 2
+# DlMaxRetries: 7
 
 # Pigeonholing files (like static vs. volatile contents) is done by (extended)
 # regular expressions.

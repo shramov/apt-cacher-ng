@@ -140,28 +140,30 @@ public:
 	 * @param jobId
 	 * @return
 	 */
-	void poke(uint_fast32_t jobId) override
+	void GotMoreData(uint_fast32_t jobId) override
 	{
 		LOGSTARTFUNCx(jobId);
 		if (AC_UNLIKELY(m_bTerminated))
 			return;
+
+#warning XXX: check performance. Alternative concept: set bufferevent watermark, always check fill status after data was added and set a flag to block writing, then wait for onCanWrite to unset it.
+		if (m_be.valid() && off_t(evbuffer_get_length(besender(*m_be))) > cfg::sendwindow)
+		{
+			return;
+		}
 		NONDEBUGVOID(jobId);
 		continueJobs();
 	}
 
-	void setup_regular()
+	void spawn(unique_bufferevent_flushclosing&& pBE)
 	{
 		LOGSTARTFUNC;
+		m_be.reset(move(pBE));
 		set_serving_sock_flags(bufferevent_getfd(*m_be));
 		bufferevent_setcb(*m_be, cbRead, cbCanWrite, cbStatus, this);
 		bufferevent_enable(*m_be, EV_WRITE|EV_READ);
 		setReadTimeout(true);
-	}
-
-	void spawn(unique_bufferevent_flushclosing&& pBE)
-	{
-		m_be.reset(move(pBE));
-		setup_regular();
+		TuneSendWindow(*m_be);
 	}
 
 	static void cbStatus(bufferevent*, short what, void* ctx)
@@ -438,7 +440,6 @@ lint_user_ptr<IConnBase> StartServing(unique_fd&& fd, string clientName, acres& 
 	evutil_make_socket_closeonexec(fd.get());
 	// fd ownership moves to bufferevent closer
 	unique_bufferevent_flushclosing be(bufferevent_socket_new(evabase::base, fd.release(), BEV_OPT_DEFER_CALLBACKS));
-#warning watermarks? backpressure when sending is stuck?
 
 	try
 	{

@@ -138,8 +138,6 @@ MapNameToInt n2iTbl[] = {
 		,{  "VerboseLog",                        &verboselog,       nullptr,    10, false}
 		,{  "ExThreshold",                       &extreshhold,      nullptr,    10, false}
 		,{  "ExTreshold",                        &extreshhold,      nullptr,    10, true} // wrong spelling :-(
-		,{  "MaxStandbyConThreads",              &tpstandbymax,     nullptr,    10, false}
-		,{  "MaxConThreads",                     &tpthreadmax,      nullptr,    10, false}
 		,{  "DlMaxRetries",                      &dlretriesmax,     nullptr,    10, false}
 		,{  "DnsCacheSeconds",                   &dnscachetime,     nullptr,    10, false}
 		,{  "UnbufferLogs",                      &debug,            nullptr,    10, false}
@@ -163,20 +161,29 @@ MapNameToInt n2iTbl[] = {
 		,{  "ExSuppressAdminNotification",       &exsupcount,       nullptr,    10, false}
 		,{  "OptProxyTimeout",                   &optproxytimeout,  nullptr,    10, false}
 		,{  "MaxDlSpeed",                        &maxdlspeed,       nullptr,    10, false}
+		,{  "SendWindow",                	     &sendwindow, 		nullptr ,   10, false}
+		,{  "ReceiveWindow",                	 &recvwindow, 		nullptr ,   10, false}
 		,{  "MaxInresponsiveDlSize",             &maxredlsize,      nullptr,    10, false}
 		,{  "OptProxyCheckInterval",             &optProxyCheckInt, nullptr,    10, false}
 		,{  "TrackFileUse",		             	 &trackfileuse,		nullptr,    10, false}
 		,{  "FollowIndexFileRemoval",            &follow404,		nullptr,    10, false}
         ,{  "ReserveSpace",                      &allocspace, 		nullptr ,   10, false}
-        ,{  "EvDnsOpts",                	     &dnsopts,	 		nullptr ,   10, false}
+		,{  "EvDnsOpts",                	     &dnsopts,	 		nullptr ,   10, false}
 
-        // octal base interpretation of UNIX file permissions
+		// octal base interpretation of UNIX file permissions
 		,{  "DirPerms",                          &dirperms,         nullptr,    8, false}
 		,{  "FilePerms",                         &fileperms,        nullptr,    8, false}
 
-		,{ "Verbose", 			nullptr,		"Option is deprecated, ignoring the value." , 10, true}
-		,{ "MaxSpareThreadSets",&tpstandbymax, 	"Deprecated option name, mapped to MaxStandbyConThreads", 10, true}
-		,{ "OldIndexUpdater",	&oldupdate, 	"Option is deprecated, ignoring the value." , 10, true}
+		// dead options
+#define NAMSG "Option is deprecated, ignoring the value."
+		,{ "Verbose", 			nullptr,		NAMSG, 10, true}
+		,{  "MaxStandbyConThreads",              nullptr,     NAMSG,    10, true}
+		,{  "MaxConThreads",                     nullptr,      NAMSG,    10, true}
+
+		,{ "MaxSpareThreadSets",	nullptr, 	NAMSG, 10, true}
+		,{ "OldIndexUpdater",	&oldupdate, 	NAMSG, 10, true}
+
+		// special internal use
 		,{ "Patrace",	&patrace, 				"Don't use in config files!" , 10, false}
 		,{ "NoSSLchecks",	&nsafriendly, 		"Disable SSL security checks" , 10, false}
 };
@@ -740,10 +747,7 @@ void PostProcConfig()
 		   cerr << "Warning: Cache directory unknown or not absolute, running in degraded mode!" << endl;
 	   degraded=true;
    }
-   
-   if(cfg::tpthreadmax < 0)
-	   cfg::tpthreadmax = MAX_VAL(int);
-	   
+
    // get rid of duplicated and trailing slash(es)
 	for(tStrPos pos; stmiss != (pos = cachedir.find(SZPATHSEP SZPATHSEP )); )
 		cachedir.erase(pos, 1);

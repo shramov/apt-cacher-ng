@@ -8,6 +8,8 @@
 #include <unordered_map>
 #include <mutex>
 
+#define HIGH_WM 128000
+
 namespace acng
 {
 using namespace std;
@@ -140,6 +142,28 @@ void FinishConnection(int fd)
 	if(fd == -1)
 		return;
 	evabase::Post([fd]() { if (!evabase::GetGlobal().IsShuttingDown()) termsocket_async(fd, evabase::base);});
+}
+
+void TuneSendWindow(bufferevent *bev)
+{
+
+	if (AC_UNLIKELY(cfg::sendwindow < 0))
+	{
+#if defined(SOL_SOCKET) && defined(SO_SNDBUF)
+		auto fd = bufferevent_getfd(bev);
+		int res;
+		socklen_t optlen = sizeof(res);
+		if(getsockopt(fd, SOL_SOCKET, SO_SNDBUF, (void*) &res, &optlen) == 0)
+		{
+			//LOG("system socket buffer size: " << res);
+			if (res > HIGH_WM)
+				cfg::sendwindow = res;
+		}
+#endif
+		if (cfg::sendwindow < HIGH_WM)
+			cfg::sendwindow = HIGH_WM;
+	}
+
 }
 
 }

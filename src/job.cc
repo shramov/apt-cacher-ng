@@ -510,7 +510,7 @@ inline job::eJobResult job::subscribeAndExit(int IFDEBUG(line))
 		ASSERT(m_pItem); // very unlikely to fail
 		m_subKey = m_pItem->Subscribe([this]()
 		{
-			return m_parent.poke(GetId());
+			return m_parent.GotMoreData(GetId());
 		});
 		return R_WILLNOTIFY;
 	}

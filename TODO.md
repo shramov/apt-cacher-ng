@@ -1,5 +1,11 @@
 # FIXMEs
 
+## Debug logging
+
+### Dbg logfile with limited size, written in ring-buffer fashion
+
+Starting with jump hints in the beginning (line and byte position)
+
 ## Data management
 
 ### Review init sequence of **filePattern** regexps
@@ -49,9 +55,15 @@ Change expire-trade-off setting and make it adaptive, learning the cost of metda
 
 ## Transport
 
+### Restory rate limit
+
+Now using libevent infrastructure
+
+### Add user-defined watermark handling steered by ReceiveWindow option
+
 ### Add a "total timeout" in the dlcontroller. Maybe let the keepalive beat report it, and if processed, the beat value will be stored (or maybe just UTC time?). Hard stop after n seconds (NetworkTimeout).
 
-### Fix and reconsider proxy use, currently running multiple connections although could use only one.
+### Fix and reconsider proxy use
 
 - Add dead proxy detection (disabling and restoration) handling
 - AND: tdljob::getpeerhost not sufficient, needs a pre-calculation method which decides on proxy use, something like "tdljob::ReconsiderTargetHost". That would set a flag to remember that this item actually wanted to use the proxy, and this hint shall also be checked later when establishing connection, so if a new connection turned out to be a non-proxy access in the end -> reject with a hint to redispatch the job!
