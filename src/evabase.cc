@@ -36,7 +36,7 @@ tResolvConfStamp cachedDnsFingerprint { { 0, 1 }, 0, 0 };
 struct event *handover_wakeup;
 const struct timeval timeout_asap{0,0};
 #warning add unlocked queues which are only used when installing thread is the main thread
-deque<tAction> incoming_simple_q, temp_simple_q, local_simple_q;
+deque<tAction> extThreadQueue, temp_simple_q, local_simple_q;
 std::mutex handover_mx;
 void RejectPendingDnsRequests();
 std::atomic_bool g_shutdownHint = false;
@@ -227,47 +227,44 @@ void evabase::SignalStop()
 	});
 }
 
+std::atomic_bool extThreadJobsAdded(false);
+
 void cb_handover(evutil_socket_t, short, void*)
 {
-	bool retrigger = false;
 	temp_simple_q.swap(local_simple_q);
 	for(const auto& ac: temp_simple_q)
-	{
-		if(AC_LIKELY(ac))
-			ac();
-	}
+		ac();
 	temp_simple_q.clear();
 
+	if (extThreadJobsAdded)
 	{
 		std::lock_guard g(handover_mx);
-		temp_simple_q.swap(incoming_simple_q);
+		temp_simple_q.swap(extThreadQueue);
+		extThreadJobsAdded.store(false);
 	}
-	for(const auto& ac: temp_simple_q)
+
+	if (!temp_simple_q.empty())
 	{
-		if(AC_LIKELY(ac))
+		for(const auto& ac: temp_simple_q)
 			ac();
+		temp_simple_q.clear();
 	}
-	temp_simple_q.clear();
-	retrigger |= !local_simple_q.empty();
-	if (!retrigger)
-	{
-		std::lock_guard g(handover_mx);
-		temp_simple_q.swap(incoming_simple_q);
-	}
-	if (retrigger)
-		event_add(handover_wakeup, &timeout_asap);
 }
 
 void evabase::Post(tAction && act)
 {
-	if (evabase::IsMainThread())
+	if (!act)
+		return;
+
+	if (IsMainThread())
 	{
 		local_simple_q.emplace_back(move(act));
 	}
 	else
 	{
 		std::lock_guard g(handover_mx);
-		incoming_simple_q.emplace_back(move(act));
+		extThreadQueue.emplace_back(move(act));
+		extThreadJobsAdded.store(true);
 	}
 	ASSERT(handover_wakeup);
 	event_add(handover_wakeup, &timeout_asap);
@@ -308,7 +305,10 @@ void evabase::PushLoop()
 
 uintptr_t evabase::SyncRunOnMainThread(std::function<uintptr_t ()> act, uintptr_t onRejection)
 {
-	if(std::this_thread::get_id() == evabase::GetMainThreadId())
+	if (!act)
+		return 0;
+
+	if(std::this_thread::get_id() == GetMainThreadId())
 		return act();
 
 	std::promise<uintptr_t> pro;
