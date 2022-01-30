@@ -144,15 +144,22 @@ void FinishConnection(int fd)
 	evabase::Post([fd]() { if (!evabase::GetGlobal().IsShuttingDown()) termsocket_async(fd, evabase::base);});
 }
 
+/**
+ * @brief TuneSendWindow checks and identifies the sending buffer size as needed
+ * 	The value calculated here is sticky, remembered in cfg::sendwindow.
+ *
+ * @param bev
+ */
 void TuneSendWindow(bufferevent *bev)
 {
-
 	if (AC_UNLIKELY(cfg::sendwindow < 0))
 	{
 #if defined(SOL_SOCKET) && defined(SO_SNDBUF)
 		auto fd = bufferevent_getfd(bev);
+		//auto mwr = bufferevent_get_max_single_write(bev);
 		int res;
 		socklen_t optlen = sizeof(res);
+		// XXX: is the result specific to the link type?
 		if(getsockopt(fd, SOL_SOCKET, SO_SNDBUF, (void*) &res, &optlen) == 0)
 		{
 			//LOG("system socket buffer size: " << res);

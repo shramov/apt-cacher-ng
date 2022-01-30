@@ -35,7 +35,7 @@ ACNG_API bool logIsEnabled = false;
 ACNG_API bool logIsEnabled = true;
 #endif
 
-#define MAX_DBG_LIMIT 500*1000000
+#define MAX_DBG_LIMIT 300*1000000
 
 off_t totalIn(0), totalOut(0);
 
@@ -299,10 +299,12 @@ void ACNG_API flush()
 		if(h->is_open())
 			h->flush();
 	}
+#ifdef DEBUG
 	if (fDbg.is_open())
 		curSize = fDbg.tellp();
 	if (curSize > MAX_DBG_LIMIT)
 		close(true, true);
+#endif
 }
 
 void close(bool bReopen, bool truncateDebugLog)

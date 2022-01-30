@@ -1240,10 +1240,28 @@ TRAILER_JUNK_SKIPPED:
 			m_pStorageRef->DlFinish(true);
 		}
 
-		auto pWM = find_if(wmValues.begin(), wmValues.end(), [this](int n){ return n < m_nRest; });
-		if (pWM != wmValues.end())
-			bufferevent_setwatermark(peBuf, EV_READ, m_nWatermark = *pWM, *pWM * 2);
-
+		// finding the largest watermark within a sane range which suits us, based on empirical data or whatever the user wanted, resp. a bin-log fraction of it
+		if (cfg::recvwindow < 0)
+		{
+			auto pWM = find_if(wmValues.begin(), wmValues.end(), [this](int n){ return n < m_nRest; });
+			if (pWM != wmValues.end())
+				bufferevent_setwatermark(peBuf, EV_READ, m_nWatermark = *pWM, *pWM * 2);
+		}
+		else
+		{
+			// min value where it probably stops making sense to configure it,
+			// however roughly 2x standard MTU size is sufficient
+			// auto th = max(ev_ssize_t(2000), bufferevent_get_max_single_read(peBuf));
+			unsigned th = 3000;
+			for (unsigned n = cfg::recvwindow; n > th; n /= 2)
+			{
+				if (n < m_nRest)
+				{
+					bufferevent_setwatermark(peBuf, EV_READ, m_nWatermark = n, 2*n);
+					break;
+				}
+			}
+		}
 		return EResponseEval::GOOD;
 	}
 
