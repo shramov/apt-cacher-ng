@@ -55,14 +55,6 @@ Change expire-trade-off setting and make it adaptive, learning the cost of metda
 
 ## Transport
 
-### Restory rate limit
-
-Now using libevent infrastructure
-
-### Add user-defined watermark handling steered by ReceiveWindow option
-
-### Add a "total timeout" in the dlcontroller. Maybe let the keepalive beat report it, and if processed, the beat value will be stored (or maybe just UTC time?). Hard stop after n seconds (NetworkTimeout).
-
 ### Fix and reconsider proxy use
 
 - Add dead proxy detection (disabling and restoration) handling

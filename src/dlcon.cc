@@ -239,7 +239,12 @@ class CDlConn : public dlcontroller, public tClock
 	tDlStreamPool m_streams;
 
 	tDlStreamPool::iterator m_lastUsedStream = m_streams.end();
-	inline tDlStreamPool::iterator EraseStream(tDlStreamPool::iterator it) { if (it == m_lastUsedStream) m_lastUsedStream = m_streams.end(); return m_streams.erase(it); }
+	inline tDlStreamPool::iterator EraseStream(tDlStreamPool::iterator it)
+	{
+		if (it == m_lastUsedStream)
+			m_lastUsedStream = m_streams.end();
+		return m_streams.erase(it);
+	}
 
 public:
 
