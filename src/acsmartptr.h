@@ -318,6 +318,13 @@ inline lint_ptr<C> static_lptr_cast(lint_ptr<Torig> a)
 };
 
 template<typename C, typename Torig>
+inline lint_ptr<C> static_lptr_cast(Torig* a)
+{
+	return lint_ptr<C>(static_cast<C*>(a));
+};
+
+
+template<typename C, typename Torig>
 inline lint_ptr<C> as_lptr(lint_ptr<Torig> a)
 {
 	return static_lptr_cast<C>(a);

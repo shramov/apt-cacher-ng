@@ -13,6 +13,7 @@
 #include "ac3rdparty.h"
 #include "header.h"
 #include "acomcommon.h"
+#include "dlratelimiter.h"
 
 #include <map>
 
@@ -120,10 +121,25 @@ public:
 
 #ifdef REUSE_TARGET_CONN
 	tConnCache::iterator m_cleanIt;
+	tRateLimiterPtr m_rateLimiter;
+
+	void RegLimiter()
+	{
+		m_rateLimiter = dlratelimiter::GetSharedLimiter();
+		if (m_rateLimiter)
+			m_rateLimiter->AddStream(*m_buf);
+	}
+	void UnregLimiter()
+	{
+		if (m_rateLimiter && m_buf.valid())
+			m_rateLimiter->DetachStream(*m_buf);
+		m_rateLimiter.reset();
+	}
 
 	// stop operations for storing in the cache, respond to timeout only
 	void Moothball()
 	{
+		UnregLimiter();
 		if (m_bCanceled || !m_buf.valid() || g_con_cache.Full())
 			return;
 		bufferevent_setcb(*m_buf, nullptr, nullptr, cbCachedKill, this);
@@ -139,6 +155,7 @@ public:
 		bufferevent_disable(*m_buf, EV_READ | EV_WRITE);
 		bufferevent_setcb(*m_buf, nullptr, nullptr, nullptr, this);
 		m_cleanIt = g_con_cache.get().end();
+		RegLimiter();
 	}
 	/**
 	 * @brief cbCachedKill can only be triggered by a timeout or other error
@@ -152,6 +169,8 @@ public:
 	~atransportEx()
 	{
 		LOGSTARTFUNCx("Destroying con", GetTargetHost().ToURI(false));
+		UnregLimiter();
+
 		if (GetBufferEvent() && m_bIsSslStream)
 		{
 			auto ssl = bufferevent_openssl_get_ssl(GetBufferEvent());
@@ -176,6 +195,14 @@ struct tConnContext : public tLintRefcounted
 	acres& m_res;
 
 	unique_bufferevent& bev() { return m_result->m_buf; }
+	void ReportSuccess()
+	{
+		if (AC_UNLIKELY(!m_reporter || !m_result))
+			return;
+
+		m_result->RegLimiter();
+		m_reporter({ 0, as_lptr<atransport>(m_result)});
+	}
 
 	// XXX: reenable specific insecure modes?
 	bool m_disableNameValidation = cfg::nsafriendly == 1;// || (bGuessedTls * cfg::nsafriendly == 2);
@@ -249,7 +276,7 @@ struct tConnContext : public tLintRefcounted
 		if (doAskConnect)
 			return DoConnectNegotiation();
 
-		return m_reporter({0, static_lptr_cast<atransport>(m_result)});
+		ReportSuccess();
 	}
 
 	void DoConnectNegotiation()
@@ -289,7 +316,7 @@ struct tConnContext : public tLintRefcounted
 			{
 				bufferevent_disable(bev, EV_READ | EV_WRITE);
 				bufferevent_setcb(bev, nullptr, nullptr, nullptr, nullptr);
-				return m_reporter({ 0, as_lptr<atransport>(m_result)});
+				return ReportSuccess();
 			}
 			return m_reporter({ eTransErrors::TRANS_STREAM_ERR_FATAL | eTransErrors::TRANS_FAULTY_SSL_PEER, status.msg });
 		}
@@ -351,7 +378,7 @@ struct tConnContext : public tLintRefcounted
 			return m_reporter({TRANS_INTERNAL_ERROR, withLastSslError()});
 
 		if (m_disableAllValidation && m_disableNameValidation)
-			return m_reporter({0, static_lptr_cast<atransport>(m_result)});
+			return ReportSuccess();
 
 		// okay, let's verify the SSL state in the status callback
 		bufferevent_setcb(m_result->GetBufferEvent(), nullptr, nullptr, cbStatusSslCheck, this);
@@ -389,7 +416,7 @@ struct tConnContext : public tLintRefcounted
 
 			bufferevent_disable(bev, EV_READ | EV_WRITE);
 			bufferevent_setcb(bev, nullptr, nullptr, nullptr, nullptr);
-			return m_reporter({ 0, static_lptr_cast<atransport>(m_result)});
+			return ReportSuccess();
 		}
 		ASSERT(!"unknown event?");
 	}
