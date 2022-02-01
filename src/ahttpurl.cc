@@ -185,7 +185,9 @@ string tHttpUrl::GetHostPortKey() const
 
 string tHttpUrl::GetHostPortProtoKey() const
 {
-	return GetHostPortKey() + "__";
+	char sfx = 'a';
+	sfx += (int) m_schema;
+	return GetHostPortKey() + "_" + sfx;
 }
 
 }

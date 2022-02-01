@@ -220,48 +220,22 @@ tProperty n2pTbl[] =
 	return ret;
 } },
 { "Remap-", [](cmstring& key, cmstring& value) -> bool
-{
-	if(g_bNoComplex)
-	return true;
+  {
+	  if(g_bNoComplex)
+	  return true;
 
-	string vname=key.substr(6, key.npos);
-	if(vname.empty())
-	{
-		if(!g_bQuiet)
-		cerr << "Bad repository name in " << key << endl;
-		return false;
-	}
-	int type(-1); // nothing =-1; prefixes =0 ; backends =1; flags =2
-		for(tSplitWalk split(value); split.Next();)
-		{
-			cmstring s(split);
-			if(s.empty())
-			continue;
-			if(s.at(0)=='#')
-			break;
-			if(type<0)
-			type=0;
-			if(s.at(0)==';')
-			++type;
-			else if(0 == type)
-			AddRemapInfo(false, s, vname);
-			else if(1 == type)
-			AddRemapInfo(true, s, vname);
-			else if(2 == type)
-			AddRemapFlag(s, vname);
-		}
-		if(type<0)
-		{
-			if(!g_bQuiet)
-			cerr << "Invalid entry, no configuration: " << key << ": " << value <<endl;
-			return false;
-		}
-		_AddHooksFile(vname);
-		return true;
-	}, [](bool) -> string
-	{
-		return "# mixed options";
-	} },
+	  string vname=key.substr(6, key.npos);
+	  if(vname.empty())
+	  {
+		  if(!g_bQuiet)
+		  cerr << "Bad repository name in " << key << endl;
+		  return false;
+	  }
+	  return remotedb::GetInstance().AddRemote(vname, value);
+  }, [](bool) -> string
+  {
+	  return "# mixed options";
+  } },
 { "AllowUserPorts", [](cmstring&, cmstring& value) -> bool
 {
 	if(!pUserPorts)
@@ -707,8 +681,6 @@ void ReadConfigDirectory(const char *szPath, bool bReadErrorIsFatal)
 
 void PostProcConfig()
 {
-	remotedb::GetInstance().PostConfig();
-
 	if(!port) // heh?
 		port=ACNG_DEF_PORT;
 
@@ -800,12 +772,6 @@ void PostProcConfig()
 
    if(RESERVED_DEFVAL == exsupcount)
 	   exsupcount = (extreshhold >= 5);
-
-#ifdef _SC_NPROCESSORS_ONLN
-	numcores = (int) sysconf(_SC_NPROCESSORS_ONLN);
-#elif defined(_SC_NPROC_ONLN)
-	numcores = (int) sysconf(_SC_NPROC_ONLN);
-#endif
 
    tmpDontcache.clear();
    tmpDontcacheTgt.clear();

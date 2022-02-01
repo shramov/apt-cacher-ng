@@ -16,6 +16,7 @@
 #include "acres.h"
 #include "rex.h"
 #include "aevutil.h"
+#include "remotedb.h"
 
 #ifdef DEBUG
 #include <regex.h>
@@ -293,6 +294,8 @@ struct tDaemon
 					  .emplace_back(event_new(evabase::base, el.snum, EV_SIGNAL|EV_PERSIST, el.cb, 0)).m_p,
 					  nullptr);
 		}
+
+		remotedb::GetInstance().PostConfig();
 
 		SetupCacheDir();
 

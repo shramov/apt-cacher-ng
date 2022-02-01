@@ -20,7 +20,7 @@ struct tRepoData
 	virtual ~tRepoData();
 };
 
-class remotedb
+class ACNG_API remotedb
 {
 public:
 	/**
@@ -44,6 +44,9 @@ public:
 	virtual time_t BackgroundCleanup();
 
 	virtual ~remotedb() =default;
+
+	bool AddRemote(cmstring& vname, cmstring& value);
+
 private:
 	remotedb() =default;
 };

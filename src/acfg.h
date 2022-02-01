@@ -36,7 +36,7 @@ extern mstring pfilepatEx, vfilepatEx, wfilepatEx, spfilepatEx, svfilepatEx; // 
 
 extern ACNG_API mstring dnsresconf;
 
-extern ACNG_API int port, debug, numcores, offlinemode, foreground, verbose, stupidfs, forcemanaged, keepnver,
+extern ACNG_API int port, debug, offlinemode, foreground, verbose, stupidfs, forcemanaged, keepnver,
 verboselog, extreshhold, exfailabort, dnscachetime, dlbufsize, usewrap,
 exporigin, logxff, oldupdate, recompbz2, nettimeout, updinterval, forwardsoap, dirperms, fileperms,
 maxtempdelay, redirmax, vrangeops, stucksecs, persistoutgoing, pipelinelen, exsupcount,

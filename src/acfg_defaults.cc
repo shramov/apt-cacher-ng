@@ -113,7 +113,7 @@ string wfilepat(INFOLDER
 string pfilepatEx, spfilepatEx, vfilepatEx, svfilepatEx, wfilepatEx; // for customization by user
 
 int offlinemode(false), verboselog(true), stupidfs(false), forcemanaged(false),
-extreshhold(20), tpstandbymax(8), tpthreadmax(-1), dirperms(00755), fileperms(00664),
+extreshhold(20), dirperms(00755), fileperms(00664),
 keepnver(0), maxtempdelay(27), vrangeops(true);
 
 #ifdef DEBUG
@@ -122,7 +122,7 @@ int dlretriesmax(7);
 int dlretriesmax(2);
 #endif
 
-int dlbufsize(30000), exfailabort(true), exporigin(false), numcores(1),
+int dlbufsize(30000), exfailabort(true), exporigin(false),
 logxff(false), oldupdate(false), recompbz2(false), nettimeout(17), updinterval(0),
 forwardsoap(RESERVED_DEFVAL), usewrap(RESERVED_DEFVAL), redirmax(RESERVED_DEFVAL),
 stucksecs(RESERVED_DEFVAL), persistoutgoing(1), pipelinelen(10), exsupcount(RESERVED_DEFVAL),
@@ -153,7 +153,7 @@ string sigbuscmd;
 mstring connectPermPattern("^(metadata\\.ftp-master\\.debian\\.org|bugs\\.debian\\.org|changelogs\\.ubuntu\\.com):443$");
 
 #ifdef DEBUG
-int debug(3), foreground(true);
+int debug(7), foreground(true);
 //string cachedir("/var/cache/acng"), logdir("/var/log/acng"), udspath, pidfile;
 #else
 int debug(0), foreground(false);

@@ -20,7 +20,6 @@ using namespace std;
 
 namespace acng
 {
-
 using namespace cfg;
 
 acworm stringStore;
@@ -55,6 +54,7 @@ inline string MakeDbKey(const tHttpUrl& url)
 inline decltype (mapUrl2pVname)::iterator GetOrAddTarget(const tHttpUrl& url)
 {
 	auto key = MakeDbKey(url);
+	DBGQLOG("DB target: " << key);
 	auto it = mapUrl2pVname.find(key);
 	if (it != mapUrl2pVname.end())
 		return it;
@@ -62,8 +62,6 @@ inline decltype (mapUrl2pVname)::iterator GetOrAddTarget(const tHttpUrl& url)
 							   list<tPrefixReponameData>()).first;
 	return it;
 }
-
-
 
 void AddRemapFlag(const string & token, const string &repname)
 {
@@ -351,9 +349,42 @@ time_t remotedb::BackgroundCleanup()
 	return ret;
 }
 
+list<tAction> initSequence;
+
+bool remotedb::AddRemote(cmstring &vname, cmstring &value)
+{
+	int type(-1); // nothing =-1; prefixes =0 ; backends =1; flags =2
+	for(tSplitWalk split(value); split.Next();)
+	{
+		cmstring s(split);
+		if(s.empty())
+			continue;
+		if(s.at(0)=='#')
+			break;
+		if(type<0)
+			type=0;
+		if(s.at(0)==';')
+			++type;
+		else if(0 == type)
+			initSequence.emplace_back([s, vname]{::acng::AddRemapInfo(false, s, vname);});
+		else if(1 == type)
+			initSequence.emplace_back([s, vname]{::acng::AddRemapInfo(true, s, vname);});
+		else if(2 == type)
+			initSequence.emplace_back([s, vname]{::acng::AddRemapFlag(s, vname);});
+	}
+	if(type<0)
+	{
+		if(!g_bQuiet)
+			cerr << "Invalid entry, no configuration: Remap-" << vname << ": " << value <<endl;
+		return false;
+	}
+	initSequence.emplace_back([vname]{::acng::_AddHooksFile(vname);});
+	return true;
+}
+
 shared_ptr<remotedb> g_repoDb;
 
-remotedb &remotedb::GetInstance()
+remotedb& remotedb::GetInstance()
 {
 	if (!g_repoDb)
 		g_repoDb.reset(new remotedb);
@@ -362,6 +393,12 @@ remotedb &remotedb::GetInstance()
 
 void remotedb::PostConfig()
 {
+	while (!initSequence.empty())
+	{
+		initSequence.front()();
+		initSequence.pop_front();
+	}
+
 	mapUrl2pVname.rehash(mapUrl2pVname.size());
 
 	if (debug & log::LOG_DEBUG)

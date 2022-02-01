@@ -66,7 +66,7 @@ string HostPortKeyMaker(const string & sHostname, uint16_t nPort)
 	string ret;
 	ret.reserve(sHostname.length()+2);
 	ret += char(nPort);
-	ret += char(nPort>>8);
+	ret += char('a' + char(nPort>>8));
 	ret += sHostname;
 	return ret;
 }

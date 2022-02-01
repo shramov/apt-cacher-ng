@@ -14,10 +14,6 @@ using namespace std;
 namespace acng
 {
 
-void AddRemapInfo(bool bAsBackend, const string & token, const string &repname);
-void AddRemapFlag(const string & token, const string &repname);
-void _AddHooksFile(cmstring& vname);
-
 namespace cfg
 {
 
