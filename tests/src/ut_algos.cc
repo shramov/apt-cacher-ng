@@ -11,27 +11,59 @@
 
 #include <unordered_map>
 
+using namespace acng;
+using namespace std;
+
 namespace acng
 {
         void check_algos();
 }
 
-#if 0
 TEST(algorithms, checksumming)
 {
-	ASSERT_NO_THROW(acng::check_algos());
+	uint8_t csum[100];
+	tFingerprint csmd;
+	auto input = "bf1942"sv;
 
-	acng::tChecksum cs, csmd(acng::CSTYPES::MD5);
-	cs.Set("a26a96c0c63589b885126a50df83689cc719344f4eb4833246ed57f42cf67695a2a3cefef5283276cbf07bcb17ed7069de18a79410a5e4bc80a983f616bf7c91");
+	{
+		auto cser = csumBase::GetChecker(CSTYPES::CSTYPE_SHA512);
+		csmd.SetCs("a26a96c0c63589b885126a50df83689cc719344f4eb4833246ed57f42cf67695a2a3cefef5283276cbf07bcb17ed7069de18a79410a5e4bc80a983f616bf7c91",
+				   CSTYPES::CSTYPE_SHA512);
+		cser->add(input);
+		auto resLen = cser->finish(csum, sizeof(csum));
+		ASSERT_GT(resLen, 0);
+		ASSERT_EQ(0, memcmp(csum, csmd.csum, resLen));
+	}
 
-	auto cser2 = acng::csumBase::GetChecker(acng::CSTYPES::SHA512);
-	cser2->add("bf1942");
-	auto cs2=cser2->finish();
-	ASSERT_EQ(cs2, cs);
+	{
+		auto cser = csumBase::GetChecker(CSTYPE_SHA256);
+		csmd.SetCs("9d429ba8a7334f37027d839566565e611cc8e0bf1baef836ca3e4f63df5cbf39", CSTYPES::CSTYPE_SHA256);
+		cser->add(input);
+		auto resLen = cser->finish(csum, sizeof(csum));
+		ASSERT_GT(resLen, 0);
+		ASSERT_EQ(0, memcmp(csum, csmd.csum, resLen));
+	}
 
-	ASSERT_NE(csmd, cs2);
+	{
+		auto cser = csumBase::GetChecker(CSTYPE_SHA1);
+		csmd.SetCs("86066905b1d39b2d19561611adc5cacf07b40d48", CSTYPES::CSTYPE_SHA1);
+		cser->add(input);
+		auto resLen = cser->finish(csum, sizeof(csum));
+		ASSERT_GT(resLen, 0);
+		ASSERT_EQ(0, memcmp(csum, csmd.csum, resLen));
+	}
+
+	{
+		auto cser = csumBase::GetChecker(CSTYPE_MD5);
+		csmd.SetCs("8d98f868010acb33275bb3e983df53fb", CSTYPES::CSTYPE_MD5);
+		cser->add(input);
+		auto resLen = cser->finish(csum, sizeof(csum));
+		ASSERT_GT(resLen, 0);
+		ASSERT_EQ(0, memcmp(csum, csmd.csum, resLen));
+	}
+
+	ASSERT_NO_THROW(check_algos());
 }
-#endif
 
 TEST(algorithms,bin_str_long_match)
 {

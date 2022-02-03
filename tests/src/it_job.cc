@@ -27,7 +27,7 @@ public:
 
 	// IConnBase interface
 public:
-	void poke(uint_fast32_t) override
+	void GotMoreData(uint_fast32_t) override
 	{
 	};
 	cmstring &getClientName() override

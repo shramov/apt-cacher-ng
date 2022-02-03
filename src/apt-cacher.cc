@@ -352,7 +352,6 @@ struct tDaemon
 		TeardownServerItemRegistry();
 		log::close(false);
 	}
-
 };
 
 }
@@ -362,11 +361,23 @@ int main(int argc, const char **argv)
 {
 	using namespace acng;
 
-	ac3rdparty_init();
-	atexit(ac3rdparty_deinit);
-
-	auto eBase = evabase::Create();
-	parse_options(argc, argv);
-	tDaemon daemonContext;
-	return eBase->MainLoop();
+	try
+	{
+		ac3rdparty_init();
+		atexit(ac3rdparty_deinit);
+		auto eBase = evabase::Create();
+		parse_options(argc, argv);
+		tDaemon daemonContext;
+		return eBase->MainLoop();
+	}
+	catch (const std::exception& ex)
+	{
+		fprintf(stderr, "Fatal error: %s\n", ex.what());
+		return EXIT_FAILURE;
+	}
+	catch (...)
+	{
+		fprintf(stderr, "Fatal error");
+		return EXIT_FAILURE;
+	}
 }

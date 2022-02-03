@@ -35,7 +35,7 @@ inline CSTYPES GuessCStype(unsigned short len)
 	default: return CSTYPE_INVALID;
 	}
 }
-inline unsigned short GetCSTypeLen(CSTYPES t)
+inline constexpr unsigned short GetCSTypeLen(CSTYPES t)
 {
 	switch(t)
 	{
@@ -74,7 +74,14 @@ class csumBase
 public:
 	virtual ~csumBase() {};
 	virtual void add(const char *data, std::size_t size) = 0;
-	virtual void finish(uint8_t* ret) = 0;
+	virtual void add(const string_view view) { return add(view.data(), view.size()); }
+	/**
+	 * @brief finish
+	 * @param ret Output blob
+	 * @param bufLen Size of the output
+	 * @return Length of the copied result blob, -1 if too small
+	 */
+	virtual int finish(uint8_t* ret, size_t bufLen) = 0;
 	static std::unique_ptr<csumBase> GetChecker(CSTYPES);
 };
 
@@ -128,12 +135,12 @@ struct ACNG_API tFingerprint {
 		return Set(splitInput, wantedType);
 	}
 
-	bool ScanFile(const mstring & path, const CSTYPES eCstype, bool bUnpack = false, FILE *fDump=nullptr)
+	bool ScanFile(const mstring & path, const CSTYPES eCstype, bool bUnpack = false, FILE *fDump = nullptr)
 	{
 		if(! GetCSTypeLen(eCstype))
 			return false; // unsupported
 		csType=eCstype;
-		return filereader::GetChecksum(path, eCstype, csum, bUnpack, size, fDump);
+		return filereader::GetChecksum(path, eCstype, csum, bUnpack, size, fDump, MAXCSLEN);
 	}
 	void Invalidate()
 	{
