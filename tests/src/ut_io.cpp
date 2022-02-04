@@ -3,7 +3,7 @@
 
 #include "fileio.h"
 #include "acbuf.h"
-
+#include "filereader.h"
 #include <fcntl.h>
 
 using namespace acng;
@@ -35,4 +35,36 @@ TEST(fileio, ut_acbuf)
 	ASSERT_EQ(1, x.dumpall(path, O_CREAT, PERMS, INT_MAX, true));
 	Cstat st(path);
 	ASSERT_EQ(1, st.size());
+}
+
+TEST(filereader, zcat)
+{
+	LPCSTR input(nullptr);
+	for (auto path: {"testblob", "../tests/testblob", "../../apt-cacher-ng/tests/testblob"})
+	{
+		if (access(path, R_OK) == 0)
+		{
+			input = path;
+			break;
+		}
+	}
+	ASSERT_TRUE(input);
+	filereader r;
+
+	for (int extra = 0; extra < 3; ++extra)
+	{
+		for (LPCSTR sfx: {"", ".gz"})
+		{
+			ASSERT_TRUE(r.OpenFile(mstring(input) + sfx, false, extra));
+			auto n = 0;
+			mstring line;
+			while (r.GetOneLine(line))
+			{
+				EXPECT_TRUE(r.CheckGoodState(false));
+				++n;
+			}
+			EXPECT_TRUE(r.CheckGoodState(false));
+			ASSERT_EQ(n, 32 + extra);
+		}
+	}
 }

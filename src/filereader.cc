@@ -491,6 +491,13 @@ bool filereader::GetOneLine(string & sOut, bool bForceUncompress) {
 
 		nRest=m_UncompBuf.size();
 		rbuf=m_UncompBuf.rptr();
+
+		// no more data, it's the end
+		if (nRest == 0 && m_Dec->eof)
+		{
+			m_bEof = true;
+			return (m_nEofLines-- >0);
+		}
 	}
 	else
 	{
@@ -535,7 +542,7 @@ bool filereader::GetOneLine(string & sOut, bool bForceUncompress) {
 		{
 			// it's the final buffer...
 			if(m_Dec->eof)
-				m_bEof=true; // won't uncompress more anyhow
+				m_bEof = true; // won't uncompress more anyhow
 			else // otherwise has to unpack more with a larger buffer or fail
 				return GetOneLine(sOut, true);
 		}
@@ -547,7 +554,11 @@ bool filereader::GetOneLine(string & sOut, bool bForceUncompress) {
 	sOut.assign(rbuf, nLineLen);
 	
 	if(!m_Dec.get())
-		m_nBufPos+=nDropLen;
+	{
+		m_nBufPos += nDropLen;
+		if (m_nBufPos >= m_nBufSize)
+			m_bEof = true;
+	}
 	else
 		m_UncompBuf.drop(nDropLen);
 	
