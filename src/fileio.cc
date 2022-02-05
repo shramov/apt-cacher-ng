@@ -17,7 +17,7 @@
 #endif
 #include <unistd.h>
 
-#if __cplusplus < 201703L || (defined(__GNUC__) && __GNUC__ < 9) // old GCC can be lying and STL might be not complete
+#if !defined(__clang__) && (__cplusplus < 201703L || (defined(__GNUC__) && __GNUC__ < 9)) // old GCC can be lying and STL might be not complete
 #include <experimental/filesystem>
 #define FSNS std::experimental::filesystem
 #else
