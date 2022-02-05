@@ -244,15 +244,6 @@ using tSplitWalkStrict = tSplitWalkBase<false, true>;
 using tSplitByStr = tSplitWalkBase<true, false>;
 using tSplitByStrStrict = tSplitWalkBase<true, true>;
 
-inline int strcasecmp(string_view a, string_view b)
-{
-	if(a.length() < b.length())
-		return int(b.length()) +1;
-	if(a.length() > b.length())
-		return int(-a.length()) - 1;
-	return strncasecmp(a.data(), b.data(), a.length());
-}
-
 std::string GetBaseName(const std::string &in);
 std::string GetDirPart(const std::string &in);
 std::pair<std::string,std::string> SplitDirPath(const std::string& in);

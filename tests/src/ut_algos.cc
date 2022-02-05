@@ -6,6 +6,7 @@
 #include "ahttpurl.h"
 #include "astrop.h"
 #include "rex.h"
+#include "acfgshared.h"
 
 #include "gmock/gmock.h"
 
@@ -335,4 +336,31 @@ TEST(algorithms, rexrangeparsing)
 	EXPECT_EQ(from, 453291);
 	EXPECT_EQ(len, -1);
 	EXPECT_EQ(to, -1);
+}
+/**
+ * @brief Ensure alphanumeric ordering and check lookup functions.
+ */
+TEST(cfg, optlookup)
+{
+	auto hm = strcasecmp("Debug", "MaxStandbyConThreads");
+	ASSERT_LT(hm, 0);
+	ASSERT_EQ(nullptr, cfg::GetIntPtr("foo"));
+	ASSERT_EQ(nullptr, cfg::GetStringPtr("bar"));
+
+	for (unsigned i = 0; i < cfg::n2iTblCount - 1; ++i)
+	{
+		auto first = cfg::n2iTbl[i].name;
+		auto compRes = strcasecmp(first, cfg::n2iTbl[i+1].name);
+		EXPECT_LE(compRes, 0);
+
+		ASSERT_EQ(cfg::GetIntPtr(first), cfg::n2iTbl[i].ptr);
+	}
+	for (unsigned i = 0; i < cfg::n2sTblCount - 1; ++i)
+	{
+		auto first = cfg::n2sTbl[i].name;
+		auto compRes = strcasecmp(first, cfg::n2sTbl[i+1].name);
+		EXPECT_LE(compRes, 0);
+
+		ASSERT_EQ(cfg::GetStringPtr(first), cfg::n2sTbl[i].ptr);
+	}
 }

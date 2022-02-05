@@ -1,6 +1,7 @@
 #include "gtest/gtest.h"
 #include "acres.h"
 #include "evabase.h"
+#include <locale.h>
 
 using namespace acng;
 
@@ -20,6 +21,7 @@ acres* g_res;
 
 int main(int argc, char **argv)
 {
+	setlocale(LC_ALL, "C");
 	auto p = acng::evabase::Create();
 	g_res = acres::Create();
 

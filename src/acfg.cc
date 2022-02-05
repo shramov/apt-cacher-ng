@@ -67,18 +67,6 @@ struct timeval networkTimeout
 	17, 200000
 };
 
-struct MapNameToString
-{
-	const char *name; mstring *ptr;
-};
-
-struct MapNameToInt
-{
-	const char *name; int *ptr;
-	const char *warn; uint8_t base;
-	uint8_t hidden;	// just a hint
-};
-
 struct tProperty
 {
 	const char *name;
@@ -92,102 +80,97 @@ void _ParseLocalDirs(cmstring &value);
 unsigned ReadBackendsFile(const string & sFile, const string &sRepName);
 unsigned ReadRewriteFile(const string & sFile, cmstring& sRepName);
 
-MapNameToString n2sTbl[] = {
-		{  "CacheDir",                &cachedir}
-		,{  "LogDir",                  &logdir}
-		,{  "SupportDir",              &suppdir}
-		,{  "SocketPath",              &udspath}
-		,{  "AdminSocket",             &adminpath}
-		,{  "PidFile",                 &pidfile}
-		,{  "ReportPage",              &reportpage}
-		,{  "VfilePattern",            &vfilepat}
-		,{  "PfilePattern",            &pfilepat}
-		,{  "SPfilePattern",           &spfilepat}
-		,{  "SVfilePattern",           &svfilepat}
-		,{  "WfilePattern",            &wfilepat}
-		,{  "VfilePatternEx",          &vfilepatEx}
-		,{  "PfilePatternEx",          &pfilepatEx}
-		,{  "WfilePatternEx",          &wfilepatEx}
-		,{  "SPfilePatternEx",         &spfilepatEx}
-		,{  "SVfilePatternEx",         &svfilepatEx}
-//		,{  "AdminAuth",               &adminauth}
-		,{  "BindAddress",             &bindaddr}
-		,{  "UserAgent",               &agentname}
-		,{  "DontCache",               &tmpDontcache}
-		,{  "DontCacheRequested",      &tmpDontcacheReq}
-		,{  "DontCacheResolved",       &tmpDontcacheTgt}
-		,{  "PrecacheFor",             &mirrorsrcs}
-		,{  "RequestAppendix",         &requestapx}
-		,{  "PassThroughPattern",      &connectPermPattern}
-		,{  "CApath",                  &capath}
-		,{  "CAfile",                  &cafile}
-		,{  "BadRedirDetectMime",      &badredmime}
-		,{	"OptProxyCheckCommand",	   &optProxyCheckCmd}
-		,{  "BusAction",                &sigbuscmd} // "Special debugging helper, see manual!"
-        ,{  "EvDnsResolvConf",		 	&dnsresconf}
+#define NAMSG "Option is deprecated, ignoring the value."
 
+MapNameToString n2sTbl[] = {
+{"AdminSocket", &adminpath},
+{"BadRedirDetectMime", &badredmime},
+{"BindAddress", &bindaddr},
+{"BusAction", &sigbuscmd}, // Special debugging helper, see manual!
+{"CacheDir", &cachedir},
+{"CAfile", &cafile},
+{"CApath", &capath},
+{"DontCache", &tmpDontcache},
+{"DontCacheRequested", &tmpDontcacheReq},
+{"DontCacheResolved", &tmpDontcacheTgt},
+{"EvDnsResolvConf", &dnsresconf},
+{"LogDir", &logdir},
+{"OptProxyCheckCommand", &optProxyCheckCmd},
+{"PassThroughPattern", &connectPermPattern},
+{"PfilePattern", &pfilepat},
+{"PfilePatternEx", &pfilepatEx},
+{"PidFile", &pidfile},
+{"PrecacheFor", &mirrorsrcs},
+{"ReportPage", &reportpage},
+{"RequestAppendix", &requestapx},
+{"SocketPath", &udspath},
+{"SPfilePattern", &spfilepat},
+{"SPfilePatternEx", &spfilepatEx},
+{"SupportDir", &suppdir},
+{"SVfilePattern", &svfilepat},
+{"SVfilePatternEx", &svfilepatEx},
+{"UserAgent", &agentname},
+{"VfilePattern", &vfilepat},
+{"VfilePatternEx", &vfilepatEx},
+{"WfilePattern", &wfilepat},
+{"WfilePatternEx", &wfilepatEx},
 };
+
 
 MapNameToInt n2iTbl[] = {
-		{   "Port",                              &port,             nullptr,    10, false}
-		,{  "Debug",                             &debug,            nullptr,    10, false}
-		,{  "OfflineMode",                       &offlinemode,      nullptr,    10, false}
-		,{  "ForeGround",                        &foreground,       nullptr,    10, false}
-		,{  "ForceManaged",                      &forcemanaged,     nullptr,    10, false}
-		,{  "StupidFs",                          &stupidfs,         nullptr,    10, false}
-		,{  "VerboseLog",                        &verboselog,       nullptr,    10, false}
-		,{  "ExThreshold",                       &extreshhold,      nullptr,    10, false}
-		,{  "ExTreshold",                        &extreshhold,      nullptr,    10, true} // wrong spelling :-(
-		,{  "DlMaxRetries",                      &dlretriesmax,     nullptr,    10, false}
-		,{  "DnsCacheSeconds",                   &dnscachetime,     nullptr,    10, false}
-		,{  "UnbufferLogs",                      &debug,            nullptr,    10, false}
-		,{  "ExAbortOnProblems",                 &exfailabort,      nullptr,    10, false}
-		,{  "ExposeOrigin",                      &exporigin,        nullptr,    10, false}
-		,{  "LogSubmittedOrigin",                &logxff,           nullptr,    10, false}
-		,{  "RecompBz2",                         &recompbz2,        nullptr,    10, false}
-		,{  "NetworkTimeout",                    &nettimeout,       nullptr,    10, false}
-		,{  "FastTimeout",                       &fasttimeout,      nullptr,    10, false}
-		,{  "DisconnectTimeout",                 &discotimeout,     nullptr,    10, false}
-		,{  "MinUpdateInterval",                 &updinterval,      nullptr,    10, false}
-		,{  "ForwardBtsSoap",                    &forwardsoap,      nullptr,    10, false}
-		,{  "KeepExtraVersions",                 &keepnver,         nullptr,    10, false}
-		,{  "UseWrap",                           &usewrap,          nullptr,    10, false}
-		,{  "FreshIndexMaxAge",                  &maxtempdelay,     nullptr,    10, false}
-		,{  "RedirMax",                          &redirmax,         nullptr,    10, false}
-		,{  "VfileUseRangeOps",                  &vrangeops,        nullptr,    10, false}
-		,{  "ResponseFreezeDetectTime",          &stucksecs,        nullptr,    10, false}
-		,{  "ReuseConnections",                  &persistoutgoing,  nullptr,    10, false}
-		,{  "PipelineDepth",                     &pipelinelen,      nullptr,    10, false}
-		,{  "ExSuppressAdminNotification",       &exsupcount,       nullptr,    10, false}
-		,{  "OptProxyTimeout",                   &optproxytimeout,  nullptr,    10, false}
-		,{  "MaxDlSpeed",                        &maxdlspeed,       nullptr,    10, false}
-		,{  "SendWindow",                	     &sendwindow, 		nullptr ,   10, false}
-		,{  "ReceiveWindow",                	 &recvwindow, 		nullptr ,   10, false}
-		,{  "MaxInresponsiveDlSize",             &maxredlsize,      nullptr,    10, false}
-		,{  "OptProxyCheckInterval",             &optProxyCheckInt, nullptr,    10, false}
-		,{  "TrackFileUse",		             	 &trackfileuse,		nullptr,    10, false}
-		,{  "FollowIndexFileRemoval",            &follow404,		nullptr,    10, false}
-        ,{  "ReserveSpace",                      &allocspace, 		nullptr ,   10, false}
-		,{  "EvDnsOpts",                	     &dnsopts,	 		nullptr ,   10, false}
-
-		// octal base interpretation of UNIX file permissions
-		,{  "DirPerms",                          &dirperms,         nullptr,    8, false}
-		,{  "FilePerms",                         &fileperms,        nullptr,    8, false}
-
-		// dead options
-#define NAMSG "Option is deprecated, ignoring the value."
-		,{ "Verbose", 			nullptr,		NAMSG, 10, true}
-		,{  "MaxStandbyConThreads",              nullptr,     NAMSG,    10, true}
-		,{  "MaxConThreads",                     nullptr,      NAMSG,    10, true}
-
-		,{ "MaxSpareThreadSets",	nullptr, 	NAMSG, 10, true}
-		,{ "OldIndexUpdater",	&oldupdate, 	NAMSG, 10, true}
-
-		// special internal use
-		,{ "Patrace",	&patrace, 				"Don't use in config files!" , 10, false}
-		,{ "NoSSLchecks",	&nsafriendly, 		"Disable SSL security checks" , 10, false}
+{ "Debug", &debug, nullptr, 10, false},
+{ "DirPerms", &dirperms, nullptr, 8, false}, // Octal base interpretation of UNIX file permissions
+{ "DisconnectTimeout", &discotimeout, nullptr, 10, false},
+{ "DlMaxRetries", &dlretriesmax, nullptr, 10, false},
+{ "DnsCacheSeconds", &dnscachetime, nullptr, 10, false},
+{ "EvDnsOpts", &dnsopts, nullptr , 10, false},
+{ "ExAbortOnProblems", &exfailabort, nullptr, 10, false},
+{ "ExposeOrigin", &exporigin, nullptr, 10, false},
+{ "ExSuppressAdminNotification", &exsupcount, nullptr, 10, false},
+{ "ExThreshold", &extreshhold, nullptr, 10, false},
+{ "ExTreshold", &extreshhold, nullptr, 10, true}, // wrong spelling :-(
+{ "FastTimeout", &fasttimeout, nullptr, 10, false},
+{ "FilePerms", &fileperms, nullptr, 8, false}, // Octal base interpretation of UNIX file permissions
+{ "FollowIndexFileRemoval", &follow404, nullptr, 10, false},
+{ "ForceManaged", &forcemanaged, nullptr, 10, false},
+{ "ForeGround", &foreground, nullptr, 10, false},
+{ "ForwardBtsSoap", &forwardsoap, nullptr, 10, false},
+{ "FreshIndexMaxAge", &maxtempdelay, nullptr, 10, false},
+{ "KeepExtraVersions", &keepnver, nullptr, 10, false},
+{ "LogSubmittedOrigin", &logxff, nullptr, 10, false},
+{ "MaxConThreads", nullptr, NAMSG, 10, true},
+{ "MaxDlSpeed", &maxdlspeed, nullptr, 10, false},
+{ "MaxInresponsiveDlSize", &maxredlsize, nullptr, 10, false},
+{ "MaxSpareThreadSets", nullptr, NAMSG, 10, true},
+{ "MaxStandbyConThreads", nullptr, NAMSG, 10, true},
+{ "MinUpdateInterval", &updinterval, nullptr, 10, false},
+{ "NetworkTimeout", &nettimeout, nullptr, 10, false},
+{ "NoSSLchecks", &nsafriendly, "Disable SSL security checks" , 10, false},
+{ "OfflineMode", &offlinemode, nullptr, 10, false},
+{ "OldIndexUpdater", &oldupdate, NAMSG, 10, true},
+{ "OptProxyCheckInterval", &optProxyCheckInt, nullptr, 10, false},
+{ "OptProxyTimeout", &optproxytimeout, nullptr, 10, false},
+{ "Patrace", &patrace, "Don't use in config files!" , 10, false},
+{ "PipelineDepth", &pipelinelen, nullptr, 10, false},
+{ "Port", &port, nullptr, 10, false},
+{ "ReceiveWindow", &recvwindow, nullptr , 10, false},
+{ "RecompBz2", &recompbz2, nullptr, 10, false},
+{ "RedirMax", &redirmax, nullptr, 10, false},
+{ "ReserveSpace", &allocspace, nullptr , 10, false},
+{ "ResponseFreezeDetectTime", &stucksecs, nullptr, 10, false},
+{ "ReuseConnections", &persistoutgoing, nullptr, 10, false},
+{ "SendWindow", &sendwindow, nullptr , 10, false},
+{ "StupidFs", &stupidfs, nullptr, 10, false},
+{ "TrackFileUse", &trackfileuse, nullptr, 10, false},
+{ "UnbufferLogs", &debug, nullptr, 10, false},
+{ "UseWrap", &usewrap, nullptr, 10, false},
+{ "Verbose", nullptr, NAMSG, 10, true},
+{ "VerboseLog", &verboselog, nullptr, 10, false},
+{ "VfileUseRangeOps", &vrangeops, nullptr, 10, false},
 };
 
+const unsigned n2sTblCount = _countof(n2sTbl);
+const unsigned n2iTblCount = _countof(n2iTbl);
 
 tProperty n2pTbl[] =
 {
@@ -330,28 +313,54 @@ tProperty n2pTbl[] =
 		  if (ccNoStore)
 		  ret += " no-store";
 		  return ret;
-	  } }
+	  }
+	}
 };
 
-string * GetStringPtr(LPCSTR key) {
-	for(auto &ent : n2sTbl)
-		if(0==strcasecmp(key, ent.name))
-			return ent.ptr;
+template<typename Trecord>
+const Trecord* BinaryLookup(LPCSTR key, const Trecord* arr, unsigned len)
+{
+	unsigned posL = 0, posR = len;
+	while (posL < posR)
+	{
+		const auto posCand = (posL + posR) >>1;
+		const auto& cand = arr[posCand];
+		auto cmpVal = strcasecmp(key, cand.name);
+		if (cmpVal > 0)
+			posL = posCand + 1;
+		else if (cmpVal < 0)
+			posR = posCand;
+		else
+			return &cand;
+	}
 	return nullptr;
 }
 
-int * GetIntPtr(LPCSTR key, int &base) {
-	for(auto &ent : n2iTbl)
-	{
-		if(0==strcasecmp(key, ent.name))
-		{
-			if(ent.warn)
-				cerr << "Warning, " << key << ": " << ent.warn << endl;
-			base = ent.base;
-			return ent.ptr;
-		}
-	}
-	return nullptr;
+string * GetStringPtr(LPCSTR key)
+{
+	const auto* p = BinaryLookup(key, n2sTbl, n2sTblCount);
+	return p ? p->ptr : nullptr;
+}
+
+int * GetIntPtr(LPCSTR key)
+{
+	const auto* p = BinaryLookup(key, n2iTbl, n2iTblCount);
+	if (!p)
+		return nullptr;
+	if (p->warn)
+		cerr << "Warning, " << key << ": " << p->warn << endl;
+	return p->ptr;
+}
+
+int * GetIntPtr(LPCSTR key, int &base)
+{
+	const auto* p = BinaryLookup(key, n2iTbl, n2iTblCount);
+	if (!p)
+		return nullptr;
+	if (p->warn)
+		cerr << "Warning, " << key << ": " << p->warn << endl;
+	base = p->base;
+	return p->ptr;
 }
 
 tProperty* GetPropPtr(cmstring& key)
@@ -363,17 +372,9 @@ tProperty* GetPropPtr(cmstring& key)
 		if (0 == strcasecmp(szkey, ent.name))
 			return &ent;
 		// identified as prefix, with matching length?
-		if(sep != stmiss && 0==strncasecmp(szkey, ent.name, sep) && 0 == ent.name[sep+1])
+		if(sep != stmiss && 0 == strncasecmp(szkey, ent.name, sep) && 0 == ent.name[sep+1])
 			return &ent;
 	}
-	return nullptr;
-}
-
-int * GetIntPtr(LPCSTR key)
-{
-	for(auto &ent : n2iTbl)
-		if(0==strcasecmp(key, ent.name))
-			return ent.ptr;
 	return nullptr;
 }
 

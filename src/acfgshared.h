@@ -17,6 +17,23 @@ namespace acng
 namespace cfg
 {
 
+struct MapNameToString
+{
+	const char *name; mstring *ptr;
+};
+
+struct MapNameToInt
+{
+	const char *name; int *ptr;
+	const char *warn; uint8_t base;
+	uint8_t hidden;	// just a hint
+};
+
+extern MapNameToString n2sTbl[];
+const extern unsigned n2sTblCount;
+extern MapNameToInt n2iTbl[];
+const extern unsigned n2iTblCount;
+
 bool ParseOptionLine(const string &sLine, string &key, string &val);
 void _FixPostPreSlashes(string &val);
 tStrDeq ExpandFileTokens(cmstring &token);
