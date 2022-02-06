@@ -6,7 +6,13 @@
 
 Starting with jump hints in the beginning (line and byte position)
 
+### Better state dumping also from maint jobs, including download activity
+
+### Maybe use binary logging? journalctl?
+
 ## Data management
+
+### Better reporting on configuration loading errors
 
 ### Review init sequence of **filePattern** regexps
 
@@ -60,6 +66,8 @@ Change expire-trade-off setting and make it adaptive, learning the cost of metda
 - Add dead proxy detection (disabling and restoration) handling
 - AND: tdljob::getpeerhost not sufficient, needs a pre-calculation method which decides on proxy use, something like "tdljob::ReconsiderTargetHost". That would set a flag to remember that this item actually wanted to use the proxy, and this hint shall also be checked later when establishing connection, so if a new connection turned out to be a non-proxy access in the end -> reject with a hint to redispatch the job!
 - AND: for that, add a method to aconnect which gives an early clue whether a proxy is considered for a given host!! (either because of non-proxy-fallback or because we might have item-specific proxies!)
+
+Alternative strategy: move the dead-proxy-detection into a shared class (reuse the existing shaper agent!). If proxy loss was detected somewhere, send a signal which makes all jobs be re-evaluated. And add a smaller version of the validation check into the request sending part (lighter than SetupSource).
 
 ### Move dnsbase into custom source, access through resources!
 

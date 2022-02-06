@@ -368,6 +368,7 @@ int main(int argc, const char **argv)
 		auto eBase = evabase::Create();
 		parse_options(argc, argv);
 		tDaemon daemonContext;
+		DBGQLOG("DAEMON READY");
 		return eBase->MainLoop();
 	}
 	catch (const std::exception& ex)

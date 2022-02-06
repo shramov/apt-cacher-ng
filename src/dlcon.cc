@@ -775,9 +775,9 @@ struct tDlJob
 			return true;
 
 		// consider using a shared proxy, does it suit our job?
-		const auto* trProxy = tr.GetUsedProxy();
-		const auto* jobProxy = GetJobProxyInfo();
-		return trProxy && jobProxy && !atransport::IsProxyNowBroken() && trProxy == jobProxy;
+		const auto* currentProxy = tr.GetUsedProxy();
+		const auto* wantedProxy = GetJobProxyInfo();
+		return currentProxy && wantedProxy && !atransport::IsProxyNowBroken() && currentProxy == wantedProxy;
 	}
 
 	/*!
