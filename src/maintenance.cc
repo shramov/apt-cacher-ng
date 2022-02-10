@@ -172,6 +172,26 @@ public:
 		USRDBG("Opening tempfile at " << m_sPathRel);
 		return GetStoredFileSender(m_sPathRel, m_nSizeChecked, m_status == FIST_COMPLETE);
 	}
+
+#ifdef DEBUG
+	// Dumpable interface
+public:
+	void DumpInfo(Dumper &dumper) override
+	{
+		DUMPFMT << "Maint Item: " << handler->desc().title << " -- "
+				<< m_bCreateItemMustDisplace << "/"
+				<< m_bLocallyGenerated << "/"
+				<< m_bPreallocated << "/"
+				<< m_bPureStreamNoStorage << "/"
+				<< m_bWriterMustReplaceFile << " ~ "
+				<< m_contentType << " ~ "
+				<< m_eDestroy << "/"
+				<< m_nContentLength << "/"
+				<< m_extraHeaders;
+		fileitem::DumpInfo(dumper);
+		dumper.DumpFurther(*handler);
+	}
+#endif
 };
 
 class BufferedPtItem : public IMaintJobItem

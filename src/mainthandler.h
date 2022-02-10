@@ -62,6 +62,9 @@ public:
 };
 
 class ACNG_API mainthandler
+		#ifdef DEBUG
+		: public Dumpable
+		#endif
 {
 protected:
 	friend class BufferedPtItem;

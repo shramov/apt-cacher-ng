@@ -426,7 +426,7 @@ struct tDlJob
 		STATE_GETHEADER,
 		STATE_PROCESS_DATA,
 		STATE_GETCHUNKHEAD,
-		STATE_PROCESS_CHUNKDATA,
+		STATE_PROCESS_CHUNKDATA = 3,
 		STATE_GET_CHUNKEND,
 		STATE_GET_CHUNKEND_LAST,
 		STATE_FINISHJOB
@@ -983,45 +983,50 @@ TRAILER_JUNK_SKIPPED:
 				break;
 			}
 			case STATE_PROCESS_CHUNKDATA:
+				ldbg("STATE_PROCESS_CHUNKDATA");
+				__just_fall_through;
+				// similar states, just handled differently afterwards
 			case STATE_PROCESS_DATA:
 			{
-				// similar states, just handled differently afterwards
-				ldbg("STATE_GETDATA");
-
-
+				ldbg("STATE_PROCESS_DATA");
 				beconsum inBuf(pBuf);
-				off_t nToStore = min((off_t) inBuf.size(), m_nRest);
+				off_t nToStore = min((off_t) inBuf.size(), m_nRest), couldStore(0);
 				ASSERT(nToStore >= 0);
 
-				if (m_bAllowStoreData && nToStore > 0)
+				if (nToStore > 0)
 				{
-					ldbg("To store: " <<nToStore);
-					auto n = m_pStorageRef->DlConsumeData(pBuf, nToStore);
-					if (n < 0)
+					if (m_bAllowStoreData)
 					{
-						m_sError = "Cannot store";
-						return eJobResult::JOB_BROKEN;
+						ldbg("To store: " << nToStore);
+						couldStore = m_pStorageRef->DlConsumeData(pBuf, nToStore);
+						if (couldStore < 0)
+						{
+							m_sError = "Cannot store";
+							return eJobResult::JOB_BROKEN;
+						}
+						m_nRest -= couldStore;
 					}
-					m_nRest -= n;
+					else
+					{
+						ldbg("Just drop: " << nToStore);
+						m_nRest -= nToStore;
+						inBuf.drop(nToStore);
+					}
 
 					// unset watermark to get the remainder in real time
 					if (m_nRest <= m_nWatermark)
 						bufferevent_setwatermark(peBuf, EV_READ, 0, 0);
 
-					if (n != nToStore)
+					if (couldStore != nToStore)
 					{
+						ldbg("Await new data...")
 						parent.Subscribe2BlockingItem(m_pStorageRef);
 						return eJobResult::HINT_MORE;
 					}
 				}
-				else if (nToStore > 0)
-				{
-					m_nRest -= nToStore;
-					inBuf.drop(nToStore);
-				}
 
 				ldbg("Rest: " << m_nRest);
-				if (m_nRest != 0)
+				if (m_nRest > 0)
 					return eJobResult::HINT_MORE; // will come back
 
 				m_DlState = (STATE_PROCESS_DATA == m_DlState) ?

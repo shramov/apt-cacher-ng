@@ -518,7 +518,7 @@ struct TUdsFactory : public ::acng::IDlConFactory
 				struct sockaddr_un addr;
 				addr.sun_family = PF_UNIX;
 				strcpy(addr.sun_path, cfg::udspath.c_str());
-				socklen_t adlen = cfg::udspath.length() + 1 + offsetof(struct sockaddr_un, sun_path);
+				socklen_t adlen = cfg::adminpath.length() + 1 + offsetof(struct sockaddr_un, sun_path);
 				if (connect(m_conFd, (struct sockaddr*) &addr, adlen))
 				{
 					DBGQLOG(tErrnoFmter("connect result: "));
@@ -564,9 +564,9 @@ int maint_job()
 
 	// by default, use the socket connection; if credentials require it -> enforce it
 	bool have_cred = !url.sUserPass.empty(),
-			have_uds = !cfg::udspath.empty(),
+			have_uds = !cfg::adminpath.empty(),
 			try_tcp = !have_cred;
-	bool uds_ok = have_uds && isUdsAccessible(cfg::udspath);
+	bool uds_ok = have_uds && isUdsAccessible(cfg::adminpath);
 
 	if(have_cred)
 	{
@@ -576,7 +576,7 @@ int maint_job()
 		}
 		else if(have_uds && !uds_ok)
 		{
-			cerr << "This operation transmits credentials but the socket (" << cfg::udspath
+			cerr << "This operation transmits credentials but the socket (" << cfg::adminpath
 				 << ") is currently not accessible!" << endl;
 			return EXIT_FAILURE;
 		}

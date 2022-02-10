@@ -496,8 +496,8 @@ TFinalAction atransport::CreateUds(tHttpUrl url, const tCallBack &cback)
 	{
 		struct sockaddr_un addr;
 		addr.sun_family = PF_UNIX;
-		strncpy(addr.sun_path, url.sPath.c_str(), _countof(sockaddr_un::sun_path));
-		socklen_t adlen = url.sPath.length() + 1 + offsetof(struct sockaddr_un, sun_path);
+		strncpy(addr.sun_path, url.sHost.c_str(), _countof(sockaddr_un::sun_path));
+		socklen_t adlen = url.sHost.length() + 1 + offsetof(struct sockaddr_un, sun_path);
 
 		if (connect(fd, (struct sockaddr*) &addr, adlen))
 			setErrno();

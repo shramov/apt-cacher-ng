@@ -2552,6 +2552,21 @@ bool cacheman::IsInternalItem(cmstring &sPathAbs, bool inDoubt)
 	return sPathAbs[CACHE_BASE_LEN] == '_';
 }
 
+#ifdef DEBUG
+void cacheman::DumpInfo(Dumper &dumper)
+{
+	if (m_dlCtx)
+	{
+		DUMPFMT << m_dlCtx->callID << ", "
+				<< m_dlCtx->dler.get();
+		for(auto& p: m_dlCtx->states)
+		{
+			DUMPFMT << (p->pResolvedDirectUrl ? p->pResolvedDirectUrl->ToURI(false) : se);
+		}
+	}
+}
+#endif
+
 bool cacheman::ProcessDirBefore(const std::string &, const struct stat &)
 {
 	return true;

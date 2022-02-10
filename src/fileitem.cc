@@ -207,8 +207,10 @@ bool fileitem::DlStarted(evbuffer*, size_t headLen, const tHttpDate& modDate, cm
 	// if range was confirmed then can already start forwarding that much
 	if (bytes2seek >= 0)
 	{
+		dbgline;
 		if (m_nSizeChecked >= 0 && bytes2seek < m_nSizeChecked)
 			return false;
+		dbgline;
 		m_nSizeChecked = bytes2seek;
 	}
 
@@ -217,6 +219,7 @@ bool fileitem::DlStarted(evbuffer*, size_t headLen, const tHttpDate& modDate, cm
 	m_responseModDate = modDate;
 	m_nContentLength = bytesAnnounced;
 	m_nIncommingCount += headLen;
+	dbgline;
 	return true;
 }
 

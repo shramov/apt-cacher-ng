@@ -225,6 +225,7 @@ ssize_t ACNG_API eb_dump_chunks(evbuffer* inbuf, std::function<void(string_view)
 			clen = nMax2SendNow;
 		auto p = evbuffer_pullup(inbuf, clen);
 		cb(string_view((const char*) p, clen));
+		evbuffer_drain(inbuf, clen);
 		nMax2SendNow -= clen;
 		consumed += clen;
 	}

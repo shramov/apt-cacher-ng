@@ -278,6 +278,11 @@ SUTPROTECTED:
 	tStrDeq GetGoodReleaseFiles();
 
 	bool IsInternalItem(cmstring& sPathAbs, bool inDoubt);
+#ifdef DEBUG
+	// Dumpable interface
+public:
+	void DumpInfo(Dumper &dumper) override;
+#endif
 };
 
 #ifdef DEBUG

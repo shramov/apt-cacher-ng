@@ -50,7 +50,6 @@ static void SetupCacheDir();
 void term_handler(evutil_socket_t fd, short what, void *arg);
 void log_handler(evutil_socket_t fd, short what, void *arg);
 void dbg_handler(evutil_socket_t fd, short what, void *arg);
-void dump_handler(evutil_socket_t fd, short what, void *arg);
 void noop_handler(evutil_socket_t fd, short what, void *arg);
 void handle_sigbus();
 void check_algos();
@@ -332,12 +331,9 @@ struct tDaemon
 		if (!cfg::pidfile.empty())
 		{
 			mkbasedir(cfg::pidfile);
-			auto* PID_FILE = fopen(cfg::pidfile.c_str(), "w");
-			if (PID_FILE != nullptr)
-			{
-				fprintf(PID_FILE, "%d", getpid());
-				checkForceFclose(PID_FILE);
-			}
+			FILE_RAII PID_FILE(fopen(cfg::pidfile.c_str(), "w"));
+			if (PID_FILE.valid())
+				fprintf(PID_FILE.get(), "%d", getpid());
 		}
 	}
 
@@ -348,7 +344,6 @@ struct tDaemon
 		g_tpool->stop();
 		sigEvents.clear();
 		sharedResources.reset();
-#warning bring all users of itemregistry down!
 		TeardownServerItemRegistry();
 		log::close(false);
 	}
@@ -369,7 +364,9 @@ int main(int argc, const char **argv)
 		parse_options(argc, argv);
 		tDaemon daemonContext;
 		DBGQLOG("DAEMON READY");
-		return eBase->MainLoop();
+		auto r = eBase->MainLoop();
+		IFDEBUG(dbg_handler(0,0,0));
+		return r;
 	}
 	catch (const std::exception& ex)
 	{
