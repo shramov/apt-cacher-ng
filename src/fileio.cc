@@ -158,20 +158,21 @@ void set_block(int fd) {
 	flags &= ~O_NONBLOCK;
 	fcntl(fd, F_SETFL, flags);
 }
+
 /**
- * @brief evbuffer_dumpall - store all or limited range from the front to a file descriptor
- * This is actually evbuffer_write_atmost replacement without its random aborting bug.
+ * @brief eb_dump_chunks - store all or limited range from the front to a file descriptor or similar sink.
+ * For file descriptors, this is actually evbuffer_write_atmost replacement without its random aborting bug.
  */
-ssize_t ACNG_API eb_dump_chunks(evbuffer *inbuf, int out_fd, size_t nMax2SendNow)
+template<typename Tstoreparam, ssize_t TSaveFunc(Tstoreparam, const struct iovec *__iovec, int __count)>
+inline ssize_t ACNG_API eb_dump_chunks(evbuffer *inbuf, Tstoreparam saveParam, size_t nLenChecked)
 {
 	evbuffer_iovec ivs[64];
 	off_t consumed = 0;
-	nMax2SendNow = std::min(nMax2SendNow, evbuffer_get_length(inbuf));
 	int nErrno = 0;
 
-	while (nMax2SendNow > 0)
+	while (nLenChecked > 0)
 	{
-		auto nbufs = evbuffer_peek(inbuf, nMax2SendNow, nullptr, ivs, _countof(ivs));
+		auto nbufs = evbuffer_peek(inbuf, nLenChecked, nullptr, ivs, _countof(ivs));
 		if (size_t(nbufs) > _countof(ivs))
 			nbufs = _countof(ivs); // will come back here anyway
 		ASSERT(nbufs > 0); // && unsigned(nbufs) <= _countof(ivs));
@@ -184,16 +185,18 @@ ssize_t ACNG_API eb_dump_chunks(evbuffer *inbuf, int out_fd, size_t nMax2SendNow
 		for (int i = 0; i < nbufs; ++i)
 		{
 			bytesDeliverable += ivs[i].iov_len;
-			if (bytesDeliverable > (off_t) nMax2SendNow)
+			if (bytesDeliverable > (off_t) nLenChecked)
 			{
-				auto overshoot = bytesDeliverable - nMax2SendNow;
+				auto overshoot = bytesDeliverable - nLenChecked;
 				ivs[i].iov_len -= overshoot;
-				bytesDeliverable = nMax2SendNow;
+				bytesDeliverable = nLenChecked;
 				nbufs = i + 1;
 				break;
 			}
 		}
-		auto nWritten = writev(out_fd, ivs, nbufs);
+		//auto nWritten = writev(out_fd, ivs, nbufs);
+		auto nWritten = TSaveFunc(saveParam, ivs, nbufs);
+
 		if (nWritten < 0)
 			return nWritten;
 
@@ -203,7 +206,7 @@ ssize_t ACNG_API eb_dump_chunks(evbuffer *inbuf, int out_fd, size_t nMax2SendNow
 		evbuffer_drain(inbuf, nWritten);
 		consumed += nWritten;
 
-		nMax2SendNow -= nWritten;
+		nLenChecked -= nWritten;
 
 		if (incomplete && nErrno != EAGAIN && nErrno != EINTR && nErrno != EWOULDBLOCK) // that is also an error!
 			return consumed;
@@ -214,23 +217,30 @@ ssize_t ACNG_API eb_dump_chunks(evbuffer *inbuf, int out_fd, size_t nMax2SendNow
 	return consumed;
 }
 
-ssize_t ACNG_API eb_dump_chunks(evbuffer* inbuf, std::function<void(string_view)> cb, size_t nMax2SendNow)
+inline ssize_t writev2s(mstring* ret, const struct iovec *__iovec, int __count)
 {
-	size_t consumed(0);
-	nMax2SendNow = std::min(nMax2SendNow, evbuffer_get_length(inbuf));
-	while (nMax2SendNow > 0)
+	ssize_t retlen(0);
+	while (__count-- > 0)
 	{
-		auto clen = evbuffer_get_contiguous_space(inbuf);
-		if (clen > nMax2SendNow)
-			clen = nMax2SendNow;
-		auto p = evbuffer_pullup(inbuf, clen);
-		cb(string_view((const char*) p, clen));
-		evbuffer_drain(inbuf, clen);
-		nMax2SendNow -= clen;
-		consumed += clen;
+		ret->append((LPCSTR) __iovec->iov_base, __iovec->iov_len);
+		retlen += __iovec->iov_len;
+		__iovec++;
 	}
-	return consumed;
+	return retlen;
+}
+
+ssize_t ACNG_API eb_dump_chunks(evbuffer* inbuf, mstring& ret,  size_t nMax2SendNow)
+{
+	nMax2SendNow = std::min(nMax2SendNow, evbuffer_get_length(inbuf));
+	ret.reserve(ret.size() + nMax2SendNow);
+	eb_dump_chunks<mstring*, writev2s>(inbuf, &ret, nMax2SendNow);
+	return nMax2SendNow;
 };
+
+ssize_t eb_dump_chunks(evbuffer* inbuf, int out_fd, size_t nMax2SendNow)
+{
+	return eb_dump_chunks<int, ::writev>(inbuf, out_fd, std::min(nMax2SendNow, evbuffer_get_length(inbuf)));
+}
 
 void ACNG_API event_and_fd_free(event *e)
 {

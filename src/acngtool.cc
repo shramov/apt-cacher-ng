@@ -136,7 +136,7 @@ protected:
 	{
 		// glue with the old prefix if needed, later move remainder back the rest buffer if needed
 
-		auto consumed = eb_dump_chunks(eb, [&](string_view chunk){ m_buf.append(chunk); }, maxTake);
+		auto consumed = eb_dump_chunks(eb, m_buf, maxTake);
 		string_view input(m_buf);
 		while (true)
 		{

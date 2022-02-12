@@ -28,7 +28,7 @@ namespace acng
  * This is actually evbuffer_write_atmost replacement without its sporadic abortion bug.
  */
 ssize_t eb_dump_chunks(evbuffer* inbuf, int out_fd, size_t nMax2SendNow = -1);
-ssize_t eb_dump_chunks(evbuffer* inbuf, std::function<void(string_view)>, size_t nMax2SendNow = -1);
+ssize_t ACNG_API eb_dump_chunks(evbuffer* inbuf, mstring& ret, size_t nMax2SendNow = -1);
 
 inline evbuffer* besender(bufferevent* be) { return bufferevent_get_output(be); }
 inline evbuffer* bereceiver(bufferevent* be) { return bufferevent_get_input(be); }
