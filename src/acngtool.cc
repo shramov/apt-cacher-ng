@@ -1,4 +1,4 @@
-#include "config.h"
+﻿#include "config.h"
 #include "meta.h"
 #include "acfg.h"
 #include "aclogger.h"
@@ -45,7 +45,7 @@
 using namespace std;
 using namespace acng;
 
-bool g_bVerbose = false;
+using tCsDeq = deque<LPCSTR>;
 
 #define SUICIDE_TIMEOUT 600
 
@@ -84,11 +84,6 @@ protected:
 	}
 };
 
-
-// That is relevant to push the download agent logics correctly and are shown in logs;
-// not relevant for the actual connection since it's rerouted through TUdsFactory
-#define FAKE_UDS_HOSTNAME "UNIX-DOMAIN-SOCKET"
-
 unique_ptr<acng::tMinComStack> g_comStack;
 void delComStack() { g_comStack.reset(); }
 acng::tMinComStack& GetComStack()
@@ -113,7 +108,6 @@ class tRepItem: public fileitem
 	tStrDeq m_warningCollector;
 
 public:
-
 	tRepItem() : fileitem("<STREAM>")
 	{
 		m_nSizeChecked = m_nSizeCachedInitial = 0;
@@ -122,7 +116,6 @@ public:
 	{
 		return m_status = FIST_INITED;
 	}
-
 protected:
 	/*
 	 *
@@ -166,9 +159,9 @@ protected:
 			}
 			else if(msgType == ControLineType::Error)
 			{
-					for (auto l : m_warningCollector)
-						cerr << l << endl;
-					cerr << msg << endl;
+				for (auto l : m_warningCollector)
+					cerr << l << endl;
+				cerr << msg << endl;
 			}
 		}
 		return consumed;
@@ -205,31 +198,41 @@ bool DownloadItem(tHttpUrl url, lint_ptr<fileitem> fi)
 
 int wcat(LPCSTR url, LPCSTR proxy);
 
-static void usage(int retCode = 0, LPCSTR cmd = nullptr)
+auto szHelp = R"(
+USAGE: acngtool command parameter... [options]
+
+command := { printvar, cfgdump, retest, patch, curl, encb64, maint, shrink }
+parameter := (specific to command, or -h for extra help)
+options := (see apt-cacher-ng options)
+Standard options :=
+-h|--help (before or after command type to get command specific help)
+-i (ignore config errors)
+)";
+auto szHelpShrink = R"(
+USAGE: acngtool shrink numberX [-f | -n] [-x] [-v] [variable assignments...]
+-f: delete files
+-n: dry run, display results
+-v: more verbosity
+-x: also drop index files (can be dangerous)
+Suffix X can be k,K,m,M,g,G (for kb,KiB,mb,MiB,gb,GiB)
+)";
+auto szHelpMaint = R"(
+USAGE: acngtool maint [-f]  [variable assignments...]
+-f: force execution even if trade-off threshold not met
+)";
+
+auto szHelpNA = "Sorry, no extra help information for this command.\n";
+
+int fin(int retCode, string_view what)
 {
-	if(cmd)
-	{
-		if(0 == strcmp(cmd, "shrink"))
-			cerr << "USAGE: acngtool shrink numberX [-f | -n] [-x] [-v] [variable assignments...]" <<endl <<
-			"-f: delete files"<< endl <<
-			"-n: dry run, display results" << endl <<
-			"-v: more verbosity" << endl <<
-			"-x: also drop index files (can be dangerous)" <<endl <<
-			"Suffix X can be k,K,m,M,g,G (for kb,KiB,mb,MiB,gb,GiB)" << endl;
-	}
+	auto& chan = (retCode ? cerr : cout);
+	chan << what;
+	if (what.back() > '\r')
+		chan << endl;
 	else
-		(retCode ? cout : cerr) <<
-		"Usage: acngtool command parameter... [options]\n\n"
-			"command := { printvar, cfgdump, retest, patch, curl, encb64, maint, shrink }\n"
-			"parameter := (specific to command)\n"
-			"options := (see apt-cacher-ng options)\n"
-			"extra options := -h, --verbose\n"
-#if SUPPWHASH
-#warning FIXME
-			"-H: read a password from STDIN and print its hash\n"
-#endif
-"\n";
-			exit(retCode);
+		chan.flush();
+	exit(retCode);
+	return EXIT_FAILURE;
 }
 
 struct pkgEntry
@@ -246,12 +249,12 @@ struct pkgEntry
 
 int shrink(off_t wantedSize, bool dryrun, bool apply, bool verbose, bool incIfiles)
 {
-	if(!dryrun && !apply)
+	if (!dryrun && !apply)
 	{
 		cerr << "Error: needs -f or -n options" << endl;
 		return 97;
 	}
-	if(dryrun && apply)
+	if (dryrun && apply)
 	{
 		cerr << "Error: -f and -n are mutually exclusive" <<endl;
 		return 107;
@@ -286,7 +289,7 @@ int shrink(off_t wantedSize, bool dryrun, bool apply, bool verbose, bool incIfil
 		// anything else is considered junk
 
 		auto other = related.find(otherName);
-		if(other == related.end())
+		if (other == related.end())
 		{
 			// the related file will appear soon
 			related.insert(make_pair(path, make_pair(dateLatest, finfo.st_blocks)));
@@ -352,6 +355,29 @@ int shrink(off_t wantedSize, bool dryrun, bool apply, bool verbose, bool incIfil
 		<< foundSizeString << ")" << endl;
 	}
 	return 0;
+}
+
+int do_shrink(tCsDeq& parms)
+{
+	bool dryrun(false), apply(false), verbose(false), incIfiles(false);
+	off_t wantedSize(4000000000);
+
+	for(auto p: parms)
+	{
+		if(*p > '0' && *p<='9')
+			wantedSize = strsizeToOfft(p);
+		else if(*p == '-')
+		{
+			for(++p;*p;++p)
+			{
+				apply |= (*p == 'f');
+				dryrun |= (*p == 'n');
+				verbose |= (*p == 'v');
+				incIfiles |= (*p == 'x');
+			}
+		}
+	}
+	return shrink(wantedSize, dryrun, apply, verbose, incIfiles);
 }
 
 #if SUPPWHASH
@@ -467,13 +493,8 @@ inline bool patchChunk(tPatchSequence& idx, LPCSTR pline, tPatchSequence diffPay
 	else
 	{
 		size_t i = 0;
-		for (; i < diffPayload.size(); ++i, ++rangeStart)
-		{
-			if (rangeStart <= rangeLast)
-				idx[rangeStart] = diffPayload[i];
-			else
-				break; // new stuff bigger than replaced range
-		}
+		for (; i < diffPayload.size() && rangeLast <= rangeStart; ++i, ++rangeStart)
+			idx[rangeStart] = diffPayload[i];
 		if (i < diffPayload.size()) // not enough space :-(
 			idx.insert(idx.begin() + (size_t) rangeStart, diffPayload.begin() + i, diffPayload.end());
 		else if (rangeStart - 1 != rangeLast) // less data now?
@@ -482,71 +503,7 @@ inline bool patchChunk(tPatchSequence& idx, LPCSTR pline, tPatchSequence diffPay
 	return true;
 }
 
-#warning extract relevant bits into atransport class
-#if 0
-
-/**
- * Helper which implements a custom connection class that runs through a specified Unix Domain
- * Socket (see base class for the name).
- */
-struct TUdsFactory : public ::acng::IDlConFactory
-{
-	void RecycleIdleConnection(tDlStreamHandle &) const override
-	{
-		// keep going, no recycling/restoring
-	}
-	tDlStreamHandle CreateConnected(cmstring&, uint16_t, mstring& sErrorOut, bool*,
-			tRepoUsageHooks*, bool, int, bool) const override
-	{
-		struct udsconnection: public tcpconnect
-		{
-			bool failed = false;
-			udsconnection() : tcpconnect(nullptr)
-			{
-				// some static and dummy parameters, and invalidate SSL for sure
-				m_ssl = nullptr;
-				m_bio = nullptr;
-				m_sHostName = FAKE_UDS_HOSTNAME;
-				m_nPort = 0;
-
-				m_conFd = socket(PF_UNIX, SOCK_STREAM, 0);
-				if (m_conFd < 0)
-				{
-					failed = true;
-					return;
-				}
-				struct sockaddr_un addr;
-				addr.sun_family = PF_UNIX;
-				strcpy(addr.sun_path, cfg::udspath.c_str());
-				socklen_t adlen = cfg::adminpath.length() + 1 + offsetof(struct sockaddr_un, sun_path);
-				if (connect(m_conFd, (struct sockaddr*) &addr, adlen))
-				{
-					DBGQLOG(tErrnoFmter("connect result: "));
-					checkforceclose(m_conFd);
-					failed = true;
-					return;
-				}
-				// basic identification needed
-				tSS ids;
-				ids << "GET / HTTP/1.0\r\nX-Original-Source: localhost\r\n\r\n";
-				if (!ids.send(m_conFd))
-				{
-					failed = true;
-					return;
-				}
-			}
-		};
-		auto ret = make_shared<udsconnection>();
-		// mimic regular processing of a bad result here!
-		if(ret && ret->failed) ret.reset();
-		if(!ret) sErrorOut = "912 Cannot establish control connection";
-		return ret;
-	}
-};
-
-#endif
-
-int maint_job()
+int do_maint_job(tCsDeq& parms)
 {
 	if (cfg::reportpage.empty())
 	{
@@ -558,7 +515,9 @@ int maint_job()
 	tHttpUrl url;
 	url.sUserPass = cfg::adminauth;
 	LPCSTR req = getenv("ACNGREQ");
-	url.sPath = "/" + cfg::reportpage + (req ? req : "?doExpire=Start+Expiration&abortOnErrors=aOe");
+	url.sPath = Concat("/", cfg::reportpage, req ? req : "?doExpire=Start+Expiration&abortOnErrors=aOe");
+	if (any_of(parms.begin(), parms.end(), [](LPCSTR s) { return 0 == strcmp("-f", s); }))
+		url.sPath += "&force=1";
 
 	auto isInsecForced = []() { auto se = getenv("ACNG_INSECURE"); return se && *se; };
 
@@ -568,13 +527,13 @@ int maint_job()
 			try_tcp = !have_cred;
 	bool uds_ok = have_uds && isUdsAccessible(cfg::adminpath);
 
-	if(have_cred)
+	if (have_cred)
 	{
 		if(isInsecForced()) // so try TCP anyway
 		{
 			try_tcp = true;
 		}
-		else if(have_uds && !uds_ok)
+		else if (have_uds && !uds_ok)
 		{
 			cerr << "This operation transmits credentials but the socket (" << cfg::adminpath
 				 << ") is currently not accessible!" << endl;
@@ -591,7 +550,7 @@ int maint_job()
 	}
 
 	bool response_ok = false;
-	if(have_uds && uds_ok)
+	if (have_uds && uds_ok)
 	{
 		DBGQLOG("Trying UDS path");
 
@@ -602,7 +561,7 @@ int maint_job()
 		response_ok = DownloadItem(url, fi);
 		DBGQLOG("UDS result: " << response_ok);
 	}
-	if(!response_ok && try_tcp)
+	if (!response_ok && try_tcp)
 	{
 		DBGQLOG("Trying TCP path")
 				// never use a proxy here (insecure?), those are most likely local IPs
@@ -610,7 +569,7 @@ int maint_job()
 		cfg::nettimeout = 30;
 		vector<string> hostips;
 		Tokenize(cfg::bindaddr, SPACECHARS, hostips, false);
-		if(hostips.empty())
+		if (hostips.empty())
 			hostips.emplace_back("127.0.0.1");
 		for (const auto &tgt : hostips)
 		{
@@ -623,7 +582,7 @@ int maint_job()
 				break;
 		}
 	}
-	if(!response_ok)
+	if (!response_ok)
 	{
 		cerr << "Could not make a valid request to the server. Please visit "
 				<< url.ToURI(false) << " and check special conditions." <<endl;
@@ -632,10 +591,10 @@ int maint_job()
 	return EXIT_SUCCESS;
 }
 
-int patch_file(string sBase, string sPatch, string sResult)
+int patch_file(tCsDeq& args)
 {
 	filereader frBase, frPatch;
-	if(!frBase.OpenFile(sBase, true) || !frPatch.OpenFile(sPatch, true))
+	if(!frBase.OpenFile(args.front(), true) || !frPatch.OpenFile(args[1], true))
 		return -2;
 	auto buf = frBase.GetBuffer();
 	auto size = frBase.GetSize();
@@ -663,7 +622,7 @@ int patch_file(string sBase, string sPatch, string sResult)
 	size_t patchCmdLen = 0;
 	for (auto p = pbuf; p < pbuf + psize;)
 	{
-#warning analyze null warning
+#warning FIXME: analyze null warning above, and the p assignment is just wrong
 		// accumulate lines until chunk is consumed
 		LPCSTR crNext = strchr(p, '\n');
 		size_t len = 0;
@@ -678,7 +637,7 @@ int patch_file(string sBase, string sPatch, string sResult)
 			len = pbuf + psize - p;
 			p = pbuf + psize + 1; // break signal, actually
 		}
-		p=crNext+1;
+		p = crNext+1;
 
 		bool hunkOK = (len == 2 && *line == '.');
 		if(!hunkOK)
@@ -699,7 +658,6 @@ int patch_file(string sBase, string sPatch, string sResult)
 
 				patchCmdLen = len;
 				patchCmd = line;
-
 				if(len>2 && line[len-2] == 'd')
 					hunkOK = true; // no terminator to expect
 			}
@@ -719,332 +677,168 @@ int patch_file(string sBase, string sPatch, string sResult)
 			patchCmdLen = 0;
 		}
 	}
-	ofstream res(sResult.c_str());
+	ofstream res(args.back());
 	if(!res.is_open())
 		return -3;
-
 	for(const auto& kv : lines)
 		res.write(kv.data(), kv.size());
 	res.flush();
-//	dump_proc_status_always();
 	return res.good() ? 0 : -4;
 }
-
-
-struct parm {
-	unsigned minArg, maxArg; // if maxArg is UINT_MAX, there will be a final call with NULL argument
-	std::function<void(LPCSTR)> f;
-};
-
-// some globals shared across the functions
-int g_exitCode(0);
-LPCSTR g_missingCfgDir = nullptr;
-
-void parse_options(int argc, const char **argv, function<void (LPCSTR)> f)
-{
-	LPCSTR szCfgDir=CFGDIR;
-	std::vector<LPCSTR> validargs, nonoptions;
-	bool ignoreCfgErrors = false;
-
-	for (auto p=argv; p<argv+argc; p++)
-	{
-		if (!strncmp(*p, "-h", 2))
-			usage();
-		else if (!strcmp(*p, "-c"))
-		{
-			++p;
-			if (p < argv + argc)
-				szCfgDir = *p;
-			else
-				usage(2);
-		}
-		else if(!strcmp(*p, "--verbose"))
-			g_bVerbose=true;
-		else if(!strcmp(*p, "-i"))
-			ignoreCfgErrors = true;
-		else if(**p) // not empty
-			validargs.emplace_back(*p);
-
-#if SUPPWHASH
-#warning FIXME
-		else if (!strncmp(*p, "-H", 2))
-			exit(hashpwd());
-#endif
-	}
-
-	if(szCfgDir)
-	{
-		Cstat info(szCfgDir);
-		if(!info || !S_ISDIR(info.info().st_mode))
-			g_missingCfgDir = szCfgDir;
-		else
-			cfg::ReadConfigDirectory(szCfgDir, ignoreCfgErrors);
-	}
-
-	tStrVec non_opt_args;
-
-	for(auto& keyval : validargs)
-	{
-		cfg::g_bQuiet = true;
-		if(!cfg::SetOption(keyval, 0))
-			nonoptions.emplace_back(keyval);
-		cfg::g_bQuiet = false;
-	}
-
-	cfg::PostProcConfig();
-
-#ifdef DEBUG
-	log::g_szLogPrefix = "acngtool";
-	log::open();
-#endif
-
-	for(const auto& x: nonoptions)
-		f(x);
-}
-
-
-#if SUPPWHASH
-void ssl_init()
-{
-#ifdef HAVE_SSL
-	SSL_load_error_strings();
-	ERR_load_BIO_strings();
-	ERR_load_crypto_strings();
-	ERR_load_SSL_strings();
-	OpenSSL_add_all_algorithms();
-	SSL_library_init();
-#endif
-}
-#endif
-
-/*
-void assert_cfgdir()
-{
-	if(!g_missingCfgDir)
-		return;
-	cerr << "Failed to open config directory: " << g_missingCfgDir <<endl;
-	exit(EXIT_FAILURE);
-}
-*/
-
-void warn_cfgdir()
-{
-	if (g_missingCfgDir)
-		cerr << "Warning: failed to open config directory: " << g_missingCfgDir <<endl;
-}
-
-std::unordered_map<string, parm> parms = {
-#if 0
-   {
-		"urltest",
-		{ 1, 1, [](LPCSTR p)
-			{
-				std::cout << EncodeBase64Auth(p);
-			}
-		}
-	}
-	,
-#endif
-#if 0
-   {
-		"bin2hex",
-		{ 1, 1, [](LPCSTR p)
-			{
-         filereader f;
-         if(f.OpenFile(p, true))
-            exit(EIO);
-         std::cout << BytesToHexString(f.GetBuffer(), f.GetSize()) << std::endl;
-         exit(EXIT_SUCCESS);
-			}
-		}
-	}
-	,
-#endif
-#if 0 // def HAVE_DECB64
-	{
-     "decb64",
-     { 1, 1, [](LPCSTR p)
-        {
-#ifdef DEBUG
-           cerr << "decoding " << p <<endl;
-#endif
-           acbuf res;
-           if(DecodeBase64(p, strlen(p), res))
-           {
-              std::cout.write(res.rptr(), res.size());
-              exit(0);
-           }
-           exit(1);
-        }
-     }
-  }
-	,
-#endif
-	{
-		"encb64",
-		{ 1, 1, [](LPCSTR p)
-			{
-#ifdef DEBUG
-			cerr << "encoding " << p <<endl;
-#endif
-				std::cout << EncodeBase64Auth(p);
-			}
-		}
-	}
-	,
-		{
-			"cfgdump",
-			{ 0, 0, [](LPCSTR) {
-				warn_cfgdir();
-						     cfg::dump_config(false);
-					     }
-			}
-		}
-	,
-		{
-			"curl",
-			{ 1, UINT_MAX, [](LPCSTR p)
-				{
-					if(!p)
-						return;
-					auto ret=wcat(p, getenv("http_proxy"));
-					if(!g_exitCode)
-						g_exitCode = ret;
-
-				}
-			}
-		},
-		{
-			"retest",
-			{
-				1, 1, [](LPCSTR p)
-				{
-					warn_cfgdir();
-					static auto matcher = make_shared<rex>();
-					std::cout << ReTest(p, *matcher) << std::endl;
-				}
-			}
-		}
-	,
-		{
-			"printvar",
-			{
-				1, 1, [](LPCSTR p)
-				{
-					warn_cfgdir();
-					auto ps(cfg::GetStringPtr(p));
-					if(ps) { cout << *ps << endl; return; }
-					auto pi(cfg::GetIntPtr(p));
-					if(pi) {
-						cout << *pi << endl;
-						return;
-					}
-					g_exitCode=23;
-				}
-			}
-		},
-		{ 
-			"patch",
-			{
-				3, 3, [](LPCSTR p)
-				{
-					static tStrVec iop;
-					iop.emplace_back(p);
-					if(iop.size() == 3)
-						g_exitCode+=patch_file(iop[0], iop[1], iop[2]);
-				}
-			}
-		}
-
-	,
-		{
-			"maint",
-			{
-				0, 0, [](LPCSTR)
-				{
-					warn_cfgdir();
-					g_exitCode+=maint_job();
-				}
-			}
-		}
-   ,
-   {
-		   "shrink",
-		   {
-				   1, UINT_MAX, [](LPCSTR p)
-				   {
-					   static bool dryrun(false), apply(false), verbose(false), incIfiles(false);
-					   static off_t wantedSize(4000000000);
-					   if(!p)
-						   g_exitCode += shrink(wantedSize, dryrun, apply, verbose, incIfiles);
-					   else if(*p > '0' && *p<='9')
-						   wantedSize = strsizeToOfft(p);
-					   else if(*p == '-')
-					   {
-						   for(++p;*p;++p)
-						   {
-							   if(*p == 'f') apply = true;
-							   else if(*p == 'n') dryrun = true;
-							   else if (*p == 'x') incIfiles = true;
-							   else if (*p == 'v') verbose = true;
-						   }
-					   }
-				   }
-		   }
-   }
-};
 
 int main(int argc, const char **argv)
 {
 	using namespace acng;
 
-	string exe(argv[0]);
-	unsigned aOffset=1;
-	if(endsWithSzAr(exe, "expire-caller.pl"))
-	{
-		aOffset=0;
-		argv[0] = "maint";
-	}
-	cfg::g_bQuiet = false;
 	cfg::g_bNoComplex = true; // no DB for just single variables
 	cfg::minilog = true;	// no fancy timestamps and only STDERR output
+	log::g_szLogPrefix = "acngtool";
 	GetComStack();			// init the event base
 
-	parm* parm = nullptr;
-	LPCSTR mode = nullptr;
-	unsigned xargCount = 0;
+	// maybe preset for the legacy mode
+	LPCSTR mode = (string_view(argv[0]).ends_with("expire-caller.pl") ? "maint" : nullptr),
+			szCfgDir = nullptr;
+	LPCSTR *posMode(nullptr);
+	tCsDeq xargs;
+	bool wantCfgDir = false, ignoreCfgErrors = false, subHelp = false;
 
-	parse_options(argc-aOffset, argv+aOffset, [&](LPCSTR p)
+	auto warn_cfgdir = [&]()
 	{
-		bool bFirst = false;
-		if(!mode)
-			bFirst = (0 != (mode = p));
-		else
-			xargCount++;
-		if(!parm)
+		if (!szCfgDir || access(szCfgDir, R_OK|X_OK))
 		{
-			auto it = parms.find(mode);
-			if(it == parms.end())
-				usage(1);
-			parm = & it->second;
+			cerr << "Warning: unknown or inaccessible config directory "
+				 << (szCfgDir ? szCfgDir : "\n")
+				 << endl;
 		}
-		if(xargCount > parm->maxArg)
-			usage(2);
-		if(!bFirst)
-			parm->f(p);
-	});
-	if(!mode || !parm)
-		usage(3);
-
-	if(!xargCount) // should run the code at least once?
+	};
+	const char **argFirst = argv+1, **argEnd = argv+argc;
+	// pick and process early/urgent options
+	for (auto p = argFirst; p < argEnd; ++p)
 	{
-		if(parm->minArg) // uh... needs argument(s)
-			usage(4, mode);
-		parm->f(nullptr);
+		if (wantCfgDir)
+		{
+			wantCfgDir = false;
+			szCfgDir = *p;
+		}
+		else if (!strcmp(*p, "-c"))
+			wantCfgDir = true;
+		else if(!strcmp(*p, "-i"))
+			ignoreCfgErrors = true;
+		else
+			continue;
+		// blank it, it was consumed
+		*p = nullptr;
 	}
-	else if(parm->maxArg == UINT_MAX) // or needs to terminate it?
-		parm->f(nullptr);
-	return g_exitCode;
+
+	if (wantCfgDir)
+		fin(2, "-c requires a valid configuration directory");
+	if (szCfgDir)
+		cfg::ReadConfigDirectory(szCfgDir, !ignoreCfgErrors);
+
+	// apply global options, collect mode name and its options
+	cfg::g_bQuiet = true;
+	for (auto p = argFirst; p < argEnd; ++p)
+	{
+		if (!*p || !**p)
+			continue;
+		if (!strncmp(*p, "-h", 2))
+		{
+			if (!posMode ||  p < posMode)
+				fin(0, szHelp);
+			subHelp = true;
+		}
+		else if (cfg::SetOption(*p, nullptr))
+			continue;
+		else if (!mode)
+		{
+			mode = *p;
+			posMode = p;
+		}
+		else
+			xargs.emplace_back(*p);
+	}
+	cfg::g_bQuiet = false;
+
+	if (!mode)
+		return fin(1, szHelp);
+
+#define MODE(x) (strcmp(x, mode) == 0)
+#define NA 42
+#define CHECKARGS(n, m, mode, shelp) if (subHelp) fin(4, shelp); \
+	if (m != NA && int(xargs.size()) < n) fin(3, "Insufficient options for command " mode); \
+	if (m != NA && xargs.size() > m) fin(3, "Too many options for command " mode);
+
+	if (MODE("maint"))
+	{
+		CHECKARGS(0, 1, "maint", szHelpMaint);
+		warn_cfgdir();
+		return do_maint_job(xargs);
+	}
+	if (MODE("shrink"))
+	{
+		CHECKARGS(1, NA, "shrink", szHelpShrink);
+		return do_shrink(xargs);
+	}
+	if (MODE("patch"))
+	{
+		CHECKARGS(3, 3, "patch", "USAGE: ... shrink baseFile patchFile outFile"sv);
+		return patch_file(xargs);
+	}
+	if (MODE("printvar"))
+	{
+		CHECKARGS(1, 1, "printvar", "USAGE: ... config-variable-name");
+		warn_cfgdir();
+		auto ps(cfg::GetStringPtr(xargs.front()));
+		if(ps)
+		{
+			cout << *ps << endl;
+			return 0;
+		}
+		else
+		{
+			auto pi(cfg::GetIntPtr(xargs.front()));
+			if(pi)
+			{
+				cout << *pi << endl;
+				return 0;
+			}
+		}
+		return 42;
+	}
+	if (MODE("retest"))
+	{
+		CHECKARGS(1, 1, "retest", "USAGE: ... retest regular-expression\nNOTE: mind the shell expansion and escaping rules!"sv);
+		warn_cfgdir();
+		static auto matcher = make_shared<rex>();
+		std::cout << ReTest(xargs.front(), *matcher) << std::endl;
+		return 0;
+	}
+	if (MODE("curl"))
+	{
+		CHECKARGS(1, UINT_MAX, "curl", "USAGE: ... curl URLs..."sv);
+		warn_cfgdir();
+		int ret(0);
+		for(auto p: xargs)
+		{
+			auto r = wcat(p, getenv("http_proxy"));
+			ret = ret ? ret : r;
+		}
+		return ret;
+	}
+	if (MODE("cfgdump"))
+	{
+		warn_cfgdir();
+		cfg::dump_config(false);
+		return 0;
+	}
+	if (MODE("encb64"))
+	{
+		CHECKARGS(1, 1, "encb64", "USAGE: ... encb64 random-string"sv);
+		std::cout << EncodeBase64Auth(xargs.front());
+		return 0;
+	}
+	cerr << endl << "Unknown command: " << mode << endl;
+	return fin(1, szHelp);
 }
 
 int wcat(LPCSTR surl, LPCSTR proxy)
@@ -1081,146 +875,3 @@ int wcat(LPCSTR surl, LPCSTR proxy)
 		return EACCES;
 	return EXIT_FAILURE;
 }
-
-#if 0
-
-void do_stuff_before_config()
-{
-	LPCSTR envvar(nullptr);
-
-	cerr << "Pandora: " << sizeof(regex_t) << endl;
-	/*
-	// PLAYGROUND
-	if (argc < 2)
-		return -1;
-
-	acng::cfg:tHostInfo hi;
-	cout << "Parsing " << argv[1] << ", result: " << hi.SetUrl(argv[1]) << endl;
-	cout << "Host: " << hi.sHost << ", Port: " << hi.sPort << ", Path: "
-			<< hi.sPath << endl;
-	return 0;
-
-	bool Bz2compressFile(const char *, const char*);
-	return !Bz2compressFile(argv[1], argv[2]);
-
-	char tbuf[40];
-	FormatCurrentTime(tbuf);
-	std::cerr << tbuf << std::endl;
-	exit(1);
-	*/
-	envvar = getenv("PARSEIDX");
-	if (envvar)
-	{
-		int parseidx_demo(LPCSTR);
-		exit(parseidx_demo(envvar));
-	}
-
-	envvar = getenv("GETSUM");
-	if (envvar)
-	{
-		uint8_t csum[20];
-		string s(envvar);
-		off_t resSize;
-		bool ok = filereader::GetChecksum(s, CSTYPE_SHA1, csum, false, resSize /*, stdout*/);
-		if(!ok)
-		{
-			perror("");
-			exit(1);
-		}
-		for (unsigned i = 0; i < sizeof(csum); i++)
-			printf("%02x", csum[i]);
-		printf("\n");
-		envvar = getenv("REFSUM");
-		if (ok && envvar)
-		{
-			if(CsEqual(envvar, csum, sizeof(csum)))
-			{
-				printf("IsOK\n");
-				exit(0);
-			}
-			else
-			{
-				printf("Diff\n");
-				exit(1);
-			}
-		}
-		exit(0);
-	}
-}
-
-#endif
-#if 0
-#warning line reader test enabled
-	if (cmd == "wcl")
-	{
-		if (argc < 3)
-			usage(2);
-		filereader r;
-		if (!r.OpenFile(argv[2], true))
-		{
-			cerr << r.getSErrorString() << endl;
-			return EXIT_FAILURE;
-		}
-		size_t count = 0;
-		auto p = r.GetBuffer();
-		auto e = p + r.GetSize();
-		for (;p < e; ++p)
-			count += (*p == '\n');
-		cout << count << endl;
-
-		exit(EXIT_SUCCESS);
-	}
-#endif
-#if 0
-#warning header parser enabled
-	if (cmd == "htest")
-	{
-		header h;
-		h.LoadFromFile(argv[2]);
-		cout << string(h.ToString()) << endl;
-
-		h.clear();
-		filereader r;
-		r.OpenFile(argv[2]);
-		std::vector<std::pair<std::string, std::string>> oh;
-		h.Load(r.GetBuffer(), r.GetSize(), &oh);
-		for(auto& r : oh)
-			cout << "X:" << r.first << " to " << r.second;
-		exit(0);
-	}
-#endif
-#if 0
-#warning benchmark enabled
-	if (cmd == "benchmark")
-	{
-		dump_proc_status_always();
-		cfg::g_bQuiet = true;
-		cfg::g_bNoComplex = false;
-		parse_options(argc - 2, argv + 2, true);
-		cfg::PostProcConfig();
-		string s;
-		tHttpUrl u;
-		int res=0;
-/*
-		acng::cfg:tRepoResolvResult hm;
-		tHttpUrl wtf;
-		wtf.SetHttpUrl(non_opt_args.front());
-		acng::cfg:GetRepNameAndPathResidual(wtf, hm);
-*/
-		while(cin)
-		{
-			std::getline(cin, s);
-			s += "/xtest.deb";
-			if(u.SetHttpUrl(s))
-			{
-				cfg::tRepoResolvResult xdata;
-				cfg::GetRepNameAndPathResidual(u, xdata);
-				cout << s << " -> "
-						<< (xdata.psRepoName ? "matched" : "not matched")
-						<< endl;
-			}
-		}
-		dump_proc_status_always();
-		exit(res);
-	}
-#endif

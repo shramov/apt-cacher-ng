@@ -38,6 +38,7 @@ apt-cacher-ng (3.99-pre-alpha-0) 4-ELIZA; urgency=low
    * Add metadata.ftp-master.debian.org to the default CONNECT ACL
      Debian bug #1002987. Also move the default definition to the others,
      a usecase for delayed processing has never emerged.
+   * -f option to "acngtool maint" to enforce exec1ution
 
   [ INTERNAL IMPROVEMENTS AND BUGFIXES ]
 
