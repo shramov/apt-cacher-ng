@@ -73,7 +73,7 @@ bool pkgimport::ProcessRegular(const mstring &sPath, const struct stat &stinfo)
 		if(m_precachedList.find(sPath)!=m_precachedList.end())
 			return true; // have that already, somewhere...
 		
-		for (CSTYPES ctp : { CSTYPE_MD5, CSTYPE_SHA1, CSTYPE_SHA512 } )
+		for (CSTYPES ctp : { CSTYPE_MD5, CSTYPE_SHA1, CSTYPE_SHA256, CSTYPE_SHA512 } )
 		{
 
 			// get the most likely requested contents id
