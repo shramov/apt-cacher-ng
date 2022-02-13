@@ -1687,8 +1687,9 @@ bool cacheman::ParseAndProcessMetaFile(std::function<void(const tRemoteFileInfo&
 
 	// some common variables
 	mstring sLine, key, val;
-	tRemoteFileInfo info;
+	tRemoteFileInfo info, info2;
 	info.SetInvalid();
+        info2.SetInvalid();
 	tStrVec vsMetrics;
 	string sStartMark;
 
@@ -1700,7 +1701,7 @@ bool cacheman::ParseAndProcessMetaFile(std::function<void(const tRemoteFileInfo&
 	{
 	case EIDX_PACKAGES:
 		LOG("filetype: Packages file");
-		static const string sMD5sum("MD5sum"), sFilename("Filename"), sSize("Size");
+		static const string sMD5sum("MD5sum"), sSHA256sum("SHA256"), sFilename("Filename"), sSize("Size");
 
 		UrlUnescape(sPkgBaseDir);
 
@@ -1714,9 +1715,13 @@ bool cacheman::ParseAndProcessMetaFile(std::function<void(const tRemoteFileInfo&
 
 			if (sLine.empty())
 			{
-				if(info.IsUsable())
+				if(info.IsUsable()) {
 					ret(info);
+                                } else if(info2.IsUsable()) {
+                                    ret(info2);
+                                }
 				info.SetInvalid();
+                                info2.SetInvalid();
 
 				if(CheckStopSignal())
 					return true; // XXX: should be rechecked by the caller ASAP!
@@ -1728,8 +1733,10 @@ bool cacheman::ParseAndProcessMetaFile(std::function<void(const tRemoteFileInfo&
 				// not looking for data we already have
 				if(key==sMD5sum)
 					info.fpr.SetCs(val, CSTYPE_MD5);
+                                else if(key==sSHA256sum)
+                                        info2.fpr.SetCs(val, CSTYPE_SHA256);
 				else if(key==sSize)
-					info.fpr.size=atoofft(val.c_str());
+					info.fpr.size=info2.fpr.size=atoofft(val.c_str());
 				else if(key==sFilename)
 				{
 					UrlUnescape(val);
@@ -1742,6 +1749,8 @@ bool cacheman::ParseAndProcessMetaFile(std::function<void(const tRemoteFileInfo&
 						info.sFileName=val.substr(pos+1);
 						info.sDirectory.append(val, 0, pos+1);
 					}
+                                        info2.sFileName=info.sFileName;
+                                        info2.sDirectory=info.sDirectory;
 				}
 			}
 		}
