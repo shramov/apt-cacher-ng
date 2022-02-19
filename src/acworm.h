@@ -20,8 +20,8 @@ class acworm
 public:
 	acworm();
 	~acworm();
-	string_view Add(string_view src);
-
+	string_view Add(string_view src) { return Add(src.data(), src.size()); }
+	string_view Add(LPCSTR src, size_t len);
 };
 
 }

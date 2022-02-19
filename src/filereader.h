@@ -53,6 +53,8 @@ public:
 		return m_sErrorString;
 	}
 
+	bool IsCompressed() { return m_Dec.get(); }
+
 private:
 
 	bool m_bError, m_bEof;

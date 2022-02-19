@@ -204,7 +204,7 @@ protected:
 	 * @param semiRawHeader The incoming processing header which was already partly processed for the remaining parameters
 	 * @return true when accepted
 	 */
-	virtual bool DlStarted(evbuffer* rawData, std::size_t headerLen, const tHttpDate& modDate, cmstring& origin, tRemoteStatus status, off_t bytes2seek, off_t bytesAnnounced);
+	virtual bool DlStarted(evbuffer* rawData, std::size_t headerLen, const tHttpDate& modDate, string_view origin, tRemoteStatus status, off_t bytes2seek, off_t bytesAnnounced);
 	/**
 	* @return false to abort processing (report error)
 	*

@@ -79,7 +79,8 @@ struct tContentKey
 	}
 	bool valid() const { return fpr.csType != CSTYPES::CSTYPE_INVALID; }
 };
-struct tFileGroup {
+struct tFileGroup
+{
 	// the list shall be finally sorted by compression type (most favorable first)
 	// and among the same type by modification date so the newest appears on top which
 	// should be the most appropriate for patching
@@ -90,6 +91,7 @@ struct tFileGroup {
 	bool isReferenced = false;
 #endif
 };
+
 class tFileGroups : public std::map<tContentKey, tFileGroup> {};
 cmstring& cacheman::GetFirstPresentPath(const tFileGroups& groups, const tContentKey& ckey)
 {
@@ -148,7 +150,7 @@ bool cacheman::AddIFileCandidate(const string &sPathRel)
 	if ( (rex::FILE_VOLATILE == m_parms.res.GetMatchers().GetFiletype(sPathRel)
 	// SUSE stuff, not volatile but also contains file index data
 	|| endsWithSzAr(sPathRel, ".xml.gz") )
-	&& (t=GuessMetaTypeFromURL(sPathRel)))
+	&& (t = GuessMetaTypeFromURL(sPathRel)))
  	{
 		tIfileAttribs & atts=m_metaFilesRel[sPathRel];
  		atts.vfile_ondisk=true;
@@ -161,8 +163,8 @@ bool cacheman::AddIFileCandidate(const string &sPathRel)
 // defensive getter/setter methods, don't create non-existing entries
 const cacheman::tIfileAttribs & cacheman::GetFlags(cmstring &sPathRel) const
 {
-	auto it=m_metaFilesRel.find(sPathRel);
-	if(m_metaFilesRel.end()==it)
+	auto it = m_metaFilesRel.find(sPathRel);
+	if(m_metaFilesRel.end() == it)
 		return attr_dummy_pure;
 	return it->second;
 }
@@ -175,7 +177,7 @@ cacheman::tIfileAttribs &cacheman::SetFlags(cmstring &sPathRel)
 cacheman::tIfileAttribs & cacheman::GetRWFlags(cmstring &sPathRel)
 {
 	auto it=m_metaFilesRel.find(sPathRel);
-	if(m_metaFilesRel.end()==it)
+	if(m_metaFilesRel.end() == it)
 		return const_cast<cacheman::tIfileAttribs&>(attr_dummy_pure);
 	return it->second;
 }
@@ -889,7 +891,7 @@ tFingerprint * BuildPatchList(string sFilePathAbs, deque<tPatchEntry> &retList)
  * TODO: optionally fetch HEAD from remote and use the date from there if the size is matching.
  */
 bool cacheman::Inject(cmstring &fromRel, cmstring &toRel,
-		bool bSetIfileFlags, off_t contLen, tHttpDate lastModified, cmstring & forceOrig)
+		bool bSetIfileFlags, off_t contLen, tHttpDate lastModified, string_view forceOrig)
 {
 	LOGSTARTFUNCx(fromRel, toRel, bSetIfileFlags, contLen, lastModified.value(0), forceOrig);
 
@@ -1220,9 +1222,9 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 	unsigned injected = 0;
 
 	auto need_update = std::find_if(siblings.begin(), siblings.end(), [&](cmstring& pb) {
-		const auto& fl = GetFlags(pb);
-		return fl.vfile_ondisk && !fl.parseignore && !fl.uptodate;
-	});
+					   const auto& fl = GetFlags(pb);
+					   return fl.vfile_ondisk && !fl.parseignore && !fl.uptodate;
+});
 
 	if(need_update == siblings.end())
 		return -1;
@@ -1240,8 +1242,8 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 		return PATCH_FAIL;
 
 	tFingerprint probeStateWanted, // the target data
-	probe, // temp scan object
-	probeOrig; // appropriate patch base stuff
+			probe, // temp scan object
+			probeOrig; // appropriate patch base stuff
 
 	if(!probeStateWanted.Set(tSplitWalk(sStateCurrent.front()), CSTYPE_SHA256))
 		return PATCH_FAIL;
@@ -1261,7 +1263,7 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 
 	// returns true if a new patched file was created
 	auto tryPatch = [&]() -> int
-			{
+	{
 		// XXX: use smarter line matching or regex
 		auto probeCS = probeOrig.GetCsAsString();
 		auto probeSize = offttos(probeOrig.size);
@@ -1288,6 +1290,7 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 				return PATCH_FAIL;
 			if (pname.empty())
 				return PATCH_FAIL;
+			break;
 		}
 
 		if (pname.empty())
@@ -1308,9 +1311,9 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 		// ok, so we started collecting patches...
 
 		string patchPathRel(pindexPathRel.substr(0, pindexPathRel.size()-5) +
-				pname + ".gz");
+							pname + ".gz");
 		if(eDlResult::OK != Download(patchPathRel, false, eDlMsgPrio::HIDE_ERR,
-				nullptr, DL_HINT_NOTAG, &pindexPathRel))
+									 nullptr, DL_HINT_NOTAG, &pindexPathRel))
 		{
 			return PATCH_FAIL;
 		}
@@ -1341,9 +1344,9 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 			}
 			checkForceFclose(pf.m_p);
 
-	#ifndef DEBUGIDX
+#ifndef DEBUGIDX
 			if(m_bVerbose)
-	#endif
+#endif
 				Send("Patching...<br>");
 
 			tSS cmd;
@@ -1352,7 +1355,7 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 			if(!cfg::suppdir.empty() && 0==access(act.c_str(), X_OK))
 			{
 				cmd << "'" << act
-						<< "' patch " PATCH_BASE_NAME " " PATCH_COMBINED_NAME " " PATCH_RESULT_NAME;
+					<< "' patch " PATCH_BASE_NAME " " PATCH_COMBINED_NAME " " PATCH_RESULT_NAME;
 			}
 			else
 			{
@@ -1360,6 +1363,9 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 			}
 
 			auto szCmd = cmd.c_str();
+#ifdef UNDER_TEST
+			cerr << cmd.view() << endl;
+#endif
 			if (::system(szCmd))
 			{
 				MTLOGASSERT(false, "Command failed: " << cmd);
@@ -1378,9 +1384,9 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 				return PATCH_FAIL;
 			}
 			return 0;
-			};
+		};
 		return PATCH_FAIL;
-			};
+	};
 	// start with uncompressed type, xz, bz2, gz, lzma
 	for(auto itype : { -1, 0, 1, 2, 3})
 	{
@@ -1400,7 +1406,7 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 				return PATCH_FAIL;
 			}
 			if(!probeOrig.ScanFile(SABSPATH(pb),
-					CSTYPE_SHA256, true, df.get()))
+								   CSTYPE_SHA256, true, df.get()))
 			{
 				continue;
 			}
@@ -1418,16 +1424,16 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 			// install to one of uncompressed locations, let SyncSiblings handle the rest
 			for(auto& path: siblings)
 			{
-                // if possible, try to reconstruct reliable download source information
-                header h;
-				if(h.LoadFromFile(SABSPATH(pindexPathRel)+".head")
-						&& h.h[header::XORIG])
+				// if possible, try to reconstruct reliable download source information
+				header h;
+				if(h.LoadFromFile(SABSPATH(pindexPathRel) + ".head")
+				   && h.h[header::XORIG])
 				{
 					auto len = strlen(h.h[header::XORIG]);
 					if(len < diffIdxSfx.length())
-                        return PATCH_FAIL; // heh?
-                    h.h[header::XORIG][len-diffIdxSfx.length()] = 0;
-				}                
+						return PATCH_FAIL; // heh?
+					h.h[header::XORIG][len-diffIdxSfx.length()] = 0;
+				}
 
 				if(m_bVerbose)
 					SendFmt << "Installing as " << path << ", state: " << (string) probeStateWanted << hendl;
@@ -1439,10 +1445,10 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 				 * (only by-hash variants which are different story).
 				 */
 				if(FindCompIdx(path) < 0
-						&& Inject(sPatchResultRel, path, true,
-								  probeStateWanted.size,
-								  tHttpDate(1),
-								  h.h[header::XORIG]))
+				   && Inject(sPatchResultRel, path, true,
+							 probeStateWanted.size,
+							 tHttpDate(1),
+							 h.get(header::XORIG, se)))
 				{
 					SyncSiblings(path, siblings);
 					injected++;

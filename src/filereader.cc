@@ -245,9 +245,9 @@ filereader::filereader()
 {
 };
 
-bool filereader::OpenFile(const string & sFilename, bool bNoMagic, unsigned nFakeTrailingNewlines)
+bool filereader::OpenFile(const string & sFilename, bool bNoCompression, unsigned nFakeTrailingNewlines)
 {
-	LOGSTARTFUNCx(sFilename, bNoMagic, nFakeTrailingNewlines);
+	LOGSTARTFUNCx(sFilename, bNoCompression, nFakeTrailingNewlines);
 	Close(); // reset to clean state
 	m_nEofLines=nFakeTrailingNewlines;
 
@@ -259,11 +259,11 @@ bool filereader::OpenFile(const string & sFilename, bool bNoMagic, unsigned nFak
 
 	if (m_fd < 0)
 	{
-		m_sErrorString=tErrnoFmter();
+		m_sErrorString = tErrnoFmter();
 		return false;
 	}
 
-	if (bNoMagic)
+	if (bNoCompression)
 		m_Dec.reset();
 #ifdef HAVE_LIBBZ2
 	else if (endsWithSzAr(sFilename, ".bz2"))
@@ -324,7 +324,7 @@ bool filereader::OpenFile(const string & sFilename, bool bNoMagic, unsigned nFak
 	if(uint64_t(statbuf.size()) > MAX_VAL(size_t))
     {
         errno=EFBIG;
-        m_sErrorString=tErrnoFmter();
+		m_sErrorString = tErrnoFmter();
         return false;
     }
 	
@@ -333,7 +333,7 @@ bool filereader::OpenFile(const string & sFilename, bool bNoMagic, unsigned nFak
 		m_szFileBuf = (char*) mmap(0, statbuf.size(), PROT_READ, MAP_SHARED, m_fd, 0);
 		if(m_szFileBuf==MAP_FAILED)
 		{
-				m_sErrorString=tErrnoFmter();
+				m_sErrorString = tErrnoFmter();
 				return false;
 		}
 		m_nBufSize = statbuf.size();
@@ -341,7 +341,7 @@ bool filereader::OpenFile(const string & sFilename, bool bNoMagic, unsigned nFak
 	else if(m_Dec.get())
 	{
 		// compressed file but empty -> error
-		m_sErrorString="Truncated compressed file";
+		m_sErrorString = "Truncated compressed file"sv;
 		return false;
 	}
 	else
@@ -367,8 +367,8 @@ bool filereader::OpenFile(const string & sFilename, bool bNoMagic, unsigned nFak
 	}
 #endif
 
-	m_nBufPos=0;
-	m_nCurLine=0;
+	m_nBufPos = 0;
+	m_nCurLine = 0;
 	m_bError = m_bEof = false;
 
 #ifdef SIGBUSHUNTING

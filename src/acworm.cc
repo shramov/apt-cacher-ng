@@ -21,22 +21,22 @@ struct acworm::Xdata
 		cursor = 0;
 	}
 
-	string_view Add(string_view src)
+	string_view Add(LPCSTR src, size_t len)
 	{
 		if (data.empty())
-			Expand(std::max(src.size(), (size_t) START_SIZE));
-		if (src.length() > data.back().size() - cursor)
+			Expand(std::max(len, (size_t) START_SIZE));
+		if (len > data.back().size() - cursor)
 		{
 			auto newlen = data.back().size()*2;
 			if (newlen > MAX_SIZE)
 				newlen = MAX_SIZE;
-			if (src.length() > newlen)
-				newlen = src.length();
+			if (len > newlen)
+				newlen = len;
 			Expand(newlen);
 		}
-		memcpy(& data.back()[cursor], src.data(), src.size());
-		string_view ret(& data.back()[cursor], src.size());
-		cursor += src.size();
+		memcpy(& data.back()[cursor], src, len);
+		string_view ret(& data.back()[cursor], len);
+		cursor += len;
 		return ret;
 	}
 
@@ -52,9 +52,9 @@ acworm::~acworm()
 	delete m_pImpl;
 }
 
-string_view acworm::Add(string_view src)
+string_view acworm::Add(LPCSTR src, size_t len)
 {
-	return m_pImpl->Add(src);
+	return m_pImpl->Add(src, len);
 }
 
 

@@ -160,7 +160,7 @@ SUTPROTECTED:
 	struct TDownloadState;
 	TDownloadContext* m_dlCtx = nullptr;
 	TDownloadContext* GetDlRes();
-	eDlResult Download(cmstring& sFilePathRel, bool bIsVolatileFile,
+	virtual eDlResult Download(cmstring& sFilePathRel, bool bIsVolatileFile,
 			eDlMsgPrio msgLevel,
 			const tHttpUrl *pForcedURL=nullptr, unsigned hints=0, cmstring* sGuessedFrom = nullptr, bool bForceReDownload = false);
 
@@ -184,7 +184,7 @@ SUTPROTECTED:
 			const mstring &sPath, enumMetaType idxType, bool byHashMode = false);
 
 	bool GetAndCheckHead(cmstring & sHeadfile, cmstring &sFilePathRel, off_t nWantedSize);
-	virtual bool Inject(cmstring &fromRel, cmstring &toRel, bool bSetIfileFlags, off_t contLen, tHttpDate lastModified, cmstring& forceOrig);
+	virtual bool Inject(cmstring &fromRel, cmstring &toRel, bool bSetIfileFlags, off_t contLen, tHttpDate lastModified, string_view forceOrig);
 
 	void PrintStats(cmstring &title);
 

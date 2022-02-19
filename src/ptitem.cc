@@ -76,7 +76,7 @@ ssize_t tPassThroughFitem::DlConsumeData(evbuffer *chunk, size_t maxTake)
 }
 
 bool tPassThroughFitem::DlStarted(evbuffer *rawData, size_t headerLen, const tHttpDate &,
-								  cmstring &origin, tRemoteStatus status, off_t seekPos,
+								  string_view origin, tRemoteStatus status, off_t seekPos,
 								  off_t bytesAnnounced)
 {
 	//bool tPassThroughFitem::DlStarted(string_view rawHeader, const tHttpDate &, cmstring &origin, tRemoteStatus status, off_t seekPos, off_t bytesAnnounced)

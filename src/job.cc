@@ -130,10 +130,7 @@ void job::Prepare(const header &h, bufferevent* be, cmstring& callerHostname, ac
 	fileitem::FiStatus fistate(fileitem::FIST_FRESH);
 	bool bPtMode(false);
 
-	if (h.h[header::XFORWARDEDFOR])
-	{
-		m_xff = h.h[header::XFORWARDEDFOR];
-	}
+	m_xff = h.get(header::XFORWARDEDFOR, se);
 
 	// some macros, to avoid goto style
 	auto report_400 = [this]()

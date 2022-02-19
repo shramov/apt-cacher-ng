@@ -11,20 +11,22 @@ using namespace acng;
 #define TEST_DIR "_tmp/"
 #define IPATH TEST_DIR "Index"
 
-#warning restore this when Download() code was fixed. Will require a backgrounded IO loop.
-#if 0
-struct testman : public cacheman
+#if 1
+struct cachemanHandler : public cacheman
 {
-testman(tRunParms&& p) : cacheman(std::move(p)) {}
+cachemanHandler(tRunParms&& p) : cacheman(std::move(p)) {}
 bool ProcessRegular(const std::string &, const struct stat &) override {return true;}
 bool ProcessOthers(const std::string &, const struct stat &) override {return true;}
 bool ProcessDirAfter(const std::string &, const struct stat &) override {return true;}
 protected:
 	virtual void Action() override {}
-	virtual eDlResult Download(cmstring& sFilePathRel, bool bIsVolatileFile,
-			eDlMsgPrio msgLevel,
-			const tHttpUrl *pForcedURL=nullptr, unsigned hints=0, cmstring* sGuessedFrom = nullptr, bool replace = false)
-	override {
+
+// cacheman interface
+public:
+	eDlResult Download(cmstring &sFilePathRel, bool bIsVolatileFile, eDlMsgPrio msgLevel,
+					   const tHttpUrl *pForcedURL, unsigned hints, cmstring *sGuessedFrom,
+					   bool bForceReDownload) override
+	{
 		auto exBeg = mstring(TEST_DIR "T-20");
 		auto beg = sFilePathRel.substr(0,  exBeg.size());
 		EXPECT_EQ(beg, exBeg);
@@ -37,13 +39,25 @@ protected:
 		EXPECT_EQ(0, dled);
 		return dled == 0 ? eDlResult::OK : eDlResult::FAIL_REMOTE;
 	}
-#if 0
-	virtual bool Inject(cmstring &fromRel, cmstring &toRel, bool bSetIfileFlags,
-			const header *pForcedHeader, bool bTryLink)	override
+	bool Inject(cmstring &, cmstring &, bool , off_t , tHttpDate , string_view) override
 	{
 		return true;
 	}
-#endif
+};
+
+class TestPtItem : public IMaintJobItem
+{
+public:
+	TestPtItem(std::unique_ptr<mainthandler> &&han)
+		: IMaintJobItem(std::move(han), this) {}
+
+	std::unique_ptr<ICacheDataSender> GetCacheSender() override
+	{
+		return std::unique_ptr<ICacheDataSender>();
+	}
+	void Send(evbuffer *) override {};
+	void Send(string_view) override {};
+	void Eof() override {};
 };
 
 std::string curDir()
@@ -55,6 +69,10 @@ std::string curDir()
 
 TEST(cacheman, pdiff)
 {
+	using namespace acng;
+	using namespace std;
+
+#if 0
 	struct tConnStuff : public IConnBase
 	{
 	public:
@@ -81,15 +99,27 @@ TEST(cacheman, pdiff)
 		}
 
 	} connStuff;
+#endif
 
-	tSpecialRequest::tRunParms opts
+	auto res = acres::Create();
+	unique_ptr<mainthandler> handler;
+	lint_ptr<IMaintJobItem> item;
+
+	mainthandler::tRunParms opts
 	{
-		-1,
-		ESpecialWorkType::workSTYLESHEET,
-		"?noop",
-		&connStuff
+		EWorkType::STYLESHEET,
+				"?noop",
+				-1,
+				nullptr,
+				nullptr,
+				*res
 	};
-	testman tm(opts);
+
+	auto p = new cachemanHandler(std::move(opts));
+	auto& tm = *p;
+	handler.reset(p);
+	item.reset(new TestPtItem(move(handler)));
+
 	tStrDeq input { "_tmp/base.doesntexist.Packages.xz" };
 	cfg::suppdir = curDir();
 	// those files are not registered, should bounce
@@ -108,7 +138,7 @@ TEST(cacheman, pdiff)
 	auto pbase = cmstring("_tmp/") + s2dago;
 	auto cmd = cmstring("set -xe ; test -e ") + pbase + ".orig || wget $(date -d @" + s2dago
 			+ " +http://snapshot.debian.org/archive/debian/"
-			+ "%Y%m%dT%H%M%SZ/dists/sid/main/binary-amd64/Packages.xz) -O "+ pbase +  ".orig; "
+			+ "%Y%m%dT%H%M%SZ/dists/sid/main/binary-amd64/Packages.xz) -O " + pbase + ".orig; "
 			+ "xzcat " + pbase + ".orig > " + pbase;
 	ASSERT_EQ(0, system(cmd.c_str()));
 	{

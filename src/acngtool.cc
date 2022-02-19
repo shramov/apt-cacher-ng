@@ -1,4 +1,4 @@
-﻿#include "config.h"
+#include "config.h"
 #include "meta.h"
 #include "acfg.h"
 #include "aclogger.h"
@@ -16,6 +16,7 @@
 #include "aevutil.h"
 #include "ebrunner.h"
 #include "rex.h"
+#include "acworm.h"
 
 #include <functional>
 #include <thread>
@@ -48,8 +49,10 @@ using namespace acng;
 using tCsDeq = deque<LPCSTR>;
 
 #define SUICIDE_TIMEOUT 600
+#define CURL_ERROR 1<<5
 
-namespace acng {
+namespace acng
+{
 namespace log
 {
 	extern mstring g_szLogPrefix;
@@ -446,62 +449,6 @@ bool AppendPasswordHash(string &stringWithSalt, LPCSTR plainPass, size_t passLen
 }
 #endif
 
-typedef deque<acng::string_view> tPatchSequence;
-
-// might need to access the last line externally
-unsigned long rangeStart(0), rangeLast(0);
-
-inline bool patchChunk(tPatchSequence& idx, LPCSTR pline, tPatchSequence diffPayload)
-{
-	bool append = false;
-	char *pEnd = nullptr;
-	auto n = strtoul(pline, &pEnd, 10);
-	if (!pEnd || pline == pEnd)
-		return false;
-	rangeStart = n;
-
-	switch (*pEnd)
-	{
-	case ',':
-	{
-		pline = pEnd + 1;
-		n = strtoul(pline, &pEnd, 10);
-		if (!pEnd || pline == pEnd || (*pEnd != 'c' && *pEnd != 'd'))
-			return false;
-		rangeLast = n;
-		break;
-	}
-	case 'a':
-		append = true;
-		__just_fall_through;
-	case 'c':
-	case 'd':
-	{
-		// that is just one line?
-		rangeLast = rangeStart = n;
-		break;
-	}
-	default:
-		return false;
-	}
-
-	if (rangeStart > idx.size() || rangeLast > idx.size() || rangeStart > rangeLast)
-		return false;
-
-	if (append)
-		idx.insert(idx.begin() + (size_t) rangeStart + 1, diffPayload.begin(), diffPayload.end());
-	else
-	{
-		size_t i = 0;
-		for (; i < diffPayload.size() && rangeLast <= rangeStart; ++i, ++rangeStart)
-			idx[rangeStart] = diffPayload[i];
-		if (i < diffPayload.size()) // not enough space :-(
-			idx.insert(idx.begin() + (size_t) rangeStart, diffPayload.begin() + i, diffPayload.end());
-		else if (rangeStart - 1 != rangeLast) // less data now?
-			idx.erase(idx.begin() + (size_t) rangeStart, idx.begin() + (size_t) rangeLast + 1);
-	}
-	return true;
-}
 
 int do_maint_job(tCsDeq& parms)
 {
@@ -591,96 +538,136 @@ int do_maint_job(tCsDeq& parms)
 	return EXIT_SUCCESS;
 }
 
+tSS errorBuffer;
+#define EFMT (errorBuffer.clean() << "ERROR: " )
+
+typedef deque<acng::string_view> tStringViewList;
+
+// sticky, needed in to remember last position in subsequent operations
+unsigned long rangeLast(0), rangeStart(0);
+
+inline void patchChunk(tStringViewList& data, string_view cmd, tStringViewList patch)
+{
+	if (AC_UNLIKELY(cmd.empty() || data.empty()))
+		fin(21, EFMT << "Bad patch command");
+
+	const char& code = cmd.back();
+	bool append = false; // special, paste contents AFTER the line
+
+	switch (code)
+	{
+	case 'a':
+		append = true;
+		__just_fall_through;
+	case 'd':
+	case 'c':
+	{
+		char *pEnd = nullptr;
+		auto n = strtoul(cmd.data(), &pEnd, 10);
+		if (!pEnd || cmd.data() == pEnd)
+			fin(21, EFMT << "bad patch range");
+
+		rangeLast = rangeStart = n;
+
+		if (rangeStart > data.size())
+			fin(21, EFMT << "bad range, start: " << rangeStart);
+
+		if (*pEnd == ',')
+		{
+			n = strtoul(pEnd + 1, &pEnd, 10);
+			// command code should follow after!
+			if (!pEnd || & code != pEnd)
+				fin(21, EFMT << "bad patch range");
+			rangeLast = n;
+			if (rangeLast > data.size() || rangeLast < rangeStart)
+				fin(21, EFMT << "bad range, end: " << rangeLast);
+		}
+		break;
+	}
+	case '/':
+		if (cmd != "s/.//"sv)
+			fin(21, EFMT << "unsupported command: " << cmd);
+		data[rangeStart] = ".\n"sv;
+		return;
+	default:
+		fin(21, EFMT << "Unsupported command: " << cmd);
+		break;
+	}
+
+#define DIT(offs) (data.begin() + offs)
+	if (append)
+		data.insert(DIT(rangeStart + 1), patch.begin(), patch.end());
+	else
+	{
+		// non-moving pasting first
+		size_t offset(0), pcount(patch.size());
+		while(offset < pcount && rangeStart <= rangeLast)
+			*(DIT(rangeStart++)) = patch[offset++];
+		if (offset >= pcount && rangeStart > rangeLast)
+			return;
+		// otherwise extra stuff in new or old range
+		if (offset < pcount)
+			data.insert(DIT(rangeStart), patch.begin() + offset, patch.end());
+		else
+			data.erase(DIT(rangeStart), DIT(rangeLast + 1));
+	}
+}
+
+/**
+ * @brief patch_file
+ * @param args Source path (can be compressed??), patch file (must be not uncompressed)
+ * @return
+ */
 int patch_file(tCsDeq& args)
 {
 	filereader frBase, frPatch;
-	if(!frBase.OpenFile(args.front(), true) || !frPatch.OpenFile(args[1], true))
+	if(!frBase.OpenFile(args.front()) || !frPatch.OpenFile(args[1], true))
 		return -2;
-	auto buf = frBase.GetBuffer();
-	auto size = frBase.GetSize();
-	tPatchSequence lines;
-	lines.emplace_back(buf, 0); // dummy entry to avoid -1 calculations because of ed numbering style
-	for (auto p = buf; p < buf + size;)
+	tStringViewList linesOrig, curHunkLines;
+
+	linesOrig.emplace_back(se); // dummy entry to avoid -1 calculations because of ed numbering style
+
+	tSplitWalkStrict origSplit(frBase.getView(), "\n");
+	for(auto view : origSplit) // collect, including newline!
+		linesOrig.emplace_back(view.data(), view.size() + 1);
+	// if file was ended properly, drop the empty extra line, it contains an inaccessible range anyway
+	if (frBase.getView().ends_with('\n'))
+		linesOrig.pop_back();
+
+	string_view curPatchCmd;
+	tSplitWalkStrict patchSplit(frPatch.getView(), "\n");
+	auto execute = [&]()
 	{
-		LPCSTR crNext = strchr(p, '\n');
-		if (crNext)
-		{
-			lines.emplace_back(p, crNext + 1 - p);
-			p = crNext + 1;
-		}
-		else
-		{
-			lines.emplace_back(p, buf + size - p);
-			break;
-		}
-	}
-
-	auto pbuf = frPatch.GetBuffer();
-	auto psize = frPatch.GetSize();
-	tPatchSequence chunk;
-	LPCSTR patchCmd =0;
-	size_t patchCmdLen = 0;
-	for (auto p = pbuf; p < pbuf + psize;)
+		patchChunk(linesOrig, curPatchCmd, curHunkLines);
+		curHunkLines.clear();
+		curPatchCmd = se;
+	};
+	for(auto line : patchSplit)
 	{
-#warning FIXME: analyze null warning above, and the p assignment is just wrong
-		// accumulate lines until chunk is consumed
-		LPCSTR crNext = strchr(p, '\n');
-		size_t len = 0;
-		LPCSTR line=p;
-		if (crNext)
+		if (!curPatchCmd.empty()) // collecting mode
 		{
-			len = crNext + 1 - p;
-			p = crNext + 1;
-		}
-		else
-		{
-			len = pbuf + psize - p;
-			p = pbuf + psize + 1; // break signal, actually
-		}
-		p = crNext+1;
-
-		bool hunkOK = (len == 2 && *line == '.');
-		if(!hunkOK)
-		{
-			if(!patchCmdLen)
-			{
-				if(!strncmp("s/.//\n", line, 6))
-				{
-					// oh, that's the fix-the-last-line command :-(
-					if(rangeStart)
-					{
-						lines[rangeStart] = ".\n";
-					}
-					continue;
-				}
-				else if(line[0] == 'w')
-					continue; // don't care, we know the target
-
-				patchCmdLen = len;
-				patchCmd = line;
-				if(len>2 && line[len-2] == 'd')
-					hunkOK = true; // no terminator to expect
-			}
+			if (line == "."sv)
+				execute();
 			else
-				chunk.emplace_back(line, len);
+				curHunkLines.emplace_back(line.data(), line.length() + 1); // with \n
+			continue;
 		}
+		// okay, command, which kind?
+		curPatchCmd = line;
 
-		if(hunkOK)
-		{
-			if(!patchChunk(lines, patchCmd, chunk))
-			{
-				cerr << "Bad patch line: ";
-				cerr.write(patchCmd, patchCmdLen);
-				exit(EINVAL);
-			}
-			chunk.clear();
-			patchCmdLen = 0;
-		}
+		if (line.starts_with("w"sv)) // don't care about the name, though
+			break;
+
+		// single-line commands?
+		if (line.ends_with('d') || line.starts_with('s'))
+			execute();
 	}
+
 	ofstream res(args.back());
 	if(!res.is_open())
 		return -3;
-	for(const auto& kv : lines)
+	linesOrig.pop_front(); // dummy offset line
+	for(const auto& kv : linesOrig)
 		res.write(kv.data(), kv.size());
 	res.flush();
 	return res.good() ? 0 : -4;
@@ -819,10 +806,7 @@ int main(int argc, const char **argv)
 		warn_cfgdir();
 		int ret(0);
 		for(auto p: xargs)
-		{
-			auto r = wcat(p, getenv("http_proxy"));
-			ret = ret ? ret : r;
-		}
+			ret |= wcat(p, getenv("http_proxy"));
 		return ret;
 	}
 	if (MODE("cfgdump"))
@@ -873,5 +857,5 @@ int wcat(LPCSTR surl, LPCSTR proxy)
 		return EIO;
 	if (fi->m_responseStatus.code >= 400)
 		return EACCES;
-	return EXIT_FAILURE;
+	return CURL_ERROR;
 }

@@ -867,10 +867,7 @@ TRAILER_JUNK_SKIPPED:
 				}
 				dbgline;
 
-				auto pCon = h.h[header::CONNECTION];
-				if (!pCon)
-					pCon = h.h[header::PROXY_CONNECTION];
-
+				auto pCon = h.get(header::CONNECTION, h.get(header::PROXY_CONNECTION, 0));
 				if (pCon && 0 == strcasecmp(pCon, "close"))
 				{
 					ldbg("Peer wants to close connection after request");
@@ -946,9 +943,7 @@ TRAILER_JUNK_SKIPPED:
 				// detect bad auto-redirectors (auth-pages, etc.) by the mime-type of their target
 				if (cfg::redirmax && !cfg::badredmime.empty()
 						&& cfg::redirmax != m_nRedirRemaining
-						&& h.h[header::CONTENT_TYPE]
-						&& strstr(h.h[header::CONTENT_TYPE],
-								  cfg::badredmime.c_str())
+						&& h.get(header::CONTENT_TYPE, se).find(cfg::badredmime) != stmiss
 						&& h.getStatusCode() < 300) // contains the final data/response
 				{
 					if (m_pStorageRef->IsVolatile())
@@ -1160,7 +1155,7 @@ TRAILER_JUNK_SKIPPED:
        Content-Type: image/gif
 			 */
 			h.setStatus(200, "OK");
-			const char *p=h.h[header::CONTENT_RANGE];
+			LPCSTR p = h.h[header::CONTENT_RANGE];
 
 			if(!p)
 				return withError("Missing Content-Range in Partial Response");
@@ -1222,9 +1217,9 @@ TRAILER_JUNK_SKIPPED:
 
             if (remoteStatus.isRedirect())
             {
-				if (!h.h[header::LOCATION] || !h.h[header::LOCATION][0])
+				sLocation = h.get(header::LOCATION, se);
+				if (sLocation.empty())
 					return withError("Invalid redirection (missing location)");
-				sLocation = h.h[header::LOCATION];
             }
 			// don't tell clients anything about the body
 			m_bAllowStoreData = false;

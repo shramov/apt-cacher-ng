@@ -79,6 +79,11 @@ public:
 	void set(eHeadPos, off_t nValue);
 	void prep(eHeadPos, size_t length);
 	void del(eHeadPos);
+
+	// optional value getter with fallback to users alternative
+	string_view get(eHeadPos pos, string_view alt) const { return h[pos] ? h[pos] : alt; }
+	LPCSTR get (eHeadPos pos, LPCSTR alt) const { return h[pos] ? h[pos] : alt; }
+
 	void copy(const header &src, eHeadPos pos) { set(pos, src.h[pos]); };
 
 	static mstring ExtractCustomHeaders(string_view reqHead, bool isPassThrough);
