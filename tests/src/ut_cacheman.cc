@@ -72,35 +72,6 @@ TEST(cacheman, pdiff)
 	using namespace acng;
 	using namespace std;
 
-#if 0
-	struct tConnStuff : public IConnBase
-	{
-	public:
-		dlcontroller* SetupDownloader() override
-		{
-			return nullptr;
-		}
-		lint_ptr<IFileItemRegistry> GetItemRegistry() override
-		{
-			cfg::cachedir = curDir();
-			cfg::cacheDirSlash = cfg::cachedir + "/";
-			if (!g_registry)
-				SetupServerItemRegistry();
-			return g_registry;
-		};
-		bool poke(uint_fast32_t) override
-		{
-			return true;
-		}
-		cmstring& getClientName() override
-		{
-			static cmstring none("NONE");
-			return none;
-		}
-
-	} connStuff;
-#endif
-
 	auto res = acres::Create();
 	unique_ptr<mainthandler> handler;
 	lint_ptr<IMaintJobItem> item;

@@ -13,6 +13,7 @@
 #include "remotedb.h"
 #include "fileio.h"
 #include "acworm.h"
+#include "acpatcher.h"
 
 #include <errno.h>
 #include <unistd.h>
@@ -1349,6 +1350,7 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 #endif
 				Send("Patching...<br>");
 
+#if 0
 			tSS cmd;
 			cmd << "cd '" << CACHE_BASE << PATCH_TEMP_DIR "' && ";
 			auto act = cfg::suppdir + SZPATHSEP "acngtool";
@@ -1371,7 +1373,18 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 				MTLOGASSERT(false, "Command failed: " << cmd);
 				return PATCH_FAIL;
 			}
+#else
+			try
+			{
+				acpatcher().Apply(sPatchInputAbs, sPatchCombinedAbs, sPatchResultAbs);
+			}
+			catch (const std::exception& ex)
+			{
+				MTLOGASSERT(false, "Patch operation failed - " << ex.what());
+				return PATCH_FAIL;
+			}
 
+#endif
 			if (!probe.ScanFile(sPatchResultAbs, CSTYPE_SHA256, false))
 			{
 				MTLOGASSERT(false, "Scan failed: " << sPatchResultAbs);

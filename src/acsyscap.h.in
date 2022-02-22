@@ -7,6 +7,7 @@
 #cmakedefine HAVE_LZMA
 #define SIZEOF_LONG @SIZE_LONG@
 #define SIZEOF_INT @SIZE_INT@
+#define SIZEOF_PTR @SIZE_PTR@
 #cmakedefine HAVE_WORDEXP
 #cmakedefine HAVE_GLOB
 #cmakedefine HAVE_FADVISE

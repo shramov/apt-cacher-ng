@@ -17,11 +17,11 @@
 #include "ebrunner.h"
 #include "rex.h"
 #include "acworm.h"
+#include "acpatcher.h"
 
 #include <functional>
 #include <thread>
 #include <iostream>
-#include <fstream>
 #include <string>
 #include <list>
 #include <queue>
@@ -538,141 +538,6 @@ int do_maint_job(tCsDeq& parms)
 	return EXIT_SUCCESS;
 }
 
-tSS errorBuffer;
-#define EFMT (errorBuffer.clean() << "ERROR: " )
-
-typedef deque<acng::string_view> tStringViewList;
-
-// sticky, needed in to remember last position in subsequent operations
-unsigned long rangeLast(0), rangeStart(0);
-
-inline void patchChunk(tStringViewList& data, string_view cmd, tStringViewList patch)
-{
-	if (AC_UNLIKELY(cmd.empty() || data.empty()))
-		fin(21, EFMT << "Bad patch command");
-
-	const char& code = cmd.back();
-	bool append = false; // special, paste contents AFTER the line
-
-	switch (code)
-	{
-	case 'a':
-		append = true;
-		__just_fall_through;
-	case 'd':
-	case 'c':
-	{
-		char *pEnd = nullptr;
-		auto n = strtoul(cmd.data(), &pEnd, 10);
-		if (!pEnd || cmd.data() == pEnd)
-			fin(21, EFMT << "bad patch range");
-
-		rangeLast = rangeStart = n;
-
-		if (rangeStart > data.size())
-			fin(21, EFMT << "bad range, start: " << rangeStart);
-
-		if (*pEnd == ',')
-		{
-			n = strtoul(pEnd + 1, &pEnd, 10);
-			// command code should follow after!
-			if (!pEnd || & code != pEnd)
-				fin(21, EFMT << "bad patch range");
-			rangeLast = n;
-			if (rangeLast > data.size() || rangeLast < rangeStart)
-				fin(21, EFMT << "bad range, end: " << rangeLast);
-		}
-		break;
-	}
-	case '/':
-		if (cmd != "s/.//"sv)
-			fin(21, EFMT << "unsupported command: " << cmd);
-		data[rangeStart] = ".\n"sv;
-		return;
-	default:
-		fin(21, EFMT << "Unsupported command: " << cmd);
-		break;
-	}
-
-#define DIT(offs) (data.begin() + offs)
-	if (append)
-		data.insert(DIT(rangeStart + 1), patch.begin(), patch.end());
-	else
-	{
-		// non-moving pasting first
-		size_t offset(0), pcount(patch.size());
-		while(offset < pcount && rangeStart <= rangeLast)
-			*(DIT(rangeStart++)) = patch[offset++];
-		if (offset >= pcount && rangeStart > rangeLast)
-			return;
-		// otherwise extra stuff in new or old range
-		if (offset < pcount)
-			data.insert(DIT(rangeStart), patch.begin() + offset, patch.end());
-		else
-			data.erase(DIT(rangeStart), DIT(rangeLast + 1));
-	}
-}
-
-/**
- * @brief patch_file
- * @param args Source path (can be compressed??), patch file (must be not uncompressed)
- * @return
- */
-int patch_file(tCsDeq& args)
-{
-	filereader frBase, frPatch;
-	if(!frBase.OpenFile(args.front()) || !frPatch.OpenFile(args[1], true))
-		return -2;
-	tStringViewList linesOrig, curHunkLines;
-
-	linesOrig.emplace_back(se); // dummy entry to avoid -1 calculations because of ed numbering style
-
-	tSplitWalkStrict origSplit(frBase.getView(), "\n");
-	for(auto view : origSplit) // collect, including newline!
-		linesOrig.emplace_back(view.data(), view.size() + 1);
-	// if file was ended properly, drop the empty extra line, it contains an inaccessible range anyway
-	if (frBase.getView().ends_with('\n'))
-		linesOrig.pop_back();
-
-	string_view curPatchCmd;
-	tSplitWalkStrict patchSplit(frPatch.getView(), "\n");
-	auto execute = [&]()
-	{
-		patchChunk(linesOrig, curPatchCmd, curHunkLines);
-		curHunkLines.clear();
-		curPatchCmd = se;
-	};
-	for(auto line : patchSplit)
-	{
-		if (!curPatchCmd.empty()) // collecting mode
-		{
-			if (line == "."sv)
-				execute();
-			else
-				curHunkLines.emplace_back(line.data(), line.length() + 1); // with \n
-			continue;
-		}
-		// okay, command, which kind?
-		curPatchCmd = line;
-
-		if (line.starts_with("w"sv)) // don't care about the name, though
-			break;
-
-		// single-line commands?
-		if (line.ends_with('d') || line.starts_with('s'))
-			execute();
-	}
-
-	ofstream res(args.back());
-	if(!res.is_open())
-		return -3;
-	linesOrig.pop_front(); // dummy offset line
-	for(const auto& kv : linesOrig)
-		res.write(kv.data(), kv.size());
-	res.flush();
-	return res.good() ? 0 : -4;
-}
-
 int main(int argc, const char **argv)
 {
 	using namespace acng;
@@ -769,7 +634,16 @@ int main(int argc, const char **argv)
 	if (MODE("patch"))
 	{
 		CHECKARGS(3, 3, "patch", "USAGE: ... shrink baseFile patchFile outFile"sv);
-		return patch_file(xargs);
+		try
+		{
+			acpatcher().Apply(xargs.at(0), xargs.at(1), xargs.at(2));
+		}
+		catch (const std::exception& ex)
+		{
+			cerr << ex.what() << endl;
+			return 3;
+		}
+		return 0;
 	}
 	if (MODE("printvar"))
 	{

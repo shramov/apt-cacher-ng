@@ -2,6 +2,8 @@
 
 Review maint stream parser in acngtool
 
+Hanging in shutdown, at:  0x00007f0385fce2ec in acng::tpoolImpl::stop (this=0x87edd0)
+
 ## Debug logging
 
 ### Dbg logfile with limited size, written in ring-buffer fashion
