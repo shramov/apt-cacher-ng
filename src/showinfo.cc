@@ -27,8 +27,8 @@ namespace acng
 
 tRemoteStatus stOK {200, "OK"};
 
-static cmstring sReportButton("<tr><td class=\"colcont\"><form action=\"#stats\" method=\"get\">"
-					"<input type=\"submit\" name=\"doCount\" value=\"Count Data\"></form>"
+static cmstring sReportButton("<tr><td class=\"colcont\">"
+					"<input type=\"submit\" name=\"doCount\" value=\"Count Data\">"
 					"</td><td class=\"colcont\" colspan=8 valign=top><font size=-2>"
 					"<i>Not calculated, click \"Count data\"</i></font></td></tr>");
 
@@ -338,19 +338,19 @@ tMaintOverview::tMaintOverview(tRunParms &&parms) : tMaintJobBase(std::move(parm
 
 void tMaintOverview::SendProp(cmstring &key)
 {
+#ifdef DISABLED_SUGAR
 	if(key=="statsRow")
 	{
 		if(!StrHas(m_parms.cmd, "doCount"))
 			return Send(sReportButton);
 		return Send(log::GetStatReport());
 	}
+#endif
 	static cmstring defStringChecked("checked");
 	if(key == "aOeDefaultChecked")
 		return Send(cfg::exfailabort ? defStringChecked : se);
 
-
-#warning restoreme
-#if 0
+#ifdef DISABLED_SUGAR
 	if(key == "curPatTraceCol")
 	{
 		tFmtSendObj endPrinter(this);

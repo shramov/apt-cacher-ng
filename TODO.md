@@ -24,11 +24,11 @@ Order or evaluation must be consistent with documentation and previous behavior.
 
 ## Maint stuff
 
-### Restore Injecting item, check patching result processing
+### Restore some optional functionality
 
-Could push all requests (parms of Download()) into a list, run the download
-with that list, which returns a vector of results with cond_var on it which can
-be observed.
+Flag name to search: DISABLED\_SUGAR
+
+- PA trace: probably not needed, move to some script which analyzes logs
 
 ### Add reliable auto-bottom-scrolling to maint pages
 

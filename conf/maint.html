@@ -80,33 +80,33 @@ function  appendData()
    </head>
    <body>
 	   <form id="mainForm">
-         <table class="maxwid center noborders" cellspacing=0 cellpadding=0>
-            <tr>
-		    <td class="title">Apt-Cacher NG maintenance tasks on ${hostname}</td>
-            </tr>
-            <tr>
-               <td>
-                  <div style="text-align:left;font-size:small;">
-                        <div class="visarea maxwid" style="text-align:left" id="logArea">
-				Currently running <b>${taskTitle}</b>, started at ${startTime}<div style="display:${:/showCancel/inline/none};white-space:nowrap;"> (<a href="javascript:doCancel()">CANCEL THIS</a>)</div><br>
-				${action}
-                        </div>
-                  </div>
-               </td>
-            </tr>
-	    <tr class="visarea maxwid" style="display:${:/purgeActionVisible/block/none}">
-		    <td style="width:100%">
-			    <div class="visarea maxwid" style="white-space:nowrap;height:100%;width:100%">${purgeactionmeta}
-				<b>Action(s):</b><br>
-				<input type="submit" name="doDelete" value="Delete selected files" class="btnmargin">
-				<input type="submit" name="doTruncate" value="Truncate selected files to zero size" class="btnmargin">
-				<button type="button" onclick="checkOrUncheck(true);" class="btnmargin">Check all</button>
-				<button type="button" onclick="checkOrUncheck(false);" class="btnmargin">Uncheck all</button>
-			    </div>
-		    </td>
-	    </tr>
-	    <tr><td><div class="visarea maxwid">${footer}</div></td></tr>
-         </table>
+		   <table class="maxwid center noborders" cellspacing=0 cellpadding=0>
+			   <tr>
+				   <td class="thetitle"><h1>Apt-Cacher NG maintenance tasks on ${hostname}</h1></td>
+			   </tr>
+			   <tr>
+				   <td>
+					   <div style="text-align:left;font-size:small;">
+						   <div class="visarea maxwid" style="text-align:left" id="logArea">
+							   Currently running <b>${taskTitle}</b>, started at ${startTime}<div style="display:${:/showCancel/inline/none};white-space:nowrap;"> (<a href="javascript:doCancel()">CANCEL THIS</a>)</div><br>
+							   ${action}
+						   </div>
+					   </div>
+				   </td>
+			   </tr>
+			   <tr class="visarea maxwid" style="display:${:/purgeActionVisible/block/none}">
+				   <td style="width:100%">
+					   <div class="visarea maxwid" style="white-space:nowrap;height:100%;width:100%">${purgeactionmeta}
+						   <b>Action(s):</b><br>
+						   <input type="submit" name="doDelete" value="Delete selected files" class="btnmargin">
+						   <input type="submit" name="doTruncate" value="Truncate selected files to zero size" class="btnmargin">
+						   <button type="button" onclick="checkOrUncheck(true);" class="btnmargin">Check all</button>
+						   <button type="button" onclick="checkOrUncheck(false);" class="btnmargin">Uncheck all</button>
+					   </div>
+				   </td>
+			   </tr>
+			   <tr><td><div class="visarea maxwid">${footer}</div></td></tr>
+		   </table>
 	   </form>
    </body>
 </html>

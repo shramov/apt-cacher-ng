@@ -26,7 +26,7 @@ protected:
 	virtual void SendProp(cmstring &key) override;
 };
 
-enum ControLineType : uint8_t
+enum class ControLineType
 {
 	NotForUs = 0,
 	BeforeError = 1,

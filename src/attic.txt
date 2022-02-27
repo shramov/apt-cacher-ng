@@ -1,0 +1,60 @@
+<!-- DISABLED_SUGAR
+            <h2>File Type Pattern Tracing</h2>
+            <p>
+            This section provides a simple tool useful to identify new file name patterns which might be needed to configuration in order to handle new file types correctly. Please provide your findings to apt-cacher-ng author if they might be useful for other users.
+            <a name="trace"></a>
+            Current value of pattern extensions:
+            <br>
+            <pre>SPfilePatternEx: ${cfg:SPfilePatternEx}
+VfilePatternEx: ${cfg:VfilePatternEx}
+PfilePatternEx: ${cfg:PfilePatternEx}</pre>
+	    <form action="#trace" method="get">
+               <span style="white-space:nowrap;">
+                  Current mode:
+                  <font style="display:${:/cfg:patrace/inline/none};white-space:nowrap;">
+                     <font style="color:red;font-weight:bold;white-space:nowrap;">Active</font>
+                     (watching download activity)
+                  </font>
+                  <font style="display:${:/cfg:patrace/none/inline};white-space:nowrap;">not tracing
+                  </font>
+               </span>
+               <span>
+		    <input type="submit" name="doTraceStart" value="Start Tracing" ${:/cfg:patrace/disabled/}>
+                    <input type="submit" name="doTraceStop" value="Stop Tracing" ${:/cfg:patrace//disabled}>
+                    <input type="submit" name="doTraceClear" value="Clear Trace Data">
+                 </span>
+                    <p>Currently collected file paths not covered by the configured patterns:
+                    <input type="submit" name="doTraceRefresh${random}" value="Refresh">
+                    <pre><br>${curPatTraceCol}</pre>
+	    </form>
+	    -->
+	 <!-- DISABLED_SUGAR
+         <h3>Log analysis</h3>
+         <table border=0 cellpadding=2 cellspacing=1 bgcolor="black">
+            <tr>
+               <td class="coltitle" rowspan=3>Period</td>
+               <td class="coltitle" colspan=8>Cache efficiency</td>
+            </tr>
+            <tr>
+               <td class="coltitle"><span>&nbsp;</span></td>
+               <td class="coltitle" colspan=3>Requests</td>
+               <td class="coltitle"><span>&nbsp;</span></td>
+               <td class="coltitle" colspan=3>Data</td>
+            </tr>
+            <tr bgcolor="white">
+               <td class="coltitle"><span>&nbsp;</span></td>
+               <td class="coltitle">Hits</td>
+               <td class="coltitle">Misses</td>
+               <td class="coltitle">Total</td>
+               <td class="coltitle"><span>&nbsp;</span></td>
+               <td class="coltitle">Hits</td>
+               <td class="coltitle">Misses</td>
+               <td class="coltitle">Total</td>
+            
+            </tr>
+            ${statsRow}
+         </table>
+         <br>
+         Note: data table is created based on the current log file. Deviation from real request count is possible due to previous log file optimization.
+	 -->
+
