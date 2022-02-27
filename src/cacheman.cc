@@ -789,6 +789,7 @@ static short FindCompIdx(cmstring &s)
 	return -1;
 }
 
+#warning XXX: Check usage, maybe implement the alternative method (meta.h) with a custom deletion callback
 void ACNG_API DelTree(const string &what)
 {
 	class killa : public IFileHandler
@@ -2322,6 +2323,7 @@ void cacheman::AddDelCbox(cmstring &sFileRel, cmstring& reason, bool bIsOptional
 }
 void cacheman::TellCount(unsigned nCount, off_t nSize)
 {
+	SendFmt << sBRLF << offttosH(m_nSpaceReleased) << " freed. " <<sBRLF;
 	SendFmt << sBRLF << nCount <<" package file(s) marked "
 			"for removal in few days. Estimated disk space to be released: "
 			<< offttosH(nSize) << "." << sBRLF << sBRLF;
@@ -2523,7 +2525,8 @@ bool cacheman::FixMissingByHashLinks(std::unordered_set<std::string> &oldRelease
 #ifdef DEBUGIDX
 		SendFmt << "Purging " << SABSPATH(srcPrefix + nameInXstore) << hendl;
 #endif
-		unlink(SABSPATH(srcPrefix + nameInXstore).c_str());
+		if (DeleteAndAccount(SABSPATH(srcPrefix + nameInXstore)) == YesNoErr::ERROR)
+			SendFmt << "Error removing file, check state of " << nameInXstore << hendl;
 	}
 	return ret;
 }

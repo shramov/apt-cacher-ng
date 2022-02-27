@@ -104,6 +104,7 @@ void expiration::HandlePkgEntry(const tRemoteFileInfo &entry)
 			};
 
 			Cstat realState(SABSPATH(sPathRel));
+
 			if(!realState)
 			{
 				SendFmt << WCLASS "File not accessible, will remove metadata of " << sPathRel << CLASSEND;
@@ -130,6 +131,7 @@ void expiration::HandlePkgEntry(const tRemoteFileInfo &entry)
 //				LOG("Doing basic header checks");
 				header h;
 				auto sHeadAbs(sPathAbs+".head");
+
 				if (0<h.LoadFromFile(sHeadAbs))
 				{
 					lenFromHeader=atoofft(h.h[header::CONTENT_LENGTH], -2);
@@ -142,7 +144,8 @@ void expiration::HandlePkgEntry(const tRemoteFileInfo &entry)
 					}
 					if (lenFromHeader < lenFromStat)
 					{
-						ignore_value(::unlink(sHeadAbs.c_str()));
+						if (YesNoErr::ERROR == DeleteAndAccount(sHeadAbs))
+							SendFmt << ECLASS << "Error removing " << sHeadAbs;
 
 						SendFmt << ECLASS "header file of " << sPathRel
 						<< " reported too small file size (" << lenFromHeader <<
@@ -443,16 +446,17 @@ inline void expiration::RemoveAndStoreStatus(bool bPurgeNow)
 			//cout << "Unreferenced: " << it->second.sDirname << it->first <<endl;
 
 			string sPathAbs = SABSPATH(sPathRel);
+			Cstat st(sPathAbs);
 
 			if (bPurgeNow || TIMEEXPIRED(dir_props.second.nLostAt))
 			{
 
 #ifdef ENABLED
 				SendFmt << "Removing " << sPathRel;
-				if(::unlink(sPathAbs.c_str()) && errno != ENOENT)
+				if(YesNoErr::ERROR == DeleteAndAccount(sPathAbs, true, &st))
 					Send(tErrnoFmter("<span class=\"ERROR\"> [ERROR] ")+"</span>");
 				SendFmt << sBRLF << "Removing " << sPathRel << ".head";
-				if(::unlink((sPathAbs + ".head").c_str()) && errno != ENOENT)
+				if(YesNoErr::ERROR == DeleteAndAccount(sPathAbs + ".head", true, &st))
 					Send(tErrnoFmter("<span class=\"ERROR\"> [ERROR] ")+"</span>");
 				Send(sBRLF);
 				::rmdir(SZABSPATH(dir_props.first));
@@ -767,12 +771,15 @@ void expiration::PurgeMaintLogsAndObsoleteFiles()
 			Send("Found required cleanup tasks: purging maintenance logs...<br>\n"sv);
 		suppr = true;
 		auto threshhold = GetTime() - cfg::extreshhold * 24*60*60;
-		for (const auto &s: logs)
+		for (const auto& s: logs)
 		{
 #ifdef ENABLED
 			Cstat sb(s);
 			if (sb && sb.msec() < threshhold)
+			{
+				m_nSpaceReleased += s.size();
 				::unlink(s.c_str());
+			}
 #endif
 		}
 	}
@@ -781,6 +788,10 @@ void expiration::PurgeMaintLogsAndObsoleteFiles()
 		Send("Removing obsolete items...<br>\n"sv);
 		for(const auto &s: m_obsoleteStuff)
 		{
+			Cstat sb(s);
+			if (!sb)
+				continue;
+			m_nSpaceReleased += s.size();
 			SendFmt << s << sBRLF;
 			::unlink(SZABSPATH(s));
 		}

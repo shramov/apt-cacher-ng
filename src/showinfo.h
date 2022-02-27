@@ -67,7 +67,7 @@ protected:
 	bool CheckStopSignal();
 };
 
-class tDeleter : public tMarkupFileSend
+class tDeleter : public tMarkupFileSend, public DeleteHelper
 {
 	std::set<unsigned> files;
 	tSS sHidParms;

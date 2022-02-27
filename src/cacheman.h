@@ -40,7 +40,8 @@ void DelTree(cmstring &what);
 
 class ACNG_API cacheman :
 		public IFileHandler,
-		public tExclusiveUserAction
+		public tExclusiveUserAction,
+		public DeleteHelper
 {
 public:
 	cacheman(tRunParms&& parms);

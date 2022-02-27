@@ -192,6 +192,7 @@ void replaceChars(mstring &s, LPCSTR szBadChars, char goodChar);
 extern ACNG_API cmstring se;
 
 void DelTree(cmstring &what);
+void DelTree(cmstring &what, std::function<void(struct stat &st, cmstring &sPath)> delHandler);
 
 bool IsAbsolute(cmstring &dirToFix);
 
@@ -202,8 +203,8 @@ std::string BytesToHexString(const uint8_t sum[], unsigned short lengthBin);
 bool Hex2buf(const char *a, size_t len, acbuf& ret);
 
 // STFU helpers, (void) casts are not effective for certain functions
-static inline void ignore_value (int i) { (void) i; }
-static inline void ignore_ptr (void* p) { (void) p; }
+inline void ignore_value (int i) { (void) i; }
+inline void ignore_ptr (void* p) { (void) p; }
 
 static inline time_t GetTime()
 {

@@ -243,8 +243,7 @@ tDeleter::tDeleter(tRunParms&& parms, const mstring& vmode)
 				{
 					sHidParms << (del ? "Deleting " : "Truncating ") << path << suf << "<br>\n";
 					auto p = cfg::cacheDirSlash + path + suf;
-					int r = del ? unlink(p.c_str()) : truncate(p.c_str(), 0);
-					if (r && errno != ENOENT)
+					if (YesNoErr::ERROR == DeleteAndAccount(SABSPATHEX(path, suf), del))
 					{
 						tErrnoFmter ferrno("<span class=\"ERROR\">[ error: ");
 						sHidParms << ferrno << " ]</span>" << sBRLF;

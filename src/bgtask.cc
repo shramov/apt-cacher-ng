@@ -43,4 +43,22 @@ void tExclusiveUserAction::SendProp(cmstring &key)
 		return tMaintJobBase::SendProp(key);
 }
 
+YesNoErr DeleteHelper::DeleteAndAccount(cmstring &path, bool deleteOrTruncate, Cstat* sb)
+{
+	Cstat localSB;
+	if (!sb)
+	{
+		sb = &localSB;
+		localSB.update(path.c_str());
+	}
+
+	if (!*sb)
+		return YesNoErr::NO;
+	auto res = deleteOrTruncate ? unlink(path.c_str()) : truncate(path.c_str(), 0);
+	if (res)
+		return YesNoErr::ERROR;
+	m_nSpaceReleased += sb->size();
+	return YesNoErr::YES;
+}
+
 }

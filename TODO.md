@@ -40,6 +40,8 @@ Making the buttons visibility more conditional with dedicated properties.
 - opening while active -> new info page about activity, options: cancel-and-replace or attach
 - cancel function -> abort the active job immediately, wait for it to finish, start a new job
 
+### Fix slow download processing, seems to get stuck and continue on timeouts?
+
 ### Maybe add some sequencing of download jobs
 
 ### Add Control bubble in JS, content requirements:

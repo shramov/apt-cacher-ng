@@ -140,6 +140,13 @@ public:
 	bSS& GetTempFmt() { return m_fmtHelper; }
 };
 
+class ACNG_API DeleteHelper
+{
+protected:
+	off_t m_nSpaceReleased = 0;
+	YesNoErr DeleteAndAccount(cmstring& path, bool deleteOtherwiseTruncate = true, Cstat* st = nullptr);
+};
+
 mainthandler* creatorPrototype(mainthandler::tRunParms&& parms);
 
 struct tSpecialWorkDescription
