@@ -344,6 +344,23 @@ public:
 	Tparent &m_parent;
 };
 
+// let the compiler optimize and keep best variant
+off_t atoofft(LPCSTR p);
+inline off_t atoofft(LPCSTR p, off_t nDefVal)
+{
+	return p ? atoofft(p) : nDefVal;
+}
+
+off_t atoofft(string_view s, off_t nDefVal = 0);
+
+/*inline void Join(mstring &out, const mstring & sep, const tStrVec & tokens)
+{out.clear(); if(tokens.empty()) return; for(const auto& tok: tokens)out+=(sep + tok);}
+*/
+void StrSubst(mstring &contents, const mstring &from, const mstring &to, tStrPos start=0);
+
+bool ParseKeyValLine(string_view sIn, string_view& sOutKey, string_view& sOutVal);
+inline bool NoCaseEq(string_view a, string_view b) { return a.size() == b.size() && 0 == strncasecmp(a.data(), b.data(), a.size()); }
+
 }
 
 

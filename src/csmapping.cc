@@ -1,7 +1,7 @@
 #include "csmapping.h"
 #include "meta.h"
 
-bool acng::tFingerprint::SetCs(const acng::mstring &hexString, acng::CSTYPES eCstype)
+bool acng::tFingerprint::SetCs(string_view hexString, acng::CSTYPES eCstype)
 {
 	auto l = hexString.size();
 	if(!l || l%2) // weird sizes...
@@ -16,18 +16,18 @@ bool acng::tFingerprint::SetCs(const acng::mstring &hexString, acng::CSTYPES eCs
 		return false;
 
 	csType=eCstype;
-	return CsAsciiToBin(hexString.c_str(), csum, l/2);
+	return CsAsciiToBin(hexString.data(), csum, l/2);
 }
 
 bool acng::tFingerprint::Set(acng::tSplitWalk& splitInput, acng::CSTYPES wantedType)
 {
 	if(!splitInput.Next())
 		return false;
-	if(!SetCs(splitInput.str(), wantedType))
+	if(!SetCs(splitInput.view(), wantedType))
 		return false;
 	if(!splitInput.Next())
 		return false;
-	size = atoofft(splitInput.str().c_str(), -1);
+	size = atoofft(splitInput.view(), -1);
 	if(size < 0)
 		return false;
 	return true;

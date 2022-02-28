@@ -722,7 +722,7 @@ void expiration::HandleDamagedFiles()
 		this->Send(WITHLEN("List of damaged files not found"));
 		return;
 	}
-	mstring s;
+	string_view s;
 	while(f.GetOneLine(s))
 	{
 		if(s.empty())
@@ -924,52 +924,39 @@ void expiration::LoadHints()
 		if(cfg::suppdir.empty() || !reader.OpenFile(cfg::suppdir+SZPATHSEP+"ignore_list"))
 				return;
 	}
-	string sTmp;
+	string_view sTmp;
 	while (reader.GetOneLine(sTmp))
 	{
-		trimLine(sTmp);
-		if (startsWithSz(sTmp, "#"))
+		trimFront(sTmp);
+		if (sTmp.starts_with('#'))
 			continue;
-		if(startsWith(sTmp, CACHE_BASE))
-			sTmp.erase(CACHE_BASE_LEN);
+		if(sTmp.starts_with(CACHE_BASE))
+			sTmp.remove_prefix(CACHE_BASE_LEN);
 		if(sTmp.empty())
 			continue;
-		SetFlags(sTmp).forgiveDlErrors=true;
+		SetFlags(mstring(sTmp)).forgiveDlErrors = true;
 	}
-
 	reader.Close();
+
 	reader.OpenFile(sFAIL_INI);
 	while(reader.GetOneLine(sTmp))
-		m_nPrevFailCount += (atol(sTmp.c_str())>0);
-
-
-
+		m_nPrevFailCount += (atoofft(sTmp) > 0);
 }
 void expiration::LoadPreviousData(bool bForceInsert)
 {
 	filereader reader;
 	reader.OpenFile(SABSPATH(FNAME_PENDING));
 
-	string sLine;
-
+	string_view sLine;
 	while(reader.GetOneLine(sLine))
 	{
-		char *eptr(nullptr);
-		auto s = sLine.c_str();
-		time_t timestamp = strtoull(s, &eptr, 10);
-		if (!eptr || *eptr != '\t' || !timestamp || timestamp > m_gMaintTimeNow) // where is the DeLorean?
-			continue;
-		auto sep = strchr(++eptr, (unsigned) '\t');
-		if (!sep)
-			continue;
-		string dir(eptr, sep - eptr);
-		if (!dir.empty() && '/' != *(sep - 1))
-			dir += "/";
-		auto term = strchr(++sep, (unsigned) '\t'); // just to be sure
-		if (term)
-			continue;
-
-		auto& desc = m_trashFile2dir2Info[sep][dir];
+		tSplitWalkStrict split(sLine);
+		if (!split.Next()) continue;
+		time_t timestamp = atoofft(split.view(), -1);
+		if (!split.Next()) continue;
+		auto dir = split.view();
+		if (!split.Next()) continue;
+		auto& desc = m_trashFile2dir2Info[mstring(split.view())][mstring(dir)];
 		// maybe add with timestamp from the last century (implies removal later)
 		if(bForceInsert)
 			desc.nLostAt=1;

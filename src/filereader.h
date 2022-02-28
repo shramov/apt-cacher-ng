@@ -35,7 +35,12 @@ public:
 	//////void GetBaseFileName(mstring & sOut);
 	//! Returns lines when beginning with non-space, otherwise empty string. 
 	//! @return False on errors.
-	bool GetOneLine(mstring & sOut, bool bForceUncompress=false);
+	bool GetOneLine(mstring & sOut)
+	{
+		string_view ret;
+		return GetOneLine(ret, false) ? (sOut.assign(ret), true) : false;
+	}
+	bool GetOneLine(string_view & sOut) { return GetOneLine(sOut, false);}
 	unsigned GetCurrentLine() const { return m_nCurLine;} ;
 	bool CheckGoodState(bool bTerminateOnErrors, cmstring *reportFilePath=nullptr) const;
 	
@@ -74,6 +79,8 @@ private:
 	int m_nEofLines;
 
 	std::unique_ptr<IDecompressor> m_Dec;
+
+	bool GetOneLine(string_view & sOut, bool bForceUncompress);
 
 	// not to be copied
 	filereader& operator=(const filereader&);

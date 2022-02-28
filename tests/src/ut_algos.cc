@@ -141,20 +141,34 @@ TEST(algorithms,bin_str_long_match)
 	ASSERT_LE(probe_count, 5);
 }
 
+TEST(algorithms,strnumconv)
+{
+	EXPECT_EQ(1, atoofft("1"sv));
+	EXPECT_EQ(0, atoofft(" "sv));
+	EXPECT_EQ(0, atoofft("   0"sv));
+	EXPECT_EQ(-11, atoofft("   -11"sv));
+
+	EXPECT_EQ(1, atoofft("1"sv, 123));
+	EXPECT_EQ(123, atoofft(" "sv, 123));
+	EXPECT_EQ(123, atoofft(""sv, 123));
+	EXPECT_EQ(0, atoofft("   0"sv, -17));
+	EXPECT_EQ(-11, atoofft("   -11"sv, -2));
+}
+
 TEST(strop,views)
 {
 	using namespace acng;
 	string_view a = "foo  ", b = "  foo";
-	auto x=a;
+	auto x = a;
 	trimFront(x);
 	ASSERT_EQ(x, "foo  ");
-	x=a;
+	x = a;
 	trimBack(x);
 	ASSERT_EQ(x, "foo");
-	auto prex=b;
+	auto prex = b;
 	trimFront(prex);
 	ASSERT_EQ(prex, "foo");
-	prex=b;
+	prex = b;
 	trimBack(prex);
 	ASSERT_EQ(prex, "  foo");
 

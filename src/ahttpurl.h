@@ -27,7 +27,7 @@ public:
 			UDS
 		} m_schema = EProtoType::HTTP;
 
-		bool SetHttpUrl(cmstring &uri, bool unescape = true);
+		bool SetHttpUrl(string_view uri, bool unescape = true);
 		bool SetUnixUrl(cmstring &uri);
 		mstring ToURI(bool bEscaped, bool hostOnly = false) const;
         mstring sHost, sPath, sUserPass;

@@ -106,7 +106,7 @@ struct ACNG_API tFingerprint {
 		return *this;
 	}
 	
-	bool SetCs(const mstring & hexString, CSTYPES eCstype = CSTYPE_INVALID);
+	bool SetCs(string_view hexString, CSTYPES eCstype = CSTYPE_INVALID);
 	void Set(uint8_t *pData, CSTYPES eCstype, off_t newsize)
 	{
 		size=newsize;
@@ -115,11 +115,11 @@ struct ACNG_API tFingerprint {
 			memcpy(csum, pData, GetCSTypeLen(eCstype));
 	}
 
-	inline bool Set(cmstring & hexString, CSTYPES eCstype, off_t newsize)
+	inline bool Set(string_view hexString, CSTYPES eCstype, off_t newsize)
 	{
-		if(!SetCs(hexString, eCstype))
+		if (!SetCs(hexString, eCstype))
 			return false;
-		size=newsize;
+		size = newsize;
 		return true;
 
 	}

@@ -7,10 +7,10 @@ namespace acng {
 using namespace std;
 
 // See RFC3986
-bool tHttpUrl::SetHttpUrl(cmstring &sUrlRaw, bool unescape)
+bool tHttpUrl::SetHttpUrl(string_view sUrlRaw, bool unescape)
 {
 	clear();
-	mstring url = unescape ? UrlUnescape(sUrlRaw) : sUrlRaw;
+	mstring url(unescape ? UrlUnescape(sUrlRaw) : sUrlRaw);
 
 	trimBack(url);
 	trimFront(url);

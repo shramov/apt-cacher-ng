@@ -82,6 +82,7 @@ extern cmstring FAKEDATEMARK;
 int getUUID();
 
 #define SPACECHARS " \f\n\r\t\v"
+#define SPACECHARSsv " \f\n\r\t\v"sv
 
 typedef std::map<mstring, mstring> tStrMap;
 
@@ -95,15 +96,7 @@ tStrPos findHostStart(const mstring & sUri);
 #define INCPOS(where, n) if (n > 0) where +=n;
 
 // Sometimes I miss Perl...
-tStrVec::size_type Tokenize(cmstring &in, const char* sep, tStrVec & out, bool bAppend=false, mstring::size_type nStartOffset=0);
-/*inline void Join(mstring &out, const mstring & sep, const tStrVec & tokens)
-{out.clear(); if(tokens.empty()) return; for(const auto& tok: tokens)out+=(sep + tok);}
-*/
-void StrSubst(mstring &contents, const mstring &from, const mstring &to, tStrPos start=0);
-
-// TODO: __attribute__((externally_visible))
-bool ParseKeyValLine(const mstring & sIn, mstring & sOutKey, mstring & sOutVal);
-#define keyEq(a, b) (0 == strcasecmp((a), (b).c_str()))
+tStrVec::size_type Tokenize(string_view in, const char* sep, tStrVec & out, bool bAppend=false, mstring::size_type nStartOffset=0);
 
 #define POKE(x) for(;;) { ssize_t n=write(x, "", 1); if(n>0 || (EAGAIN!=errno && EINTR!=errno)) break;  }
 
@@ -140,14 +133,6 @@ bool CsEqual(LPCSTR a, uint8_t b[], unsigned short binLength);
 #define OFF_T_FMT "%ld"
 #endif
 
-// let the compiler optimize and keep best variant
-off_t atoofft(LPCSTR p);
-
-inline off_t atoofft(LPCSTR p, off_t nDefVal)
-{
-	return p ? atoofft(p) : nDefVal;
-}
-
 ACNG_API mstring offttosH(off_t n);
 ACNG_API mstring offttosHdotted(off_t n);
 tStrDeq ExpandFilePattern(cmstring& pattern, bool bSorted=false, bool bQuiet=false);
@@ -156,9 +141,9 @@ tStrDeq ExpandFilePattern(cmstring& pattern, bool bSorted=false, bool bQuiet=fal
 
 mstring UrlEscape(string_view s);
 void UrlEscapeAppend(string_view s, mstring &sTarget);
-bool UrlUnescapeAppend(cmstring &from, mstring & to);
+bool UrlUnescapeAppend(string_view from, mstring & to);
 // Decode with result as return value, no error reporting
-mstring UrlUnescape(cmstring &from);
+mstring UrlUnescape(string_view from);
 mstring DosEscape(cmstring &s);
 // just the bare minimum to make sure the string does not break HTML formating
 mstring html_sanitize(cmstring& in);
@@ -192,7 +177,6 @@ void replaceChars(mstring &s, LPCSTR szBadChars, char goodChar);
 extern ACNG_API cmstring se;
 
 void DelTree(cmstring &what);
-void DelTree(cmstring &what, std::function<void(struct stat &st, cmstring &sPath)> delHandler);
 
 bool IsAbsolute(cmstring &dirToFix);
 

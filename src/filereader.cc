@@ -448,9 +448,9 @@ void ACNG_API handle_sigbus()
 	}
 }
 
-bool filereader::GetOneLine(string & sOut, bool bForceUncompress) {
+bool filereader::GetOneLine(string_view & sOut, bool bForceUncompress) {
 	
-	sOut.clear();
+	sOut = string_view(nullptr, 0);
 	
 	if(m_bEof && m_nEofLines-- >0)
 		return true; // just the empty line
@@ -478,7 +478,7 @@ bool filereader::GetOneLine(string & sOut, bool bForceUncompress) {
 						|| !m_UncompBuf.setsize(m_UncompBuf.totalcapa() * 2))
 				{
 					m_bError = true;
-					m_sErrorString=mstring("Failed to allocate decompression buffer memory");
+					m_sErrorString = mstring("Failed to allocate decompression buffer memory");
 					return false;
 				}
 			}
@@ -489,8 +489,8 @@ bool filereader::GetOneLine(string & sOut, bool bForceUncompress) {
 		if (m_bError)
 			return false;
 
-		nRest=m_UncompBuf.size();
-		rbuf=m_UncompBuf.rptr();
+		nRest = m_UncompBuf.size();
+		rbuf = m_UncompBuf.rptr();
 
 		// no more data, it's the end
 		if (nRest == 0 && m_Dec->eof)
@@ -551,7 +551,7 @@ bool filereader::GetOneLine(string & sOut, bool bForceUncompress) {
 		nDropLen=nLineLen=nRest;
 	}
 	
-	sOut.assign(rbuf, nLineLen);
+	sOut = string_view(rbuf, nLineLen);
 	
 	if(!m_Dec.get())
 	{

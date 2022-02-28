@@ -246,11 +246,9 @@ public:
 		ASSERT_IS_MAIN_THREAD;
 
 		m_bPureStreamNoStorage = true;
-
 		m_status = FiStatus::FIST_DLERROR;
 		try
 		{
-
 			auto flags = BEV_OPT_DEFER_CALLBACKS | BEV_OPT_UNLOCK_CALLBACKS
 						 | BEV_OPT_THREADSAFE * !!(GetTaskInfo(handler->m_parms.type).flags & BLOCKING);
 

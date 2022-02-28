@@ -8,8 +8,12 @@
 #include "astrop.h"
 #include "meta.h"
 
+#include <charconv>
+
 namespace acng
 {
+
+using namespace std;
 
 std::string PathCombine(string_view a, string_view b)
 {
@@ -71,7 +75,31 @@ bool strappend(char *&p, string_view appendix, string_view app2)
     memcpy(pEx + l, appendix.data(), appendix.length());
     memcpy(pEx + l + appendix.length(), app2.data(), app2.length());
     pEx[l + xlen] = 0;
-    return true;
+	return true;
+}
+
+template<typename Tresult>
+Tresult aToSomething(string_view s, Tresult nDefVal)
+{
+	Tresult ret(nDefVal);
+	auto pstart = s.find_first_not_of(SPACECHARSsv);
+	if (pstart == stmiss)
+		return nDefVal;
+
+	auto ec(std::from_chars(s.data() + pstart, s.data() + s.size(), ret, 10).ec);
+	switch (ec)
+	{
+	case std::errc::invalid_argument:
+	case std::errc::result_out_of_range:
+		return nDefVal;
+	default:
+		return ret;
+	}
+}
+
+off_t atoofft(string_view s, off_t nDefVal)
+{
+	return aToSomething<off_t>(s, nDefVal);
 }
 
 }

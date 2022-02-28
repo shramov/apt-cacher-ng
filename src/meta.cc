@@ -91,14 +91,14 @@ void find_base_name(const char *in, const char * &pos, UINT &len)
 /*!
  * \brief Simple split function, outputs resulting tokens into a string vector, with or without purging the previous contents
  */
-ACNG_API tStrVec::size_type Tokenize(const string & in, const char *sep,
+ACNG_API tStrVec::size_type Tokenize(string_view in, const char *sep,
 		tStrVec & out, bool bAppend, std::string::size_type nStartOffset)
 {
 	if(!bAppend)
 		out.clear();
 	tStrVec::size_type nBefore(out.size());
 	
-	tStrPos pos=nStartOffset, pos2=nStartOffset, oob=in.length();
+	tStrPos pos = nStartOffset, pos2=nStartOffset, oob=in.length();
 	while (pos<oob)
 	{
 		pos=in.find_first_not_of(sep, pos);
@@ -108,7 +108,7 @@ ACNG_API tStrVec::size_type Tokenize(const string & in, const char *sep,
 		if (pos2==stmiss) // no more terminators, EOL
 			pos2=oob;
 		out.emplace_back(in.substr(pos, pos2-pos));
-		pos=pos2+1;
+		pos = pos2+1;
 	}
 
 	return (out.size()-nBefore);
@@ -123,35 +123,22 @@ void StrSubst(string &contents, const string &from, const string &to, tStrPos po
 	}
 }
 
-bool ParseKeyValLine(const string & sIn, string & sOutKey, string & sOutVal)
+bool ParseKeyValLine(string_view sIn, string_view& sOutKey, string_view& sOutVal)
 {
-	// reuse the output string as buffer
-	sOutVal=sIn;
-	sOutKey.clear();
-	trimFront(sOutVal);
-	//cout << "parsing: "<<sOut<<endl;
-	if(sOutVal.empty())
+	trimBoth(sIn);
+	auto pos = sIn.find(':');
+	if (pos == stmiss)
 		return false;
-
-	/*
-	// comments or other crap, not for us
-	if(stmiss!=sFilterString.find(sIn[0]))
+	auto lastChar = sIn.substr(0, pos).find_last_not_of(SPACECHARS);
+	if (lastChar == stmiss)
 		return false;
-	*/
+	auto posVal = sIn.find_first_not_of(SPACECHARS, pos + 1);
+	if (posVal == stmiss)
+		sOutVal = {0, 0};
+	else
+		sOutVal = sIn.substr(posVal);
 
-	string::size_type pos = sOutVal.find(":");
-	if (AC_UNLIKELY(pos == 0 || pos==string::npos))
-	{
-		//cerr << "Bad configuration directive found, looking for: " << szKey << ", found: "<< sOut << endl;
-		return false;
-	}
-
-	sOutKey = sOutVal.substr(0, pos);
-	trimBack(sOutKey);
-
-	sOutVal.erase(0, pos+1);
-	trimFront(sOutVal);
-
+	sOutKey = sIn.substr(0, lastChar + 1);
 	return true;
 }
 
@@ -528,7 +515,7 @@ mstring DosEscape(cmstring &s)
 	return ret;
 }
 
-bool UrlUnescapeAppend(cmstring &from, mstring & to)
+bool UrlUnescapeAppend(string_view from, mstring & to)
 {
 	bool ret=true;
 	for(tStrPos i=0; i<from.length(); i++)
@@ -703,7 +690,7 @@ off_t ACNG_API atoofft(LPCSTR p)
 	return atol(p);
 }
 
-mstring UrlUnescape(cmstring &from)
+mstring UrlUnescape(string_view from)
 {
 	mstring ret; // let the compiler optimize
 	UrlUnescapeAppend(from, ret);

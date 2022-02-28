@@ -261,7 +261,7 @@ const tRepoData * remotedb::GetRepoData(cmstring &vname)
 unsigned ReadBackendsFile(const string & sFile, string_view sRepName)
 {
 	unsigned nAddCount=0;
-	string key, val;
+	string_view key, val;
 	tHttpUrl entry;
 
 	tCfgIter itor(sFile);
@@ -295,9 +295,9 @@ unsigned ReadBackendsFile(const string & sFile, string_view sRepName)
 		}
 		else if(ParseKeyValLine(itor.sLine, key, val))
 		{
-			if(keyEq("Site", key))
+			if(NoCaseEq("Site"sv, key))
 				entry.sHost=val;
-			else if(keyEq("Archive-http", key) || keyEq("X-Archive-http", key))
+			else if(NoCaseEq("Archive-http"sv, key) || NoCaseEq("X-Archive-http"sv, key))
 				entry.sPath=val;
 		}
 		else
@@ -430,8 +430,8 @@ unsigned ReadRewriteFile(const string & sFile, string_view sRepName)
 	reader.CheckGoodState(true, &sFile);
 
 	tStrVec hosts, paths;
-	string sLine, key, val;
 	tHttpUrl url;
+	string_view sLine, key, val;
 
 	while (reader.GetOneLine(sLine))
 	{
@@ -506,18 +506,18 @@ unsigned ReadRewriteFile(const string & sFile, string_view sRepName)
 		}
 
 		// got something, interpret it...
-		if( keyEq("Site", key) || keyEq("Alias", key) || keyEq("Aliases", key))
+		if( NoCaseEq("Site"sv, key) || NoCaseEq("Alias"sv, key) || NoCaseEq("Aliases"sv, key))
 			Tokenize(val, SPACECHARS, hosts, true);
 
-		if(keyEq("Archive-http", key) || keyEq("X-Archive-http", key))
+		if(NoCaseEq("Archive-http", key) || NoCaseEq("X-Archive-http", key))
 		{
 			// help STL saving some memory
-			if(sPopularPath==val)
+			if (sPopularPath == val)
 				paths.emplace_back(sPopularPath);
 			else
 			{
-				_FixPostPreSlashes(val);
 				paths.emplace_back(val);
+				_FixPostPreSlashes(paths.back());
 			}
 			continue;
 		}

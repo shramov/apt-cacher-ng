@@ -41,13 +41,6 @@ std::mutex handover_mx;
 void RejectPendingDnsRequests();
 std::atomic_bool g_shutdownHint = false;
 
-namespace conserver
-{
-// forward declarations for the pointer checks
-//void cb_resume(evutil_socket_t fd, short what, void* arg);
-void do_accept(evutil_socket_t server_fd, short what, void* arg);
-}
-
 CDnsBase::~CDnsBase()
 {
 	shutdown();

@@ -14,11 +14,7 @@
 #include "fileio.h"
 #include "acworm.h"
 #include "acpatcher.h"
-
-#include <errno.h>
-#include <unistd.h>
-#include <dirent.h>
-#include <regex.h>
+#include "astrop.h"
 
 #include <map>
 #include <unordered_map>
@@ -26,8 +22,12 @@
 #include <iostream>
 #include <algorithm>
 #include <future>
+#include <charconv>
 
+#include <errno.h>
 #include <unistd.h>
+#include <dirent.h>
+#include <regex.h>
 
 #ifdef EXTRA_DEBUG
 #define DEBUGIDX
@@ -56,13 +56,6 @@ static cmstring sPatchCombinedRel(PATCH_TEMP_DIR PATCH_COMBINED_NAME);
 static cmstring sPatchInputRel(PATCH_TEMP_DIR PATCH_BASE_NAME);
 #define PATCH_RESULT_NAME "patch.result"
 static cmstring sPatchResultRel(PATCH_TEMP_DIR PATCH_RESULT_NAME);
-
-struct tPatchEntry
-{
-	string patchName;
-	tFingerprint fprState, fprPatch;
-};
-typedef deque<tPatchEntry>::const_iterator tPListConstIt;
 
 struct tContentKey
 {
@@ -213,20 +206,20 @@ bool cacheman::IsDeprecatedArchFile(cmstring &sFilePathRel)
 		pos = sFilePathRel.find("/binary-", pos);
 		if(stmiss == pos)
 			return false; // heh?
-		pos+=8;
+		pos += 8;
 		tStrPos posend = sFilePathRel.find('/', pos);
 		if(stmiss == posend)
 			return false; // heh?
 
-		mstring sLine;
+		string_view sLine;
 		while(reader.GetOneLine(sLine))
 		{
 			tSplitWalk w(sLine, SPACECHARS);
-			if(!w.Next() || w.str() != "Architectures:")
+			if(!w.Next() || w.view() != "Architectures:"sv)
 				continue;
 			while(w.Next())
 			{
-				if(sFilePathRel.compare(pos, posend-pos, w.str()) == 0)
+				if(sFilePathRel.compare(pos, posend-pos, w.view()) == 0)
 					return false; // architecture is there, not deprecated
 			}
 			return true; // okay, now that arch should have been there :-(
@@ -468,9 +461,10 @@ void cacheman::DownloadIO(TDownloadState* sp)
 		ldbg("Find backend for " << sFilePathRel << " parsed as host: "  << state.parserPath.sHost
 				<< " and path: " << state.parserPath.sPath << ", ok? " << bCachePathAsUriPlausible);
 
-		if(!cfg::stupidfs && bCachePathAsUriPlausible
-				&& nullptr != (state.repoSrc.repodata = remotedb::GetInstance().GetRepoData(state.parserPath.sHost))
-				&& !state.repoSrc.repodata->m_backends.empty())
+		if (!cfg::stupidfs
+				&& bCachePathAsUriPlausible
+				&& !! (state.repoSrc.repodata = remotedb::GetInstance().GetRepoData(state.parserPath.sHost))
+				&& ! state.repoSrc.repodata->m_backends.empty())
 		{
 			ldbg("will use backend mode, subdirectory is path suffix relative to backend uri");
 			state.repoSrc.sRestPath = state.scratchpad.Add(state.parserPath.sPath.substr(1));
@@ -484,20 +478,20 @@ void cacheman::DownloadIO(TDownloadState* sp)
 			// the URL as needed
 
 			dbgline;
-			if(bCachePathAsUriPlausible) // default option, unless the next check matches
+			if (bCachePathAsUriPlausible) // default option, unless the next check matches
 			{
 				StrSubst(state.parserPath.sPath, "//", "/");
 				state.pResolvedDirectUrl = &state.parserPath;
 			}
 			// and prefer the source from xorig which is likely to deliver better result
-			if(state.hor.h[header::XORIG] && state.parserHead.SetHttpUrl(state.hor.h[header::XORIG], false))
+			if (state.hor.h[header::XORIG] && state.parserHead.SetHttpUrl(state.hor.h[header::XORIG], false))
 			{
 				dbgline;
 				state.fallbackUrl = state.pResolvedDirectUrl;
 				StrSubst(state.parserPath.sPath, "//", "/");
 				state.pResolvedDirectUrl = &state.parserHead;
 			}
-			else if(sp->m_parms.sGuessedFrom
+			else if (sp->m_parms.sGuessedFrom
 					&& state.hor.LoadFromFile(SABSPATH(* sp->m_parms.sGuessedFrom + ".head"))
 					&& state.hor.h[header::XORIG]) // might use a related file as reference
 			{
@@ -514,13 +508,13 @@ void cacheman::DownloadIO(TDownloadState* sp)
 				// cannot underflow since checked by less-than
 				auto chopLen = sp->m_parms.sGuessedFrom->length() - spos;
 				auto urlSlashPos = refURL.size()-chopLen;
-				if(chopLen < refURL.size() && refURL[urlSlashPos] == '/')
+				if (chopLen < refURL.size() && refURL[urlSlashPos] == '/')
 				{
 					dbgline;
 					refURL.erase(urlSlashPos);
 					refURL += sFilePathRel.substr(spos);
 					//refURL.replace(urlSlashPos, chopLen, sPathSep.substr(spos));
-					if(state.parserHead.SetHttpUrl(refURL, false))
+					if (state.parserHead.SetHttpUrl(refURL, false))
 					{
 						StrSubst(state.parserPath.sPath, "//", "/");
 						state.pResolvedDirectUrl = &state.parserHead;
@@ -542,7 +536,7 @@ void cacheman::DownloadIO(TDownloadState* sp)
 	{
 		dbgline;
 		state.repinfo = remotedb::GetInstance().GetRepNameAndPathResidual(*state.pResolvedDirectUrl);
-		if(state.repinfo.valid())
+		if (state.repinfo.valid())
 		{
 			dbgline;
 			// also need to use local memory, to recover in the next cycle
@@ -551,21 +545,20 @@ void cacheman::DownloadIO(TDownloadState* sp)
 			state.repoSrc = state.repinfo;
 		}
 	}
-
 	dbgline;
 
+	if ( ! m_dlCtx->dler->AddJob(as_lptr(state.fiaccess.get()),
+								 state.pResolvedDirectUrl,
+								 state.pResolvedDirectUrl ? nullptr : & state.repoSrc))
 	{
-		auto added = m_dlCtx->dler->AddJob(as_lptr(state.fiaccess.get()), state.pResolvedDirectUrl,
-										   state.pResolvedDirectUrl ? nullptr : & state.repoSrc);
-		if (!added)
+		SendFmt << "Cannot send download request, aborting ";
+		if (state.pResolvedDirectUrl)
 		{
-			SendFmt << "Cannot send download request, aborting ";
-			if (state.pResolvedDirectUrl)
-				Send(state.pResolvedDirectUrl->ToURI(true));
-			else
-				Send(state.repoSrc.sRestPath);
-			return RETVAL(eDlResult::FAIL_LOCAL);
+			Send(state.pResolvedDirectUrl
+				 ? state.pResolvedDirectUrl->ToURI(true)
+				 : state.repoSrc.sRestPath);
 		}
+		return RETVAL(eDlResult::FAIL_LOCAL);
 	}
 
 	state.requestAdded = true;
@@ -775,20 +768,23 @@ format_error:
 inline tStrPos FindCompSfxPos(const string &s)
 {
 	for(auto &p : sfxXzBz2GzLzma)
+	{
 		if(endsWith(s, p))
 			return(s.size()-p.size());
+	}
 	return stmiss;
 }
 
 static short FindCompIdx(cmstring &s)
 {
 	for(unsigned i=0;i<_countof(sfxXzBz2GzLzma); ++i)
+	{
 		if(endsWith(s, sfxXzBz2GzLzma[i]))
 			return i;
+	}
 	return -1;
 }
 
-#warning XXX: Check usage, maybe implement the alternative method (meta.h) with a custom deletion callback
 void ACNG_API DelTree(const string &what)
 {
 	class killa : public IFileHandler
@@ -810,81 +806,6 @@ void ACNG_API DelTree(const string &what)
 		bool ProcessDirBefore(const mstring &, const struct stat &) { return true;}
 	} hh;
 	IFileHandler::DirectoryWalk(what, &hh, false, false);
-}
-
-tFingerprint * BuildPatchList(string sFilePathAbs, deque<tPatchEntry> &retList)
-{
-	retList.clear();
-	string sLine;
-	static tFingerprint ret;
-	ret.csType=CSTYPE_INVALID;
-
-	filereader reader;
-	if(!reader.OpenFile(sFilePathAbs))
-		return nullptr;
-
-	enum { eCurLine, eHistory, ePatches} eSection;
-	eSection=eCurLine;
-
-	unsigned peAnz(0);
-
-	// This code should be tolerant to minor changes in the format
-
-	tStrVec tmp;
-	off_t otmp;
-	while(reader.GetOneLine(sLine))
-	{
-		int nTokens=Tokenize(sLine, SPACECHARS, tmp);
-		if(3==nTokens)
-		{
-			if(tmp[0] == "SHA1-Current:")
-			{
-				otmp=atoofft(tmp[2].c_str(), -2);
-				if(otmp<0 || !ret.Set(tmp[1], CSTYPE_SHA1, otmp))
-					return nullptr;
-			}
-			else
-			{
-				tFingerprint fpr;
-				otmp=atoofft(tmp[1].c_str(),-2);
-				if(otmp<0 || !fpr.Set(tmp[0], CSTYPE_SHA1, otmp))
-					return nullptr;
-
-				if(peAnz && retList[peAnz%retList.size()].patchName == tmp[2])
-					// oh great, this is also our target
-				{
-					if (eHistory == eSection)
-						retList[peAnz%retList.size()].fprState = fpr;
-					else
-						retList[peAnz%retList.size()].fprPatch = fpr;
-				}
-				else
-				{
-					retList.resize(retList.size()+1);
-					retList.back().patchName=tmp[2];
-					if (eHistory == eSection)
-						retList.back().fprState = fpr;
-					else
-						retList.back().fprPatch = fpr;
-				}
-
-				peAnz++;
-			}
-		}
-		else if(1==nTokens)
-		{
-			if(tmp[0] == "SHA1-History:")
-				eSection=eHistory;
-			else if(tmp[0] == "SHA1-Patches:")
-				eSection=ePatches;
-			else
-				return nullptr;
-		}
-		else if(nTokens) // not null but weird count
-			return nullptr; // error
-	}
-
-	return ret.csType != CSTYPE_INVALID ? &ret : nullptr;
 }
 
 /*
@@ -1256,7 +1177,7 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 		tFingerprint probe;
 		if(!probe.Set(split, CSTYPE_SHA256) || !split.Next())
 			continue;
-		patchSums.emplace(split.str(), probe);
+		patchSums.emplace(split.view(), probe);
 	}
 	cmstring sPatchResultAbs(SABSPATH(sPatchResultRel));
 	cmstring sPatchInputAbs(SABSPATH(sPatchInputRel));
@@ -1281,7 +1202,7 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 			if(!split.Next() || !split.Next())
 				continue;
 			// at size token
-			if(!pf.m_p && probeSize != split.str())
+			if(!pf.m_p && probeSize != split.view())
 				return PATCH_FAIL; // faulty data?
 			if(!split.Next())
 				continue;
@@ -1830,7 +1751,7 @@ bool cacheman::ParseAndProcessMetaFile(std::function<void(const tRemoteFileInfo&
 	}
 
 	// some common variables
-	mstring sLine, key, val;
+	string_view sLine, key, val;
 	tRemoteFileInfo info;
 	info.SetInvalid();
 	tStrVec vsMetrics;
@@ -1873,7 +1794,7 @@ bool cacheman::ParseAndProcessMetaFile(std::function<void(const tRemoteFileInfo&
 				if(key==sMD5sum)
 					info.fpr.SetCs(val, CSTYPE_MD5);
 				else if(key==sSize)
-					info.fpr.size=atoofft(val.c_str());
+					info.fpr.size=atoofft(val);
 				else if(key==sFilename)
 				{
 					UrlUnescape(val);
@@ -1935,7 +1856,7 @@ bool cacheman::ParseAndProcessMetaFile(std::function<void(const tRemoteFileInfo&
 						nStep++;
 						break;
 					case _csize:
-						info.fpr.size = atoofft(sLine.c_str());
+						info.fpr.size = atoofft(sLine);
 						nStep++;
 						break;
 					default:
@@ -1965,7 +1886,7 @@ bool cacheman::ParseAndProcessMetaFile(std::function<void(const tRemoteFileInfo&
 			tSplitWalk split(input, SPACECHARS);
 			if(split.Next() && info.SetFromPath(split, sPkgBaseDir)
 					&& split.Next() && info.SetSize(split.view().data())
-					&& split.Next() && info.fpr.SetCs(split))
+					&& split.Next() && info.fpr.SetCs(split.view()))
 			{
 				ret(info);
 			}
@@ -2028,7 +1949,7 @@ bool cacheman::ParseAndProcessMetaFile(std::function<void(const tRemoteFileInfo&
 
 			tSplitWalk split(sLine, SPACECHARS);
 			info.fpr.size=-1;
-			if( split.Next() && info.fpr.SetCs(split,
+			if( split.Next() && info.fpr.SetCs(split.view(),
 					idxType == EIDX_MD5DILIST ? CSTYPE_MD5 : CSTYPE_SHA256)
 					&& split.Next() && (info.sFileName = split).size()>0)
 			{
@@ -2113,7 +2034,7 @@ void cacheman::ParseGenericRfc822File(filereader& reader,
 		cmstring& sExtListFilter,
 		map<string, deque<string> >& contents)
 {
-	string sLine, key, val, lastKey;
+	string_view key, val, lastKey, sLine;
 	deque<string>* pLastVal(nullptr);
 	while (reader.GetOneLine(sLine))
 	{
@@ -2130,12 +2051,12 @@ void cacheman::ParseGenericRfc822File(filereader& reader,
 				continue;
 
 			trimBoth(sLine);
-			pLastVal->push_back(sLine);
+			pLastVal->emplace_back().assign(sLine);
 		}
 		else if (ParseKeyValLine(sLine, key, val))
 		{
 			lastKey = key;
-			pLastVal = & contents[key];
+			pLastVal = & contents[mstring(key)];
 			// we don't merge
 			pLastVal->clear();
 			pLastVal->emplace_back(val);
@@ -2149,14 +2070,13 @@ bool cacheman::ParseDebianIndexLine(tRemoteFileInfo& info, cmstring& fline)
 	// ok, read "checksum size filename" into info and check the word count
 	tSplitWalk split(fline);
 	if (!split.Next()
-			|| !info.fpr.SetCs(split, info.fpr.csType)
+			|| !info.fpr.SetCs(split.view(), info.fpr.csType)
 			|| !split.Next())
 		return false;
-	string val(split);
-	info.fpr.size = atoofft((LPCSTR) val.c_str(), -2L);
+	info.fpr.size = atoofft(split.view(), -2);
 	if (info.fpr.size < 0 || !split.Next())
 		return false;
-	UrlUnescapeAppend(split, info.sFileName);
+	UrlUnescapeAppend(split.view(), info.sFileName);
 	return true;
 }
 

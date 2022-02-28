@@ -505,21 +505,21 @@ inline void _ParseLocalDirs(cmstring &value)
 {
 	for(tSplitWalk splitter(value, ";"); splitter.Next(); )
 	{
-		mstring token=splitter.str();
+		auto token = splitter.view();
 		trimBoth(token);
-		tStrPos pos = token.find_first_of(SPACECHARS);
+		auto pos = token.find_first_of(SPACECHARSsv);
 		if(stmiss == pos)
 		{
-			cerr << "Cannot map " << token << ", needed format: virtualdir realdir, ignoring it";
+			cerr << "Cannot map "sv << token << ", needed format: virtualdir realdir, ignoring it"sv << endl;
 			continue;
 		}
 		string from(token, 0, pos);
 		trimBoth(from, "/");
-		string what(token, pos);
+		string what(token.substr(pos));
 		trimBoth(what, SPACECHARS "'\"");
 		if(what.empty())
 		{
-			cerr << "Unsupported target of " << from << ": " << what << ", ignoring it" << endl;
+			cerr << "Unsupported target of "sv << from << ": " << what << ", ignoring it"sv << endl;
 			continue;
 		}
 		localdirs[from]=what;
@@ -601,7 +601,7 @@ bool SetOption(const string &sLine, NoCaseStringMap *pDupeCheck)
 			if(w.empty())
 				w = value;
 			else
-				cerr << "WARNING: " << key << " was previously set to " << w << endl;
+				cerr << "WARNING: "sv << key << " was previously set to "sv << w << endl;
 		}
 
 		*psTarget=value;
@@ -615,13 +615,13 @@ bool SetOption(const string &sLine, NoCaseStringMap *pDupeCheck)
 			if(w.empty())
 				w = value;
 			else
-				cerr << "WARNING: " << key << " was already set to " << w << endl;
+				cerr << "WARNING: "sv << key << " was already set to "sv << w << endl;
 		}
 
 		const char *pStart=value.c_str();
 		if(! *pStart)
 		{
-			cerr << "Missing value for " << key << " option!" <<endl;
+			cerr << "Missing value for "sv << key << " option!"sv <<endl;
 			return false;
 		}
 		
@@ -631,7 +631,7 @@ bool SetOption(const string &sLine, NoCaseStringMap *pDupeCheck)
 
 		if(RESERVED_DEFVAL == nVal)
 		{
-			cerr << "Bad value for " << key << " (protected value, use another one)" <<endl;
+			cerr << "Bad value for "sv << key << " (protected value, use another one)"sv <<endl;
 			return false;
 		}
 
@@ -639,13 +639,13 @@ bool SetOption(const string &sLine, NoCaseStringMap *pDupeCheck)
 
 		if (errno)
 		{
-			cerr << "Invalid number for " << key << " ";
+			cerr << "Invalid number for "sv << key << " ";
 			perror("option");
 			return false;
 		}
 		if(*pEnd)
 		{
-			cerr << "Bad value for " << key << " option or found trailing garbage: " << pEnd <<endl;
+			cerr << "Bad value for "sv << key << " option or found trailing garbage: "sv << pEnd <<endl;
 			return false;
 		}
 	}
@@ -656,7 +656,7 @@ bool SetOption(const string &sLine, NoCaseStringMap *pDupeCheck)
 	else
 	{
 		if(!g_bQuiet)
-			cerr << "Warning, unknown configuration directive: " << key <<endl;
+			cerr << "Warning, unknown configuration directive: "sv << key <<endl;
 		return false;
 	}
 	return true;
