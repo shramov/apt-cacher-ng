@@ -117,15 +117,14 @@ cacheman::cacheman(tRunParms&& parms) :
 {
 	m_gMaintTimeNow=GetTime();
 
-	m_bErrAbort=(parms.cmd.find("abortOnErrors=aOe")!=stmiss);
-	m_bByChecksum=(parms.cmd.find("byChecksum")!=stmiss);
-	m_bByPath=(StrHas(parms.cmd, "byPath") || m_bByChecksum);
-	m_bVerbose=(parms.cmd.find("beVerbose")!=stmiss);
-	m_bForceDownload=(parms.cmd.find("forceRedownload")!=stmiss);
-	m_bSkipHeaderChecks=(parms.cmd.find("skipHeadChecks")!=stmiss);
-	m_bTruncateDamaged=(parms.cmd.find("truncNow")!=stmiss);
+	m_bErrAbort=(m_parms.cmd.find("abortOnErrors=aOe")!=stmiss);
+	m_bByChecksum=(m_parms.cmd.find("byChecksum")!=stmiss);
+	m_bByPath=(StrHas(m_parms.cmd, "byPath") || m_bByChecksum);
+	m_bVerbose=(m_parms.cmd.find("beVerbose")!=stmiss);
+	m_bForceDownload=(m_parms.cmd.find("forceRedownload")!=stmiss);
+	m_bSkipHeaderChecks=(m_parms.cmd.find("skipHeadChecks")!=stmiss);
+	m_bTruncateDamaged=(m_parms.cmd.find("truncNow")!=stmiss);
 	m_bSkipIxUpdate=(m_parms.cmd.find("skipIxUp=si")!=stmiss);
-
 }
 
 bool cacheman::ProcessOthers(const string &, const struct stat &)
@@ -1397,6 +1396,8 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 				MTLOGASSERT(false,"Final verification failed");
 				return PATCH_FAIL;
 			}
+			if(m_bVerbose)
+				Send("<b>Patch result OKAY.</b><br>"sv);
 			return 0;
 		};
 		return PATCH_FAIL;
