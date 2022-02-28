@@ -239,7 +239,8 @@ ssize_t ACNG_API eb_dump_chunks(evbuffer* inbuf, mstring& ret,  size_t nMax2Send
 
 ssize_t eb_dump_chunks(evbuffer* inbuf, int out_fd, size_t nMax2SendNow)
 {
-	return eb_dump_chunks<int, ::writev>(inbuf, out_fd, std::min(nMax2SendNow, evbuffer_get_length(inbuf)));
+	auto xl(std::min(nMax2SendNow, evbuffer_get_length(inbuf)));
+	return eb_dump_chunks<int, ::writev>(inbuf, out_fd, xl);
 }
 
 void ACNG_API event_and_fd_free(event *e)

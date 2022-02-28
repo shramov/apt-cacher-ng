@@ -18,6 +18,8 @@ namespace acng
 {
 using namespace std;
 
+thread_local bSS mainthandler::g_msgFmtBuf;
+
 mainthandler::mainthandler(tRunParms&& parms) :
 		m_parms(move(parms))
 {

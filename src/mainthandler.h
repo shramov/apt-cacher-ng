@@ -135,9 +135,9 @@ public:
 	tSS GetKbLocation();
 
 #define SendFmt tFmtSendTempRaii<mainthandler, bSS>(*this).GetFmter()
-	bSS m_fmtHelper;
-	void SendTempFmt() { Send(m_fmtHelper); m_fmtHelper.clear(); }
-	bSS& GetTempFmt() { return m_fmtHelper; }
+	static thread_local bSS g_msgFmtBuf;
+	void SendTempFmt() { Send(g_msgFmtBuf); g_msgFmtBuf.clear(); }
+	bSS& GetTempFmt() { return g_msgFmtBuf; }
 };
 
 class ACNG_API DeleteHelper

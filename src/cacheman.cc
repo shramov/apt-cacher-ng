@@ -2357,15 +2357,15 @@ void cacheman::PrintStats(cmstring &title)
 
 	if(!m_bVerbose)
 	{
-	m_fmtHelper << "<br>\n<table name=\"shorttable\"><thead>"
+	g_msgFmtBuf << "<br>\n<table name=\"shorttable\"><thead>"
 			"<tr><th colspan=2>" << title;
 	if(!m_bVerbose && sorted.size()>MAX_TOP_COUNT)
-		m_fmtHelper << " (Top " << nMax << "<span name=\"noshowmore\">,"
+		g_msgFmtBuf << " (Top " << nMax << "<span name=\"noshowmore\">,"
 				" <a href=\"javascript:show_rest();\">show more / cleanup</a></span>)";
-	m_fmtHelper << "</th></tr></thead>\n<tbody>";
+	g_msgFmtBuf << "</th></tr></thead>\n<tbody>";
 	for(auto it=sorted.rbegin(); it!=sorted.rend(); ++it)
 	{
-		m_fmtHelper << "<tr><td><b>"
+		g_msgFmtBuf << "<tr><td><b>"
 				<< offttosH(it->first) << "</b></td><td>"
 				<< *(it->second) << "</td></tr>\n";
 		if(nMax--<=0)
@@ -2377,12 +2377,12 @@ void cacheman::PrintStats(cmstring &title)
 	<< "<div name=\"bigtable\" class=\"xhidden\">";
 	}
 
-	m_fmtHelper << "<br>\n<table><thead>"
+	g_msgFmtBuf << "<br>\n<table><thead>"
 				"<tr><th colspan=1><input type=\"checkbox\" onclick=\"copycheck(this, 'xfile');\"></th>"
 				"<th colspan=2>" << title << "</th></tr></thead>\n<tbody>";
 		for(auto it=sorted.rbegin(); it!=sorted.rend(); ++it)
 		{
-			m_fmtHelper << "<tr><td><input type=\"checkbox\" class=\"xfile\""
+			g_msgFmtBuf << "<tr><td><input type=\"checkbox\" class=\"xfile\""
 					<< AddLookupGetKey(*(it->second), "") << "></td>"
 						"<td><b>" << html_sanitize(offttosH(it->first)) << "</b></td><td>"
 					<< *(it->second) << "</td></tr>\n";
