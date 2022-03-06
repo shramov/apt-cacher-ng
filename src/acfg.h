@@ -95,6 +95,7 @@ int CheckAdminAuth(LPCSTR auth);
 extern bool g_bQuiet, g_bNoComplex;
 
 static const cmstring privStoreRelSnapSufix("_xstore/rsnap");
+static const cmstring privStoreRelSnapSufixWithSlash("_xstore/rsnap/");
 static const cmstring privStoreRelQstatsSfx("_xstore/qstats");
 
 } // namespace cfg

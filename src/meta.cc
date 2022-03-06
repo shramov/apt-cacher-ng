@@ -38,56 +38,6 @@ hendl("<br>\n"sv);
 
 ACNG_API std::atomic<bool> g_global_shutdown;
 
-mstring GetBaseName(const string &in)
-{
-	if(in.empty())
-		return se;
-
-	tStrPos end = in.find_last_not_of(CPATHSEP); // must be the last char of basename
-	if(end == stmiss) // empty, or just a slash?
-		return "/";
-	
-	tStrPos start = in.rfind(CPATHSEP, end);
-	if(stmiss == start)
-		start=0;
-	
-	return in.substr(start, end+1-start);
-}
-
-/*
-void find_base_name(const char *in, const char * &pos, UINT &len)
-{
-	int l=strlen(in);
-	if(l==0)
-	{
-		pos=in;
-		len=0;
-		return;
-	}
-	
-		const char *p, *r;
-		
-		for(p=in+l-1;*p==cPathSep;p--)
-		{	
-			if(p==in)
-			{
-				pos=in;
-				len=1;
-				return;
-			}
-		}
-		for(r=p;r>=in && *p!=cPathSep;r--)
-		{
-			if(r==in)
-			{
-				pos=in;
-				len=p-in+1;
-			}
-		}
-	
-}
-*/
-
 /*!
  * \brief Simple split function, outputs resulting tokens into a string vector, with or without purging the previous contents
  */
@@ -653,25 +603,6 @@ bool DecodeBase64(LPCSTR pAscii, size_t len, acbuf& binData)
 }
 #endif
 #endif
-
-mstring GetDirPart(cmstring &in)
-{
-	if(in.empty())
-		return se;
-
-	tStrPos end = in.find_last_of(CPATHSEP);
-	if(end == stmiss) // none? don't care then
-		return se;
-
-	return in.substr(0, end+1);
-}
-
-std::pair<mstring, mstring> SplitDirPath(cmstring& in)
-		{
-auto dir=GetDirPart(in);
-return std::pair<mstring,mstring>(dir, in.substr(dir.length()));
-		}
-
 
 LPCSTR GetTypeSuffix(cmstring& s)
 {

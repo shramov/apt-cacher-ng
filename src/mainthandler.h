@@ -28,6 +28,9 @@ class mainthandler;
 class IMaintJobItem;
 struct tSpecialWorkDescription;
 
+// our semi-persistent format helper
+extern thread_local tTempTssHolder g_fmtBuf;
+
 /**
  * @brief The IMaintJobItem class
  */
@@ -99,7 +102,7 @@ public:
 	 */
 	virtual void Run() =0;
 
-	virtual ~mainthandler() =default;
+	virtual ~mainthandler() { g_fmtBuf.clear(); g_msgFmtBuf.clear(); };
 
 	mainthandler(tRunParms&& parms);
 
@@ -134,10 +137,13 @@ public:
 	 */
 	tSS GetKbLocation();
 
+	// helper stuff to avoid allocations - use a shared buffer, scopped to thread, which is consumed immediately afterwards
 #define SendFmt tFmtSendTempRaii<mainthandler, bSS>(*this).GetFmter()
 	static thread_local bSS g_msgFmtBuf;
-	void SendTempFmt() { Send(g_msgFmtBuf); g_msgFmtBuf.clear(); }
+	void AfterTempFmt() { Send(g_msgFmtBuf); g_msgFmtBuf.clear(); }
 	bSS& GetTempFmt() { return g_msgFmtBuf; }
+	// alternative for contiguous memory buffer
+#define MsgFmt tSelfClearingFmter(g_fmtBuf).GetFmter()
 };
 
 class ACNG_API DeleteHelper

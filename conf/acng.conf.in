@@ -389,10 +389,10 @@ LocalDirs: acng-doc @CMAKE_INSTALL_FULL_DOCDIR@
 
 # Regular expiration algorithm finds package files which are no longer listed
 # in any index file and removes them of them after a safety period.
-# This option allows to keep more versions of a package in the cache after
-# the safety period is over.
+# Setting this option will move expired files into an alternative location
+# instead of removing them.
 #
-# KeepExtraVersions: 0
+# KeepExtraVersions: /var/tmp/...
 
 # Optionally uses TCP access control provided by libwrap, see hosts_access(5)
 # for details. Daemon name is apt-cacher-ng.

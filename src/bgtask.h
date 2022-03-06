@@ -21,7 +21,7 @@ class ACNG_API tExclusiveUserAction : public tMaintJobBase
 public:
 	using tMaintJobBase::tMaintJobBase;
 protected:
-	unsigned Add2KillBill(cmstring& sPathRel);
+	unsigned Add2KillBill(string_view sPathRel);
 	// adds "purgeactionmeta"
 	virtual void SendProp(cmstring &key) override;
 };

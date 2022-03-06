@@ -9,7 +9,7 @@
 #include "acfg.h"
 #include "meta.h"
 #include "debug.h"
-#include "aevutil.h"
+#include "acutilev.h"
 
 #include <fcntl.h>
 #ifdef HAVE_LINUX_FALLOCATE
@@ -37,6 +37,8 @@ namespace acng
 {
 
 #define citer const_iterator
+
+thread_local mstring fio_spr;
 
 #ifdef HAVE_LINUX_FALLOCATE
 
@@ -119,37 +121,38 @@ bool xtouch(cmstring &wanted)
 	return true;
 }
 
-void ACNG_API mkbasedir(cmstring & path)
+bool optmkdir(LPCSTR path)
 {
-	if(0==mkdir(GetDirPart(path).c_str(), cfg::dirperms) || EEXIST == errno)
-		return; // should succeed in most cases
-
-	// assuming the cache folder is already there, don't start from /, if possible
-	unsigned pos=0;
-	if(startsWith(path, cfg::cacheDirSlash))
-	{
-		// pos=acng::cfg:cachedir.size();
-		pos=path.find("/", cfg::cachedir.size()+1);
-	}
-    for(; pos<path.size(); pos=path.find(SZPATHSEP, pos+1))
-    {
-        if(pos>0)
-            mkdir(path.substr(0,pos).c_str(), cfg::dirperms);
-    }
+	return 0 == mkdir(path, cfg::dirperms) || EEXIST == errno;
 }
 
-void ACNG_API mkdirhier(cmstring& path)
+bool ACNG_API mkdirhier(string_view path, bool tryOptimistic)
 {
-	if(0==mkdir(path.c_str(), cfg::dirperms) || EEXIST == errno)
-		return; // should succeed in most cases
-	if(path.empty())
-		return;
-	for(cmstring::size_type pos = path[0] == '/' ? 1 : 0;pos < path.size();pos++)
+	fio_spr = path;
+
+	// optimistic, should succeed in most cases
+	if (tryOptimistic && optmkdir(fio_spr.c_str()))
+		return true;
+
+	// assuming the cache folder is the prefix, and skip any potential intermediate /s there
+	auto it = fio_spr.begin();
+	if (startsWith(path, cfg::cacheDirSlash))
+		it += CACHE_BASE_LEN;
+	while (it < fio_spr.end() && *it == '/')
+		++it;
+	// ok, try punching terminators into the string to mkdir on that
+	for (;it < fio_spr.end(); ++it)
 	{
-		pos = path.find('/', pos);
-		mkdir(path.substr(0,pos).c_str(), cfg::dirperms);
-		if(pos == stmiss) break;
+		if (*it == '/')
+		{
+			*it = 0x0;
+			if (0 == mkdir(fio_spr.data(), cfg::dirperms) || EEXIST == errno)
+				*it = '/';
+			else // error state, keep the errno. XXX: return some error code?
+				return false;
+		}
 	}
+	return optmkdir(fio_spr.c_str());
 }
 
 void set_block(int fd) {

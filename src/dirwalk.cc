@@ -22,7 +22,6 @@ extern int stupidfs;
 
 struct dnode
 {
-
 	typedef pair<dev_t,ino_t> tPairDevIno;
 	typedef set<tPairDevIno> tDupeFilter;
 	
@@ -33,14 +32,11 @@ struct dnode
 	dnode *m_parent;
 	struct stat m_stinfo;
 
-
 private:
 	// not to be copied
 	dnode& operator=(const dnode&);
 	dnode(const dnode&);
-
 };
-
 
 bool dnode::Walk(IFileHandler *h, dnode::tDupeFilter *pFilter, bool bFollowSymlinks)
 {
@@ -53,8 +49,8 @@ bool dnode::Walk(IFileHandler *h, dnode::tDupeFilter *pFilter, bool bFollowSymli
 	}
 	else
 	{
-		auto r=lstat(sPath.c_str(), &m_stinfo);
-		if(r)
+		auto r = lstat(sPath.c_str(), &m_stinfo);
+		if (r)
 		{
 			return true; // slight risk of missing information here... bug ignoring is safer
 		}
@@ -78,7 +74,7 @@ bool dnode::Walk(IFileHandler *h, dnode::tDupeFilter *pFilter, bool bFollowSymli
 		return false;
 
 	// seen this in the path before? symlink cycle?
-	for(dnode *cur=m_parent; cur!=nullptr; cur=cur->m_parent)
+	for (dnode *cur=m_parent; cur!=nullptr; cur=cur->m_parent)
 	{
 		if (m_stinfo.st_dev == cur->m_stinfo.st_dev && m_stinfo.st_ino == cur->m_stinfo.st_ino)
 			return true;
@@ -132,7 +128,7 @@ bool IFileHandler::DirectoryWalk(const string & sRoot, IFileHandler *h, bool bFi
 {
 	dnode root(nullptr);
 	dnode::tDupeFilter filter;
-	root.sPath=sRoot; 
+	root.sPath = sRoot;
 	return root.Walk(h, bFilterDoubleDirVisit ? &filter : nullptr, bFollowSymlinks);
 }
 

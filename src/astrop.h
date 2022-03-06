@@ -42,6 +42,14 @@ namespace acng
 
 std::string concat(string_view a, string_view b = string_view(), string_view c = string_view(), string_view d = string_view(), string_view e = string_view());
 
+inline bool isAnyOf(char c, string_view options)
+{
+	for (auto x: options)
+		if (x == c)
+			return true;
+	return false;
+}
+
 inline void trimFront(std::string &s, const string_view junk=SPACECHARS)
 {
 	auto pos = s.find_first_not_of(junk);
@@ -204,7 +212,9 @@ public:
             return ret;
         }
 
-	struct iterator :
+	struct iterator
+		#if 0
+			:
 			public std::iterator<
 			                        std::input_iterator_tag,   // iterator_category
 			                        string_view,                      // value_type
@@ -212,6 +222,7 @@ public:
 			                        const long*,               // pointer
 			                        string_view                       // reference
 			                                      >
+		#endif
 	{
         tSplitWalkBase* _walker = nullptr;
 		// default is end sentinel
@@ -235,8 +246,7 @@ public:
 		ret.assign(begin(), end());
 		return ret;
 		}
-	std::deque<string_view> to_deque() { return std::deque<string_view>(begin(), end()); }
-
+	std::deque<string_view> to_deque() { std::deque<string_view> ret; for(const auto& el: *this) ret.emplace_back(el); return ret; }  // return std::deque<string_view>(begin(), end()); }
 };
 
 using tSplitWalk = tSplitWalkBase<false, false>;
@@ -244,19 +254,38 @@ using tSplitWalkStrict = tSplitWalkBase<false, true>;
 using tSplitByStr = tSplitWalkBase<true, false>;
 using tSplitByStrStrict = tSplitWalkBase<true, true>;
 
-std::string GetBaseName(const std::string &in);
-std::string GetDirPart(const std::string &in);
-std::pair<std::string,std::string> SplitDirPath(const std::string& in);
-std::string PathCombine(string_view a, string_view b);
+inline void Append(std::string& buf, string_view a, string_view b, string_view c = string_view())
+{
+	buf.reserve(a.size() + b.size() + c.size());
+	buf.assign(a);
+	buf += b;
+	buf += c;
+}
 inline std::string Concat(string_view a, string_view b, string_view c = string_view())
 {
 	std::string ret;
-	ret.reserve(a.size() + b.size() + c.size());
-	if (!a.empty()) ret.append(a);
-	if (!b.empty()) ret.append(b);
-	if (!c.empty())	ret.append(c);
+	Append(ret, a, b, c);
 	return ret;
 }
+
+inline std::string Append(std::string& ret,
+						   string_view a,
+						  string_view b,
+						  string_view c,
+						  string_view d,
+						  string_view e = string_view(),
+						  string_view f = string_view())
+{
+	ret.reserve(ret.size() + a.size() + b.size() + c.size() + d.size() + e.size() + f.size());
+	ret.assign(a);
+	ret.append(b);
+	if (!c.empty())	ret.append(c);
+	if (!d.empty()) ret.append(d);
+	if (!e.empty()) ret.append(e);
+	if (!f.empty())	ret.append(f);
+	return ret;
+}
+
 inline std::string Concat(string_view a,
 						  string_view b,
 						  string_view c,
@@ -265,13 +294,7 @@ inline std::string Concat(string_view a,
 						  string_view f = string_view())
 {
 	std::string ret;
-	ret.reserve(a.size() + b.size() + c.size() + d.size() + e.size() + f.size());
-	if (!a.empty()) ret.append(a);
-	if (!b.empty()) ret.append(b);
-	if (!c.empty())	ret.append(c);
-	if (!d.empty()) ret.append(d);
-	if (!e.empty()) ret.append(e);
-	if (!f.empty())	ret.append(f);
+	Append(ret, a, b, c, d, e, f);
 	return ret;
 }
 
@@ -323,27 +346,6 @@ public:
 	}
 };
 
-
-// dirty little RAII helper to send data after formating it, uses a shared
-// buffer presented to the user via macro. This two-stage design should
-// reduce needed locking operations on the output.
-template<class Tparent, class Tfmter>
-class tFmtSendTempRaii
-{
-public:
-	inline tFmtSendTempRaii(Tparent &p)
-	: m_parent(p) { }
-	inline ~tFmtSendTempRaii()
-	{
-		m_parent.SendTempFmt();
-	}
-	inline Tfmter& GetFmter()
-	{
-		return m_parent.GetTempFmt();
-	}
-	Tparent &m_parent;
-};
-
 // let the compiler optimize and keep best variant
 off_t atoofft(LPCSTR p);
 inline off_t atoofft(LPCSTR p, off_t nDefVal)
@@ -351,7 +353,7 @@ inline off_t atoofft(LPCSTR p, off_t nDefVal)
 	return p ? atoofft(p) : nDefVal;
 }
 
-off_t atoofft(string_view s, off_t nDefVal = 0);
+off_t atoofft(string_view s, off_t nDefVal);
 
 /*inline void Join(mstring &out, const mstring & sep, const tStrVec & tokens)
 {out.clear(); if(tokens.empty()) return; for(const auto& tok: tokens)out+=(sep + tok);}
@@ -360,6 +362,19 @@ void StrSubst(mstring &contents, const mstring &from, const mstring &to, tStrPos
 
 bool ParseKeyValLine(string_view sIn, string_view& sOutKey, string_view& sOutVal);
 inline bool NoCaseEq(string_view a, string_view b) { return a.size() == b.size() && 0 == strncasecmp(a.data(), b.data(), a.size()); }
+
+inline bool EqualsChain(string_view longString, string_view a, string_view b, string_view c = string_view(), string_view d = string_view(), string_view e = string_view(), string_view f = string_view())
+{
+	auto xx = [&longString](string_view a)
+	{
+		if (longString.size() < a.size() || !longString.starts_with(a))
+			return false;
+		longString.remove_prefix(a.size());
+		return true;
+	};
+	return xx(a) && xx(b) && xx(c) && xx(d) && xx(e) && xx(f);
+}
+
 
 }
 

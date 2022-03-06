@@ -12,7 +12,7 @@ bool acng::tFingerprint::SetCs(string_view hexString, acng::CSTYPES eCstype)
 		if(eCstype == CSTYPE_INVALID)
 			return false;
 	}
-	else if(l != 2*GetCSTypeLen(eCstype))
+	else if(l != 2 * GetCSTypeLen(eCstype))
 		return false;
 
 	csType=eCstype;
@@ -51,32 +51,4 @@ bool acng::tFingerprint::CheckFile(acng::cmstring &sFile) const
 	if(!probe.ScanFile(sFile, csType, false, nullptr))
 		return false;
 	return probe == *this;
-}
-
-bool acng::tRemoteFileInfo::SetFromPath(acng::cmstring &sPath, acng::cmstring &sBaseDir)
-{
-	if (sPath.empty())
-		return false;
-
-	tStrPos pos = sPath.rfind(SZPATHSEPUNIX);
-	if (pos == stmiss)
-	{
-		sFileName = sPath;
-		sDirectory = sBaseDir;
-	}
-	else
-	{
-		sFileName = sPath.substr(pos + 1);
-		sDirectory = sBaseDir + sPath.substr(0, pos + 1);
-	}
-	return true;
-}
-
-bool acng::tRemoteFileInfo::SetSize(acng::LPCSTR szSize)
-{
-	auto l = atoofft(szSize, -2);
-	if(l < 0)
-		return false;
-	fpr.size = l;
-	return true;
 }

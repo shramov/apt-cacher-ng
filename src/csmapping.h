@@ -13,15 +13,20 @@
 namespace acng
 {
 
+// from astrop.h
+off_t atoofft(string_view s, off_t nDefVal = 0);
+
 template<bool StringSeparator, bool Strict>
 class tSplitWalkBase;
 
-typedef enum : char {
-   CSTYPE_INVALID=0,
-   CSTYPE_MD5=1,
-   CSTYPE_SHA1=2,
-   CSTYPE_SHA256=3,
-   CSTYPE_SHA512=4
+typedef enum : char
+{
+	CSTYPE_UNSET = -1, // only a placeholder for special purposes
+	CSTYPE_INVALID = 0,
+	CSTYPE_MD5=1,
+	CSTYPE_SHA1=2,
+	CSTYPE_SHA256=3,
+	CSTYPE_SHA512=4
 } CSTYPES;
 
 inline CSTYPES GuessCStype(unsigned short len)
@@ -57,7 +62,7 @@ inline LPCSTR GetCsName(CSTYPES csType)
 	default: return "Other";
 	}
 }
-inline LPCSTR GetCsNameReleaseFile(CSTYPES csType)
+inline LPCSTR GetCsNameReleaseStyle(CSTYPES csType)
 {
 	switch(csType)
 	{
@@ -86,11 +91,13 @@ public:
 };
 
 // kind of file identity, compares by file size and checksum (MD5 or SHA*)
-struct ACNG_API tFingerprint {
-	off_t size =0;
-	CSTYPES csType =CSTYPE_INVALID;
+class ACNG_API tFingerprint
+{
+	SUTPROTECTED:
+	off_t size = -1;
+	CSTYPES csType = CSTYPE_INVALID;
 	uint8_t csum[MAXCSLEN];
-	
+public:
 	tFingerprint() =default;
 	tFingerprint(const tFingerprint &a) : size(a.size),
 	csType(a.csType)
@@ -109,8 +116,8 @@ struct ACNG_API tFingerprint {
 	bool SetCs(string_view hexString, CSTYPES eCstype = CSTYPE_INVALID);
 	void Set(uint8_t *pData, CSTYPES eCstype, off_t newsize)
 	{
-		size=newsize;
-		csType=eCstype;
+		size = newsize;
+		csType = eCstype;
 		if(pData)
 			memcpy(csum, pData, GetCSTypeLen(eCstype));
 	}
@@ -121,8 +128,12 @@ struct ACNG_API tFingerprint {
 			return false;
 		size = newsize;
 		return true;
-
 	}
+	inline void SetSize(string_view sz) { size = atoofft(sz, -1); }
+	inline void SetSize(off_t sz) { size = sz; }
+	inline off_t GetSize() const { return size; }
+	CSTYPES GetCsType() const { return csType; }
+	inline bool IsValid() const { return size >= 0 && csType > CSTYPE_INVALID; }
 
 	/**
 	 * Extracts just first two tokens from splitter, first considered checksum, second the size.
@@ -144,8 +155,8 @@ struct ACNG_API tFingerprint {
 	}
 	void Invalidate()
 	{
-		csType=CSTYPE_INVALID;
-		size=-1;
+		csType = CSTYPE_INVALID;
+		size = -1;
 	}
 	mstring GetCsAsString() const;
 	operator mstring() const;
@@ -177,18 +188,13 @@ struct ACNG_API tFingerprint {
 struct ACNG_API tRemoteFileInfo
 {
 	tFingerprint fpr;
-	mstring sDirectory, sFileName;
-	inline void SetInvalid() {
-		sFileName.clear();
-		sDirectory.clear();
-		fpr.csType=CSTYPE_INVALID;
-		fpr.size=-1;
+	mstring path;
+
+	bool IsUsable()
+	{
+		return !path.empty() && fpr.GetCsType() != CSTYPE_INVALID && fpr.GetSize() > 0;
 	}
-	inline bool IsUsable() {
-		return (!sFileName.empty() && fpr.csType!=CSTYPE_INVALID && fpr.size>0);
-	}
-	bool SetFromPath(cmstring &sPath, cmstring &sBaseDir);
-	bool SetSize(LPCSTR szSize);
+	bool SetSize(string_view szSize) { return fpr.SetSize(szSize), fpr.GetSize() >= 0; }
 };
 
 

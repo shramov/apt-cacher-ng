@@ -27,7 +27,11 @@ struct tRex : public regex_t
 	}
 	bool match(cmstring& in)
 	{
-		return !m_error && 0 == regexec(this, in.c_str(), 0, nullptr, 0);
+		return match(in.c_str());
+	}
+	bool match(LPCSTR in)
+	{
+		return !m_error && 0 == regexec(this, in, 0, nullptr, 0);
 	}
 	tRex(cmstring& ps)
 	{
@@ -93,7 +97,7 @@ struct rex::tImpl
 										tmpDontcacheTgt.empty() ? tmpDontcache : tmpDontcacheTgt);
 	}
 
-	bool Match(cmstring &in, eMatchType type)
+	bool Match(LPCSTR in, eMatchType type)
 	{
 		if(MatchType(in, type))
 			return true;
@@ -103,7 +107,7 @@ struct rex::tImpl
 	}
 
 	// match the specified type by internal pattern PLUS the user-added pattern
-	bool MatchType(cmstring &in, eMatchType type)
+	bool MatchType(LPCSTR in, eMatchType type)
 	{
 		auto& matcher = typeMatcher.at(type);
 		for(auto& el: matcher)
@@ -112,7 +116,7 @@ struct rex::tImpl
 		return false;
 	}
 
-	ACNG_API eMatchType GetFiletype(const string & in)
+	ACNG_API eMatchType GetFiletype(LPCSTR in)
 	{
 		if (MatchType(in, FILE_SPECIAL_VOLATILE))
 			return FILE_VOLATILE;
@@ -224,6 +228,11 @@ rex::~rex()
 
 bool rex::Match(cmstring &in, eMatchType type)
 {
+	return m_pImpl->Match(in.c_str(), type);
+}
+
+bool rex::Match(LPCSTR in, eMatchType type)
+{
 	return m_pImpl->Match(in, type);
 }
 
@@ -234,7 +243,7 @@ bool rex::HasErrors()
 
 rex::eMatchType rex::GetFiletype(const mstring &sPath)
 {
-	return m_pImpl->GetFiletype(sPath);
+	return m_pImpl->GetFiletype(sPath.c_str());
 }
 
 bool rex::MatchUncacheable(const mstring &sPath, NOCACHE_PATTYPE patype)

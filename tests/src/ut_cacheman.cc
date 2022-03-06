@@ -23,6 +23,8 @@ protected:
 
 // cacheman interface
 public:
+#warning fixme
+#if 0
 	eDlResult Download(cmstring &sFilePathRel, bool bIsVolatileFile, eDlMsgPrio msgLevel,
 					   const tHttpUrl *pForcedURL, unsigned hints, cmstring *sGuessedFrom,
 					   bool bForceReDownload) override
@@ -43,6 +45,7 @@ public:
 	{
 		return true;
 	}
+#endif
 };
 
 class TestPtItem : public IMaintJobItem

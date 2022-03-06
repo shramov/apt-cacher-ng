@@ -4,6 +4,7 @@
 #include "mainthandler.h"
 #include "meta.h"
 #include "filereader.h"
+#include "acworm.h"
 
 #include <list>
 
@@ -53,6 +54,7 @@ private:
 
 class tMaintJobBase : public tMarkupFileSend
 {
+	mstring m_tempString;
 public:
 	//using tMarkupFileSend::tMarkupFileSend;
 	tMaintJobBase(tRunParms&& parms);
@@ -65,6 +67,10 @@ protected:
 	void ProcessResource(cmstring sFilename);
 
 	bool CheckStopSignal();
+
+	// this is the string memory dump, used in base classes. No code in THIS class shall make use of it, to be sure about its destruction time vs. potential users.
+	acworm m_stringStore;
+	mstring& term(string_view s) { return m_tempString = s; }
 };
 
 class tDeleter : public tMarkupFileSend, public DeleteHelper

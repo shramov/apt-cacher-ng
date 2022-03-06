@@ -4,10 +4,17 @@
 #include <functional>
 #include <utility>
 
-namespace acng {
+namespace acng
+{
 
 using tAction = std::function<void()>;
 using tCancelableAction = std::function<void(bool)>;
+
+template<typename T, typename V>
+bool InRange(const T&a, const V&val, const T&b)
+{
+	return val >=a && val <= b;
+}
 
 // unique_ptr semantics (almost) on a non-pointer type
 template<typename T, void TFreeFunc(T), T inval_default>

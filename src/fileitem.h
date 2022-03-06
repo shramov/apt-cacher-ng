@@ -284,7 +284,14 @@ public:
 	static mstring NormalizePath(cmstring &sPathRaw);
 
 protected:
-	void MoveRelease2Sidestore();
+	/**
+	 * @brief BackupReleaseFileSnapshot captures a used version of (In)Release
+	 * files. Those might be needed later in order to track the identity of
+	 * other files which have been pulled by the client using the by-hash path
+	 * only.
+	 */
+	void BackupReleaseFileSnapshot();
+
 	int m_filefd = -1;
 
 	void LogSetError(string_view message, fileitem::EDestroyMode destruction

@@ -6,7 +6,7 @@
 #include "acfg.h"
 #include "acbuf.h"
 #include "fileio.h"
-#include "aevutil.h"
+#include "acutilev.h"
 #include "evabase.h"
 
 #include <algorithm>
@@ -399,7 +399,7 @@ bool TFileitemWithStorage::SafeOpenOutFile()
 	if (AC_UNLIKELY(m_spattr.bNoStore))
 		return false;
 
-	MoveRelease2Sidestore();
+	BackupReleaseFileSnapshot();
 
 	auto sPathAbs(SABSPATH(m_sPathRel));
 
@@ -586,8 +586,7 @@ TFileitemWithStorage::~TFileitemWithStorage()
 	}
 }
 
-// special file? When it's rewritten from start, save the old version aside
-void TFileitemWithStorage::MoveRelease2Sidestore()
+void TFileitemWithStorage::BackupReleaseFileSnapshot()
 {
 	LOGSTARTFUNC
 	if(m_nSizeChecked)
@@ -596,20 +595,22 @@ void TFileitemWithStorage::MoveRelease2Sidestore()
 		return;
 	auto srcAbs = CACHE_BASE + m_sPathRel;
 	Cstat st(srcAbs);
-	if(st)
-	{
-		auto tgtDir = CACHE_BASE + cfg::privStoreRelSnapSufix + sPathSep + GetDirPart(m_sPathRel);
-		mkdirhier(tgtDir);
-		auto sideFileAbs = tgtDir;
-		// appending a unique suffix. XXX: evaluate this, still useful?
-		auto fpr = st.fpr();
-		uint8_t buf[sizeof(fpr)]; // modern compiler should see it and type-pun as needed
-		memcpy(buf, &fpr, sizeof(buf));
-		sideFileAbs += BytesToHexString(buf, sizeof(buf));
-		FileCopy(srcAbs, sideFileAbs);
-	}
-}
+	if (!st)
+		return;
 
+	// let's create a path in the backup space which mimics the folder of the previous version,
+	// while using a unique filename. The already fetched stat data comes handy for that.
+
+	auto tgtDir = CACHE_BASE + cfg::privStoreRelSnapSufix + sPathSep + GetDirPart(m_sPathRel);
+	mkdirhier(tgtDir);
+	auto sideFileAbs = tgtDir;
+	// appending a unique suffix. XXX: evaluate this, still useful?
+	auto fpr = st.fpr();
+	uint8_t buf[sizeof(fpr)]; // modern compiler should see it and type-pun as needed
+	memcpy(buf, &fpr, sizeof(buf));
+	sideFileAbs += BytesToHexString(buf, sizeof(buf));
+	FileCopy(srcAbs, sideFileAbs);
+}
 
 void fileitem::DlFinish(bool forceUpdateHeader)
 {

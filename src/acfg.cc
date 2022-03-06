@@ -9,6 +9,8 @@
 #include "sockio.h"
 #include "remotedb.h"
 #include "acfgshared.h"
+#include "acworm.h"
+#include "acutilpath.h"
 
 #include <iostream>
 #include <fstream>
@@ -16,6 +18,7 @@
 #include <algorithm>
 #include <list>
 #include <unordered_map>
+#include <unordered_set>
 #include <atomic>
 
 #include <regex.h>
@@ -476,29 +479,28 @@ tStrDeq ExpandFileTokens(cmstring &token)
 	}
 	auto pat = confdir + sPathSep + sPath;
 	StrSubst(pat, "//", "/");
-	auto res = ExpandFilePattern(pat, true);
-	if (res.size() == 1 && !Cstat(res.front()))
-		res.clear(); // not existing, wildcard returned
-	pat = suppdir + sPathSep + sPath;
-	StrSubst(pat, "//", "/");
-	auto suppres = ExpandFilePattern(pat, true);
-	if (suppres.size() == 1 && !Cstat(suppres.front()))
-		return res; // errrr... done here
+	tStrDeq results = ExpandFilePattern(pat, true);
+	if (results.size() == 1 && !Cstat(results.front()))
+		results.clear(); // not existing, wildcard returned
 
-	// merge them
-	tStrSet dupeFil;
-	for(const auto& s: res)
-	{
+	auto supDirPat = suppdir + sPathSep + sPath;
+	StrSubst(supDirPat, "//", "/");
+	tStrDeq supDirResults = ExpandFilePattern(supDirPat, true);
+	if (supDirResults.size() == 1 && !Cstat(supDirResults.front()))
+		return results; // errrr, no contents found? Done here
+
+	// skip duplicates which have the same apparent name
+
+	// views are sufficient, deque memory is reliable
+	unordered_set<string_view> dupeFil;
+	for(const auto& s: results)
 		dupeFil.emplace(GetBaseName(s));
-	}
 
-	for(const auto& s: suppres)
-	{
-		auto bn = GetBaseName(s);
-		if(!ContHas(dupeFil, bn))
-			res.emplace_back(s);
-	}
-	return res;
+	for(const auto& s: supDirResults)
+		if(!ContHas(dupeFil, GetBaseName(s)))
+			results.emplace_back(s);
+
+	return results;
 }
 
 inline void _ParseLocalDirs(cmstring &value)
@@ -752,7 +754,7 @@ void PostProcConfig()
    if(!udspath.empty())
 	   mkbasedir(cfg::udspath);
    if(!cachedir.empty())
-	   mkbasedir(cfg::cachedir);
+	   mkdirhier(cfg::cachedir);
    if(! pidfile.empty())
 	   mkbasedir(cfg::pidfile);
 

@@ -515,9 +515,7 @@ void tMaintJobBase::ProcessResource(cmstring sFilename)
 	if (input.bError)
 		SendFmt << "<b>INTERNAL ERROR</b>";
 	else
-	{
 		SendProcessedData(input.view());
-	}
 }
 
 bool tMaintJobBase::CheckStopSignal()

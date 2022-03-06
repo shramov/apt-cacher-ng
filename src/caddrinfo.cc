@@ -13,7 +13,7 @@
 #include "evabase.h"
 #include "acsmartptr.h"
 #include "ahttpurl.h"
-#include "portutils.h"
+#include "acutilport.h"
 
 #include <ares.h>
 #include <arpa/nameser.h>

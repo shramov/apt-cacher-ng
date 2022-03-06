@@ -1,7 +1,7 @@
 
 #include "atransport.h"
 #include "ahttpurl.h"
-#include "portutils.h"
+#include "acutilport.h"
 #include "acfg.h"
 #include "evabase.h"
 #include "aconnect.h"
@@ -9,7 +9,7 @@
 #include "meta.h"
 #include "acres.h"
 #include "debug.h"
-#include "aevutil.h"
+#include "acutilev.h"
 #include "ac3rdparty.h"
 #include "header.h"
 #include "acomcommon.h"

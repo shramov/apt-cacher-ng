@@ -7,6 +7,7 @@
 #include "astrop.h"
 #include "rex.h"
 #include "acfgshared.h"
+#include "acutilpath.h"
 
 #include "gmock/gmock.h"
 
@@ -251,6 +252,26 @@ TEST(strop,splitter)
     ASSERT_TRUE(yspliter.Next());
     ASSERT_EQ(yspliter.view(), "gh");
     ASSERT_FALSE(yspliter.Next());
+}
+
+TEST(pathutils, basename)
+{
+	string a("me"), b("/me"), c("////me"), C("//.//me"), d("/me/muh"), e("me/muh"), f("//me/muh/");
+	ASSERT_EQ(GetBaseName(a), "me");
+	ASSERT_EQ(GetBaseName(b), "me");
+	ASSERT_EQ(GetBaseName(c), "me");
+	ASSERT_EQ(GetBaseName(C), "me");
+	ASSERT_EQ(GetBaseName(d), "muh");
+	ASSERT_EQ(GetBaseName(e), "muh");
+	ASSERT_EQ(GetBaseName(f), "muh");
+
+	EXPECT_EQ(GetDirPart(a), "");
+	EXPECT_EQ(GetDirPart(b), "/");
+	EXPECT_EQ(GetDirPart(c), "////");
+	EXPECT_EQ(GetDirPart(C), "//.//");
+	EXPECT_EQ(GetDirPart(d), "/me/");
+	EXPECT_EQ(GetDirPart(e), "me/");
+	EXPECT_EQ(GetDirPart(f), "//me/");
 }
 
 TEST(algorithms, rextypematching)

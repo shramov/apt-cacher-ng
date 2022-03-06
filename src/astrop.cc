@@ -15,17 +15,6 @@ namespace acng
 
 using namespace std;
 
-std::string PathCombine(string_view a, string_view b)
-{
-	trimBack(a, SZPATHSEP);
-	std::string ret(a.data(), a.length());
-	trimFront(b, SZPATHSEP);
-	ret+=CPATHSEP;
-	ret.append(b.data(), b.data()+b.length());
-	return ret;
-}
-
-
 /**
  * Simple divide-n-conquer evaluation of the string. check_ex shall return true if the
  * offered string is acceptable. It is also the actual receiver of the result, i.e.

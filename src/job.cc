@@ -13,7 +13,7 @@
 #include "fileio.h" // for ::stat and related macros
 #include "maintenance.h"
 #include "evabase.h"
-#include "aevutil.h"
+#include "acutilev.h"
 #include "aclocal.h"
 #include "ptitem.h"
 #include "rex.h"

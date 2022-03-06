@@ -48,6 +48,7 @@ class ACNG_API acbuf
         inline const char *c_str() const { m_buf[w]=0x0; return rptr();}
         //! Equivalent to drop(size()), drops all data
         inline void clear() {w=r=0;}
+		inline void reset() { free(m_buf); m_buf = nullptr; w = r = 0;}
 
         inline string_view view() { return string_view(rptr(), size());}
         
@@ -182,6 +183,54 @@ protected:
 	inline tSS & appDosNL() { return add("\r\n", 2);}
 };
 
+// helper construct for tFmtSendTempRaii
+struct tTempTssHolder : public tSS
+{
+	void AfterTempFmt() { clear(); }
+	tSS& GetTempFmt() { return *this; }
+};
+
+template<class Tbuf>
+struct tTempExternalHolder
+{
+	Tbuf& __extern;
+	tTempExternalHolder(Tbuf& r) : __extern(r) {};
+	void AfterTempFmt() { __extern.clear(); }
+	Tbuf& GetTempFmt() { return __extern; }
+};
+
+// dirty little RAII helper to send data after formating it, uses a shared
+// buffer presented to the user via macro. This two-stage design should
+// reduce needed locking operations on the output.
+template<class Tparent, class Tfmter>
+class tFmtSendTempRaii
+{
+	Tparent &m_parent;
+public:
+	inline tFmtSendTempRaii(Tparent &p)
+	: m_parent(p) { }
+	inline ~tFmtSendTempRaii()
+	{
+		m_parent.AfterTempFmt();
+	}
+	inline Tfmter& GetFmter()
+	{
+		return m_parent.GetTempFmt();
+	}
+};
+typedef tFmtSendTempRaii<tTempTssHolder, tSS> tSelfClearingFmter;
+
+// similar but simple -> no actions when closing, type must provide clear() method itself
+template<class Tfmter>
+class tFmtTempFmt
+{
+	Tfmter &m_buf;
+public:
+	inline tFmtTempFmt(Tfmter &p) : m_buf(p) {}
+	inline ~tFmtTempFmt() { m_buf.clear(); }
+	inline Tfmter& GetFmter() { return m_buf; }
+	operator Tfmter&() const { return m_buf; }
+};
 
 // some comfort functionality
 inline int bufferevent_write(bufferevent* bev, string_view chunk)

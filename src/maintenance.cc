@@ -7,7 +7,7 @@
 #include "acbuf.h"
 #include "sockio.h"
 #include "caddrinfo.h"
-#include "portutils.h"
+#include "acutilport.h"
 #include "debug.h"
 #include "ptitem.h"
 #include "tpool.h"
@@ -21,7 +21,7 @@
 #include <unistd.h>
 #include <signal.h>
 
-#include "aevutil.h"
+#include "acutilev.h"
 
 using namespace std;
 
@@ -113,7 +113,7 @@ public:
 
 		tSS nam;
 		nam << CACHE_BASE << MJSTORE_SUBPATH;
-		mkdirhier(nam);
+		mkdirhier(nam.view());
 		nam << "/" << handler->GetCacheKey() << ".html";
 		m_outFile.reset(open(nam.c_str(), O_WRONLY | O_CREAT | O_BINARY, cfg::fileperms));
 		if (!m_outFile.valid())

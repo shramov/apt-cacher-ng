@@ -19,14 +19,14 @@ using namespace std;
 namespace acng
 {
 
-unsigned tExclusiveUserAction::Add2KillBill(cmstring &sPathRel)
+unsigned tExclusiveUserAction::Add2KillBill(string_view sPathRel)
 {
 	if (!m_killBill.valid())
 		m_killBill.reset(fopen(GetKbLocation().c_str(), "w"));
 	if (!m_killBill.valid()) // XXX: error handling?
 		return 0;
 	m_bHaveDeletionCandidates = true;
-	fprintf(m_killBill.get(), "%u:%s\n", m_nKbInitVec, sPathRel.c_str());
+	fprintf(m_killBill.get(), "%u:%s\n", m_nKbInitVec, term(sPathRel).c_str());
 	return m_nKbInitVec++;
 }
 

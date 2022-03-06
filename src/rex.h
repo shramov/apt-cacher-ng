@@ -28,6 +28,8 @@ public:
 	~rex();
 
 	bool Match(cmstring &in, eMatchType type);
+	// guaranteed to be null-terminated by caller
+	bool Match(LPCSTR in, eMatchType type);
 	bool HasErrors();
 	eMatchType GetFiletype(const mstring &);
 	bool MatchUncacheable(const mstring &, NOCACHE_PATTYPE);

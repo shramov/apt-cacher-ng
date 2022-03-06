@@ -10,6 +10,7 @@
 
 #include "actypes.h"
 #include "actemplates.h"
+#include "acutilpath.h"
 
 #include <cinttypes>
 #include <memory>
@@ -74,11 +75,11 @@ public:
 		bResult = ! fstat(fd, &data);
 	}
 	operator bool() const { return bResult; }
-	const struct stat& info() { return data; }
+	const struct stat& info() const { return data; }
 	bool update(const char *sz) { return (bResult = ! stat(sz, &data)); }
-	bool isReg() { return bResult && (data.st_mode & S_IFREG); }
-	off_t size() { return data.st_size; }
-	decltype(timespec::tv_sec) msec() { return data.st_mtim.tv_sec; }
+	bool isReg() const { return bResult && (data.st_mode & S_IFREG); }
+	off_t size() const { return data.st_size; }
+	decltype(timespec::tv_sec) msec() const { return data.st_mtim.tv_sec; }
 
 	struct tID
 	{
@@ -132,16 +133,27 @@ inline void forceFclose(FILE* fh)
 {
 	int fd = fileno(fh);
 	if (0 != ::fclose(fh) && errno != EBADF)
-	{
 		checkforceclose(fd);
-	}
 	fh = nullptr;
 }
 
-void mkdirhier(cmstring& path);
-bool xtouch(cmstring &wanted);
-void mkbasedir(const mstring & path);
+bool optmkdir(LPCSTR path);
+// XXX: this is maybe overengineered - working around the need to do that one string allocation which is not needed for one single use case (only mkdirhier and only successfull in the beginning). TODO: analyze, maybe strip down and always use string_view.
+bool mkdirhier(string_view path, bool tryOptimistic);
+inline bool mkdirhier(string_view path) { return mkdirhier(path, true); }
+inline bool mkdirhier(cmstring& path)
+{
+	return optmkdir(path.c_str()) || mkdirhier(path, false);
+}
 
+inline bool mkbasedir(string_view path, bool tryOptimistic)
+{
+	return mkdirhier(GetDirPart(path, eSlashMode::NEVER), tryOptimistic);
+}
+inline bool mkbasedir(string_view path) { return mkbasedir(path, true); }
+inline bool mkbasedir(cmstring& path) { return mkbasedir(path, true); }
+
+bool xtouch(cmstring &wanted);
 ssize_t dumpall(int fd, string_view data);
 
 /*

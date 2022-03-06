@@ -15,7 +15,7 @@
 #include "conn.h"
 #include "acres.h"
 #include "rex.h"
-#include "aevutil.h"
+#include "acutilev.h"
 #include "remotedb.h"
 
 #ifdef DEBUG
@@ -189,12 +189,12 @@ static void SetupCacheDir()
 {
 	using namespace cfg;
 
-	if(cfg::cachedir.empty())
+	if (cfg::cachedir.empty())
 		return;	// warning was printed
 
 	auto xstore(cacheDirSlash + cfg::privStoreRelSnapSufix);
 	mkdirhier(xstore);
-	if(!Cstat(xstore))
+	if (!Cstat(xstore))
 	{
 		cerr << "Error: Cannot create any directory in " << cacheDirSlash << endl;
 		exit(EXIT_FAILURE);
@@ -205,12 +205,12 @@ static void SetupCacheDir()
 	gettimeofday(&tv, nullptr);
 	tSS buf;
 	buf << cacheDirSlash << "testfile." << (tv.tv_usec * tv.tv_sec) * (uintptr_t(buf.wptr()) - uintptr_t(&tv));
-	mkbasedir(buf.c_str()); // try or force its directory creation
-	int t=open( buf.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 00644);
+	mkbasedir(buf.view()); // try or force its directory creation
+	int t = open( buf.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 00644);
 	if (t != -1)
 	{
 		checkforceclose(t);
-		if(0==unlink(buf.c_str()))
+		if (0 == unlink(buf.c_str()))
 			return;
 	}
 	cerr << "Failed to create cache directory or directory not writable." << endl

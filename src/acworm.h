@@ -22,6 +22,8 @@ public:
 	~acworm();
 	string_view Add(string_view src) { return Add(src.data(), src.size()); }
 	string_view Add(LPCSTR src, size_t len);
+	// parks supplied string here with zero termination, will be replaced ASAP
+	LPCSTR TempTerm(string_view);
 };
 
 }

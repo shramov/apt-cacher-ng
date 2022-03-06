@@ -86,7 +86,7 @@ bool pkgimport::ProcessRegular(const mstring &sPath, const struct stat &stinfo)
 				SendFmt << "<span class=\"ERROR\">Error checking " << sPath << "</span>\n<br>\n";
 				continue;
 			}
-			if (fpr.size < 50)
+			if (fpr.GetSize() < 50)
 			{
 				// ultra small files, looking like garbage (gz'ed empfy file, ...)
 				continue;
@@ -112,8 +112,8 @@ bool pkgimport::ProcessRegular(const mstring &sPath, const struct stat &stinfo)
 	}
 	else
 	{
-		if(m_bVerbose)
-			SendFmt << "<span class=\"WARNING\">File type unknown, skipping "+sPath << "</span>\n<br>\n";
+		ReportMisc(tSS() << "<span class=\"WARNING\">File type unknown, skipping "
+				   << sPath << "</span>\n<br>\n");
 	}
 	return true;
 }
@@ -247,25 +247,25 @@ void pkgimport::Action()
 			continue;
 
 #define ENDL "\n" // don't flush all the time
-		fList << fpr2info.first.size << ENDL
-				<< (int)fpr2info.first.csType << ENDL
+		fList << fpr2info.first.GetSize() << ENDL
+				<< (int)fpr2info.first.GetCsType() << ENDL
 				<< fpr2info.first.GetCsAsString() << ENDL
 				<< fpr2info.second.sPath.substr(m_sSrcPath.size()+1) <<ENDL
 				<< fpr2info.second.mtime	<<ENDL;
 
-		remaining+=fpr2info.first.size;
+		remaining += fpr2info.first.GetSize();
 	}
 
 	// deal with the rest, never double-examine that stuff
 	// copy&paste FTW
 	for(const auto& fpr2info : m_importRest)
 	{
-		fList << fpr2info.first.size << ENDL
-				<< (int)fpr2info.first.csType << ENDL
+		fList << fpr2info.first.GetSize() << ENDL
+				<< (int)fpr2info.first.GetCsType() << ENDL
 				<< fpr2info.first.GetCsAsString() << ENDL
 				<< fpr2info.second.sPath.substr(m_sSrcPath.size()+1) <<ENDL
 				<< fpr2info.second.mtime	<<ENDL;
-		remaining+=fpr2info.first.size;
+		remaining += fpr2info.first.GetSize();
 	}
 	fList.flush();
 	fList.close();
@@ -285,11 +285,8 @@ void pkgimport::HandlePkgEntry(const tRemoteFileInfo &entry)
 	if (hit==m_importMap.end())
 		return;
 	
-	string sDestAbs=CACHE_BASE;
-	if(cfg::stupidfs)
-		sDestAbs+=DosEscape(entry.sDirectory+entry.sFileName);
-	else
-		sDestAbs+=(entry.sDirectory+entry.sFileName);
+	string sDestAbs = SABSPATH(cfg::stupidfs ? DosEscape(entry.path) : entry.path);
+#warning fixme, simplifypath?
 
 	auto sDestHeadAbs = sDestAbs + ".head"sv;
 	cmstring& sFromAbs=hit->second.sPath;
@@ -328,15 +325,14 @@ void pkgimport::HandlePkgEntry(const tRemoteFileInfo &entry)
 	gen_header:
 
 	unlink(sDestHeadAbs.c_str());
-	if (!StoreHeadToStorage(sDestAbs+".head", entry.fpr.size, nullptr, nullptr))
+	if (!StoreHeadToStorage(sDestAbs+".head", entry.fpr.GetSize(), nullptr, nullptr))
 	{
 		log::err("Unable to store generated header");
 		return; // junk may remain but that's a job for cleanup later
 	}
-	hit->second.bFileUsed=true;
-	SetFlags(m_processedIfile).space+=entry.fpr.size;
+	hit->second.bFileUsed = true;
+	SetFlags(m_currentlyProcessedIfile).usedDiskSpace += entry.fpr.GetSize();
 }
-
 
 void pkgimport::_LoadKeyCache()
 {
@@ -361,10 +357,10 @@ void pkgimport::_LoadKeyCache()
 
 	for(;;)
 	{
-		info.bFileUsed=false;
+		info.bFileUsed = false;
 
 		std::getline(in, cs);
-		if((fpr.size=atoofft(cs.c_str(), -2)) < 0)
+		if (fpr.SetSize(cs), fpr.GetSize() < 0)
 			return;
 		in>>csType;
 		std::getline(in, cs); // newline
@@ -374,7 +370,7 @@ void pkgimport::_LoadKeyCache()
 			return;
 
 		std::getline(in, info.sPath);
-		info.sPath.insert(0, m_sSrcPath+SZPATHSEP);
+		info.sPath.insert(0, m_sSrcPath + SZPATHSEP);
 
 		in>>info.mtime;
 		std::getline(in, cs); // newline

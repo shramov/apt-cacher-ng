@@ -1,5 +1,234 @@
 # FIXMEs
 
+INVESTIGATE! Inf.loop in automated expiratin run.
+
+[pid 64946] newfstatat(AT_FDCWD, "/var/cache/apt-cacher-ng/debrep/dists/experimental/contrib/binary-i386/Packages.diff/T-2022-03-27-2003.09-F-2022-03-15-0203.29.gz.head", {st_mode=S_IFREG|0644, st_size=174, ...}, 0) = 0
+[pid 64946] openat(AT_FDCWD, "/var/cache/apt-cacher-ng/debrep/dists/experimental/contrib/binary-i386/Packages.diff/T-2022-03-27-2003.09-F-2022-03-15-0203.29.gz.head", O_RDONLY) = 55
+[pid 64946] read(55, "HTTP/1.1 200 OK\r\nX-Original-Sour"..., 174) = 174
+[pid 64946] close(55)                   = 0
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|      -"..., 81) = 81
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 191) = 191
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 187) = 187
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 191) = 191
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 101) = 101
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 191) = 191
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|      -"..., 81) = 81
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 123) = 123
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 123) = 123
+[pid 64946] writev(15, [{iov_base="Error downloading debrep/dists/e"..., iov_len=124}], 1) = 124
+[pid 64946] write(15, "<br>\n", 5)      = 5
+[pid 64946] write(15, "\n<br>\n", 6)    = 6
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 282) = 282
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 282) = 282
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|    << "..., 123) = 123
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|    >> "..., 123) = 123
+[pid 64946] newfstatat(AT_FDCWD, "/var/cache/apt-cacher-ng/debrep/dists/experimental/contrib/binary-i386/Packages.diff/T-2022-03-27-2003.09-F-2022-03-15-0203.29.gz.head", {st_mode=S_IFREG|0644, st_size=174, ...}, 0) = 0
+[pid 64946] openat(AT_FDCWD, "/var/cache/apt-cacher-ng/debrep/dists/experimental/contrib/binary-i386/Packages.diff/T-2022-03-27-2003.09-F-2022-03-15-0203.29.gz.head", O_RDONLY) = 55
+[pid 64946] read(55, "HTTP/1.1 200 OK\r\nX-Original-Sour"..., 174) = 174
+[pid 64946] close(55)                   = 0
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|      -"..., 81) = 81
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 191) = 191
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 187) = 187
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 191) = 191
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 101) = 101
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 191) = 191
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|      -"..., 81) = 81
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 123) = 123
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 123) = 123
+[pid 64946] writev(15, [{iov_base="Error downloading debrep/dists/e"..., iov_len=124}], 1) = 124
+[pid 64946] write(15, "<br>\n", 5)      = 5
+[pid 64946] write(15, "\n<br>\n", 6)    = 6
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 282) = 282
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 282) = 282
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|    << "..., 123) = 123
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|    >> "..., 123) = 123
+[pid 64946] newfstatat(AT_FDCWD, "/var/cache/apt-cacher-ng/debrep/dists/experimental/contrib/binary-i386/Packages.diff/T-2022-03-27-2003.09-F-2022-03-15-0203.29.gz.head", {st_mode=S_IFREG|0644, st_size=174, ...}, 0) = 0
+[pid 64946] openat(AT_FDCWD, "/var/cache/apt-cacher-ng/debrep/dists/experimental/contrib/binary-i386/Packages.diff/T-2022-03-27-2003.09-F-2022-03-15-0203.29.gz.head", O_RDONLY) = 55
+[pid 64946] read(55, "HTTP/1.1 200 OK\r\nX-Original-Sour"..., 174) = 174
+[pid 64946] close(55)                   = 0
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|      -"..., 81) = 81
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 191) = 191
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 187) = 187
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 191) = 191
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 101) = 101
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 191) = 191
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|      -"..., 81) = 81
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 123) = 123
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 123) = 123
+[pid 64946] writev(15, [{iov_base="Error downloading debrep/dists/e"..., iov_len=124}], 1) = 124
+[pid 64946] write(15, "<br>\n", 5)      = 5
+[pid 64946] write(15, "\n<br>\n", 6)    = 6
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 282) = 282
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 282) = 282
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|    << "..., 123) = 123
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|    >> "..., 123) = 123
+[pid 64946] newfstatat(AT_FDCWD, "/var/cache/apt-cacher-ng/debrep/dists/experimental/contrib/binary-i386/Packages.diff/T-2022-03-27-2003.09-F-2022-03-15-0203.29.gz.head", {st_mode=S_IFREG|0644, st_size=174, ...}, 0) = 0
+[pid 64946] openat(AT_FDCWD, "/var/cache/apt-cacher-ng/debrep/dists/experimental/contrib/binary-i386/Packages.diff/T-2022-03-27-2003.09-F-2022-03-15-0203.29.gz.head", O_RDONLY) = 55
+[pid 64946] read(55, "HTTP/1.1 200 OK\r\nX-Original-Sour"..., 174) = 174
+[pid 64946] close(55)                   = 0
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|      -"..., 81) = 81
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 191) = 191
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 187) = 187
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 191) = 191
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 101) = 101
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 191) = 191
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|      -"..., 81) = 81
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 123) = 123
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 123) = 123
+[pid 64946] writev(15, [{iov_base="Error downloading debrep/dists/e"..., iov_len=124}], 1) = 124
+[pid 64946] write(15, "<br>\n", 5)      = 5
+[pid 64946] write(15, "\n<br>\n", 6)    = 6
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 282) = 282
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 282) = 282
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|    << "..., 123) = 123
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|    >> "..., 123) = 123
+[pid 64946] newfstatat(AT_FDCWD, "/var/cache/apt-cacher-ng/debrep/dists/experimental/contrib/binary-i386/Packages.diff/T-2022-03-27-2003.09-F-2022-03-15-0203.29.gz.head", {st_mode=S_IFREG|0644, st_size=174, ...}, 0) = 0
+[pid 64946] openat(AT_FDCWD, "/var/cache/apt-cacher-ng/debrep/dists/experimental/contrib/binary-i386/Packages.diff/T-2022-03-27-2003.09-F-2022-03-15-0203.29.gz.head", O_RDONLY) = 55
+[pid 64946] read(55, "HTTP/1.1 200 OK\r\nX-Original-Sour"..., 174) = 174
+[pid 64946] close(55)                   = 0
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|      -"..., 81) = 81
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 191) = 191
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 187) = 187
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 191) = 191
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 101) = 101
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 191) = 191
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|      -"..., 81) = 81
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 123) = 123
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 123) = 123
+[pid 64946] writev(15, [{iov_base="Error downloading debrep/dists/e"..., iov_len=124}], 1) = 124
+[pid 64946] write(15, "<br>\n", 5)      = 5
+[pid 64946] write(15, "\n<br>\n", 6)    = 6
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 282) = 282
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 282) = 282
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|    << "..., 123) = 123
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|    >> "..., 123) = 123
+[pid 64946] newfstatat(AT_FDCWD, "/var/cache/apt-cacher-ng/debrep/dists/experimental/contrib/binary-i386/Packages.diff/T-2022-03-27-2003.09-F-2022-03-15-0203.29.gz.head", {st_mode=S_IFREG|0644, st_size=174, ...}, 0) = 0
+[pid 64946] openat(AT_FDCWD, "/var/cache/apt-cacher-ng/debrep/dists/experimental/contrib/binary-i386/Packages.diff/T-2022-03-27-2003.09-F-2022-03-15-0203.29.gz.head", O_RDONLY) = 55
+[pid 64946] read(55, "HTTP/1.1 200 OK\r\nX-Original-Sour"..., 174) = 174
+[pid 64946] close(55)                   = 0
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|      -"..., 81) = 81
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 191) = 191
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 187) = 187
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 191) = 191
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 101) = 101
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 191) = 191
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|      -"..., 81) = 81
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 123) = 123
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 123) = 123
+[pid 64946] writev(15, [{iov_base="Error downloading debrep/dists/e"..., iov_len=124}], 1) = 124
+[pid 64946] write(15, "<br>\n", 5)      = 5
+[pid 64946] write(15, "\n<br>\n", 6)    = 6
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 282) = 282
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 282) = 282
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|    << "..., 123) = 123
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|    >> "..., 123) = 123
+[pid 64946] newfstatat(AT_FDCWD, "/var/cache/apt-cacher-ng/debrep/dists/experimental/contrib/binary-i386/Packages.diff/T-2022-03-27-2003.09-F-2022-03-15-0203.29.gz.head", {st_mode=S_IFREG|0644, st_size=174, ...}, 0) = 0
+[pid 64946] openat(AT_FDCWD, "/var/cache/apt-cacher-ng/debrep/dists/experimental/contrib/binary-i386/Packages.diff/T-2022-03-27-2003.09-F-2022-03-15-0203.29.gz.head", O_RDONLY) = 55
+[pid 64946] read(55, "HTTP/1.1 200 OK\r\nX-Original-Sour"..., 174) = 174
+[pid 64946] close(55)                   = 0
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|      -"..., 81) = 81
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 191) = 191
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 187) = 187
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 191) = 191
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 101) = 101
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 191) = 191
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|      -"..., 81) = 81
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 123) = 123
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 123) = 123
+[pid 64946] writev(15, [{iov_base="Error downloading debrep/dists/e"..., iov_len=124}], 1) = 124
+[pid 64946] write(15, "<br>\n", 5)      = 5
+[pid 64946] write(15, "\n<br>\n", 6)    = 6
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 282) = 282
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 282) = 282
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|    << "..., 123) = 123
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|    >> "..., 123) = 123
+[pid 64946] newfstatat(AT_FDCWD, "/var/cache/apt-cacher-ng/debrep/dists/experimental/contrib/binary-i386/Packages.diff/T-2022-03-27-2003.09-F-2022-03-15-0203.29.gz.head", {st_mode=S_IFREG|0644, st_size=174, ...}, 0) = 0
+[pid 64946] openat(AT_FDCWD, "/var/cache/apt-cacher-ng/debrep/dists/experimental/contrib/binary-i386/Packages.diff/T-2022-03-27-2003.09-F-2022-03-15-0203.29.gz.head", O_RDONLY) = 55
+[pid 64946] read(55, "HTTP/1.1 200 OK\r\nX-Original-Sour"..., 174) = 174
+[pid 64946] close(55)                   = 0
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|      -"..., 81) = 81
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 191) = 191
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 187) = 187
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 191) = 191
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 101) = 101
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 191) = 191
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|      -"..., 81) = 81
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 123) = 123
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 123) = 123
+[pid 64946] writev(15, [{iov_base="Error downloading debrep/dists/e"..., iov_len=124}], 1) = 124
+[pid 64946] write(15, "<br>\n", 5)      = 5
+[pid 64946] write(15, "\n<br>\n", 6)    = 6
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 282) = 282
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 282) = 282
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|    << "..., 123) = 123
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|    >> "..., 123) = 123
+[pid 64946] newfstatat(AT_FDCWD, "/var/cache/apt-cacher-ng/debrep/dists/experimental/contrib/binary-i386/Packages.diff/T-2022-03-27-2003.09-F-2022-03-15-0203.29.gz.head", {st_mode=S_IFREG|0644, st_size=174, ...}, 0) = 0
+[pid 64946] openat(AT_FDCWD, "/var/cache/apt-cacher-ng/debrep/dists/experimental/contrib/binary-i386/Packages.diff/T-2022-03-27-2003.09-F-2022-03-15-0203.29.gz.head", O_RDONLY) = 55
+[pid 64946] read(55, "HTTP/1.1 200 OK\r\nX-Original-Sour"..., 174) = 174
+[pid 64946] close(55)                   = 0
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|      -"..., 81) = 81
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 191) = 191
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 187) = 187
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 191) = 191
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 101) = 101
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 191) = 191
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|      -"..., 81) = 81
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 123) = 123
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 123) = 123
+[pid 64946] writev(15, [{iov_base="Error downloading debrep/dists/e"..., iov_len=124}], 1) = 124
+[pid 64946] write(15, "<br>\n", 5)      = 5
+[pid 64946] write(15, "\n<br>\n", 6)    = 6
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 282) = 282
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 282) = 282
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|    << "..., 123) = 123
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|    >> "..., 123) = 123
+[pid 64946] newfstatat(AT_FDCWD, "/var/cache/apt-cacher-ng/debrep/dists/experimental/contrib/binary-i386/Packages.diff/T-2022-03-27-2003.09-F-2022-03-15-0203.29.gz.head", {st_mode=S_IFREG|0644, st_size=174, ...}, 0) = 0
+[pid 64946] openat(AT_FDCWD, "/var/cache/apt-cacher-ng/debrep/dists/experimental/contrib/binary-i386/Packages.diff/T-2022-03-27-2003.09-F-2022-03-15-0203.29.gz.head", O_RDONLY) = 55
+[pid 64946] read(55, "HTTP/1.1 200 OK\r\nX-Original-Sour"..., 174) = 174
+[pid 64946] close(55)                   = 0
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|      -"..., 81) = 81
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 191) = 191
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 187) = 187
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 191) = 191
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 101) = 101
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 191) = 191
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|      -"..., 81) = 81
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 123) = 123
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 123) = 123
+[pid 64946] writev(15, [{iov_base="Error downloading debrep/dists/e"..., iov_len=124}], 1) = 124
+[pid 64946] write(15, "<br>\n", 5)      = 5
+[pid 64946] write(15, "\n<br>\n", 6)    = 6
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 282) = 282
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 282) = 282
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|    << "..., 123) = 123
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|    >> "..., 123) = 123
+[pid 64946] newfstatat(AT_FDCWD, "/var/cache/apt-cacher-ng/debrep/dists/experimental/contrib/binary-i386/Packages.diff/T-2022-03-27-2003.09-F-2022-03-15-0203.29.gz.head", {st_mode=S_IFREG|0644, st_size=174, ...}, 0) = 0
+[pid 64946] openat(AT_FDCWD, "/var/cache/apt-cacher-ng/debrep/dists/experimental/contrib/binary-i386/Packages.diff/T-2022-03-27-2003.09-F-2022-03-15-0203.29.gz.head", O_RDONLY) = 55
+[pid 64946] read(55, "HTTP/1.1 200 OK\r\nX-Original-Sour"..., 174) = 174
+[pid 64946] close(55)                   = 0
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|      -"..., 81) = 81
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 191) = 191
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 187) = 187
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 191) = 191
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 101) = 101
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 191) = 191
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|      -"..., 81) = 81
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 123) = 123
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 123) = 123
+[pid 64946] writev(15, [{iov_base="Error downloading debrep/dists/e"..., iov_len=124}], 1) = 124
+[pid 64946] write(15, "<br>\n", 5)      = 5
+[pid 64946] write(15, "\n<br>\n", 6)    = 6
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 282) = 282
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|       "..., 282) = 282
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|    << "..., 123) = 123
+[pid 64946] write(9, "Wed Apr 13 22:33:12 2022|    >> "..., 123^C) = 123
+
+
+
+
+
+
+
 Review maint stream parser in acngtool
 
 Hanging in shutdown, at:  0x00007f0385fce2ec in acng::tpoolImpl::stop (this=0x87edd0)

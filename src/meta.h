@@ -42,8 +42,11 @@ typedef unsigned char UCHAR;
 
 #define CPATHSEPUNX '/'
 #define SZPATHSEPUNIX "/"
+#define SVPATHSEPUNIX "/"sv
 #define CPATHSEPWIN '\\'
 #define SZPATHSEPWIN "\\"
+#define SZANYSEP "/\\"
+#define SVANYSEP "/\\"sv
 
 extern cmstring sPathSep, sPathSepUnix, hendl;
 

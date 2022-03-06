@@ -15,7 +15,6 @@ apt-cacher-ng (3.99-pre-alpha-0) 4-ELIZA; urgency=low
 
    * The Unix Domain Socket access is split into two variants and both are
      strictly optional features:
-
      + regular stream socket which is available to tools which can run HTTP
        communication over UDS
      + dedicated administration task socket, which is a) only capable to run
@@ -23,9 +22,16 @@ apt-cacher-ng (3.99-pre-alpha-0) 4-ELIZA; urgency=low
        directly, therefore relying on the filesystem to protect access to that
        socket while not requiring to keep credentials readable to the caller
        tool
-
      The creation of those sockets is controlled by setting the SocketPath
      (legacy) option resp. the new AdminSocket option.
+   * Dropped the exotic KeepExtraVersions feature (which forced uncovered package
+     versions to stay in cache for some auto-deducted period). It always has been troublesome and it's
+     implementation error-prone. As replacement, there is the new option
+     "Attic" which (if set) moves expired files to a user-specified folder
+     instead of removing them (FIXME: Implement Attic, drop KeepExtraVersions)
+   * Automated remote mirroring functionality disabled (was probably not
+		 working anyway, might be eventually dropped unless someone reports actual
+		 need to the author, and brings formal requirements)
 
   [ NEW FEATURES AND IMPROVEMENTS ] (FIXME: WIP)
 
@@ -50,6 +56,14 @@ apt-cacher-ng (3.99-pre-alpha-0) 4-ELIZA; urgency=low
     + unifying header creation
     + combination of request ranges and chunked transfers possible
     + more special responses possible without closing connection
+  
+  * Partial redesign of maintenance data flow
+    - Most user reporting handling in well-defined ways instead of ad-hoc
+      message printing
+    - repeated metadata parsing's output multiplied at the source instead of
+      later workarounds
+    - combined data storage in processing, supposed to reduce memory
+      consumption and processing time in average cases
 
   [ MISCELLANEOUS BUGFIXES]
     + Data accounting for HTTPS pass-through connections

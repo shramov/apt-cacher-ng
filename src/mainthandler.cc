@@ -19,6 +19,7 @@ namespace acng
 using namespace std;
 
 thread_local bSS mainthandler::g_msgFmtBuf;
+thread_local tTempTssHolder g_fmtBuf;
 
 mainthandler::mainthandler(tRunParms&& parms) :
 		m_parms(move(parms))
@@ -81,7 +82,8 @@ CREAT(tMaintOverview);
 CREAT(tAuthRequest);
 CREAT(authbounce);
 CREAT(pkgimport);
-CREAT(pkgmirror);
+#warning restore?
+//CREAT(pkgmirror);
 #ifdef DEBUG
 CREAT(sleeper);
 CREAT(tBgTester);
@@ -125,7 +127,8 @@ void ACNG_API InitSpecialWorkDescriptors()
 	workDescriptors[EWorkType::AUTH_REQ] = {"AUT_REQ"sv, "Authentication Required"sv, se, &creators::tAuthRequest, 0 };
 	workDescriptors[EWorkType::AUTH_DENY] = {"AUTH_DENY"sv, "Authentication Denied"sv, se, &creators::authbounce, 0 };
 	workDescriptors[EWorkType::IMPORT] = {"IMPORT"sv, "Data Import"sv, "doImport="sv, &creators::pkgimport, BLOCKING | EXCLUSIVE | FILE_BACKED };
-	workDescriptors[EWorkType::MIRROR] = {"MIRROR"sv, "Archive Mirroring"sv, "doMirror="sv, &creators::pkgmirror, BLOCKING | EXCLUSIVE | FILE_BACKED};
+	#warning restore?
+	//workDescriptors[EWorkType::MIRROR] = {"MIRROR"sv, "Archive Mirroring"sv, "doMirror="sv, &creators::pkgmirror, BLOCKING | EXCLUSIVE | FILE_BACKED};
 	workDescriptors[EWorkType::DELETE] = {"DELETE"sv, "Manual File Deletion"sv, "doDeleteYes="sv, &creators::deleter, BLOCKING };
 	workDescriptors[EWorkType::DELETE_CONFIRM] = {"DELETE_CONFIRM"sv, "Manual File Deletion (Confirmed)"sv, "doDelete="sv, &creators::deleter, BLOCKING };
 	workDescriptors[EWorkType::TRUNCATE] = {"TRUNCATE"sv, "Manual File Truncation"sv, "doTruncateYes="sv, &creators::truncator, BLOCKING };

@@ -58,3 +58,73 @@ PfilePatternEx: ${cfg:PfilePatternEx}</pre>
          Note: data table is created based on the current log file. Deviation from real request count is possible due to previous log file optimization.
 	 -->
 
+
+
+
+// this shall detect endian switches and also different implementation of time_t. In future, maybe also encode a revision into byte 1
+#define FORMAT_MAGIC uint64_t(1721u << 16 | sizeof(tExpReader::tExpEntry))
+
+/*
+ * Simple binary dump file parser
+ * Expected format:
+ * <MAGIC-FIELD:8>
+ * <timestamp:N><len_folder:2><path><len_filename:2>
+ * ...
+ */
+struct tExpReader
+{
+	struct tExpEntry
+	{
+		time_t exDate;
+		string_view sDirPathRel;
+		string_view sFileName;
+	};
+
+	tExpEntry last;
+	filereader f;
+	string_view raw;
+	bool Open(string_view srcRel)
+	{
+		if (! f.OpenFile(SABSPATH(srcRel), true))
+			return false;
+		raw = f.getView();
+		if (raw.size() < 8)
+			return false;
+		uint64_t magic;
+		memcpy(&magic, raw.data(), sizeof(magic));
+		if (magic != FORMAT_MAGIC)
+			return false;
+		raw.remove_prefix(sizeof(magic));
+	}
+	tExpEntry* Next()
+	{
+		uint16_t slen;
+		if (raw.size() < sizeof(last.exDate) + sizeof(slen))
+			return nullptr;
+		memcpy(&last.exDate, raw.data(), sizeof(last.exDate));
+		memcpy(&slen, raw.data() + sizeof(last.exDate), sizeof(slen));
+		raw.remove_prefix(sizeof (last.exDate) + sizeof (slen));
+		if (AC_UNLIKELY(!slen))
+			return nullptr;
+		last.sDirPathRel = string_view(raw.data(), slen);
+		raw.remove_prefix(slen);
+		if (AC_UNLIKELY(raw.length() < sizeof(slen) + 1))
+			return nullptr;
+		memcpy(&slen, raw.data(), sizeof(slen));
+		if (AC_UNLIKELY(!slen))
+			return nullptr;
+		last.sFileName = string_view(raw.data() + sizeof(slen), slen);
+		raw.remove_prefix(sizeof(slen) + slen);
+		return &last;
+	}
+};
+
+
+struct tBinSer
+{
+	char serbuf[21];
+	string_view Ser(uint16_t val);
+	string_view Ser(uint32_t val);
+	string_view Ser(uint64_t val);
+};
+

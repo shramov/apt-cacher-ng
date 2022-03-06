@@ -32,7 +32,7 @@ public:
 	void DumpFurther(Dumpable &child);
 	void DumpFurther(Dumpable *child) { return DumpFurther(*child); }
 
-	void SendTempFmt() { *this << m_temp; m_temp.clear(); }
+	void AfterTempFmt() { *this << m_temp; m_temp.clear(); }
 	tSS& GetTempFmt() { return m_temp; }
 private:
 	tSS m_temp;

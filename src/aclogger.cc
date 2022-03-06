@@ -13,6 +13,7 @@
 #include "evabase.h"
 #include "filereader.h"
 #include "fileio.h"
+#include "acutilpath.h"
 
 #include <vector>
 #include <deque>

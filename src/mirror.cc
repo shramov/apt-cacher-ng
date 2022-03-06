@@ -17,6 +17,8 @@
 #include <algorithm>
 #include <list>
 
+#error Disabled, needs overhauling
+
 using namespace std;
 
 namespace acng
@@ -141,7 +143,7 @@ void pkgmirror::Action()
 		if(endsWithSzAr(path2x.first, "Release"))
 		{
 			if(!m_bSkipIxUpdate && !GetFlags((cmstring)path2x.first).uptodate)
-				Download((cmstring)path2x.first, true, eDlMsgPrio::SHOW_ALL);
+				Download(path2x.first);
 			ParseAndProcessMetaFile([&TryAdd](const tRemoteFileInfo &entry) {
 				TryAdd(entry.sDirectory+entry.sFileName); },
 				(cmstring) path2x.first, EIDX_RELEASE);
@@ -205,7 +207,7 @@ void pkgmirror::Action()
 			continue;
 
 		if(!GetFlags(src).uptodate)
-			Download(src, true, eDlMsgPrio::SHOW_ALL);
+			Download(src);
 
 		if(CheckStopSignal())
 			return;
@@ -231,7 +233,7 @@ void pkgmirror::Action()
 			off_t needBefore=(m_totalSize-m_totalHave);
 
 			ParseAndProcessMetaFile([this](const tRemoteFileInfo &e) {
-				HandlePkgEntry(e); }, src, GuessMetaTypeFromURL(src));
+				HandlePkgEntry(e); }, src, GuessMetaTypeFromPath(src));
 
 			SendFmt << src << ": "
 					<< offttosH((m_totalSize-m_totalHave)-needBefore)
@@ -262,7 +264,7 @@ void pkgmirror::Action()
 				return;
 			ConfigDelta(src);
 			ParseAndProcessMetaFile([this](const tRemoteFileInfo &e) {
-				HandlePkgEntry(e); }, src, GuessMetaTypeFromURL(src));
+				HandlePkgEntry(e); }, src, GuessMetaTypeFromPath(src));
 		}
 	}
 }
@@ -321,20 +323,20 @@ void pkgmirror::HandlePkgEntry(const tRemoteFileInfo &entry)
 			return;
 	}
 
-	cmstring tgtRel = entry.sDirectory + entry.sFileName;
+	cmstring tgtRel = entry.path;
 	cmstring targetAbs = SABSPATH(tgtRel);
 	off_t haveSize=GetFileSize(targetAbs, 0);
 
 	if(m_bCalcSize)
 	{
-		m_totalSize += entry.fpr.size;
+		m_totalSize += entry.fpr.GetSize();
 		m_totalHave += haveSize;
 	}
 	else
 	{
-		bool bhaveit = (haveSize == entry.fpr.size);
+		bool bhaveit = (haveSize == entry.fpr.GetSize());
 
-		if(!bhaveit && m_pDeltaSrc && endsWithSzAr(entry.sFileName, ".deb")
+		if(!bhaveit && m_pDeltaSrc && endsWith(entry.path, ".deb"sv)
 		&& entry.sDirectory.size() > m_repCutLen && CPATHSEP == entry.sDirectory[m_repCutLen]
 		&& haveSize <= (entry.fpr.size/8)*7 ) // don't patch if original file is almost complete
 		{
@@ -402,16 +404,18 @@ void pkgmirror::HandlePkgEntry(const tRemoteFileInfo &entry)
 				::unlink(sDeltaPathAbs.c_str());
 				::unlink((sDeltaPathAbs+".head").c_str());
 
-				if(eDlResult::OK == Download(TEMPDELTA, false, eDlMsgPrio::HIDE_ALL, &uri))
+				if(eDlResult::OK == Download(TEMPDELTA, tDlOpts()
+											 .SetVolatile(false)
+											 .Verbosity(eDlMsgSeverity::NEVER)
+											 .ForceUrl(tHttpUrl(uri))))
 				{
 					::setenv("delta", SZABSPATH(TEMPDELTA), true);
 					::setenv("from", srcAbs.c_str(), true);
 					::setenv("to", SZABSPATH(TEMPRESULT), true);
 
 				SendFmt << "Fetched: " << uri.ToURI(false) << "<br>\n";
-				if(m_bVerbose)
-				SendFmt << "debpatch " << getenv("delta") << " " << getenv("from")
-						<< " " << getenv("to");
+				ReportMisc(tSS() << "debpatch " << getenv("delta") << " " << getenv("from")
+						<< " " << getenv("to"));
 
 					if (0 == ::system("debpatch \"$delta\" \"$from\" \"$to\""))
 					{
@@ -459,15 +463,15 @@ void pkgmirror::HandlePkgEntry(const tRemoteFileInfo &entry)
 		cannot_debpatch:
 
 		if(!bhaveit)
-			Download(entry.sDirectory + entry.sFileName, false, eDlMsgPrio::SHOW_ALL);
-
-		if (m_bVerbose && m_totalSize)
+			Download(entry.sDirectory + entry.sFileName, tDlOpts().SetVolatile(false).Verbosity(eDlMsgSeverity::NEVER));
+#warning check verbose condition, skip for sure if not needed
+		if (m_totalSize)
 		{
 			off_t newSize = GetFileSize(CACHE_BASE + entry.sDirectory + entry.sFileName, 0);
 			if (haveSize != newSize)
 			{
 				m_totalSize -= (newSize - haveSize);
-				SendFmt << "Remaining download size: " << offttosH(m_totalSize) << "<br>\n";
+				ReportMisc(tSS() << "Remaining download size: " << offttosH(m_totalSize));
 			}
 		}
 	}
