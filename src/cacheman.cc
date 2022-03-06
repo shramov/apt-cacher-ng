@@ -2262,7 +2262,7 @@ mstring cacheman::AddLookupGetKey(cmstring &sFilePathRel, cmstring& errorReason)
 void cacheman::PrintStats(cmstring &title)
 {
 	multimap<off_t, cmstring*> sorted;
-	off_t total=0;
+	off_t total = 0;
 	for(auto &f: m_metaFilesRel)
 	{
 		total += f.second.space;
@@ -2277,42 +2277,40 @@ void cacheman::PrintStats(cmstring &title)
 
 	if(!m_bVerbose)
 	{
-	g_msgFmtBuf << "<br>\n<table name=\"shorttable\"><thead>"
-			"<tr><th colspan=2>" << title;
-	if(!m_bVerbose && sorted.size()>MAX_TOP_COUNT)
-		g_msgFmtBuf << " (Top " << nMax << "<span name=\"noshowmore\">,"
-				" <a href=\"javascript:show_rest();\">show more / cleanup</a></span>)";
-	g_msgFmtBuf << "</th></tr></thead>\n<tbody>";
-	for(auto it=sorted.rbegin(); it!=sorted.rend(); ++it)
-	{
-		g_msgFmtBuf << "<tr><td><b>"
-				<< offttosH(it->first) << "</b></td><td>"
-				<< *(it->second) << "</td></tr>\n";
-		if(nMax--<=0)
-			break;
-	}
-	SendFmt << "</tbody></table>"
-
-	// the other is hidden for now
-	<< "<div name=\"bigtable\" class=\"xhidden\">";
+		g_msgFmtBuf << "<br>\n<table name=\"shorttable\"><thead>"
+					   "<tr><th colspan=2>"sv << title;
+		if(!m_bVerbose && sorted.size()>MAX_TOP_COUNT)
+			g_msgFmtBuf << " (Top " << nMax << "<span name=\"noshowmore\">,"
+											   " <a href=\"javascript:show_rest();\">show more / cleanup</a></span>)"sv;
+		g_msgFmtBuf << "</th></tr></thead>\n<tbody>"sv;
+		for(auto it=sorted.rbegin(); it!=sorted.rend(); ++it)
+		{
+			g_msgFmtBuf << "<tr><td><b>"sv
+						<< offttosH(it->first) << "</b></td><td>"sv
+						<< *(it->second) << "</td></tr>\n"sv;
+			if(nMax--<=0)
+				break;
+		}
+		Send("</tbody></table><div name=\"bigtable\" class=\"xhidden\">"sv);
 	}
 
 	g_msgFmtBuf << "<br>\n<table><thead>"
-				"<tr><th colspan=1><input type=\"checkbox\" onclick=\"copycheck(this, 'xfile');\"></th>"
-				"<th colspan=2>" << title << "</th></tr></thead>\n<tbody>";
-		for(auto it=sorted.rbegin(); it!=sorted.rend(); ++it)
-		{
-			g_msgFmtBuf << "<tr><td><input type=\"checkbox\" class=\"xfile\""
-					<< AddLookupGetKey(*(it->second), "") << "></td>"
-						"<td><b>" << html_sanitize(offttosH(it->first)) << "</b></td><td>"
-					<< *(it->second) << "</td></tr>\n";
+				   "<tr><th colspan=1><input type=\"checkbox\" onclick=\"copycheck(this, 'xfile');\"></th>"
+				   "<th colspan=2>"sv
+				<< title
+				<< "</th></tr></thead>\n<tbody>"sv;
+	for(auto it=sorted.rbegin(); it!=sorted.rend(); ++it)
+	{
+		g_msgFmtBuf << "<tr><td><input type=\"checkbox\" class=\"xfile\""sv
+					<< AddLookupGetKey(*(it->second), "") << "></td><td><b>"sv << html_sanitize(offttosH(it->first)) << "</b></td><td>"sv
+					<< *(it->second) << "</td></tr>\n"sv;
 
 
-		}
-		SendFmt << "</tbody></table>";
+	}
+	SendFmt << "</tbody></table>";
 
-		if(!m_bVerbose)
-			SendFmt << "</div>";
+	if(!m_bVerbose)
+		SendFmt << "</div>";
 }
 
 void cacheman::ProgTell()

@@ -40,7 +40,7 @@ acng::mstring acng::tFingerprint::GetCsAsString() const
 
 acng::tFingerprint::operator mstring() const
 {
-	return GetCsAsString()+"_"+offttos(size);
+	return GetCsAsString() + "_" + offttos(size);
 }
 
 bool acng::tFingerprint::CheckFile(acng::cmstring &sFile) const
