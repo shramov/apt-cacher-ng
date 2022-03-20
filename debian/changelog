@@ -1,3 +1,9 @@
+apt-cacher-ng (3.7.4-1~bpo11+1) bullseye-backports; urgency=medium
+
+  * Straight backport to bullseye
+
+ -- Eduard Bloch <blade@debian.org>  Sun, 20 Mar 2022 09:53:42 +0100
+
 apt-cacher-ng (3.7.4-1) unstable; urgency=medium
 
   * New upstream version
