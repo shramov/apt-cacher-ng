@@ -190,7 +190,7 @@ void pkgimport::Action()
 	BuildCacheFileList();
 	if(CheckStopSignal()) return;
 	
-	if(m_metaFilesRel.empty())
+	if (m_metaFilesRel.empty())
 	{
 		Send("<span class=\"ERROR\">No index files detected. Unable to continue, cannot map files to internal locations.</span>");
 		return;

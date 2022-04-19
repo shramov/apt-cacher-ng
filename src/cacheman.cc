@@ -207,21 +207,25 @@ cacheman::tIfileAttribs &cacheman::SetFlags(string_view sPathRel)
 
 void cacheman::SendDecoratedLine(string_view msg, eDlMsgSeverity colorHint)
 {
+SendFmt << "TODO: DecoLine, type=" << (int) colorHint << ", msg=" << msg << "<br>\n";
 #warning implement me
 }
 
 void cacheman::ReportBegin(string_view what, eDlMsgSeverity sev, bool bForceCollecting)
 {
+	SendFmt << "TODO: ReportBegin, type=" << (int) sev << ", force="<<bForceCollecting <<", what=" << what << "<br>\n";
 #warning implement me
 }
 
 void cacheman::ReportCont(string_view msg, eDlMsgSeverity sev)
 {
+	SendFmt << "TODO: ReportCont, type=" << (int) sev << ", msg=" << msg << "<br>\n";
 #warning implement me
 }
 
 void cacheman::ReportEnd(string_view msg, eDlMsgSeverity sev)
 {
+	SendFmt << "TODO: ReportEnd, type=" << (int) sev << "=: " << msg << "<br>\n";
 
 #define ECLASS "<span class=\"ERROR\">ERROR: "
 #define WCLASS "<span class=\"WARNING\">WARNING: "
@@ -234,6 +238,7 @@ void cacheman::ReportEnd(string_view msg, eDlMsgSeverity sev)
 
 void cacheman::ReportData(eDlMsgSeverity sev, string_view path, string_view reason)
 {
+	SendFmt << "TODO: ReportData, type=" << (int) sev << ", reason="<< reason << ", path=" << path << "<br>\n";
 #warning implement me
 }
 
@@ -281,11 +286,11 @@ bool cacheman::IsDeprecatedArchFile(cmstring &sFilePathRel)
 
 	string s;
 	filereader reader;
-	if ( (s = sFilePathRel.substr(0, pos) + "/Release",
+	if ( (s = sFilePathRel.substr(0, pos) + relKey,
 			GetFlags(s).uptodate && reader.OpenFile(SABSPATH(s)))
 			||
-			(s=sFilePathRel.substr(0, pos)+"/InRelease", GetFlags(s).uptodate && reader.OpenFile(SABSPATH(s))
-						)
+			(s=sFilePathRel.substr(0, pos) + inRelKey, GetFlags(s).uptodate && reader.OpenFile(SABSPATH(s))
+		)
 	)
 	{
 		pos = sFilePathRel.find("/binary-", pos);
@@ -615,6 +620,7 @@ cacheman::eDlResult cacheman::Download(string_view sFilePathRel, tDlOpts opts)
 	{
 		if (!m_dler)
 			m_dler.reset(new TDownloadController(m_parms.res, *this));
+
 		opts.sFilePathRel = sFilePathRel;
 		m_dler->states.emplace_back(*m_dler, move(opts));
 		m_dler->states.back().Run(pro);
@@ -1614,7 +1620,7 @@ bool cacheman::UpdateVolatileFiles()
 		Send("<b>Bringing index files up to date...</b><br>\n"sv);
 		for (auto& f: m_metaFilesRel)
 		{
-			auto notIgnorable = !m_metaFilesRel[f.first].forgiveDlErrors;
+			auto notIgnorable = ! GetFlags(f.first).forgiveDlErrors;
 
 			// tolerate or not, it depends
 			switch(Download(f.first))
@@ -1715,18 +1721,19 @@ bool cacheman::UpdateVolatileFiles()
 			continue;
 		}
 		// okay, not restored from by-hash folder, download the original volatile version
-		if(eDlResult::OK != Download(sPathRel, tDlOpts()
-									 .IgnErr(m_metaFilesRel[sPathRel].hideDlErrors)
+		const auto& fl = GetFlags(sPathRel);
+		if (eDlResult::OK != Download(sPathRel, tDlOpts()
+									 .IgnErr(fl.hideDlErrors)
 									 .GuessReplacement(true)))
 		{
-			if(!m_metaFilesRel[sPathRel].hideDlErrors)
+			if (!fl.hideDlErrors)
 			{
 				m_nErrorCount++;
 				if(sErr.empty())
 					sErr = "DL error at " + sPathRel;
 			}
 
-			if(CheckStopSignal())
+			if (CheckStopSignal())
 			{
 				SendFmt << "Operation canceled."sv << hendl;
 				return false;
@@ -2699,7 +2706,7 @@ bool cacheman::FixMissingOriginalsFromByHashVersions()
 		{
 			ReportMisc(MsgFmt << "There were error(s) processing "sv << oldRelPathRel << ", ignoring..."sv);
 			ReportMisc("Enable verbosity to see more"sv, SEV_DBG, true);
-			m_metaFilesRel.erase(flags.first);
+			SetFlags(flags.first->first).vfile_ondisk = false;
 			return ret;
 		}
 #ifdef DEBUG
@@ -2707,7 +2714,7 @@ bool cacheman::FixMissingOriginalsFromByHashVersions()
 #endif
 		if (DeleteAndAccount(SABSPATH(oldRelPathRel)) == YesNoErr::ERROR)
 			ReportMisc(MsgFmt << "Error removing file, check state of "sv << oldRelPathRel);
-		m_metaFilesRel.erase(flags.first);
+		SetFlags(flags.first->first).vfile_ondisk = false;
 	}
 	return ret;
 }

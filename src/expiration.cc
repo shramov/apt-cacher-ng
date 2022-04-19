@@ -823,8 +823,10 @@ bool expiration::ProcessRegular(const string & sPathAbs, const struct stat &stin
 		 */
 		auto idir = sPathRel.substr(0, pos2 + 8);
 		auto& flags = SetFlags(idir + "SHA256SUMS");
+
 		// and care only about the modern version of that index
-		m_metaFilesRel.erase(idir + "MD5SUMS");
+		auto& oldflags = SetFlags(idir + "MD5SUMS");
+		oldflags.vfile_ondisk = false;
 
 		if (!flags.vfile_ondisk)
 		{
