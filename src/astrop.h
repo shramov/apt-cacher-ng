@@ -375,6 +375,22 @@ inline bool EqualsChain(string_view longString, string_view a, string_view b, st
 	return xx(a) && xx(b) && xx(c) && xx(d) && xx(e) && xx(f);
 }
 
+#if 0 // XXX: needed? partly broken? Test needed!
+
+string_view common_suffix(string_view left, string_view right)
+{
+	int ll = left.size() - 1;
+	int lr = right.size() - 1;
+	int k=0;
+	while (ll >= 0 && lr >= 0 && left[ll] == right[lr])
+	{
+		ll--;
+		lr--;
+		k++;
+	}
+	return string_view(left.data() + left.size() - k, k);
+}
+#endif
 
 }
 

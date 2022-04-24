@@ -1381,10 +1381,8 @@ bool tDlStream::TakeJob(tDlJobPtr& pJob)
 	{
 		// analyze whether there is a good chance that this connection will be able to serve it or not
 #warning add target-specific-proxy check when implemented
-		if (cfg::GetProxyInfo()
-			|| (!m_waiting.empty() && m_waiting.top()->GetPeerHost() == pJob->GetPeerHost())
-
-			)
+		if (cfg::GetProxyInfo()	||
+				(!m_waiting.empty() && m_waiting.top()->GetPeerHost() == pJob->GetPeerHost()))
 		{
 			pJob->m_bRevalidationNeeded = true;
 		}

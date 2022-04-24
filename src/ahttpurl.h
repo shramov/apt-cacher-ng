@@ -43,7 +43,11 @@ public:
 			return PROT_PFX_HTTP;
 		}
 
+		/*
+		 * Nay, keep implicitly-defined move operations, good enough with current semantics
+
 		tHttpUrl(const tHttpUrl& a) =default;
+
 		tHttpUrl(tHttpUrl&& a) =default;
 
 		tHttpUrl & operator=(const tHttpUrl &a)
@@ -57,7 +61,14 @@ public:
 				m_schema = a.m_schema;
                 return *this;
         }
-        bool operator==(const tHttpUrl &a) const
+
+		bool operator!=(const tHttpUrl &a) const
+		{
+				return !(a == *this);
+		}
+		*/
+
+		bool operator==(const tHttpUrl &a) const
         {
 			if (this == &a)
 				return true;
@@ -65,10 +76,6 @@ public:
 					&& a.sUserPass == sUserPass && m_schema == a.m_schema;;
 		}
 
-		bool operator!=(const tHttpUrl &a) const
-        {
-                return !(a == *this);
-        }
         inline void clear()
         {
                 sHost.clear();

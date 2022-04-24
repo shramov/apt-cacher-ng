@@ -163,7 +163,12 @@ private:
 	 */
 	void ReportBegin(string_view what, eDlMsgSeverity sev, bool bForceCollecting = false); //eMsgOpMode opMode = eMsgOpMode::DEFAULT_VOLATILE);
 	void ReportCont(string_view msg, eDlMsgSeverity sev = eDlMsgSeverity::UNKNOWN);
-	void ReportEnd(string_view msg, eDlMsgSeverity sev = eDlMsgSeverity::UNKNOWN);
+
+#define DL_HINT_TAG_AS_NEEDED 0x2
+#define DL_HINT_TAG_ALWAYS 0x4
+#define DL_HINT_TAG_IS_NOT_ERROR 0x8
+
+	void ReportEnd(string_view msg, eDlMsgSeverity sev = eDlMsgSeverity::UNKNOWN, unsigned hints = DL_HINT_TAG_AS_NEEDED);
 
 	// print a single message line immediately, meaning can be inverted (i.e. print ONLY below threshold)
 	void ReportMisc(string_view msg, eDlMsgSeverity sev = eDlMsgSeverity::VERBOSE, bool prioInverted = false)
@@ -279,12 +284,11 @@ private:
 	void ProgTell();
 	void AddDelCbox(string_view sFileRel, cmstring& reason, bool bExtraFile = false);
 
-	// add certain files to the kill bill, to be removed after the activity is done
+	// add certain files to the trash list, to be removed after the activity is done in case of the expiration task
 	virtual void MarkObsolete(cmstring&) {};
 
 	// for compressed map of special stuff
 	mstring AddLookupGetKey(string_view sFilePathRel, string_view errorReason);
-
 
 	SUTPRIVATE:
 

@@ -207,25 +207,25 @@ cacheman::tIfileAttribs &cacheman::SetFlags(string_view sPathRel)
 
 void cacheman::SendDecoratedLine(string_view msg, eDlMsgSeverity colorHint)
 {
-SendFmt << "TODO: DecoLine, type=" << (int) colorHint << ", msg=" << msg << "<br>\n";
+SendFmt << "TODO: DecoLine, type=" << (int) colorHint << ", msg=" << msg << "End-Decoline<br>\n";
 #warning implement me
 }
 
 void cacheman::ReportBegin(string_view what, eDlMsgSeverity sev, bool bForceCollecting)
 {
-	SendFmt << "TODO: ReportBegin, type=" << (int) sev << ", force="<<bForceCollecting <<", what=" << what << "<br>\n";
+	SendFmt << "TODO: ReportBegin, type=" << (int) sev << ", force="<<bForceCollecting <<", what=" << what << "End-Reportbegin\n";
 #warning implement me
 }
 
 void cacheman::ReportCont(string_view msg, eDlMsgSeverity sev)
 {
-	SendFmt << "TODO: ReportCont, type=" << (int) sev << ", msg=" << msg << "<br>\n";
+	SendFmt << "TODO: ReportCont, type=" << (int) sev << ", msg=" << msg << "~ReportCont~";
 #warning implement me
 }
 
-void cacheman::ReportEnd(string_view msg, eDlMsgSeverity sev)
+void cacheman::ReportEnd(string_view msg, eDlMsgSeverity sev, unsigned hints)
 {
-	SendFmt << "TODO: ReportEnd, type=" << (int) sev << "=: " << msg << "<br>\n";
+	SendFmt << "TODO: ReportEnd, type=" << (int) sev << "=: " << msg << "End-ReportEnd<br>\n";
 
 #define ECLASS "<span class=\"ERROR\">ERROR: "
 #define WCLASS "<span class=\"WARNING\">WARNING: "
@@ -238,7 +238,7 @@ void cacheman::ReportEnd(string_view msg, eDlMsgSeverity sev)
 
 void cacheman::ReportData(eDlMsgSeverity sev, string_view path, string_view reason)
 {
-	SendFmt << "TODO: ReportData, type=" << (int) sev << ", reason="<< reason << ", path=" << path << "<br>\n";
+	SendFmt << "TODO: ReportData, type=" << (int) sev << ", reason="<< reason << ", path=" << path << "End-Reportdata<br>\n";
 #warning implement me
 }
 
@@ -329,10 +329,11 @@ mstring FindCommonPath(cmstring& a, cmstring& b)
 }
 */
 
-static constexpr struct
+struct tRewriteHint
 {
 	string_view fromEnd, toEnd, extraCheck;
-} fixmap[] =
+};
+static constexpr tRewriteHint sourceRewriteMap[] =
 {
 		{ "/Packages.bz2", "/Packages.xz", "" },
 		{ "/Sources.bz2", "/Sources.xz", "" },
@@ -347,71 +348,262 @@ typedef std::function<void(cacheman::eDlResult)> tDlRep;
 
 class TDownloadController : public enable_shared_from_this<TDownloadController>
 {
-#define DL_HINT_GUESS_REPLACEMENT 0x1
-#define DL_HINT_NOTAG 0x2
-	/*
-	void Download(cmstring& sFilePathRel, bool bIsVolatileFile,
-				  eDlMsgPrio msgLevel,
-				  const tHttpUrl *pForcedURL, unsigned hints, cmstring* sGuessedFrom, bool bForceReDownload,
-				  tAsyncStateRep repResult);
-*/
-
 public:
 
 	struct TDownloadState;
 	lint_user_ptr<dlcontroller> dler;
-	list<TDownloadState> states;
+	deque<lint_user_ptr<TDownloadState>> states;
 	cacheman& m_owner;
-	promise<cacheman::eDlResult> *m_repResult;
+	promise<cacheman::eDlResult> m_repResult;
 	aobservable::subscription m_shutdownCanceler;
+	const tRewriteHint *pUsedRewrite = nullptr;
 
-	struct TDownloadState : public tLintRefcounted
+	struct TDownloadState : public tLintRefcounted, public tExtRefExpirer
 	{
-		mstring sErr;
-		const tHttpUrl* fallbackUrl = nullptr;
+		TDownloadController& m_owner;
+		cacheman& Q;
+
 		fileitem::FiStatus initState = fileitem::FIST_FRESH;
 		tRepoResolvResult repinfo;
 		TFileItemHolder fiaccess;
-		mstring sFilePathRel, sGuessedFrom;
+		mstring sGuessedFrom;
+		tHttpUrl usedUrl; // copy of the last download attempt
+		tHttpUrl altUrl; // fallback to this on first failure
 
 		acworm scratchpad;
 		//uint64_t prog_before = 0;
 
-		TDownloadController& m_owner;
-		cacheman& Q;
 
-		tHttpUrl parserPath, parserHead;
-		// alternatives!
-		const tHttpUrl *pResolvedDirectUrl = nullptr;
 		tRepoResolvResult repoSrc;
 		header hor;
 		fileitem::tSpecialPurposeAttr fiAttr;
 
 		aobservable::subscription observer;
 
-		void DLFIN(cacheman::eDlResult, string_view result_msg)
+		void DLFIN(cacheman::eDlResult res, string_view result_msg)
 		{
-#warning implementme
+			if (fiaccess)
+			{
+				auto dlCount = fiaccess->TakeTransferCount();
+				static cmstring sInternal("[INTERNAL:");
+				// need to account both, this traffic as officially tracked traffic, and also keep the count
+				// separately for expiration about trade-off calculation
+				log::transfer(dlCount, 0, Concat(sInternal, GetTaskInfo(m_owner.m_owner.m_parms.type).typeName, "]"),  opts.sFilePathRel, false);
+			}
+
+			if (res == cacheman::eDlResult::OK && opts.bIsVolatileFile)
+				m_owner.m_owner.SetFlags(opts.sFilePathRel).uptodate = true;
+
+			m_owner.Finish(res, result_msg, this);
 		}
 		cacheman::tDlOpts opts;
 
-		TDownloadState(TDownloadController& owner,
-					   cacheman::tDlOpts&& opts)
-			: m_owner(owner), Q(owner.m_owner), opts(move(opts))
+		TDownloadState(TDownloadController& owner, cacheman::tDlOpts&& xopts)
+			: m_owner(owner), Q(owner.m_owner), opts(move(xopts))
 		{
 		}
 
 		void ItemEvent()
 		{
-#warning implement me
+			LOGSTARTFUNC;
+
+			if (!__user_ref_cnt())
+			{
+				observer.reset();
+				return;
+			}
+
+			if (!fiaccess.get())
+			{
+				DBGQLOG("Error, event from unknown");
+				return;
+			}
+
+			dbgline;
+			{
+				// simple limiter, not more dots than one per second
+				static auto spamLimit = GetTime();
+				auto now = GetTime();
+				if (now > spamLimit + 1)
+				{
+
+					m_owner.m_owner.ReportCont(".");
+					spamLimit = now;
+				}
+			}
+
+			auto fist = fiaccess->GetStatus();
+			ldbg(fist);
+			ASSERT(fist >= fileitem::FIST_DLPENDING);
+
+			if (fist < fileitem::FIST_COMPLETE)
+				return; // should came back again
+
+			if (fist == fileitem::FIST_COMPLETE && fiaccess->m_responseStatus.code == 200)
+				return DLFIN(cacheman::eDlResult::OK, MsgFmt << " <i>("sv << fiaccess->TakeTransferCount() / 1024 << "KiB)</i>\n"sv);
+
+			ResolveError();
 		}
 
-		void Run(std::promise<cacheman::eDlResult>&)
+		void ResolveError()
+		{
+			LOGSTARTFUNC;
+
+			/////////////////////////////////////////////////////
+			/// \brief DL failed, find a workaround strategy
+			/////////////////////////////////////////////////////
+
+
+			ASSERT(!(fiaccess->m_responseStatus.code == 500 && fiaccess->m_responseStatus.msg.empty())); // catch a strange condition
+			LOG("having alternative url and fitem was created here anyway");
+
+			auto replUrl = [&](tHttpUrl &alt) { return move(cacheman::tDlOpts(move(opts)).ForceUrl(move(alt))); };
+
+			if(!altUrl.sHost.empty() && fiaccess.get())
+			{
+				dbgline;
+
+				m_owner.m_owner.ReportCont(MsgFmt << "<i>Remote peer is not usable but the alternative source might be guessed from the path as "
+						<< altUrl.ToURI(true) << " . If this is the better option, please remove the file "
+						<< opts.sFilePathRel << ".head manually from the cache folder or remove the whole index file with the Delete button below.</i>\n");
+
+				return m_owner.Restart(this, replUrl(altUrl));
+			}
+
+			if ( (cfg::follow404 && fiaccess->m_responseStatus.code == 404) || m_owner.m_owner.IsDeprecatedArchFile(opts.sFilePathRel))
+			{
+				m_owner.m_owner.MarkObsolete(opts.sFilePathRel);
+				return DLFIN(cacheman::eDlResult::GONE, "(no longer available)"sv);
+			}
+
+			if (m_owner.m_owner.GetFlags(opts.sFilePathRel).forgiveDlErrors
+					 ||
+					 (fiaccess->m_responseStatus.code == 404 && endsWith(opts.sFilePathRel, oldStylei18nIdx))
+					 )
+			{
+				return DLFIN(cacheman::eDlResult::OK, "(ignored)"sv);
+			}
+
+
+			if(repoSrc.repodata
+					&& repoSrc.repodata->m_backends.empty()
+					&& !hor.h[header::XORIG]
+					&& opts.forcedURL.sHost.empty())
+			{
+				// oh, that crap: in a repo, but no backends configured, and no original source
+				// to look at because head file is probably damaged :-(
+				// try to re-resolve relative to InRelease and retry download
+				m_owner.m_owner.ReportCont("<span class=\"WARNING\">"sv
+					 "Warning, running out of download locations (probably corrupted "sv
+					 "cache). Trying an educated guess...<br>\n"sv
+					 ")</span>\n<br>\n"sv);
+
+				cmstring::size_type pos = opts.sFilePathRel.length();
+				while (true)
+				{
+					pos = opts.sFilePathRel.rfind(CPATHSEPUNX, pos);
+					if (pos == stmiss)
+						break;
+					for (const auto& sfx : {&inRelKey, &relKey})
+					{
+						if(endsWith(opts.sFilePathRel, *sfx))
+							continue;
+
+						auto testpath = opts.sFilePathRel.substr(0, pos) + *sfx;
+						if (!m_owner.m_owner.GetFlags(testpath).vfile_ondisk)
+							continue;
+
+						header hare;
+						if (!hare.LoadFromFile(SABSPATHEX(testpath, ".head")))
+							continue;
+
+						if(!hare.h[header::XORIG])
+							continue;
+
+						string url(hare.h[header::XORIG]);
+						url.replace(url.size() - sfx->size(), sfx->size(),
+									opts.sFilePathRel.substr(pos));
+						tHttpUrl tu;
+						if (tu.SetHttpUrl(url, false))
+						{
+							m_owner.m_owner.ReportCont("Restarting download..."sv);
+							return m_owner.Restart(this, replUrl(tu));
+						}
+					}
+					if (!pos)
+						break;
+					pos--;
+				}
+			}
+
+			if(fiaccess && opts.bGuessReplacement && fiaccess->m_responseStatus.code == 404)
+			{
+				// another special case, slightly ugly :-(
+				// this is explicit hardcoded repair code
+				// it switches to a version with better compression silently
+
+				for (const auto& fix : sourceRewriteMap)
+				{
+					if (!endsWith(opts.sFilePathRel, fix.fromEnd) || !StrHas(opts.sFilePathRel, fix.extraCheck))
+						continue;
+					m_owner.m_owner.ReportCont("Attempting to download the alternative version..."sv);
+					// if we have it already, use the old URL as base, otherwise recreate from whatever URL was recorded as download source
+					if (usedUrl.sHost.empty())
+					{
+						auto p = fiaccess->m_responseOrigin;
+						if (!usedUrl.SetHttpUrl(p))
+							continue;
+					}
+					if (usedUrl.sHost.empty())
+						continue; // crap, we need it!
+					if (!endsWith(usedUrl.sPath, fix.fromEnd) || !StrHas(usedUrl.sPath, fix.extraCheck))
+						continue;
+
+					decltype (opts) newOpts;
+					newOpts.GuessReplacement(false);
+					newOpts.forcedURL = usedUrl;
+					newOpts.forcedURL.sPath.replace(newOpts.forcedURL.sPath.size()-fix.fromEnd.size(),
+													fix.fromEnd.size(), fix.toEnd);
+					return m_owner.Restart(this, move(newOpts));
+#warning readd the checkbox handling, also below
+#if 0
+					auto xpath = Concat(sFilePathRel.substr(0, sFilePathRel.size() - fix.fromEnd.size()), fix.toEnd);
+					auto contFunc = [ourRep = sp->repResult, this, sFilePathRel](cacheman::eDlResult res)
+					{
+						if (res == eDlResult::OK)
+						{
+							MarkObsolete(sFilePathRel);
+							return ourRep(eDlResult::OK);
+						}
+						// XXX: this sucks a little bit since we don't want to show the checkbox
+						// when the fallback download succeeded... but on failures, the previous one
+						// already added a newline before
+						AddDelCbox(sFilePathRel, m_dlCtx->states.back()->sErr, true);
+						return ourRep(eDlResult::FAIL_REMOTE);
+					};
+#endif
+				}
+			}
+			string sErr(message_detox(fiaccess->m_responseStatus.msg, fiaccess->m_responseStatus.code));
+
+#if 0
+			if(!GetFlags(sFilePathRel).hideDlErrors)
+			{
+				SendFmt << "<span class=\"ERROR\">"sv << sErr << "</span>\n"sv;
+				if(0 == (sp->m_parms.hints & DL_HINT_NOTAG))
+					AddDelCbox(sFilePathRel, sErr);
+			}
+			DLFIN(cacheman::eDlResult::FAIL_REMOTE, sErr);
+#endif
+			return DLFIN(cacheman::eDlResult::FAIL_REMOTE, "(not downloadable)"sv);
+		}
+
+		void Run()
 		{
 			LOGSTARTFUNC;
 			ASSERT_IS_MAIN_THREAD;
 
-			auto sFilePathAbs = SABSPATH(sFilePathRel);
+			auto sFilePathAbs = SABSPATH(opts.sFilePathRel);
 			fiAttr.bVolatile = opts.bIsVolatileFile || Q.m_bForceDownload || opts.bForceReDownload;
 
 			// header could contained malformed data and be nuked in the process,
@@ -422,7 +614,7 @@ public:
 			if(! Q.m_parms.res.GetItemRegistry())
 				return DLFIN(cacheman::cacheman::eDlResult::FAIL_LOCAL, "Internal Cache Error"sv);
 
-			fiaccess = Q.m_parms.res.GetItemRegistry()->Create(sFilePathRel,
+			fiaccess = Q.m_parms.res.GetItemRegistry()->Create(opts.sFilePathRel,
 																   (Q.m_bForceDownload | opts.bForceReDownload)
 																   ? ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY
 																   : (fiAttr.bVolatile
@@ -446,27 +638,30 @@ public:
 										   fiaccess.get()->m_responseStatus.code));
 			}
 
+			tHttpUrl *pResolvedDirectUrl = nullptr, *fallbackUrl = nullptr;
+			tHttpUrl tempHeadPath, tempHeadOrig;
+
 			if (fileitem::FIST_COMPLETE == initState)
 				return DLFIN(cacheman::eDlResult::OK, "... (complete)"sv);
 
-			if (opts.forcedURL.sHost.size() + opts.forcedURL.sPath.size())
+			if (!opts.forcedURL.sHost.empty())
 				pResolvedDirectUrl = & opts.forcedURL;
 			else
 			{
 				// must have the URL somewhere
 
-				bool bCachePathAsUriPlausible = parserPath.SetHttpUrl(sFilePathRel, false);
-				ldbg("Find backend for " << sFilePathRel << " parsed as host: "  << parserPath.sHost
-						<< " and path: " << parserPath.sPath << ", ok? " << bCachePathAsUriPlausible);
+				bool bCachePathAsUriPlausible = tempHeadPath.SetHttpUrl(opts.sFilePathRel, false);
+				ldbg("Find backend for " << opts.sFilePathRel << " parsed as host: "  << tempHeadPath.sHost
+						<< " and path: " << tempHeadPath.sPath << ", ok? " << bCachePathAsUriPlausible);
 
 				if (!cfg::stupidfs
 						&& bCachePathAsUriPlausible
-						&& !! (repoSrc.repodata = remotedb::GetInstance().GetRepoData(parserPath.sHost))
+						&& !! (repoSrc.repodata = remotedb::GetInstance().GetRepoData(tempHeadPath.sHost))
 						&& ! repoSrc.repodata->m_backends.empty())
 				{
 					ldbg("will use backend mode, subdirectory is path suffix relative to backend uri");
-					repoSrc.sRestPath = scratchpad.Add(parserPath.sPath.substr(1));
-					repoSrc.psRepoName = scratchpad.Add(parserPath.sHost);
+					repoSrc.sRestPath = scratchpad.Add(tempHeadPath.sPath.substr(1));
+					repoSrc.psRepoName = scratchpad.Add(tempHeadPath.sHost);
 				}
 				else
 				{
@@ -478,16 +673,16 @@ public:
 					dbgline;
 					if (bCachePathAsUriPlausible) // default option, unless the next check matches
 					{
-						StrSubst(parserPath.sPath, "//", "/");
-						pResolvedDirectUrl = &parserPath;
+						StrSubst(tempHeadPath.sPath, "//", "/");
+						pResolvedDirectUrl = &tempHeadPath;
 					}
 					// and prefer the source from xorig which is likely to deliver better result
-					if (hor.h[header::XORIG] && parserHead.SetHttpUrl(hor.h[header::XORIG], false))
+					if (hor.h[header::XORIG] && tempHeadOrig.SetHttpUrl(hor.h[header::XORIG], false))
 					{
 						dbgline;
 						fallbackUrl = pResolvedDirectUrl;
-						StrSubst(parserPath.sPath, "//", "/");
-						pResolvedDirectUrl = &parserHead;
+						StrSubst(tempHeadPath.sPath, "//", "/");
+						pResolvedDirectUrl = &tempHeadOrig;
 					}
 					else if (!sGuessedFrom.empty()
 							&& hor.LoadFromFile(SABSPATH(sGuessedFrom + ".head"))
@@ -496,11 +691,11 @@ public:
 						mstring refURL(hor.h[header::XORIG]);
 
 						tStrPos spos(0); // if not 0 -> last slash sign position if both
-						for(tStrPos i=0; i < sGuessedFrom.size() && i< sFilePathRel.size(); ++i)
+						for (tStrPos i=0; i < sGuessedFrom.size() && i < opts.sFilePathRel.size(); ++i)
 						{
-							if(sFilePathRel[i] != sGuessedFrom.at(i))
+							if (opts.sFilePathRel[i] != sGuessedFrom.at(i))
 								break;
-							if(sFilePathRel[i] == '/')
+							if (opts.sFilePathRel[i] == '/')
 								spos = i;
 						}
 						// cannot underflow since checked by less-than
@@ -510,12 +705,12 @@ public:
 						{
 							dbgline;
 							refURL.erase(urlSlashPos);
-							refURL += sFilePathRel.substr(spos);
+							refURL += opts.sFilePathRel.substr(spos);
 							//refURL.replace(urlSlashPos, chopLen, sPathSep.substr(spos));
-							if (parserHead.SetHttpUrl(refURL, false))
+							if (tempHeadOrig.SetHttpUrl(refURL, false))
 							{
-								StrSubst(parserPath.sPath, "//", "/");
-								pResolvedDirectUrl = &parserHead;
+								StrSubst(tempHeadPath.sPath, "//", "/");
+								pResolvedDirectUrl = &tempHeadOrig;
 							}
 						}
 					}
@@ -551,24 +746,60 @@ public:
 							 ? pResolvedDirectUrl->ToURI(true)
 							 : repoSrc.sRestPath));
 			}
+
+			LOG("Download of " << opts.sFilePathRel << " invoked");
+
+			// keep a copy for fixup attempts if needed
+			if (fallbackUrl)
+				altUrl = move(*fallbackUrl);
+			if (pResolvedDirectUrl)
+				usedUrl = move(*pResolvedDirectUrl);
 		}
+
+	public:
+		void Abandon() override
+		{
+			observer.reset();
+			fiaccess.reset();
+		};
 	};
+
+	void Start(std::promise<cacheman::eDlResult>& pro, cacheman::tDlOpts&& opts)
+	{
+		m_repResult.swap(pro);
+		states.emplace_back(lint_user_ptr(new TDownloadState(*this, move(opts))));
+		states.back()->Run();
+	}
+
+	void Restart(TDownloadState* caller, cacheman::tDlOpts&& opts)
+	{
+		states.emplace_back(as_lptr(new TDownloadState(*this, move(opts))));
+		states.back()->Run();
+		Abort(caller);
+	}
 
 	void Abort(TDownloadState* what)
 	{
 		ASSERT_IS_MAIN_THREAD;
-		if (what)
-			erase_if(states, [&](TDownloadState& el){ return what == & el; });
+		erase_if(states, [&](const auto & el){ return el.get() == what; });
 	}
-	void Finish(cacheman::eDlResult res, TDownloadState* caller2destroy)
+	void Finish(cacheman::eDlResult res, string_view result_msg, TDownloadState* caller2destroy)
 	{
+		LOGSTARTFUNCx((int)res, result_msg, (uintptr_t)caller2destroy);
 		ASSERT_IS_MAIN_THREAD;
 
+#warning pass the checkbox control flags, if error
+		m_owner.ReportEnd(result_msg);
+
 		auto pin(shared_from_this());
-		if (!m_repResult)
-			return;
-		m_repResult->set_value(res);
-		m_repResult = nullptr;
+		try
+		{
+			m_repResult.set_value(res);
+		}
+		catch (...)
+		{
+			LOG("IDler exception");
+		}
 		Abort(caller2destroy);
 	}
 
@@ -578,10 +809,9 @@ public:
 		ASSERT_IS_MAIN_THREAD;
 		m_shutdownCanceler = evabase::GetGlobal().subscribe([&]()
 		{
-			Finish(cacheman::eDlResult::FAIL_LOCAL, nullptr);
+			Finish(cacheman::eDlResult::FAIL_LOCAL, "Abort on shutdown"sv, nullptr);
 		});
 	}
-
 };
 
 cacheman::~cacheman()
@@ -601,7 +831,7 @@ cacheman::eDlResult cacheman::Download(string_view sFilePathRel, tDlOpts opts)
 	LOGSTARTFUNC;
 	ReportBegin(sFilePathRel, opts.msgVerbosityLevel);
 
-	return eDlResult::FAIL_LOCAL;
+	opts.sFilePathRel = sFilePathRel;
 
 	if (GetFlags(sFilePathRel).uptodate)
 	{
@@ -616,428 +846,24 @@ cacheman::eDlResult cacheman::Download(string_view sFilePathRel, tDlOpts opts)
 	}
 
 	std::promise<cacheman::eDlResult> pro;
+	auto fut = pro.get_future();
 	evabase::GetGlobal().SyncRunOnMainThread([&]()
 	{
 		if (!m_dler)
 			m_dler.reset(new TDownloadController(m_parms.res, *this));
 
-		opts.sFilePathRel = sFilePathRel;
-		m_dler->states.emplace_back(*m_dler, move(opts));
-		m_dler->states.back().Run(pro);
+		m_dler->Start(pro, move(opts));
 		return 0;
 	});
 	try
 	{
-		return pro.get_future().get();
+		return fut.get();
 	}
 	catch (...)
 	{
 		return eDlResult::FAIL_LOCAL;
 	}
 }
-#if 0
-void cacheman::DownloadIO(TDownloadState* sp)
-{
-	LOGSTARTFUNC;
-	ASSERT_IS_MAIN_THREAD;
-
-	eDlResult ret = eDlResult::FAIL_REMOTE;
-	auto& state = *sp;
-	// nobody kills our state inbetween!
-	auto pin = as_lptr(sp);
-
-	auto& sFilePathRel = sp->m_parms.sFilePathRel;
-	fileitem::FiStatus fist;
-
-	auto RETVAL = [&](eDlResult x)
-	{
-		sp->repResult(x);
-	};
-
-	if (state.requestAdded)
-	{
-		dbgline;
-		goto FROM_DL_CB;
-	}
-
-#define NEEDED_VERBOSITY_ALL_BUT_ERRORS (sp->m_parms.msgVerbosityLevel >= eDlMsgPrio::HIDE_ERR)
-#define NEEDED_VERBOSITY_EVERYTHING (sp->m_parms.msgVerbosityLevel >= eDlMsgPrio::SHOW_ALL)
-#define GOTOREPMSG(x, y) {state.sErr = x; ret = y; goto rep_dlresult; }
-
-	if(GetFlags(sFilePathRel).uptodate)
-	{
-		if(NEEDED_VERBOSITY_ALL_BUT_ERRORS)
-			SendFmt<<"Checking "<<sFilePathRel<< (state.attr.bVolatile
-					? "... (fresh)<br>\n" : "... (complete)<br>\n");
-		return RETVAL(eDlResult::OK);
-	}
-
-	// header could contained malformed data and be nuked in the process,
-	// try to get the original source whatever happens
-	state.hor.LoadFromFile(state.sFilePathAbs + ".head");
-
-	dbgline;
-	if(! m_parms.res.GetItemRegistry())
-		return RETVAL(eDlResult::FAIL_LOCAL);
-	state.fiaccess = m_parms.res.GetItemRegistry()->Create(sFilePathRel,
-														   (m_bForceDownload | sp->m_parms.bForceReDownload)
-														   ? ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY
-														   : (state.attr.bVolatile
-															  ? ESharingHow::AUTO_MOVE_OUT_OF_THE_WAY
-															  : ESharingHow::ALWAYS_TRY_SHARING),
-														   state.attr);
-	if (state.fiaccess)
-		state.observer = state.fiaccess->Subscribe([pin, this] {DownloadIO(pin.get());});
-	else
-	{
-		if (NEEDED_VERBOSITY_ALL_BUT_ERRORS)
-			SendFmt << "Checking " << sFilePathRel << "..."; // just display the name ASAP
-		GOTOREPMSG(" could not create file item handler.", eDlResult::FAIL_LOCAL);
-	}
-
-	dbgline;
-	if(state.attr.bVolatile && m_bSkipIxUpdate)
-	{
-		SendFmt << "Checking "sv << sFilePathRel << "... (skipped, as requested)<br>\n"sv;
-		dbgline;
-		return RETVAL(eDlResult::OK);
-	}
-	state.initState = state.fiaccess->Setup();
-
-	if (state.initState > fileitem::FIST_COMPLETE)
-	{
-		GOTOREPMSG(message_detox(state.fiaccess.get()->m_responseStatus.msg,
-								 state.fiaccess.get()->m_responseStatus.code), eDlResult::FAIL_REMOTE);
-	}
-
-	if (fileitem::FIST_COMPLETE == state.initState)
-	{
-		if(state.fiaccess.get()->m_responseStatus.code != 200)
-		{
-			SendFmt << "Error downloading " << sFilePathRel << ":\n";
-			goto format_error;
-			//GOTOREPMSG(pFi->GetHeader().frontLine);
-		}
-		SendFmt << "Checking "sv << sFilePathRel << "... (complete)<br>\n"sv;
-		return RETVAL(eDlResult::OK);
-	}
-	if (NEEDED_VERBOSITY_ALL_BUT_ERRORS)
-		SendFmt << (state.attr.bVolatile ? "Checking/Updating " : "Downloading ")
-				<< sFilePathRel	<< "...";
-
-
-	if (sp->m_parms.pForcedURL)
-		state.pResolvedDirectUrl = sp->m_parms.pForcedURL;
-	else
-	{
-		// must have the URL somewhere
-
-		bool bCachePathAsUriPlausible = state.parserPath.SetHttpUrl(sFilePathRel, false);
-		ldbg("Find backend for " << sFilePathRel << " parsed as host: "  << state.parserPath.sHost
-				<< " and path: " << state.parserPath.sPath << ", ok? " << bCachePathAsUriPlausible);
-
-		if (!cfg::stupidfs
-				&& bCachePathAsUriPlausible
-				&& !! (state.repoSrc.repodata = remotedb::GetInstance().GetRepoData(state.parserPath.sHost))
-				&& ! state.repoSrc.repodata->m_backends.empty())
-		{
-			ldbg("will use backend mode, subdirectory is path suffix relative to backend uri");
-			state.repoSrc.sRestPath = state.scratchpad.Add(state.parserPath.sPath.substr(1));
-			state.repoSrc.psRepoName = state.scratchpad.Add(state.parserPath.sHost);
-		}
-		else
-		{
-			// ok, cache location does not hint to a download source,
-			// try to resolve to an URL based on the old header information;
-			// if not possible, guessing by looking at related files and making up
-			// the URL as needed
-
-			dbgline;
-			if (bCachePathAsUriPlausible) // default option, unless the next check matches
-			{
-				StrSubst(state.parserPath.sPath, "//", "/");
-				state.pResolvedDirectUrl = &state.parserPath;
-			}
-			// and prefer the source from xorig which is likely to deliver better result
-			if (state.hor.h[header::XORIG] && state.parserHead.SetHttpUrl(state.hor.h[header::XORIG], false))
-			{
-				dbgline;
-				state.fallbackUrl = state.pResolvedDirectUrl;
-				StrSubst(state.parserPath.sPath, "//", "/");
-				state.pResolvedDirectUrl = &state.parserHead;
-			}
-			else if (sp->m_parms.sGuessedFrom
-					&& state.hor.LoadFromFile(SABSPATH(* sp->m_parms.sGuessedFrom + ".head"))
-					&& state.hor.h[header::XORIG]) // might use a related file as reference
-			{
-				mstring refURL(state.hor.h[header::XORIG]);
-
-				tStrPos spos(0); // if not 0 -> last slash sign position if both
-				for(tStrPos i=0; i< sp->m_parms.sGuessedFrom->size() && i< sFilePathRel.size(); ++i)
-				{
-					if(sFilePathRel[i] != sp->m_parms.sGuessedFrom->at(i))
-						break;
-					if(sFilePathRel[i] == '/')
-						spos = i;
-				}
-				// cannot underflow since checked by less-than
-				auto chopLen = sp->m_parms.sGuessedFrom->length() - spos;
-				auto urlSlashPos = refURL.size()-chopLen;
-				if (chopLen < refURL.size() && refURL[urlSlashPos] == '/')
-				{
-					dbgline;
-					refURL.erase(urlSlashPos);
-					refURL += sFilePathRel.substr(spos);
-					//refURL.replace(urlSlashPos, chopLen, sPathSep.substr(spos));
-					if (state.parserHead.SetHttpUrl(refURL, false))
-					{
-						StrSubst(state.parserPath.sPath, "//", "/");
-						state.pResolvedDirectUrl = &state.parserHead;
-					}
-				}
-			}
-
-			if(!state.pResolvedDirectUrl)
-			{
-				dbgline;
-				Send("<b>Failed to calculate the original URL</b><br>"sv);
-				return RETVAL(eDlResult::FAIL_REMOTE); // XXX: actually a local error?
-			}
-		}
-	}
-
-	// might still need a repo data description
-	if (state.pResolvedDirectUrl)
-	{
-		dbgline;
-		state.repinfo = remotedb::GetInstance().GetRepNameAndPathResidual(*state.pResolvedDirectUrl);
-		if (state.repinfo.valid())
-		{
-			dbgline;
-			// also need to use local memory, to recover in the next cycle
-			state.repinfo.sRestPath = state.scratchpad.Add(state.repinfo.sRestPath);
-			state.pResolvedDirectUrl = nullptr;
-			state.repoSrc = state.repinfo;
-		}
-	}
-	dbgline;
-
-	if ( ! m_dlCtx->dler->AddJob(as_lptr(state.fiaccess.get()),
-								 state.pResolvedDirectUrl,
-								 state.pResolvedDirectUrl ? nullptr : & state.repoSrc))
-	{
-		SendFmt << "Cannot send download request, aborting ";
-		if (state.pResolvedDirectUrl)
-		{
-			Send(state.pResolvedDirectUrl
-				 ? state.pResolvedDirectUrl->ToURI(true)
-				 : state.repoSrc.sRestPath);
-		}
-		return RETVAL(eDlResult::FAIL_LOCAL);
-	}
-
-	state.requestAdded = true;
-FROM_DL_CB:
-	dbgline;
-	{
-		// simple limiter, not more dots than one per second
-		static auto spamLimit = GetTime();
-		auto now = GetTime();
-		if (now > spamLimit + 1)
-		{
-			Send(".");
-			spamLimit = now;
-		}
-	}
-
-	fist = state.fiaccess->GetStatus();
-	ldbg(fist);	
-	ASSERT(fist >= fileitem::FIST_DLPENDING);
-
-	if (fist < fileitem::FIST_COMPLETE)
-		return; // should came back from subscription callback
-
-	if (fist == fileitem::FIST_COMPLETE && state.fiaccess->m_responseStatus.code == 200)
-	{
-		dbgline;
-		ret = eDlResult::OK;
-		if (NEEDED_VERBOSITY_ALL_BUT_ERRORS)
-			SendFmt << " <i>("sv << state.fiaccess->TakeTransferCount() / 1024 << "KiB)</i>\n"sv;
-	}
-	else
-	{
-		ASSERT(!(state.fiaccess->m_responseStatus.code == 500 && state.fiaccess->m_responseStatus.msg.empty())); // catch a strange condition
-		LOG("having alternative url and fitem was created here anyway")
-		if(state.fallbackUrl && state.fiaccess.get() && (!state.pResolvedDirectUrl || state.fallbackUrl != state.pResolvedDirectUrl))
-		{
-			dbgline;
-			//Send("<i>(download error, ignored, guessing alternative URL by path)</i>\n"sv);
-			SendFmt << "<i>Remote peer is not usable but the alternative source might be guessed from the path as "
-					<< state.fallbackUrl->ToURI(true) << " . If this is the better option, please remove the file "
-					<< sFilePathRel << ".head manually from the cache folder or remove the whole index file with the Delete button below.</i>\n";
-
-			return Download(sFilePathRel, state.attr.bVolatile,
-					sp->m_parms.msgVerbosityLevel,
-					state.fallbackUrl, sp->m_parms.hints, sp->m_parms.sGuessedFrom, true, sp->repResult);
-		}
-
-format_error:
-		if ( (cfg::follow404 && state.fiaccess->m_responseStatus.code == 404) || IsDeprecatedArchFile(sFilePathRel))
-		{
-			if (NEEDED_VERBOSITY_EVERYTHING)
-				Send("<i>(no longer available)</i>\n"sv);
-			m_forceKeepInTrash[sFilePathRel] = true;
-			ret = eDlResult::GONE;
-		}
-		else if (GetFlags(sFilePathRel).forgiveDlErrors
-				||
-				(state.fiaccess->m_responseStatus.code == 404 && endsWith(sFilePathRel, oldStylei18nIdx))
-		)
-		{
-			ret = eDlResult::OK;
-			if (NEEDED_VERBOSITY_EVERYTHING)
-				Send("<i>(ignored)</i>\n"sv);
-		}
-		else
-			GOTOREPMSG(message_detox(state.fiaccess->m_responseStatus.msg, state.fiaccess->m_responseStatus.code), eDlResult::FAIL_REMOTE);
-	}
-
-	rep_dlresult:
-
-	Send("<br>\n"sv);
-
-	if (state.fiaccess)
-	{
-		auto dlCount = state.fiaccess->TakeTransferCount();
-		static cmstring sInternal("[INTERNAL:");
-		// need to account both, this traffic as officially tracked traffic, and also keep the count
-		// separately for expiration about trade-off calculation
-		log::transfer(dlCount, 0, Concat(sInternal, GetTaskInfo(m_parms.type).typeName, "]"), sFilePathRel, false);
-	}
-
-	if (ret == eDlResult::OK && state.attr.bVolatile)
-		SetFlags(sFilePathRel).uptodate = true;
-
-	if (ret != eDlResult::OK)
-	{
-		if(state.repoSrc.repodata
-				&& state.repoSrc.repodata->m_backends.empty()
-				&& !state.hor.h[header::XORIG]
-				&& !sp->m_parms.pForcedURL)
-		{
-			// oh, that crap: in a repo, but no backends configured, and no original source
-			// to look at because head file is probably damaged :-(
-			// try to re-resolve relative to InRelease and retry download
-			Send("<span class=\"WARNING\">"sv
-					"Warning, running out of download locations (probably corrupted "sv
-					"cache). Trying an educated guess...<br>\n"sv
-					")</span>\n<br>\n"sv);
-
-			cmstring::size_type pos=sFilePathRel.length();
-			while (true)
-			{
-				pos=sFilePathRel.rfind(CPATHSEPUNX, pos);
-				if (pos == stmiss)
-					break;
-				for (const auto& sfx : {&inRelKey, &relKey})
-				{
-					if(endsWith(sFilePathRel, *sfx))
-						continue;
-
-					auto testpath=sFilePathRel.substr(0, pos) + *sfx;
-					if (!GetFlags(testpath).vfile_ondisk)
-						continue;
-
-					header hare;
-					if (!hare.LoadFromFile(SABSPATH(testpath)+".head"))
-						continue;
-
-					if(!hare.h[header::XORIG])
-						continue;
-
-					string url(hare.h[header::XORIG]);
-					url.replace(url.size() - sfx->size(), sfx->size(),
-								sFilePathRel.substr(pos));
-					tHttpUrl tu;
-					if (tu.SetHttpUrl(url, false))
-					{
-						Send("Restarting download..."sv);
-						return Download(sFilePathRel, state.attr.bVolatile,
-										sp->m_parms.msgVerbosityLevel, &tu, 0, nullptr, true, sp->repResult);
-					}
-				}
-				if (!pos)
-					break;
-				pos--;
-			}
-		}
-		else if(state.fiaccess && (sp->m_parms.hints & DL_HINT_GUESS_REPLACEMENT) && state.fiaccess->m_responseStatus.code == 404)
-		{
-			// another special case, slightly ugly :-(
-			// this is explicit hardcoded repair code
-			// it switches to a version with better compression silently
-
-			for (const auto& fix : fixmap)
-			{
-				if (!endsWith(sFilePathRel, fix.fromEnd) || !StrHas(sFilePathRel, fix.extraCheck))
-					continue;
-				Send("Attempting to download the alternative version..."sv);
-				// if we have it already, use it as-is
-				if (!state.pResolvedDirectUrl)
-				{
-					auto p = state.fiaccess->m_responseOrigin;
-					if (state.parserHead.SetHttpUrl(p))
-						state.pResolvedDirectUrl = &state.parserHead;
-				}
-				auto newurl(*state.pResolvedDirectUrl);
-				if (!endsWith(newurl.sPath, fix.fromEnd) || !StrHas(newurl.sPath, fix.extraCheck))
-					continue;
-				newurl.sPath.replace(newurl.sPath.size()-fix.fromEnd.size(), fix.fromEnd.size(),
-									 fix.toEnd);
-
-				auto xpath = Concat(sFilePathRel.substr(0, sFilePathRel.size() - fix.fromEnd.size()), fix.toEnd);
-				auto contFunc = [ourRep = sp->repResult, this, sFilePathRel](cacheman::eDlResult res)
-				{
-					if (res == eDlResult::OK)
-					{
-						MarkObsolete(sFilePathRel);
-						return ourRep(eDlResult::OK);
-					}
-					// XXX: this sucks a little bit since we don't want to show the checkbox
-					// when the fallback download succeeded... but on failures, the previous one
-					// already added a newline before
-					AddDelCbox(sFilePathRel, m_dlCtx->states.back()->sErr, true);
-					return ourRep(eDlResult::FAIL_REMOTE);
-				};
-
-				return Download(xpath, state.attr.bVolatile, sp->m_parms.msgVerbosityLevel, &newurl,
-								sp->m_parms.hints &~ DL_HINT_GUESS_REPLACEMENT, nullptr, sp->m_parms.bForceReDownload, contFunc);
-			}
-		}
-		//else
-		//	AddDelCbox(sFilePathRel);
-
-		if (state.sErr.empty())
-			state.sErr = "Download error";
-		if (NEEDED_VERBOSITY_EVERYTHING || m_bVerbose)
-		{
-			if(!GetFlags(sFilePathRel).hideDlErrors)
-			{
-				SendFmt << "<span class=\"ERROR\">"sv << state.sErr << "</span>\n"sv;
-				if(0 == (sp->m_parms.hints & DL_HINT_NOTAG))
-					AddDelCbox(sFilePathRel, state.sErr);
-			}
-		}
-	}
-
-	// there must have been output
-	if (NEEDED_VERBOSITY_ALL_BUT_ERRORS)
-		Send("\n<br>\n");
-
-	return RETVAL(eDlResult::OK);
-}
-#endif
-
 
 void ACNG_API DelTree(const string &what)
 {
@@ -1955,23 +1781,6 @@ cacheman::enumMetaType cacheman::GuessMetaTypeFromPath(string_view sPath)
 	return EIDX_NEVERPROCESS;
 }
 
-#if 0 // XXX: needed? partly broken? Test needed!
-
-string_view common_suffix(string_view left, string_view right)
-{
-	int ll = left.size() - 1;
-	int lr = right.size() - 1;
-	int k=0;
-	while (ll >= 0 && lr >= 0 && left[ll] == right[lr])
-	{
-		ll--;
-		lr--;
-		k++;
-	}
-	return string_view(left.data() + left.size() - k, k);
-}
-#endif
-
 bool cacheman::ParseAndProcessMetaFile(tCbReport cbReportOne, tMetaMap::iterator idxFile, int8_t runGroupAndTag)
 {
 	LOGSTARTFUNC;
@@ -2695,7 +2504,7 @@ bool cacheman::FixMissingOriginalsFromByHashVersions()
 	IFileHandler::FindFiles(SABSPATH(cfg::privStoreRelSnapSufix), pickFunc);
 
 
-	for(const auto& kv: oldStuff)
+	for (const auto& kv: oldStuff)
 	{
 		const auto& oldRelPathRel(kv.second);
 		ASSERT(!"make sure that path is relative to cache_dir");
