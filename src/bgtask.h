@@ -11,19 +11,26 @@
 #include "mainthandler.h"
 #include "showinfo.h"
 
+#include <map>
+
 namespace acng
 {
 
 class ACNG_API tExclusiveUserAction : public tMaintJobBase
 {
-	unsigned m_nKbInitVec = 0;
-	FILE_RAII m_killBill;
 public:
 	using tMaintJobBase::tMaintJobBase;
+	~tExclusiveUserAction();
+
 protected:
-	unsigned Add2KillBill(string_view sPathRel);
+	unsigned Add2KillBill(string_view sPathRel, string_view reason);
 	// adds "purgeactionmeta"
 	virtual void SendProp(cmstring &key) override;
+
+	// to be handled by derived classes, print maybe collected actions or something else
+	virtual void PrintAdminFileActions() {};
+
+	std::deque<std::pair<string_view,string_view>> m_adminActionList;
 };
 
 enum class ControLineType

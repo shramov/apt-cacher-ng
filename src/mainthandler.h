@@ -138,7 +138,8 @@ public:
 	tSS GetKbLocation();
 
 	// helper stuff to avoid allocations - use a shared buffer, scopped to thread, which is consumed immediately afterwards
-#define SendFmt tFmtSendTempRaii<mainthandler, bSS>(*this).GetFmter()
+	using tSendFmtRaii = tFmtSendTempRaii<mainthandler, bSS>;
+#define SendFmt tSendFmtRaii(*this).GetFmter()
 	static thread_local bSS g_msgFmtBuf;
 	void AfterTempFmt() { Send(g_msgFmtBuf); g_msgFmtBuf.clear(); }
 	bSS& GetTempFmt() { return g_msgFmtBuf; }

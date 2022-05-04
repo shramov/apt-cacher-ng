@@ -32,7 +32,6 @@ protected:
 	tRemoteStatus m_httpStatus;
 
 	bool m_bFatalError = false;
-	bool m_bHaveDeletionCandidates = false;
 
 	// uses fallback lookup map, can be feed with data in subclass constructor
 	virtual void SendProp(cmstring &key);
@@ -68,7 +67,7 @@ protected:
 
 	bool CheckStopSignal();
 
-	// this is the string memory dump, used in base classes. No code in THIS class shall make use of it, to be sure about its destruction time vs. potential users.
+	// this is the string memory dump, used in derived classes. No code in THIS class shall make use of it, to be sure about its destruction time vs. potential users.
 	acworm m_stringStore;
 	mstring& term(string_view s) { return m_tempString = s; }
 };

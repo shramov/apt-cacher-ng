@@ -7,6 +7,8 @@
 #include "filereader.h"
 #include "evabase.h"
 
+#include <fstream>
+
 #include <limits.h>
 #include <errno.h>
 
@@ -19,24 +21,41 @@ using namespace std;
 namespace acng
 {
 
-unsigned tExclusiveUserAction::Add2KillBill(string_view sPathRel)
+tExclusiveUserAction::~tExclusiveUserAction()
 {
-	if (!m_killBill.valid())
-		m_killBill.reset(fopen(GetKbLocation().c_str(), "w"));
-	if (!m_killBill.valid()) // XXX: error handling?
+	if (!m_adminActionList.empty())
+	{
+		try
+		{
+			ofstream f;
+			f.open(GetKbLocation().c_str());
+			for (unsigned i = 0; f.is_open() && i < m_adminActionList.size(); ++i)
+				f << unsigned(i/2) << ":" << m_adminActionList[i].first << endl;
+		}
+		catch (...)
+		{
+		}
+	}
+}
+
+unsigned tExclusiveUserAction::Add2KillBill(string_view sPathRel, string_view reason)
+{
+	if (AC_UNLIKELY(sPathRel.find('\n')))
 		return 0;
-	m_bHaveDeletionCandidates = true;
-	fprintf(m_killBill.get(), "%u:%s\n", m_nKbInitVec, term(sPathRel).c_str());
-	return m_nKbInitVec++;
+
+	m_adminActionList.emplace_back(m_stringStore.Add(sPathRel), m_stringStore.Add(reason));
+
+	return m_adminActionList.size()/2 - 1;
 }
 
 void tExclusiveUserAction::SendProp(cmstring &key)
 {
 	if (key == "purgeactionmeta")
 	{
-		if (m_bHaveDeletionCandidates)
+		if (!m_adminActionList.empty())
 		{
 			SendFmt << "<input type=\"hidden\" name=\"kbid\"\nvalue=\""sv << GetCacheKey() << "\">"sv;
+			PrintAdminFileActions();
 		}
 	}
 	else

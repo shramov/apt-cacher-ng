@@ -39,6 +39,14 @@
 
 using namespace std;
 
+#define ESPAN "<span class=\"ERROR\">"sv
+#define WSPAN "<span class=\"WARNING\">"sv
+
+#define ECLASS ESPAN "ERROR: "sv
+#define WCLASS WSPAN "WARNING: "sv
+#define GCLASS "<span class=\"GOOD\">OK: "sv
+#define CLASSEND "</span>\n"sv
+
 namespace acng
 {
 
@@ -205,35 +213,164 @@ cacheman::tIfileAttribs &cacheman::SetFlags(string_view sPathRel)
 	return m_metaFilesRel[m_stringStore.Add(sPathRel)];
 }
 
-void cacheman::SendDecoratedLine(string_view msg, eDlMsgSeverity colorHint)
+cacheman::tMetaMap::iterator cacheman::SetFlags(string_view sPathRel, bool &reportCreated)
 {
-SendFmt << "TODO: DecoLine, type=" << (int) colorHint << ", msg=" << msg << "End-Decoline<br>\n";
-#warning implement me
+	ASSERT(!sPathRel.empty());
+	auto it = m_metaFilesRel.find(sPathRel);
+	reportCreated = it == m_metaFilesRel.end();
+	return reportCreated
+			? m_metaFilesRel.emplace(m_stringStore.Add(sPathRel), tIfileAttribs()).first
+			: it;
 }
 
-void cacheman::ReportBegin(string_view what, eDlMsgSeverity sev, bool bForceCollecting)
+thread_local string sendDecoBuf;
+
+void cacheman::SendDecoratedComment(string_view msg, eDlMsgSeverity colorHint)
 {
-	SendFmt << "TODO: ReportBegin, type=" << (int) sev << ", force="<<bForceCollecting <<", what=" << what << "End-Reportbegin\n";
-#warning implement me
+	if (colorHint < m_printSeverityMin && m_print.state == printcfg::BEGIN)
+		return;
+
+	if (m_print.state > printcfg::BEGIN)
+	{
+		Append(sendDecoBuf, "[", msg, "]");
+		ReportCont(sendDecoBuf, colorHint);
+		sendDecoBuf.clear();
+	}
+	else
+	{
+		// then format and print here
+		auto typ = colorHint < eDlMsgSeverity::WARNING
+				? "<span>"sv : (colorHint >= eDlMsgSeverity::NONFATAL_ERROR ? ESPAN : WSPAN);
+		SendFmt << typ << msg << "</span><br>\n"sv;
+	}
+}
+
+void cacheman::CloseLine()
+{
+	if (m_print.state == printcfg::BEGIN)
+		return;
+
+	m_print.state = printcfg::BEGIN;
+
+	switch(m_print.format)
+	{
+	case acng::cacheman::printcfg::DEV:
+	case acng::cacheman::printcfg::WEB:
+		switch(m_print.fmtdepth)
+		{
+// try using predefined instead of extra format code
+		case 0:
+			Send("<br>\n"sv);
+			break;
+		case 1:
+			Send("</span><br>\n"sv);
+			break;
+		case 2:
+			Send("</span></span><br>\n"sv);
+			break;
+		default:
+			for (;m_print.fmtdepth; --m_print.fmtdepth)
+				sendDecoBuf += "</span>"sv;
+			sendDecoBuf += "<br>\n"sv;
+			Send(sendDecoBuf);
+			sendDecoBuf.clear();
+			break;
+		}
+		m_print.fmtdepth = 0;
+		break;
+	case acng::cacheman::printcfg::CRONJOB:
+		Send("\n"sv);
+		break;
+	}
+}
+
+void cacheman::ReportBegin(string_view what, eDlMsgSeverity sev, bool bForceCollecting, bool bIgnoreErrors)
+{
+	if (m_print.state != m_print.BEGIN)
+	{
+		ReportEnd(""sv);
+	}
+
+	if (bIgnoreErrors)
+		m_print.sevMax = m_printSeverityMin;
+
+	if (sev > m_print.sevMax)
+		sev = m_print.sevMax;
+
+	m_print.sevCur = sev;
+
+	m_print.curFileRel = what;
+	if (sev < m_printSeverityMin || bForceCollecting)
+	{
+		m_print.state = m_print.COLLECTING;
+		m_print.buf = what;
+		m_print.buf += ": "sv;
+#warning implement format as needed
+	}
+	else
+	{
+		m_print.state = m_print.PRINTING;
+		SendFmt << what << ": "sv;
+	}
+//	SendFmt << "TODO: ReportBegin, type=" << (int) sev << ", force="<<bForceCollecting <<", what=" << what << "End-Reportbegin\n";
+//#warning implement me
 }
 
 void cacheman::ReportCont(string_view msg, eDlMsgSeverity sev)
 {
-	SendFmt << "TODO: ReportCont, type=" << (int) sev << ", msg=" << msg << "~ReportCont~";
-#warning implement me
+//	SendFmt << "TODO: ReportCont, type=" << (int) sev << ", msg=" << msg << "~ReportCont~";
+//#warning implement me
+
+	if (sev > m_print.sevMax)
+		sev = m_print.sevMax;
+
+	if (AC_UNLIKELY(m_print.state == m_print.BEGIN))
+	{
+		ReportBegin("<UNKNOWN>"sv, sev, false, false);
+	}
+
+	if (sev > m_print.sevMax)
+		sev = m_print.sevMax;
+
+	if (sev > m_print.sevCur)
+	{
+		m_print.sevCur = sev;
+	}
+
+	// time to switch?
+	if (sev >= m_printSeverityMin && m_print.state == m_print.COLLECTING)
+	{
+#warning add ESPAN or WSPAN
+		m_print.buf += msg;
+		m_print.state = m_print.PRINTING;
+		Send(m_print.buf);
+		m_print.buf.clear();
+	}
+	else if (m_print.state == m_print.PRINTING)
+	{
+		Send(msg);
+	}
+	else if (m_print.state == m_print.COLLECTING)
+	{
+		#warning add ESPAN or WSPAN
+		m_print.buf += msg;
+	}
 }
 
 void cacheman::ReportEnd(string_view msg, eDlMsgSeverity sev, unsigned hints)
 {
-	SendFmt << "TODO: ReportEnd, type=" << (int) sev << "=: " << msg << "End-ReportEnd<br>\n";
-
-#define ECLASS "<span class=\"ERROR\">ERROR: "
-#define WCLASS "<span class=\"WARNING\">WARNING: "
-#define GCLASS "<span class=\"GOOD\">OK: "
-#define CLASSEND "</span><br>\n"
+	//SendFmt << "TODO: ReportEnd, type=" << (int) sev << "=: " << msg << "End-ReportEnd<br>\n";
+	ReportCont(msg, sev);
 #warning fixme
 //	AddDelCbox(sPathRel, reason);
+	CloseLine();
+}
 
+int cacheman::CheckCondition(string_view key)
+{
+	if (key == "purgeActionVisible"sv)
+		return 0 + m_adminActionList.empty();
+	return tExclusiveUserAction::CheckCondition(key);
 }
 
 void cacheman::ReportData(eDlMsgSeverity sev, string_view path, string_view reason)
@@ -369,10 +506,9 @@ public:
 		mstring sGuessedFrom;
 		tHttpUrl usedUrl; // copy of the last download attempt
 		tHttpUrl altUrl; // fallback to this on first failure
-
 		acworm scratchpad;
-		//uint64_t prog_before = 0;
 
+		//uint64_t prog_before = 0;
 
 		tRepoResolvResult repoSrc;
 		header hor;
@@ -495,8 +631,7 @@ public:
 				// try to re-resolve relative to InRelease and retry download
 				m_owner.m_owner.ReportCont("<span class=\"WARNING\">"sv
 					 "Warning, running out of download locations (probably corrupted "sv
-					 "cache). Trying an educated guess...<br>\n"sv
-					 ")</span>\n<br>\n"sv);
+					 "cache). Trying an educated guess...</span><br>\n"sv);
 
 				cmstring::size_type pos = opts.sFilePathRel.length();
 				while (true)
@@ -829,13 +964,13 @@ cacheman::~cacheman()
 cacheman::eDlResult cacheman::Download(string_view sFilePathRel, tDlOpts opts)
 {
 	LOGSTARTFUNC;
-	ReportBegin(sFilePathRel, opts.msgVerbosityLevel);
+	ReportBegin(sFilePathRel, opts.msgVerbosityLevel, false, opts.bIgnoreErrors);
 
 	opts.sFilePathRel = sFilePathRel;
 
 	if (GetFlags(sFilePathRel).uptodate)
 	{
-		ReportEnd(opts.bIsVolatileFile ? "... (fresh)<br>\n"sv : "... (complete)<br>\n"sv);
+		ReportEnd(opts.bIsVolatileFile ? "... (fresh)"sv : "... (complete)"sv);
 		return cacheman::eDlResult::OK;
 	}
 
@@ -1264,7 +1399,7 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 			pf.m_p=fopen(sPatchCombinedAbs.c_str(), "w");
 			if(!pf.m_p)
 			{
-				Send("Failed to create intermediate patch file, stop patching...<br>");
+				Send("Failed to create intermediate patch file, stop patching...");
 				return PATCH_FAIL;
 			}
 		}
@@ -1292,7 +1427,7 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 		}
 		if(probe != patchSums[pname])
 		{
-			SendFmt<< "Bad patch data in " << patchPathRel <<" , stop patching...<br>";
+			SendFmt<< "Bad patch data in " << patchPathRel <<" , stop patching...";
 			return PATCH_FAIL;
 		}
 
@@ -1302,7 +1437,7 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 			::fflush(pf.m_p); // still a slight risk of file closing error but it's good enough for now
 			if(::ferror(pf.m_p))
 			{
-				Send("Patch application error<br>");
+				Send("Patch application error");
 				return PATCH_FAIL;
 			}
 			checkForceFclose(pf.m_p);
@@ -2298,29 +2433,34 @@ void cacheman::ProcessSeenIndexFiles(std::function<void(tRemoteFileInfo)> pkgHan
 		{
 			m_nErrorCount++;
 			Send("<span class=\"ERROR\">An error occurred while reading this file, some contents may have been ignored.</span>\n");
-			AddDelCbox(path2att->first, "Index data processing error");
+			ReportAdminAction(path2att->first, "Index data processing error");
 			Send(sBRLF);
 		}
 	}
 }
 
-void cacheman::AddDelCbox(string_view sFileRel, cmstring& reason, bool bIsOptionalGuessedFile)
+void cacheman::ReportAdminAction(string_view sFileRel, string_view reason, bool bAlsoHasNativeFile, eDlMsgSeverity reportLevel)
 {
-	mstring fileParm = AddLookupGetKey(sFileRel, reason.empty() ? mstring(" ") : reason);
+	auto id = Add2KillBill(sFileRel, bAlsoHasNativeFile ?
+							   Concat(reason, " (incl. alternativ version)"sv) :
+							   reason);
 
-	if(bIsOptionalGuessedFile)
-	{
-		string bn(GetBaseName(sFileRel));
-		if(startsWithSz(bn, "/"))
-			bn.erase(0, 1);
-		SendFmt <<  "<label><input type=\"checkbox\""
-				<< fileParm << ">(also tag " << html_sanitize(bn) << ")</label><br>";
-	}
-	else
-		SendFmt <<  "<label><input type=\"checkbox\" "<< fileParm<<">Tag</label>"
-			"\n<!--\n" maark << int(ControLineType::Error) << "Problem with "
-			<< html_sanitize(to_string(sFileRel)) << "\n-->\n";
+	tSelfClearingFmter x(g_fmtBuf);
+	//tSendFmtRaii x(*this);
+	x.GetFmter() << reason << "<label>(<input type=\"checkbox\" name=\"kf\" value=\""sv
+			 << id <<"\">Tag";
+	if (bAlsoHasNativeFile)
+		x.GetFmter() << ", incl. alternativ version";
+	x.GetFmter() << ")</label>";
+
+	ReportCont(g_fmtBuf, reportLevel);
 }
+
+void cacheman::PrintAdminFileActions()
+{
+	SendFmt << "FIXME: print checkboxes for " << m_adminActionList.size() << " entries";
+}
+
 void cacheman::TellCount(unsigned nCount, off_t nSize)
 {
 	SendFmt << sBRLF << offttosH(m_nSpaceReleased) << " freed. " <<sBRLF;
@@ -2329,17 +2469,10 @@ void cacheman::TellCount(unsigned nCount, off_t nSize)
 			<< offttosH(nSize) << "." << sBRLF << sBRLF;
 }
 
-mstring cacheman::AddLookupGetKey(string_view sFilePathRel, string_view /*errorReason*/)
-{
-	auto id = Add2KillBill(sFilePathRel);
-	mstring ret(" name=\"kf\" value=\""sv);
-	ret += ltos(id);
-	ret += "\"";
-	return ret;
-}
-
 void cacheman::PrintStats(cmstring &title)
 {
+#warning restoreme, as part of cacheman::PrintAdminFileActions
+#if 0
 	multimap<off_t, string_view> sorted;
 	off_t total = 0;
 	for(auto &f: m_metaFilesRel)
@@ -2356,11 +2489,11 @@ void cacheman::PrintStats(cmstring &title)
 
 	g_msgFmtBuf << "<br>\n<table name=\"shorttable\"><thead>"
 				   "<tr><th colspan=2>"sv << title;
-	if(sorted.size()>MAX_TOP_COUNT)
+	if(sorted.size() > MAX_TOP_COUNT)
 		g_msgFmtBuf << " (Top " << nMax << "<span name=\"noshowmore\">,"
 										   " <a href=\"javascript:show_rest();\">show more / cleanup</a></span>)"sv;
 	g_msgFmtBuf << "</th></tr></thead>\n<tbody>"sv;
-	for(auto it=sorted.rbegin(); it!=sorted.rend(); ++it)
+	for(auto it = sorted.rbegin(); it!=sorted.rend(); ++it)
 	{
 		g_msgFmtBuf << "<tr><td><b>"sv
 					<< offttosH(it->first) << "</b></td><td>"sv
@@ -2375,7 +2508,7 @@ void cacheman::PrintStats(cmstring &title)
 				   "<th colspan=2>"sv
 				<< title
 				<< "</th></tr></thead>\n<tbody>"sv;
-	for(auto it=sorted.rbegin(); it!=sorted.rend(); ++it)
+	for(auto it = sorted.rbegin(); it != sorted.rend(); ++it)
 	{
 		g_msgFmtBuf << "<tr><td><input type=\"checkbox\" class=\"xfile\""sv
 					<< AddLookupGetKey(it->second, "") << "></td><td><b>"sv << html_sanitize(offttosH(it->first)) << "</b></td><td>"sv
@@ -2383,6 +2516,8 @@ void cacheman::PrintStats(cmstring &title)
 	}
 	SendFmt << "</tbody></table>";
 #warning FIXME, check output format, proper syntax?
+
+#endif
 }
 
 void cacheman::ProgTell()
@@ -2496,26 +2631,24 @@ bool cacheman::FixMissingOriginalsFromByHashVersions()
 	// uses negated values to prefer the newest versions of those file which would pick the latest versions more likely
 	map<time_t,string> oldStuff;
 
-	auto pickFunc = [&](cmstring &sPathRel, const struct stat &info)
+	auto pickFunc = [&](cmstring &sPathAbs, const struct stat &info)
 	{
-		oldStuff.emplace( - info.st_mtim.tv_sec, sPathRel);
+		oldStuff.emplace( - info.st_mtim.tv_sec, sPathAbs.substr(CACHE_BASE_LEN));
 		return true;
 	};
 	IFileHandler::FindFiles(SABSPATH(cfg::privStoreRelSnapSufix), pickFunc);
 
-
 	for (const auto& kv: oldStuff)
 	{
 		const auto& oldRelPathRel(kv.second);
-		ASSERT(!"make sure that path is relative to cache_dir");
-
-		auto flags = SetNewFlags(oldRelPathRel);
+		bool isNew(false);
+		auto flagsIter = SetFlags(oldRelPathRel, isNew);
 		// path relative to cache folder
-		if (!RestoreFromByHash(flags.first, true))
+		if (!RestoreFromByHash(flagsIter, true))
 		{
 			ReportMisc(MsgFmt << "There were error(s) processing "sv << oldRelPathRel << ", ignoring..."sv);
 			ReportMisc("Enable verbosity to see more"sv, SEV_DBG, true);
-			SetFlags(flags.first->first).vfile_ondisk = false;
+			SetFlags(flagsIter->first).vfile_ondisk = false;
 			return ret;
 		}
 #ifdef DEBUG
@@ -2523,7 +2656,7 @@ bool cacheman::FixMissingOriginalsFromByHashVersions()
 #endif
 		if (DeleteAndAccount(SABSPATH(oldRelPathRel)) == YesNoErr::ERROR)
 			ReportMisc(MsgFmt << "Error removing file, check state of "sv << oldRelPathRel);
-		SetFlags(flags.first->first).vfile_ondisk = false;
+		SetFlags(flagsIter->first).vfile_ondisk = false;
 	}
 	return ret;
 }

@@ -311,20 +311,20 @@ void tMarkupFileSend::SendIfElse(LPCSTR pszBeginSep, LPCSTR pszEnd)
 {
 	//std::cerr << "got if: " << string(pszBeginSep, pszEnd-pszBeginSep) << std::endl;
 	auto sep = pszBeginSep;
-	auto key=sep+1;
-	auto valYes=(LPCSTR) memchr(key, (uint) *sep, pszEnd-key);
+	auto key = sep+1;
+	auto valYes = (LPCSTR) memchr(key, (uint) *sep, pszEnd-key);
 	if(!valYes) // heh?
 		return;
-	auto sel=CheckCondition(string_view(key, valYes-key));
+	auto sel = CheckCondition(string_view(key, valYes-key));
 	//std::cerr << "sel: " << sel << std::endl;
 	if(sel<0) // heh?
 		return;
 	valYes++; // now really there
-	auto valNo=(LPCSTR) memchr(valYes, (uint) *sep, pszEnd-valYes);
+	auto valNo = (LPCSTR) memchr(valYes, (uint) *sep, pszEnd-valYes);
 	//std::cerr << "valNO: " << valNo<< std::endl;
 	if(!valNo) // heh?
 			return;
-	if(0==sel)
+	if(0 == sel)
 		Send(valYes, valNo-valYes);
 	else
 		Send(valNo+1, pszEnd-valNo-1);
@@ -504,8 +504,6 @@ int tMaintJobBase::CheckCondition(string_view key)
 {
 	if (key == "showCancel"sv)
 		return ! (GetTaskInfo(m_parms.type).flags & EXCLUSIVE);
-	if (key == "purgeActionVisible"sv)
-		return ! m_bHaveDeletionCandidates;
 	return tMarkupFileSend::CheckCondition(key);
 }
 

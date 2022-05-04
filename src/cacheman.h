@@ -138,18 +138,39 @@ public:
 
 private:
 
-	mstring m_curFileRel, m_curPrintSfx;
-
-	enum class eDlPrintHint
+	struct printcfg
 	{
-		BEGIN,
-		PRINTING,
-		COLLECTING
-	};
-	eDlPrintHint m_printState = eDlPrintHint::BEGIN;
+		mstring curFileRel, buf;
+
+		enum eState
+		{
+			BEGIN,
+			PRINTING,
+			COLLECTING
+		} state = eState::BEGIN;
+		enum ePrintFormat
+		{
+			DEV,
+			WEB,
+			//SIMPLEWEB,
+			CRONJOB,
+		} format = ePrintFormat::DEV;
+
+		eDlMsgSeverity sevCur = eDlMsgSeverity::UNKNOWN, sevMax = eDlMsgSeverity::NEVER;
+		unsigned fmtdepth = 0;
+	} m_print;
+
 	eDlMsgSeverity m_printSeverityMin = eDlMsgSeverity::INFO;
-	eDlMsgSeverity msgCurSev = eDlMsgSeverity::UNKNOWN;
-	void SendDecoratedLine(string_view msg, eDlMsgSeverity colorHint);
+
+	/**
+	 * @brief SendDecoratedLine
+	 * If in the middle of active line -> send msg inline, otherwise: create a new single line
+	 * @param msg
+	 * @param colorHint
+	 */
+	void SendDecoratedComment(string_view msg, eDlMsgSeverity colorHint);
+
+	void CloseLine();
 
 	SUTPROTECTED:
 
@@ -161,7 +182,7 @@ private:
 	 * @param opMode Start with collecting mode, regardless of severity conditions
 	 * @
 	 */
-	void ReportBegin(string_view what, eDlMsgSeverity sev, bool bForceCollecting = false); //eMsgOpMode opMode = eMsgOpMode::DEFAULT_VOLATILE);
+	void ReportBegin(string_view what, eDlMsgSeverity sev, bool bForceCollecting, bool bIgnoreErrors);
 	void ReportCont(string_view msg, eDlMsgSeverity sev = eDlMsgSeverity::UNKNOWN);
 
 #define DL_HINT_TAG_AS_NEEDED 0x2
@@ -175,8 +196,10 @@ private:
 	{
 		if (!prioInverted ? sev < m_printSeverityMin : sev >= m_printSeverityMin)
 			return;
-		SendDecoratedLine(msg, sev);
+		SendDecoratedComment(msg, sev);
 	}
+
+	virtual int CheckCondition(string_view key) override;
 
 	/**
 	 * @brief ReportData Special variant for data processing, a crossover of above and doing flashy printing
@@ -204,9 +227,9 @@ private:
 	// this is not unordered because sometimes we make use of iterator references while
 	// doing modification of the map
 	tMetaMap m_metaFilesRel;
-	tIfileAttribs &SetFlags(string_view sPathRel);
-	// special variant for temporary stuff - caller can check in the .second flag whether the value was created here
-	std::pair<tMetaMap::iterator, bool> SetNewFlags(cmstring &sPathRel);
+	tIfileAttribs& SetFlags(string_view sPathRel);
+	// slightly more versatile version
+	tMetaMap::iterator SetFlags(string_view sPathRel, bool& reportCreated);
 	bool UpdateVolatileFiles();
 	void _BusyDisplayLogs();
 	void _Usermsg(mstring m);
@@ -282,13 +305,13 @@ private:
 	void PrintStats(cmstring &title);
 
 	void ProgTell();
-	void AddDelCbox(string_view sFileRel, cmstring& reason, bool bExtraFile = false);
+	void ReportAdminAction(string_view sFileRel, string_view reason, bool bExtraFile = false, eDlMsgSeverity reportLevel = eDlMsgSeverity::ERROR);
 
 	// add certain files to the trash list, to be removed after the activity is done in case of the expiration task
 	virtual void MarkObsolete(cmstring&) {};
 
-	// for compressed map of special stuff
-	mstring AddLookupGetKey(string_view sFilePathRel, string_view errorReason);
+	void PrintAdminFileActions() override;
+	void PrintSingleAdminAction(int id, eDlMsgSeverity reportLevel);
 
 	SUTPRIVATE:
 

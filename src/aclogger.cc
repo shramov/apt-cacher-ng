@@ -38,7 +38,7 @@ ACNG_API bool logIsEnabled = true;
 
 #define MAX_DBG_LIMIT 300*1000000
 
-off_t totalIn(0), totalOut(0);
+off_t totalIn(0), totalOut(0), dbgWriteCount(0);
 
 std::pair<off_t,off_t> GetCurrentCountersInOut()
 {
@@ -253,13 +253,15 @@ void dbg_io(const char *msg, size_t len)
 	if (!logIsEnabled)
 		return;
 
+	dbgWriteCount += len;
+
 	static char buf[32];
 
 	if (fDbg.is_open() && (cfg::debug & LOG_DEBUG))
 	{
-		auto tm=time(nullptr);
+		auto tm = time(nullptr);
 		ctime_r(&tm, buf);
-		buf[24]='|';
+		buf[24] = '|';
 		fDbg.write(buf, 25).write(msg, len);
 		if (cfg::debug & LOG_FLUSH)
 			fDbg << endl; // this auto-flushes
@@ -274,6 +276,14 @@ void dbg_io(const char *msg, size_t len)
 		else
 			cerr.write(msg, len) << szNEWLINE;
 	}
+
+#ifdef DEBUG
+	if (AC_UNLIKELY(dbgWriteCount > MAX_DBG_LIMIT))
+	{
+		dbgWriteCount = 0;
+		flush();
+	}
+#endif
 }
 mutex dbglogmx;
 void dbg(const char *msg, size_t len)
