@@ -18,7 +18,7 @@ public:
 /**
  * @brief Visitor object, holding state of the debug printing
  */
-class Dumper
+class Dumper : public tUseChecker
 {
 	unsigned iLevel = 0;
 public:

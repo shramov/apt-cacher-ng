@@ -162,14 +162,6 @@ private:
 
 	eDlMsgSeverity m_printSeverityMin = eDlMsgSeverity::INFO;
 
-	/**
-	 * @brief SendDecoratedLine
-	 * If in the middle of active line -> send msg inline, otherwise: create a new single line
-	 * @param msg
-	 * @param colorHint
-	 */
-	void SendDecoratedComment(string_view msg, eDlMsgSeverity colorHint);
-
 	void CloseLine();
 
 	SUTPROTECTED:
@@ -185,11 +177,11 @@ private:
 	void ReportBegin(string_view what, eDlMsgSeverity sev, bool bForceCollecting, bool bIgnoreErrors);
 	void ReportCont(string_view msg, eDlMsgSeverity sev = eDlMsgSeverity::UNKNOWN);
 
-#define DL_HINT_TAG_AS_NEEDED 0x2
-#define DL_HINT_TAG_ALWAYS 0x4
-#define DL_HINT_TAG_IS_NOT_ERROR 0x8
+#define REP_HINT_TAG_AS_NEEDED 0x2
+#define REP_HINT_TAG_ALWAYS 0x4
+#define REP_HINT_TAG_IS_NOT_ERROR 0x8
 
-	void ReportEnd(string_view msg, eDlMsgSeverity sev = eDlMsgSeverity::UNKNOWN, unsigned hints = DL_HINT_TAG_AS_NEEDED);
+	void ReportEnd(string_view msg, eDlMsgSeverity sev = eDlMsgSeverity::UNKNOWN, unsigned hints = REP_HINT_TAG_AS_NEEDED);
 
 	// print a single message line immediately, meaning can be inverted (i.e. print ONLY below threshold)
 	void ReportMisc(string_view msg, eDlMsgSeverity sev = eDlMsgSeverity::VERBOSE, bool prioInverted = false)
@@ -198,6 +190,21 @@ private:
 			return;
 		SendDecoratedComment(msg, sev);
 	}
+
+	void ReportSectionLabel(string_view label)
+	{
+		SendDecoratedComment(label, eDlMsgSeverity::INFO, 3);
+	}
+
+	/**
+	 * @brief SendDecoratedComment
+	 * If in the middle of active line -> send msg inline, otherwise: create a new single line
+	 * @param msg
+	 * @param colorHint
+	 * @param heading If set to non-zero, print the msg as section heading line
+	 */
+	void SendDecoratedComment(string_view msg, eDlMsgSeverity colorHint, unsigned heading = 0);
+
 
 	virtual int CheckCondition(string_view key) override;
 

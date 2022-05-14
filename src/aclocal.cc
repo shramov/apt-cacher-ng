@@ -85,6 +85,7 @@ void aclocal::Run()
 		if (!endsWithSzAr(m_extraParms.visPath, SZPATHSEPUNIX))
 		{
 			item().ManualStart(301, "Moved Permanently", "text/html", m_extraParms.visPath + "/", g_msgFmtBuf.size());
+#warning add UT for folder redirection
 			SendFmt << "<!DOCTYPE html>\n<html lang=\"en\"><head><title>301 Moved Permanently</title></head><body><h1>Moved Temporarily</h1>"
 				 "<p>The document has moved <a href=\""sv << UrlEscape(m_extraParms.visPath) << "/\">here</a>.</p></body></html>"sv;
 			return;

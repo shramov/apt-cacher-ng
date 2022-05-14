@@ -9,7 +9,9 @@
 #include <cstdlib>
 #include <cstring>
 
+#ifdef DEBUG
 #include <assert.h>
+#endif
 
 #include <event2/buffer.h>
 #include <event2/bufferevent.h>
@@ -183,15 +185,30 @@ protected:
 	inline tSS & appDosNL() { return add("\r\n", 2);}
 };
 
-// helper construct for tFmtSendTempRaii
-struct tTempTssHolder : public tSS
+struct tUseChecker
 {
-	void AfterTempFmt() { clear(); }
-	tSS& GetTempFmt() { return *this; }
+#ifdef DEBUG
+	bool m_bLocked = false;
+	void DbgLock() { assert(!m_bLocked); m_bLocked = true; }
+	void DbgRelease() { m_bLocked = false;  }
+#endif
+};
+
+// helper construct for tFmtSendTempRaii
+struct tTempTssHolder : public tSS, public tUseChecker
+{
+	void AfterTempFmt()
+	{
+		clear();
+	}
+	tSS& GetTempFmt()
+	{
+		return *this;
+	}
 };
 
 template<class Tbuf>
-struct tTempExternalHolder
+struct tTempExternalHolder : public tUseChecker
 {
 	Tbuf& __extern;
 	tTempExternalHolder(Tbuf& r) : __extern(r) {};
@@ -208,9 +225,17 @@ class tFmtSendTempRaii
 	Tparent &m_parent;
 public:
 	inline tFmtSendTempRaii(Tparent &p)
-	: m_parent(p) { }
+	: m_parent(p)
+	{
+#ifdef DEBUG
+		m_parent.DbgLock();
+#endif
+	}
 	inline ~tFmtSendTempRaii()
 	{
+#ifdef DEBUG
+		m_parent.DbgRelease();
+#endif
 		m_parent.AfterTempFmt();
 	}
 	inline Tfmter& GetFmter()

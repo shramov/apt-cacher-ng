@@ -225,10 +225,16 @@ cacheman::tMetaMap::iterator cacheman::SetFlags(string_view sPathRel, bool &repo
 
 thread_local string sendDecoBuf;
 
-void cacheman::SendDecoratedComment(string_view msg, eDlMsgSeverity colorHint)
+void cacheman::SendDecoratedComment(string_view msg, eDlMsgSeverity colorHint, unsigned heading)
 {
-	if (colorHint < m_printSeverityMin && m_print.state == printcfg::BEGIN)
+	if (colorHint < m_printSeverityMin)
 		return;
+
+	if (m_print.state > printcfg::BEGIN && heading)
+	{
+		// no sh...
+		CloseLine();
+	}
 
 	if (m_print.state > printcfg::BEGIN)
 	{
@@ -239,9 +245,27 @@ void cacheman::SendDecoratedComment(string_view msg, eDlMsgSeverity colorHint)
 	else
 	{
 		// then format and print here
-		auto typ = colorHint < eDlMsgSeverity::WARNING
-				? "<span>"sv : (colorHint >= eDlMsgSeverity::NONFATAL_ERROR ? ESPAN : WSPAN);
-		SendFmt << typ << msg << "</span><br>\n"sv;
+		string_view sstart = se, send = se;
+
+		if (m_print.format == acng::cacheman::printcfg::DEV ||
+				m_print.format == acng::cacheman::printcfg::WEB)
+		{
+			send = "</span><br>"sv;
+			if (heading)
+			{
+				// XXX: more variants for correct heading?
+				sstart = "<h3>"sv;
+				send = "</h3>"sv;
+			}
+			else if(colorHint < eDlMsgSeverity::WARNING)
+				sstart = "<span>"sv;
+			else if (colorHint >= eDlMsgSeverity::NONFATAL_ERROR)
+				sstart = ESPAN;
+			else
+				sstart = WSPAN;
+		}
+
+		SendFmt << sstart << msg << send << "\n";
 	}
 }
 
@@ -250,6 +274,7 @@ void cacheman::CloseLine()
 	if (m_print.state == printcfg::BEGIN)
 		return;
 
+	// never forget
 	m_print.state = printcfg::BEGIN;
 
 	switch(m_print.format)
@@ -379,31 +404,6 @@ void cacheman::ReportData(eDlMsgSeverity sev, string_view path, string_view reas
 #warning implement me
 }
 
-#if 0
-void cacheman::Rep(eDlPrintHint type, eDlMsgSeverity sev, string_view msg)
-{
-#define LBEGIN ""sv
-#define LEND "<br>\n"sv
-
-	if (m_printState == eDlPrintHint::INHIBITED && type != eDlPrintHint::BEGIN)
-		return;
-
-	if (m_printState > eDlPrintHint::BEGIN && type == eDlPrintHint::BEGIN)
-	{
-		Send(LEND);
-		m_printState = eDlPrintHint::BEGIN;
-	}
-	switch (type)
-	{
-	case eDlPrintHint::BEGIN:
-		m_curDlFileRel = msg;
-		m_printState = eDlPrintHint::STATUS;
-	break;
-	}
-}
-
-#endif
-
 // detects when an architecture has been removed entirely from the Debian archive
 bool cacheman::IsDeprecatedArchFile(cmstring &sFilePathRel)
 {
@@ -516,7 +516,7 @@ public:
 
 		aobservable::subscription observer;
 
-		void DLFIN(cacheman::eDlResult res, string_view result_msg)
+		void DLFIN(cacheman::eDlResult res, string_view result_msg, eDlMsgSeverity sev = eDlMsgSeverity::UNKNOWN, int hints = -1)
 		{
 			if (fiaccess)
 			{
@@ -530,7 +530,9 @@ public:
 			if (res == cacheman::eDlResult::OK && opts.bIsVolatileFile)
 				m_owner.m_owner.SetFlags(opts.sFilePathRel).uptodate = true;
 
-			m_owner.Finish(res, result_msg, this);
+			m_owner.Finish(res, result_msg, this, sev, hints >= 0
+						   ? (unsigned) hints
+						   : REP_HINT_TAG_IS_NOT_ERROR * opts.bIgnoreErrors);
 		}
 		cacheman::tDlOpts opts;
 
@@ -918,13 +920,13 @@ public:
 		ASSERT_IS_MAIN_THREAD;
 		erase_if(states, [&](const auto & el){ return el.get() == what; });
 	}
-	void Finish(cacheman::eDlResult res, string_view result_msg, TDownloadState* caller2destroy)
+	void Finish(cacheman::eDlResult res, string_view result_msg, TDownloadState* caller2destroy, eDlMsgSeverity sev, unsigned hints)
 	{
 		LOGSTARTFUNCx((int)res, result_msg, (uintptr_t)caller2destroy);
 		ASSERT_IS_MAIN_THREAD;
 
 #warning pass the checkbox control flags, if error
-		m_owner.ReportEnd(result_msg);
+		m_owner.ReportEnd(result_msg, sev, hints);
 
 		auto pin(shared_from_this());
 		try
@@ -944,7 +946,8 @@ public:
 		ASSERT_IS_MAIN_THREAD;
 		m_shutdownCanceler = evabase::GetGlobal().subscribe([&]()
 		{
-			Finish(cacheman::eDlResult::FAIL_LOCAL, "Abort on shutdown"sv, nullptr);
+			Finish(cacheman::eDlResult::FAIL_LOCAL, "Abort on shutdown"sv, nullptr,
+				   eDlMsgSeverity::ERROR, 0);
 		});
 	}
 };
@@ -1490,7 +1493,7 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 				MTLOGASSERT(false,"Final verification failed");
 				return PATCH_FAIL;
 			}
-			ReportMisc("<b>Patch result OKAY.</b>"sv, SEV_DBG);
+			ReportMisc("Patch result OKAY."sv, SEV_DBG);
 			return 0;
 		};
 		return PATCH_FAIL;
@@ -1578,7 +1581,7 @@ bool cacheman::UpdateVolatileFiles()
 	// just reget them as-is and we are done. Also include non-index files, to be sure...
 	if (m_bForceDownload)
 	{
-		Send("<b>Bringing index files up to date...</b><br>\n"sv);
+		ReportSectionLabel("Bringing index files up to date..."sv);
 		for (auto& f: m_metaFilesRel)
 		{
 			auto notIgnorable = ! GetFlags(f.first).forgiveDlErrors;
@@ -1648,7 +1651,7 @@ bool cacheman::UpdateVolatileFiles()
 	// this runs early with the state that is present on disk, before updating any file,
 	// since it deals with the "reality" in the cache
 
-	Send("<b>Checking by-hash stored files...</b><br>"sv);
+	ReportSectionLabel("Checking by-hash stored files..."sv);
 
 	/*
 	 * Update all Release files
@@ -1703,7 +1706,7 @@ bool cacheman::UpdateVolatileFiles()
 		}
 	}
 
-	Send("<b>Bringing index files up to date...</b><br>\n"sv);
+	ReportSectionLabel("Bringing index files up to date...");
 
 	if(!FixMissingOriginalsFromByHashVersions())
 	{
@@ -2444,14 +2447,12 @@ void cacheman::ReportAdminAction(string_view sFileRel, string_view reason, bool 
 	auto id = Add2KillBill(sFileRel, bAlsoHasNativeFile ?
 							   Concat(reason, " (incl. alternativ version)"sv) :
 							   reason);
-
-	tSelfClearingFmter x(g_fmtBuf);
-	//tSendFmtRaii x(*this);
-	x.GetFmter() << reason << "<label>(<input type=\"checkbox\" name=\"kf\" value=\""sv
+	tSS fmt;
+	fmt << reason << "<label>(<input type=\"checkbox\" name=\"kf\" value=\""sv
 			 << id <<"\">Tag";
 	if (bAlsoHasNativeFile)
-		x.GetFmter() << ", incl. alternativ version";
-	x.GetFmter() << ")</label>";
+		fmt << ", incl. alternativ version";
+	fmt << ")</label>";
 
 	ReportCont(g_fmtBuf, reportLevel);
 }

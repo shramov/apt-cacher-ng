@@ -108,7 +108,7 @@ std::pair<string_view, string_view> SplitDirPath(string_view in /*, eSlashMode s
 		return make_pair(in, ""sv);
 
 	auto dir = GetDirPart(in);
-	return std::pair<mstring,mstring>(dir, in.substr(dir.length()));
+	return make_pair(dir, in.substr(dir.length()));
 }
 
 #if 0 // XXX: implement, with a ring buffer? Worth it?

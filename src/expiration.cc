@@ -367,8 +367,8 @@ inline void expiration::RemoveAndStoreStatus(bool bPurgeNow)
 		if (desc.FORCE_KEEP == desc.action)
 			continue;
 
-		string sPathRel = assemblePath(el.second.folder, el.first);
-		LPCSTR sFnameTerminated = sPathRel.data() + el.second.folder.length();
+		string sPathRel = assemblePath(desc.folder, el.first);
+		LPCSTR sFnameTerminated = sPathRel.data() + desc.folder.length();
 
 		DBGQLOG("Checking " << sPathRel);
 		if (m_parms.res.GetMatchers().Match(sFnameTerminated, rex::FILE_WHITELIST)
@@ -403,18 +403,18 @@ inline void expiration::RemoveAndStoreStatus(bool bPurgeNow)
 		}
 		else if (f.is_open())
 		{
-			ReportMisc( tSS() << "Tagging " << sPathRel
+			ReportMisc( MsgFmt << "Tagging " << sPathRel
 			#ifdef DEBUG
 							<< " (t-" << (m_gMaintTimeNow - disapTime) / 3600 << "h)"
 			#endif
-							<< sBRLF );
+						);
 
 				nCount++;
 				tagSpace += desc.fpr.GetSize();
 				f << disapTime << "\t"sv << el.second.folder << "\t"sv << el.first << svLF;
 			}
 			else
-				ReportMisc( tSS() << "Keeping " << sPathRel, eDlMsgSeverity::VERBOSE);
+				ReportMisc( MsgFmt << "Keeping " << sPathRel, eDlMsgSeverity::VERBOSE);
 
 	}
     if(nCount)
@@ -467,8 +467,7 @@ void expiration::Action()
 
 	m_bIncompleteIsDamaged = StrHas(m_parms.cmd, "incomAsDamaged");
 	m_bScanVolatileContents = StrHas(m_parms.cmd, "scanVolatile");
-
-	Send("<b>Locating potentially expired files in the cache...</b><br>\n");
+	ReportSectionLabel("Locating potentially expired files in the cache..."sv);
 	BuildCacheFileList();
 	if(CheckStopSignal())
 		goto save_fail_count;
@@ -497,7 +496,7 @@ void expiration::Action()
 
 	m_damageList.open(SZABSPATH(FNAME_DAMAGED), ios::out | ios::trunc);
 
-	Send(WITHLEN("<b>Validating cache contents...</b><br>\n"));
+	ReportSectionLabel("Validating cache contents..."sv);
 
 	if(CheckAndReportError() || CheckStopSignal())
 		goto save_fail_count;
@@ -510,7 +509,7 @@ void expiration::Action()
 	if(CheckAndReportError() || CheckStopSignal())
 		goto save_fail_count;
 
-	Send(WITHLEN("<b>Reviewing candidates for removal...</b><br>\n"));
+	ReportSectionLabel("Reviewing candidates for removal...");
 	RemoveAndStoreStatus(StrHas(m_parms.cmd, "purgeNow"));
 	PurgeMaintLogsAndObsoleteFiles();
 
@@ -634,7 +633,7 @@ void expiration::TrimFiles()
 	if(m_oversizedFiles.empty())
 		return;
 	auto now=GetTime();
-	SendFmt << "<b>Trimming cache files (" << m_oversizedFiles.size() <<")</b>" << sBRLF;
+	ReportSectionLabel(MsgFmt << "Trimming cache files (" << m_oversizedFiles.size() <<")");
 	for(const auto& fil: m_oversizedFiles)
 	{
 		// still there and not changed?
@@ -850,7 +849,7 @@ bool expiration::ProcessRegular(const string & sPathAbs, const struct stat &stin
 		//attr.forgiveDlErrors = endsWith(sPathRel, sslIndex);
 	}
 
-	// ok, split to dir/file and add to the list, duplicate as needed
+	// ok, split to dir/file and add to the list, dup data here as needed (and not later)
 	string_view folder, file;
 	if (m_lastDirCache.empty())
 	{

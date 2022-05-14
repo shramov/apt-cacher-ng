@@ -64,9 +64,9 @@ public:
 
 };
 
-class ACNG_API mainthandler
+class ACNG_API mainthandler : public tUseChecker
 		#ifdef DEBUG
-		: public Dumpable
+		, public Dumpable
 		#endif
 {
 protected:
@@ -140,10 +140,18 @@ public:
 	// helper stuff to avoid allocations - use a shared buffer, scopped to thread, which is consumed immediately afterwards
 	using tSendFmtRaii = tFmtSendTempRaii<mainthandler, bSS>;
 #define SendFmt tSendFmtRaii(*this).GetFmter()
+	void AfterTempFmt()
+	{
+		Send(g_msgFmtBuf);
+		g_msgFmtBuf.clear();
+	}
+	bSS& GetTempFmt()
+	{
+		return g_msgFmtBuf;
+	}
+
+	// alternative for contiguous memory buffer used for callers of Report* methods
 	static thread_local bSS g_msgFmtBuf;
-	void AfterTempFmt() { Send(g_msgFmtBuf); g_msgFmtBuf.clear(); }
-	bSS& GetTempFmt() { return g_msgFmtBuf; }
-	// alternative for contiguous memory buffer
 #define MsgFmt tSelfClearingFmter(g_fmtBuf).GetFmter()
 };
 

@@ -75,7 +75,7 @@ protected:
 
 private:
 	int m_nPrevFailCount =0;
-	string_view m_lastDirCache;
+	string_view m_lastDirCache = "";
 
 	bool CheckAndReportError();
 

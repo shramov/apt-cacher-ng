@@ -45,6 +45,7 @@ a:hover { text-decoration: underline; }
 table.center {margin-left:auto; margin-right:auto;}
 h1 { font-size: large; }
 h2 { font-size: larger; }
+h3 { margin-top: 2px; margin-bottom: 2px; margin-left: 0px; }
 .rawstyle { font-size:small;font-weight:bold;white-space:nowrap; }
 
 .noborders {
