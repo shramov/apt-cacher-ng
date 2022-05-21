@@ -260,7 +260,9 @@ public:
 	}
 
 	/**
-	 * @brief PerformTypeChange handles special requests and might convert to another type of handling OR send a decissive response and terminate (client shall be redirected as needed)
+	 * @brief PerformTypeChange handles special requests,
+	 * which might either convert session to another type of handling
+	 * OR respond with a hint and terminate (client shall be redirected as needed)
 	 */
 	void PerformTypeChange()
 	{
@@ -420,7 +422,7 @@ public:
 						return requestShutdown();
 					}
 				};
-				bd.m_connBuilder = atransport::Create(move(url), move(act), m_res,
+				bd.m_connBuilder = atransport::Create(bd.url, move(act), m_res,
 												   atransport::TConnectParms()
 												   .SetDirectConnection(true)
 												   .SetNoTlsOnTarget(true));

@@ -428,6 +428,12 @@ TFinalAction atransport::Create(tHttpUrl url, const tCallBack &cback, acres& res
 	LOGSTARTFUNCxs(url.ToURI(false));
 	ASSERT(cback);
 
+	if (url.sHost.empty())
+	{
+		evabase::Post([cback]() {cback({eTransErrors::TRANS_INTERNAL_ERROR, "Internal DNS error"sv}); });
+		return TFinalAction();
+	}
+
 	if (!extHints.noCache
 			&& !extHints.noTlsOnTarget
 			&& !extHints.directConnection

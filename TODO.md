@@ -226,12 +226,18 @@ INVESTIGATE! Inf.loop in automated expiratin run.
 
 
 
+## New features
 
+### Feature: web sockets
 
+### Multiple: -C config folders
+Which of them should win? Maybe a guiding option in the beginning, or the priority spec. like -C2 ... vs. -C5.
 
-Review maint stream parser in acngtool
+### Add SSL protected access
 
-Hanging in shutdown, at:  0x00007f0385fce2ec in acng::tpoolImpl::stop (this=0x87edd0)
+### Logging in JSON?
+
+### Maybe use binary logging? journalctl?
 
 ## Debug logging
 
@@ -240,8 +246,6 @@ Hanging in shutdown, at:  0x00007f0385fce2ec in acng::tpoolImpl::stop (this=0x87
 Starting with jump hints in the beginning (line and byte position)
 
 ### Better state dumping also from maint jobs, including download activity
-
-### Maybe use binary logging? journalctl?
 
 ## Data management
 
@@ -305,8 +309,6 @@ Change expire-trade-off setting and make it adaptive, learning the cost of metda
 Alternative strategy: move the dead-proxy-detection into a shared class (reuse the existing shaper agent!). If proxy loss was detected somewhere, send a signal which makes all jobs be re-evaluated. And add a smaller version of the validation check into the request sending part (lighter than SetupSource).
 
 ### Move dnsbase into custom source, access through resources!
-
-### Add SSL protected access
 
 ### Implement https-Download over https-accessed proxy
 
