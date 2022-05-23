@@ -643,21 +643,20 @@ void expiration::TrimFiles()
 		if (now - 86400 < stinfo.msec())
 			continue;
 
-		// this is just probing, make sure not to interact with DL
-#warning implement with other means
-		/*
-		 * auto user = GetDlRes().GetItemRegistry()->Create(fil, ESharingHow::ALWAYS_TRY_SHARING, fileitem::tSpecialPurposeAttr());
-		if ( ! user.get())
-			continue;
-		auto pFi = user.get();
-		if (pFi->GetStatus() >= fileitem::FIST_DLGOTHEAD)
-			continue;
-		if (0 != truncate(fil.c_str(), stinfo.st_size)) // CHECKED!
+		evabase::GetGlobal().SyncRunOnMainThread([&]()
 		{
-			SendFmt << "Error at " << fil << " (" << tErrnoFmter() << ")"
-					<< sBRLF;
-		}
-	*/
+			auto hodler = m_parms.res.GetItemRegistry()->Create(fil, ESharingHow::ALWAYS_TRY_SHARING, fileitem::tSpecialPurposeAttr());
+			if ( ! hodler.get())
+				return false;
+			auto pFi = hodler.get();
+			if (pFi->GetStatus() >= fileitem::FIST_DLGOTHEAD)
+				return false;
+			if (0 != truncate(fil.c_str(), stinfo.size())) // CHECKED!
+			{
+				ReportMisc(MsgFmt << "Trim error at " << fil << " (" << tErrnoFmter() << ")", eDlMsgSeverity::WARNING);
+			}
+			return true;
+		});
 	}
 }
 

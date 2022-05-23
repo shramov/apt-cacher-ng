@@ -256,8 +256,8 @@ using tSplitByStrStrict = tSplitWalkBase<true, true>;
 
 inline void Append(std::string& buf, string_view a, string_view b, string_view c = string_view())
 {
-	buf.reserve(a.size() + b.size() + c.size());
-	buf.assign(a);
+	buf.reserve(buf.size() + a.size() + b.size() + c.size());
+	buf += a;
 	buf += b;
 	buf += c;
 }

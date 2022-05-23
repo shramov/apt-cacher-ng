@@ -51,7 +51,7 @@ EWorkType DetectWorkType(const tHttpUrl& reqUrl, const char* auth, bool preAuthe
 	{
 		LOG("cmd: " << reqUrl.ToURI(false));
 
-		if (reqUrl.sHost == "style.css")
+		if (reqUrl.sHost == cssString)
 			return EWorkType::STYLESHEET;
 
 		if (reqUrl.sHost == "favicon.ico")
@@ -364,7 +364,7 @@ tFileItemPtr CreateSpecialWork(EWorkType jobType, bufferevent *bev, const tHttpU
 			return tFileItemPtr(new errorItem("Bad Type"));
 
 		if (jobType == EWorkType::STYLESHEET)
-			return tFileItemPtr(new TResFileItem("style.css", "text/css"));
+			return tFileItemPtr(new TResFileItem(cssString, "text/css"));
 
 		if (jobType == EWorkType::FAVICON)
 			return tFileItemPtr(new TResFileItem("favicon.ico", "image/x-icon"));

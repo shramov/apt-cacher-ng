@@ -811,12 +811,14 @@ size_t strlcpy(char *tgt, const char *src, size_t tgtSize)
 
 cmstring GetFooter()
 {
-		return Concat("<hr><address>Server: "sv, cfg::agentname, "&nbsp;&nbsp;"sv
-				"|&nbsp;&nbsp;<a\nhref=\"/\">Usage Information</a>&nbsp;&nbsp;"sv
-				"|&nbsp;&nbsp;<a\nhref=\""sv, cfg::reportpage, "\">Control Page</a>&nbsp;&nbsp;"sv
-				"|&nbsp;&nbsp;<a\nhref=\"https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=QDCK9C2ZGUKZY&source=url\">Donate!"sv
+		auto ret = Concat("<hr><address>Server: "sv, cfg::agentname, "&nbsp;&nbsp;"sv
+				"|&nbsp;&nbsp;<a href=\"/\">Usage Information</a>&nbsp;&nbsp;"sv);
+		if (!cfg::reportpage.empty())
+			Append(ret, "|&nbsp;&nbsp;<a href=\""sv, cfg::reportpage, "\">Control Page</a>&nbsp;&nbsp;"sv);
+		ret += "|&nbsp;&nbsp;<a href=\"https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=QDCK9C2ZGUKZY&source=url\">Donate!"sv
 				"</a>&nbsp;&nbsp;"sv
-				"|&nbsp;&nbsp;<a\nhref=\"http://www.unix-ag.uni-kl.de/~bloch/acng/\">Apt-Cacher NG homepage</a></address>"sv);
+				"|&nbsp;&nbsp;<a href=\"http://www.unix-ag.uni-kl.de/~bloch/acng/\">Apt-Cacher NG homepage</a></address>"sv;
+		return ret;
 }
 
 std::string to_base36(unsigned int val)
