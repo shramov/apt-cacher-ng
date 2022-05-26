@@ -129,7 +129,6 @@ MapNameToInt n2iTbl[] = {
 { "EvDnsOpts", &dnsopts, nullptr , 10, false},
 { "ExAbortOnProblems", &exfailabort, nullptr, 10, false},
 { "ExposeOrigin", &exporigin, nullptr, 10, false},
-{ "ExSuppressAdminNotification", &exsupcount, nullptr, 10, false},
 { "ExThreshold", &extreshhold, nullptr, 10, false},
 { "ExTreshold", &extreshhold, nullptr, 10, true}, // wrong spelling :-(
 { "FastTimeout", &fasttimeout, nullptr, 10, false},
@@ -772,9 +771,6 @@ void PostProcConfig()
 
    if(RESERVED_DEFVAL == forwardsoap)
 	   forwardsoap = !forcemanaged;
-
-   if(RESERVED_DEFVAL == exsupcount)
-	   exsupcount = (extreshhold >= 5);
 
    tmpDontcache.clear();
    tmpDontcacheTgt.clear();

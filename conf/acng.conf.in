@@ -173,15 +173,6 @@ FollowIndexFileRemoval: 1
 #
 # ExAbortOnProblems: 1
 
-# Number of failed nightly expiration runs which are considered acceptable and
-# do not trigger an error notification to the admin (e.g. via daily cron job)
-# before the (day) count is reached. Might be useful with whacky internet
-# connections.
-#
-# Default: a guessed value, 1 if ExThreshold is 5 or more, 0 otherwise.
-#
-# ExSuppressAdminNotification: 1
-
 # Modify file names to work around limitations of some file systems.
 # WARNING: experimental feature, subject to change
 #

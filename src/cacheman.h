@@ -43,7 +43,7 @@ enum class eDlMsgSeverity
 	XDEBUG,	 // extra level for debugging
 	VERBOSE, // only shown when verbosity wanted
 	POTENTIAL_ERROR, // shown as error but only when debugging with verbosity
-	INFO, // default level -> hide message in quiet mode
+	INFO, // default level for the threshold if not quiet
 	WARNING,
 	NONFATAL_ERROR, // shown as error but shall not abort processing at state check
 	ERROR, // count and print as error
@@ -316,9 +316,6 @@ private:
 
 	// add certain files to the trash list, to be removed after the activity is done in case of the expiration task
 	virtual void MarkObsolete(cmstring&) {};
-
-	void PrintAdminFileActions() override;
-	void PrintSingleAdminAction(int id, eDlMsgSeverity reportLevel);
 
 	SUTPRIVATE:
 

@@ -2457,11 +2457,6 @@ void cacheman::ReportAdminAction(string_view sFileRel, string_view reason, bool 
 	ReportCont(g_fmtBuf, reportLevel);
 }
 
-void cacheman::PrintAdminFileActions()
-{
-	SendFmt << "FIXME: print checkboxes for " << m_adminActionList.size() << " entries";
-}
-
 void cacheman::TellCount(unsigned nCount, off_t nSize)
 {
 	SendFmt << sBRLF << offttosH(m_nSpaceReleased) << " freed. " <<sBRLF;

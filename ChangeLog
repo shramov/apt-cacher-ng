@@ -24,17 +24,21 @@ apt-cacher-ng (3.99-pre-alpha-0) 4-ELIZA; urgency=low
        tool
      The creation of those sockets is controlled by setting the SocketPath
      (legacy) option resp. the new AdminSocket option.
-   * Dropped the exotic KeepExtraVersions feature (which forced uncovered package
-     versions to stay in cache for some auto-deducted period). It always has been troublesome and it's
-     implementation error-prone. As replacement, there is the new option
-     "Attic" which (if set) moves expired files to a user-specified folder
-     instead of removing them (FIXME: Implement Attic, drop KeepExtraVersions)
-   * Automated remote mirroring functionality disabled (was probably not
-		 working anyway, might be eventually dropped unless someone reports actual
-		 need to the author, and brings formal requirements)
+   * Dropped exotic features which could potentially be restored if there is
+     enough demand and collaboration on proper requirement analysis:
+     - KeepExtraVersions, which forced uncovered
+       package versions to stay in cache for some auto-deducted period). It
+       always has been troublesome and it's implementation error-prone. As
+       replacement, there is the new option "Attic" which (if set) moves
+       expired files to a user-specified folder instead of removing them
+(FIXME: Implement Attic, drop KeepExtraVersions)
+     - Automated remote mirroring functionality disabled (was probably not
+       working anyway, might be eventually dropped unless someone reports actual
+       need to the author, and brings formal requirements)
+     - ExSuppressAdminNotification (don't bother admin option)
 
-  [ NEW FEATURES AND IMPROVEMENTS ] (FIXME: WIP)
-
+  [ NEW FEATURES AND IMPROVEMENTS ]
+(FIXME: WIP)
    * HTTPS connections behind a HTTPS proxy possible
    * Storing maintenance processing (HTML) logs in internal cache, not in
      logdir anymore. This allows for password protected access and precise
@@ -66,6 +70,7 @@ apt-cacher-ng (3.99-pre-alpha-0) 4-ELIZA; urgency=low
       consumption and processing time in average cases
 
   [ MISCELLANEOUS BUGFIXES]
+
     + Data accounting for HTTPS pass-through connections
     + more correct replies in CONNECT requests
     + fixes potential ignorance of "uncached" definitions' request patterns

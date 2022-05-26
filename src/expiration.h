@@ -74,7 +74,6 @@ protected:
 	void LoadHints();
 
 private:
-	int m_nPrevFailCount =0;
 	string_view m_lastDirCache = "";
 
 	bool CheckAndReportError();
@@ -89,6 +88,8 @@ public:
 	bool ProcessOthers(const std::string &sPath, const struct stat &) override;
 	bool ProcessDirBefore(const std::string &sPath, const struct stat &) override;
 	bool ProcessDirAfter(const std::string &sPath, const struct stat &) override;
+
+
 };
 
 }

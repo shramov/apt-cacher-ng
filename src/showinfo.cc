@@ -474,6 +474,10 @@ void tMarkupFileSend::SendProp(cmstring &key)
 	{
 		SendFmt << GetTaskInfo(m_parms.type).typeName;
 	}
+	else if (key == "cachekey")
+	{
+		Send(GetCacheKey().view());
+	}
 }
 
 tMarkupFileSend::tMarkupInput::tMarkupInput(cmstring &fname, bool alreadyError)

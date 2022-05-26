@@ -48,20 +48,6 @@ unsigned tExclusiveUserAction::Add2KillBill(string_view sPathRel, string_view re
 	return m_adminActionList.size()/2 - 1;
 }
 
-void tExclusiveUserAction::SendProp(cmstring &key)
-{
-	if (key == "purgeactionmeta")
-	{
-		if (!m_adminActionList.empty())
-		{
-			SendFmt << "<input type=\"hidden\" name=\"kbid\"\nvalue=\""sv << GetCacheKey() << "\">"sv;
-			PrintAdminFileActions();
-		}
-	}
-	else
-		return tMaintJobBase::SendProp(key);
-}
-
 YesNoErr DeleteHelper::DeleteAndAccount(cmstring &path, bool deleteOrTruncate, Cstat* sb)
 {
 	Cstat localSB;

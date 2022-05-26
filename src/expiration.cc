@@ -31,10 +31,8 @@ using namespace std;
 
 #define FNAME_PENDING "_expending_dat"
 #define FNAME_DAMAGED "_expending_damaged"
-#define sFAIL_INI SABSPATH("_exfail_cnt")
-#define FAIL_INI sFAIL_INI.c_str()
 
-#define OLD_DAYS 10
+#define INTERNAL_DATA_EXP_DAYS 10
 
 namespace acng
 {
@@ -297,7 +295,7 @@ void expiration::ReportExtraEntry(cmstring& sPathAbs, const tFingerprint& fpr)
 
 expiration::expiration(tRunParms &&parms) :
 	cacheman(move(parms)),
-	m_oldDate(GetTime() - OLD_DAYS * 86400)
+	m_oldDate(GetTime() - INTERNAL_DATA_EXP_DAYS * 86400)
 {
 }
 
@@ -470,8 +468,9 @@ void expiration::Action()
 	ReportSectionLabel("Locating potentially expired files in the cache..."sv);
 	BuildCacheFileList();
 	if(CheckStopSignal())
-		goto save_fail_count;
-	SendFmt<<"Found "<<m_nProgIdx<<" files.<br />\n";
+		return;
+
+	ReportMisc(MsgFmt << "Found " << m_nProgIdx << " files.", eDlMsgSeverity::INFO);
 
 #if 0 //def DEBUG
 	for(auto& i: m_trashFile2dir2Info)
@@ -491,15 +490,15 @@ void expiration::Action()
 
 	UpdateVolatileFiles();
 
-	if(/* CheckAndReportError() || */ CheckStopSignal())
-		goto save_fail_count;
+	if(CheckStopSignal())
+		return;
 
 	m_damageList.open(SZABSPATH(FNAME_DAMAGED), ios::out | ios::trunc);
 
 	ReportSectionLabel("Validating cache contents..."sv);
 
 	if(CheckAndReportError() || CheckStopSignal())
-		goto save_fail_count;
+		return;
 
 	ProcessSeenIndexFiles([this](const tRemoteFileInfo &e)
 	{
@@ -507,7 +506,7 @@ void expiration::Action()
 	});
 
 	if(CheckAndReportError() || CheckStopSignal())
-		goto save_fail_count;
+		return;
 
 	ReportSectionLabel("Reviewing candidates for removal...");
 	RemoveAndStoreStatus(StrHas(m_parms.cmd, "purgeNow"));
@@ -526,37 +525,6 @@ void expiration::Action()
 		lastCurrentDlCount = newLastIncommingOffset;
 		log::ResetOldCounters();
 	}
-
-	save_fail_count:
-
-	if (m_nErrorCount <= 0)
-	{
-		::unlink(FAIL_INI);
-	}
-	else
-	{
-		FILE *f = fopen(FAIL_INI, "a");
-		if (!f)
-		{
-			SendFmt << "Unable to open " <<
-			sFAIL_INI << " for writing, attempting to recreate... ";
-			::unlink(FAIL_INI);
-			f = ::fopen(FAIL_INI, "w");
-			if (f)
-				Send(WITHLEN("OK\n<br>\n"));
-			else
-			{
-				Send(WITHLEN("<span class=\"ERROR\">FAILED. ABORTING. "
-						"Check filesystem and file permissions.</span>"));
-			}
-		}
-		if (f)
-		{
-			::fprintf(f, "%lu\n", (long unsigned int) GetTime());
-			checkForceFclose(f);
-		}
-	}
-
 }
 
 void expiration::ListExpiredFiles(bool bPurgeNow)
@@ -897,10 +865,6 @@ void expiration::LoadHints()
 		PickOrAdd(sTmp).first.action = tDiskFileInfo::FAKE;
 	}
 	reader.Close();
-
-	reader.OpenFile(sFAIL_INI);
-	while(reader.GetOneLine(sTmp))
-		m_nPrevFailCount += (atoofft(sTmp) > 0);
 }
 
 #warning ancient code. Redo, much simplier file dumping format needed, and apply that AFTER processing
@@ -959,8 +923,8 @@ inline bool expiration::CheckAndReportError()
 	if (m_nErrorCount > 0 && m_bErrAbort)
 	{
 		SendFmt << sAbortMsg;
-		if(m_nPrevFailCount+(m_nErrorCount>0) > cfg::exsupcount)
-			SendFmt << "\n<!--\n" maark << int(ControLineType::Error) << "Errors found, aborting expiration...\n-->\n";
+//		if(m_nPrevFailCount + (m_nErrorCount>0) > cfg::exsupcount)
+		SendFmt << "\n<!--\n" maark << int(ControLineType::Error) << "Errors found, aborting expiration...\n-->\n";
 		return true;
 	}
 	return false;
