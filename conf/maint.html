@@ -85,7 +85,7 @@ function  appendData()
 				   <td class="thetitle"><h1>Apt-Cacher NG maintenance tasks on ${hostname}</h1></td>
 			   </tr>
 			   <tr>
-				   <td>
+				   <td style="width:100%">
 					   <div style="text-align:left;font-size:small;">
 						   <div class="visarea maxwid" style="text-align:left" id="logArea">
 							   Currently running <b>${taskTitle}</b>, started at ${startTime}<div style="display:${:/showCancel/inline/none};white-space:nowrap;" id="cancelLink"> (<a href="javascript:doCancel()">CANCEL THIS</a>)</div><br>
@@ -97,6 +97,7 @@ function  appendData()
 			   </tr>
 			   <tr class="visarea maxwid" style="display:${:/purgeActionVisible/block/none}">
 				   <td style="width:100%">
+                   ${itemactionselection}
 					   <div class="visarea maxwid" style="white-space:nowrap;height:100%;width:100%">${purgeactionmeta}
 						   <b>Action(s):</b><br>
 						   <input type="submit" name="doDelete" value="Delete selected files" class="btnmargin">

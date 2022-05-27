@@ -38,10 +38,10 @@ tExclusiveUserAction::~tExclusiveUserAction()
 	}
 }
 
-unsigned tExclusiveUserAction::Add2KillBill(string_view sPathRel, string_view reason)
+int tExclusiveUserAction::Add2KillBill(string_view sPathRel, string_view reason)
 {
 	if (AC_UNLIKELY(sPathRel.find('\n')))
-		return 0;
+		return -1;
 
 	m_adminActionList.emplace_back(m_stringStore.Add(sPathRel), m_stringStore.Add(reason));
 

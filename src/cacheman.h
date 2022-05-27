@@ -156,8 +156,10 @@ private:
 			CRONJOB,
 		} format = ePrintFormat::DEV;
 
-		eDlMsgSeverity sevCur = eDlMsgSeverity::UNKNOWN, sevMax = eDlMsgSeverity::NEVER;
+		eDlMsgSeverity sevCur = eDlMsgSeverity::UNKNOWN, sevLimit = eDlMsgSeverity::NEVER;
 		unsigned fmtdepth = 0;
+		mstring m_sErrorMsg;
+
 	} m_print;
 
 	eDlMsgSeverity m_printSeverityMin = eDlMsgSeverity::INFO;
@@ -204,9 +206,6 @@ private:
 	 * @param heading If set to non-zero, print the msg as section heading line
 	 */
 	void SendDecoratedComment(string_view msg, eDlMsgSeverity colorHint, unsigned heading = 0);
-
-
-	virtual int CheckCondition(string_view key) override;
 
 	/**
 	 * @brief ReportData Special variant for data processing, a crossover of above and doing flashy printing
@@ -312,7 +311,7 @@ private:
 	void PrintStats(cmstring &title);
 
 	void ProgTell();
-	void ReportAdminAction(string_view sFileRel, string_view reason, bool bExtraFile = false, eDlMsgSeverity reportLevel = eDlMsgSeverity::ERROR);
+	void AddAdminAction(string_view sFileRel, string_view reason, bool bExtraFile = false, eDlMsgSeverity reportLevel = eDlMsgSeverity::ERROR);
 
 	// add certain files to the trash list, to be removed after the activity is done in case of the expiration task
 	virtual void MarkObsolete(cmstring&) {};

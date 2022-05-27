@@ -275,12 +275,28 @@ void cacheman::CloseLine()
 		return;
 
 	// never forget
-	m_print.state = printcfg::BEGIN;
+	TFinalAction clear([&](){
+		m_print.state = printcfg::BEGIN;
+		m_print.m_sErrorMsg.clear();
+	});
+
+	int cbId = -1;
+
+	if (m_print.sevCur >= eDlMsgSeverity::NONFATAL_ERROR)
+	{
+		cbId = Add2KillBill(m_print.curFileRel, m_print.m_sErrorMsg);
+	}
 
 	switch(m_print.format)
 	{
 	case acng::cacheman::printcfg::DEV:
 	case acng::cacheman::printcfg::WEB:
+		if (cbId >= 0)
+		{
+			thread_local static tSS fmt;
+			Send(fmt.clean() << "<label>(<input type=\"checkbox\" name=\"kf\" value=\""sv
+				 << cbId <<"\">Handle below)</label>");
+		}
 		switch(m_print.fmtdepth)
 		{
 // try using predefined instead of extra format code
@@ -317,10 +333,10 @@ void cacheman::ReportBegin(string_view what, eDlMsgSeverity sev, bool bForceColl
 	}
 
 	if (bIgnoreErrors)
-		m_print.sevMax = m_printSeverityMin;
+		m_print.sevLimit = m_printSeverityMin;
 
-	if (sev > m_print.sevMax)
-		sev = m_print.sevMax;
+	if (sev > m_print.sevLimit)
+		sev = m_print.sevLimit;
 
 	m_print.sevCur = sev;
 
@@ -328,8 +344,7 @@ void cacheman::ReportBegin(string_view what, eDlMsgSeverity sev, bool bForceColl
 	if (sev < m_printSeverityMin || bForceCollecting)
 	{
 		m_print.state = m_print.COLLECTING;
-		m_print.buf = what;
-		m_print.buf += ": "sv;
+		Append(m_print.buf, what, ": "sv);
 #warning implement format as needed
 	}
 	else
@@ -337,29 +352,28 @@ void cacheman::ReportBegin(string_view what, eDlMsgSeverity sev, bool bForceColl
 		m_print.state = m_print.PRINTING;
 		SendFmt << what << ": "sv;
 	}
-//	SendFmt << "TODO: ReportBegin, type=" << (int) sev << ", force="<<bForceCollecting <<", what=" << what << "End-Reportbegin\n";
-//#warning implement me
 }
 
 void cacheman::ReportCont(string_view msg, eDlMsgSeverity sev)
 {
-//	SendFmt << "TODO: ReportCont, type=" << (int) sev << ", msg=" << msg << "~ReportCont~";
-//#warning implement me
-
-	if (sev > m_print.sevMax)
-		sev = m_print.sevMax;
+	if (sev > m_print.sevLimit)
+		sev = m_print.sevLimit;
 
 	if (AC_UNLIKELY(m_print.state == m_print.BEGIN))
 	{
 		ReportBegin("<UNKNOWN>"sv, sev, false, false);
 	}
 
-	if (sev > m_print.sevMax)
-		sev = m_print.sevMax;
+	sev = min(sev, m_print.sevLimit);
 
 	if (sev > m_print.sevCur)
 	{
 		m_print.sevCur = sev;
+	}
+
+	if (sev >= eDlMsgSeverity::NONFATAL_ERROR && m_print.m_sErrorMsg.empty())
+	{
+		m_print.m_sErrorMsg = msg;
 	}
 
 	// time to switch?
@@ -391,13 +405,6 @@ void cacheman::ReportEnd(string_view msg, eDlMsgSeverity sev, unsigned hints)
 	CloseLine();
 }
 
-int cacheman::CheckCondition(string_view key)
-{
-	if (key == "purgeActionVisible"sv)
-		return 0 + m_adminActionList.empty();
-	return tExclusiveUserAction::CheckCondition(key);
-}
-
 void cacheman::ReportData(eDlMsgSeverity sev, string_view path, string_view reason)
 {
 	SendFmt << "TODO: ReportData, type=" << (int) sev << ", reason="<< reason << ", path=" << path << "End-Reportdata<br>\n";
@@ -426,8 +433,7 @@ bool cacheman::IsDeprecatedArchFile(cmstring &sFilePathRel)
 	if ( (s = sFilePathRel.substr(0, pos) + relKey,
 			GetFlags(s).uptodate && reader.OpenFile(SABSPATH(s)))
 			||
-			(s=sFilePathRel.substr(0, pos) + inRelKey, GetFlags(s).uptodate && reader.OpenFile(SABSPATH(s))
-		)
+			(s=sFilePathRel.substr(0, pos) + inRelKey, GetFlags(s).uptodate && reader.OpenFile(SABSPATH(s)))
 	)
 	{
 		pos = sFilePathRel.find("/binary-", pos);
@@ -2435,15 +2441,16 @@ void cacheman::ProcessSeenIndexFiles(std::function<void(tRemoteFileInfo)> pkgHan
 		if(!GetFlags(path2att->first).forgiveDlErrors)
 		{
 			m_nErrorCount++;
-			Send("<span class=\"ERROR\">An error occurred while reading this file, some contents may have been ignored.</span>\n");
-			ReportAdminAction(path2att->first, "Index data processing error");
-			Send(sBRLF);
+			ReportBegin(path2att->first, eDlMsgSeverity::VERBOSE, false, false);
+			ReportCont("An error occurred while reading this file, some contents may have been ignored.", eDlMsgSeverity::ERROR);
 		}
 	}
 }
 
-void cacheman::ReportAdminAction(string_view sFileRel, string_view reason, bool bAlsoHasNativeFile, eDlMsgSeverity reportLevel)
+void cacheman::AddAdminAction(string_view sFileRel, string_view reason, bool bAlsoHasNativeFile, eDlMsgSeverity reportLevel)
 {
+	ASSERT(!"Dead Code");
+#if 0
 	auto id = Add2KillBill(sFileRel, bAlsoHasNativeFile ?
 							   Concat(reason, " (incl. alternativ version)"sv) :
 							   reason);
@@ -2453,8 +2460,7 @@ void cacheman::ReportAdminAction(string_view sFileRel, string_view reason, bool 
 	if (bAlsoHasNativeFile)
 		fmt << ", incl. alternativ version";
 	fmt << ")</label>";
-
-	ReportCont(g_fmtBuf, reportLevel);
+#endif
 }
 
 void cacheman::TellCount(unsigned nCount, off_t nSize)

@@ -89,6 +89,13 @@ public:
 	bool ProcessDirBefore(const std::string &sPath, const struct stat &) override;
 	bool ProcessDirAfter(const std::string &sPath, const struct stat &) override;
 
+	// tMarkupFileSend interface
+protected:
+	void SendProp(cmstring &key) override;
+
+
+	virtual int CheckCondition(string_view key) override;
+
 
 };
 

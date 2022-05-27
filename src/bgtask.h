@@ -24,7 +24,7 @@ public:
 
 protected:
 	std::deque<std::pair<string_view,string_view>> m_adminActionList;
-	unsigned Add2KillBill(string_view sPathRel, string_view reason);
+	int Add2KillBill(string_view sPathRel, string_view reason);
 };
 
 enum class ControLineType

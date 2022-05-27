@@ -729,6 +729,25 @@ bool expiration::ProcessDirAfter(const std::string &sPath, const struct stat &st
 	return cacheman::ProcessDirAfter(sPath, st);
 }
 
+
+int expiration::CheckCondition(string_view key)
+{
+	if (key == "purgeActionVisible"sv)
+		return 0 + m_adminActionList.empty();
+	return tExclusiveUserAction::CheckCondition(key);
+}
+
+void expiration::SendProp(cmstring &key)
+{
+	if (key == "itemactionselection")
+	{
+		for (const auto& el: m_adminActionList)
+		Send(MsgFmt << "PRINTME: " << el.first << " ---- " << el.second);
+	}
+	else
+		cacheman::SendProp(key);
+}
+
 bool expiration::ProcessOthers(const std::string &sPath, const struct stat &st)
 {
 	m_fileCur++;
