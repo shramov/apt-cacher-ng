@@ -56,12 +56,14 @@ bool pkgimport::ProcessRegular(const mstring &sPath, const struct stat &stinfo)
 
 	if(sPath.size()<=CACHE_BASE_LEN) // heh?
 		return false;
+
+	tReporter rep(this, sPath);
 	
 	if(m_bLookForIFiles)
 	{
-		ProgTell();
+		ProgTell(false);
 
-		if(0==sPath.compare(CACHE_BASE_LEN, 1, "_"))
+		if(0 == sPath.compare(CACHE_BASE_LEN, 1, "_"))
 			return true; // not for us, also excludes _import
 
 		AddIFileCandidate(sPath.substr(CACHE_BASE_LEN));
@@ -83,7 +85,7 @@ bool pkgimport::ProcessRegular(const mstring &sPath, const struct stat &stinfo)
 			 */
 			if (!fpr.ScanFile(sPath, ctp, false, nullptr))
 			{
-				SendFmt << "<span class=\"ERROR\">Error checking " << sPath << "</span>\n<br>\n";
+				rep.Warning() << "Error checking file contents";
 				continue;
 			}
 			if (fpr.GetSize() < 50)
@@ -104,16 +106,15 @@ bool pkgimport::ProcessRegular(const mstring &sPath, const struct stat &stinfo)
 			}
 			else if (node.sPath != sPath)
 			{
-				SendFmt << "<span class=\"WARNING\">Duplicate found, " << sPath << " vs. "
-						<< node.sPath << ", ignoring new entry.</span>\n<br>\n";
+				rep.Warning() << (MsgFmt << "Duplicate found, "sv << sPath << " vs. "
+						<< node.sPath << ", ignoring new entry."sv);
 				m_importRest.emplace_back(fpr, tImpFileInfo(sPath, stinfo.st_mtime));
 			}
 		}
 	}
 	else
 	{
-		ReportMisc(tSS() << "<span class=\"WARNING\">File type unknown, skipping "
-				   << sPath << "</span>\n<br>\n");
+		rep << "File type unknown, skipping.";
 	}
 	return true;
 }
@@ -192,19 +193,20 @@ void pkgimport::Action()
 	
 	if (m_metaFilesRel.empty())
 	{
-		Send("<span class=\"ERROR\">No index files detected. Unable to continue, cannot map files to internal locations.</span>");
+		GetCurRep().Error("No index files detected. Unable to continue, cannot map files to internal locations."sv);
 		return;
 	}
 
-
-	UpdateVolatileFiles();
-	if(CheckStopSignal()) return;
-	
-	if(m_bErrAbort && m_nErrorCount>0)
+	if (CheckStopSignal())
+		return;
+	if (!UpdateVolatileFiles() && m_bErrAbort)
 	{
-		Send(sAbortMsg);
+		GetCurRep().Error(sAbortMessage);
 		return;
 	}
+	if (CheckStopSignal())
+		return;
+
 	
 	m_bLookForIFiles=false;
 	DBGQLOG("building contents map for " << m_sSrcPath);
@@ -246,12 +248,12 @@ void pkgimport::Action()
 		if(!fList.is_open())
 			continue;
 
-#define ENDL "\n" // don't flush all the time
-		fList << fpr2info.first.GetSize() << ENDL
-				<< (int)fpr2info.first.GetCsType() << ENDL
-				<< fpr2info.first.GetCsAsString() << ENDL
-				<< fpr2info.second.sPath.substr(m_sSrcPath.size()+1) <<ENDL
-				<< fpr2info.second.mtime	<<ENDL;
+#define svendl "\n"sv // don't flush all the time
+		fList << fpr2info.first.GetSize() << svendl
+				<< (int)fpr2info.first.GetCsType() << svendl
+				<< fpr2info.first.GetCsAsString() << svendl
+				<< fpr2info.second.sPath.substr(m_sSrcPath.size()+1) <<svendl
+				<< fpr2info.second.mtime	<<svendl;
 
 		remaining += fpr2info.first.GetSize();
 	}
@@ -260,11 +262,11 @@ void pkgimport::Action()
 	// copy&paste FTW
 	for(const auto& fpr2info : m_importRest)
 	{
-		fList << fpr2info.first.GetSize() << ENDL
-				<< (int)fpr2info.first.GetCsType() << ENDL
-				<< fpr2info.first.GetCsAsString() << ENDL
-				<< fpr2info.second.sPath.substr(m_sSrcPath.size()+1) <<ENDL
-				<< fpr2info.second.mtime	<<ENDL;
+		fList << fpr2info.first.GetSize() << svendl
+				<< (int)fpr2info.first.GetCsType() << svendl
+				<< fpr2info.first.GetCsAsString() << svendl
+				<< fpr2info.second.sPath.substr(m_sSrcPath.size()+1) <<svendl
+				<< fpr2info.second.mtime	<<svendl;
 		remaining += fpr2info.first.GetSize();
 	}
 	fList.flush();

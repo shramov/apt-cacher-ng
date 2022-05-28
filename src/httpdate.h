@@ -3,9 +3,11 @@
 
 #include "actypes.h"
 
-namespace acng {
+namespace acng
+{
 
 extern const char* zeroDate;
+mstring ltos(long n);
 
 /**
  * @brief The tHttpDate class is a lazy container of a HTTP-style timestamp
@@ -123,6 +125,10 @@ struct ACNG_API tRemoteStatus
     tRemoteStatus(int code, mstring s) : code(code), msg(move(s)) {}
 //	tRemoteStatus(tRemoteStatus &&src) : code(src.code), msg(move(src.msg)) {}
     tRemoteStatus() =default;
+	mstring toString() const
+	{
+		return ltos(code) + " " + msg;
+	}
 };
 
 /**

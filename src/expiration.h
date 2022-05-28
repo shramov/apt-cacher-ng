@@ -76,8 +76,6 @@ protected:
 private:
 	string_view m_lastDirCache = "";
 
-	bool CheckAndReportError();
-
 	void HandleDamagedFiles();
 	void ListExpiredFiles(bool bPurgeNow);
 	void TrimFiles();

@@ -840,6 +840,7 @@ inline void job::CookResponseHeader()
 		m_activity = STATE_SEND_BUF_NOT_FITEM;
 		return AppendMetaHeaders();
 	}
+	dbgline;
 	// everything else is either an error, or not-modified, or must have content. For error pages, cut their content to avoid any side effects for user
 	if (status.code != 200 && ! fi->IsLocallyGenerated())
 	{
@@ -852,13 +853,18 @@ inline void job::CookResponseHeader()
 	auto contLen = fi->m_nContentLength;
 	bool goChunked = false;
 	const auto& reSt = fi->m_responseStatus;
-	bool withRange = reSt.code == 200 && m_nReqRangeFrom >= 0;
+	bool withRange = reSt.code == 200 && m_nReqRangeFrom > 0;
+	if (m_nReqRangeTo >= 0)
+		withRange = true;
 
 	const auto& targetDate = fi->GetLastModified(true);
 	if (m_ifMoSince.isSet() && targetDate.isSet() && targetDate <= m_ifMoSince)
 	{
 		return quickResponse("304 Not Modified"sv, true);
 	}
+
+
+	LOG("condition: withRange = " << withRange << ", reSt = " << reSt.toString() << ", contlen: " << contLen << ", gochunked: " << goChunked );
 
 	if (contLen >= 0)
 	{

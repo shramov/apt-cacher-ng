@@ -493,7 +493,7 @@ tMaintJobBase::tMaintJobBase(tRunParms &&parms) : tMarkupFileSend(std::move(parm
 void tMaintJobBase::SendProp(cmstring &key)
 {
 	if (key == "action")
-		return Action();
+		return Action(); // ActionWithLog();
 	if (key == "startTime")
 	{
 #warning apply local time somehow?

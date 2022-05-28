@@ -60,6 +60,8 @@ public:
 protected:
 	// to be implemented by subclasses to inject HTML into ${action}
 	virtual void Action() =0;
+	// wrapper which ensures that we have proper logging system established
+	//virtual void ActionWithLog() =0;
 	virtual void SendProp(cmstring &key) override;
 	virtual int CheckCondition(string_view key) override; // 0: true, 1: false, <0: unknown condition
 

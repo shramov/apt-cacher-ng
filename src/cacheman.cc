@@ -50,6 +50,8 @@ using namespace std;
 namespace acng
 {
 
+string_view sAbortMessage("Found errors during processing, aborting as requested."sv);
+
 static cmstring dis("/binary-");
 static cmstring oldStylei18nIdx("/i18n/Index");
 static cmstring diffIdxSfx(".diff/Index");
@@ -60,14 +62,14 @@ atomic_ptrdiff_t g_dler;
 
 #define PATCH_TEMP_DIR "_actmp/"
 #define PATCH_COMBINED_NAME "combined.diff"
-static cmstring sPatchCombinedRel(PATCH_TEMP_DIR PATCH_COMBINED_NAME);
+#define sPatchCombinedRel PATCH_TEMP_DIR PATCH_COMBINED_NAME
 #define PATCH_BASE_NAME "patch.base"
-static cmstring sPatchInputRel(PATCH_TEMP_DIR PATCH_BASE_NAME);
+#define sPatchInputRel PATCH_TEMP_DIR PATCH_BASE_NAME
 #define PATCH_RESULT_NAME "patch.result"
-static cmstring sPatchResultRel(PATCH_TEMP_DIR PATCH_RESULT_NAME);
+#define sPatchResultRel PATCH_TEMP_DIR PATCH_RESULT_NAME
 
-#define ERRMSGABORT  dbgline; if(m_nErrorCount && m_bErrAbort) { Send(sErr); return false; }
-#define ERRABORT dbgline; if(m_nErrorCount && m_bErrAbort) { return false; }
+//#define ERRMSGABORT  dbgline; if(m_nErrorCount && m_bErrAbort) { Send(sErr); return false; }
+//#define ERRABORT dbgline; if(m_nErrorCount && m_bErrAbort) { return false; }
 
 inline tStrPos FindCompSfxPos(const string &s)
 {
@@ -154,7 +156,6 @@ cacheman::cacheman(tRunParms&& parms) :
 	m_bErrAbort(false), m_bForceDownload(false),
 	m_bScanInternals(false), m_bByPath(false), m_bByChecksum(false), m_bSkipHeaderChecks(false),
 	m_bTruncateDamaged(false),
-	m_nErrorCount(0),
 	m_nProgIdx(0), m_nProgTell(1)
 {
 	m_gMaintTimeNow=GetTime();
@@ -225,18 +226,13 @@ cacheman::tMetaMap::iterator cacheman::SetFlags(string_view sPathRel, bool &repo
 
 thread_local string sendDecoBuf;
 
-void cacheman::SendDecoratedComment(string_view msg, eDlMsgSeverity colorHint, unsigned heading)
+#if 0
+void cacheman::tReporter::SendDecoratedComment(string_view msg, eDlMsgSeverity colorHint, unsigned heading)
 {
-	if (colorHint < m_printSeverityMin)
+	if (colorHint < q.m_printSeverityMin)
 		return;
 
-	if (m_print.state > printcfg::BEGIN && heading)
-	{
-		// no sh...
-		CloseLine();
-	}
-
-	if (m_print.state > printcfg::BEGIN)
+	if (state > BEGIN)
 	{
 		Append(sendDecoBuf, "[", msg, "]");
 		ReportCont(sendDecoBuf, colorHint);
@@ -247,8 +243,8 @@ void cacheman::SendDecoratedComment(string_view msg, eDlMsgSeverity colorHint, u
 		// then format and print here
 		string_view sstart = se, send = se;
 
-		if (m_print.format == acng::cacheman::printcfg::DEV ||
-				m_print.format == acng::cacheman::printcfg::WEB)
+		if (q.format == acng::cacheman::DEV ||
+				q.format == acng::cacheman::WEB)
 		{
 			send = "</span><br>"sv;
 			if (heading)
@@ -268,20 +264,16 @@ void cacheman::SendDecoratedComment(string_view msg, eDlMsgSeverity colorHint, u
 		SendFmt << sstart << msg << send << "\n";
 	}
 }
+#endif
 
-void cacheman::CloseLine()
+cacheman::tReporter::~tReporter()
 {
-	if (m_print.state == printcfg::BEGIN)
-		return;
-
-	// never forget
-	TFinalAction clear([&](){
-		m_print.state = printcfg::BEGIN;
-		m_print.m_sErrorMsg.clear();
-	});
+	ASSERT(this == q.m_reporters.top());
+	q.m_reporters.pop();
 
 	int cbId = -1;
-
+#warning implementme
+#if 0
 	if (m_print.sevCur >= eDlMsgSeverity::NONFATAL_ERROR)
 	{
 		cbId = Add2KillBill(m_print.curFileRel, m_print.m_sErrorMsg);
@@ -323,45 +315,115 @@ void cacheman::CloseLine()
 		Send("\n"sv);
 		break;
 	}
+#endif
 }
 
-void cacheman::ReportBegin(string_view what, eDlMsgSeverity sev, bool bForceCollecting, bool bIgnoreErrors)
+string_view cacheman::tReporter::GetIndent()
 {
-	if (m_print.state != m_print.BEGIN)
+	return se;
+}
+
+cacheman::tReporter::tReporter(cacheman *parent, string_view what, eDlMsgSeverity sev, int hints)
+	: q(*parent)
+{
+	q.m_reporters.push(this);
+
+	if (sev > sevLimit)
+		sev = sevLimit;
+
+	sevCur = sev;
+
+	m_sWhat = what;
+#if 0
+	if (sev < q.m_printSeverityMin || (hints & FORCE_COLLECTING ))
 	{
-		ReportEnd(""sv);
-	}
-
-	if (bIgnoreErrors)
-		m_print.sevLimit = m_printSeverityMin;
-
-	if (sev > m_print.sevLimit)
-		sev = m_print.sevLimit;
-
-	m_print.sevCur = sev;
-
-	m_print.curFileRel = what;
-	if (sev < m_printSeverityMin || bForceCollecting)
-	{
-		m_print.state = m_print.COLLECTING;
-		Append(m_print.buf, what, ": "sv);
+		m_sWhat->substr()
+		Append(m_prbuf, what, ": "sv);
 #warning implement format as needed
 	}
 	else
 	{
-		m_print.state = m_print.PRINTING;
-		SendFmt << what << ": "sv;
+		state = PRINTING;
+		q.Send(what);
+		q.Send(": "sv);
 	}
+#endif
 }
 
-void cacheman::ReportCont(string_view msg, eDlMsgSeverity sev)
+cacheman::tReporter& cacheman::tReporter::operator<<(string_view x)
 {
-	if (sev > m_print.sevLimit)
-		sev = m_print.sevLimit;
-
-	if (AC_UNLIKELY(m_print.state == m_print.BEGIN))
+	if (m_sPrbuf)
+		Append(*m_sPrbuf, GetIndent(), x);
+	else
 	{
-		ReportBegin("<UNKNOWN>"sv, sev, false, false);
+		q.Send(GetIndent());
+		q.Send(x);
+	}
+
+	return *this;
+}
+
+cacheman::tReporter &cacheman::tReporter::Error(string_view msg)
+{
+	if (m_sWhat)
+	{
+		q.Add2KillBill(*m_sWhat, msg);
+	}
+#warning propagate?
+	return *this;
+}
+
+cacheman::tReporter &cacheman::tReporter::NonFatalError(string_view msg)
+{
+	return Error(msg);
+}
+
+cacheman::tReporter &cacheman::tReporter::Propagate(unsigned levels)
+{
+	q.Send(tSS() << "Forward " << levels << " levels");
+	return *this;
+}
+
+/*
+cacheman::tReporter &cacheman::tReporter::Error(std::initializer_list<string_view> msg, int propagate)
+{
+	mstring buf;
+	for(const auto& s: msg)
+		buf += s;
+	return Error(buf).Propagate()
+}
+*/
+
+cacheman::tReporter &cacheman::tReporter::Warning()
+{
+	return *this;
+}
+
+cacheman::tReporter& cacheman::tReporter::operator<<(eRepHint hint)
+{
+	switch(hint)
+	{
+	case acng::ENDL:
+#warning FIXME, make smarter, and format specific
+		q.Send("<br>\n");
+		break;
+	case acng::RESTWARN:
+#warning FIXME, make smarter, open span, format specific
+		q.Send("<br>\n");
+		break;
+	}
+	return *this;
+}
+
+#if 0
+void cacheman::tReporter::Cont(string_view msg, eDlMsgSeverity sev)
+{
+	if (sev > sevLimit)
+		sev = sevLimit;
+
+	if (AC_UNLIKELY(state == BEGIN))
+	{
+		Begin("<UNKNOWN>"sv, sev, false, false);
 	}
 
 	sev = min(sev, m_print.sevLimit);
@@ -395,21 +457,7 @@ void cacheman::ReportCont(string_view msg, eDlMsgSeverity sev)
 		m_print.buf += msg;
 	}
 }
-
-void cacheman::ReportEnd(string_view msg, eDlMsgSeverity sev, unsigned hints)
-{
-	//SendFmt << "TODO: ReportEnd, type=" << (int) sev << "=: " << msg << "End-ReportEnd<br>\n";
-	ReportCont(msg, sev);
-#warning fixme
-//	AddDelCbox(sPathRel, reason);
-	CloseLine();
-}
-
-void cacheman::ReportData(eDlMsgSeverity sev, string_view path, string_view reason)
-{
-	SendFmt << "TODO: ReportData, type=" << (int) sev << ", reason="<< reason << ", path=" << path << "End-Reportdata<br>\n";
-#warning implement me
-}
+#endif
 
 // detects when an architecture has been removed entirely from the Debian archive
 bool cacheman::IsDeprecatedArchFile(cmstring &sFilePathRel)
@@ -417,7 +465,7 @@ bool cacheman::IsDeprecatedArchFile(cmstring &sFilePathRel)
 	tStrPos pos = sFilePathRel.rfind("/dists/");
 	if(pos == stmiss)
 		return false; // cannot tell
-	pos=sFilePathRel.find_first_not_of('/', pos+7);
+	pos = sFilePathRel.find_first_not_of('/', pos+7);
 	if(pos == stmiss)
 		return false;
 	pos=sFilePathRel.find('/', pos);
@@ -433,7 +481,7 @@ bool cacheman::IsDeprecatedArchFile(cmstring &sFilePathRel)
 	if ( (s = sFilePathRel.substr(0, pos) + relKey,
 			GetFlags(s).uptodate && reader.OpenFile(SABSPATH(s)))
 			||
-			(s=sFilePathRel.substr(0, pos) + inRelKey, GetFlags(s).uptodate && reader.OpenFile(SABSPATH(s)))
+			(s = sFilePathRel.substr(0, pos) + inRelKey, GetFlags(s).uptodate && reader.OpenFile(SABSPATH(s)))
 	)
 	{
 		pos = sFilePathRel.find("/binary-", pos);
@@ -505,6 +553,7 @@ public:
 	{
 		TDownloadController& m_owner;
 		cacheman& Q;
+		cacheman::tReporter rep;
 
 		fileitem::FiStatus initState = fileitem::FIST_FRESH;
 		tRepoResolvResult repinfo;
@@ -522,7 +571,7 @@ public:
 
 		aobservable::subscription observer;
 
-		void DLFIN(cacheman::eDlResult res, string_view result_msg, eDlMsgSeverity sev = eDlMsgSeverity::UNKNOWN, int hints = -1)
+		void DLFIN(cacheman::eDlResult res, string_view result_msg, eDlMsgSeverity sev = eDlMsgSeverity::UNKNOWN)
 		{
 			if (fiaccess)
 			{
@@ -536,14 +585,21 @@ public:
 			if (res == cacheman::eDlResult::OK && opts.bIsVolatileFile)
 				m_owner.m_owner.SetFlags(opts.sFilePathRel).uptodate = true;
 
-			m_owner.Finish(res, result_msg, this, sev, hints >= 0
+			m_owner.Finish(res, result_msg, this, sev
+						   /*
+						   , hints >= 0
 						   ? (unsigned) hints
-						   : REP_HINT_TAG_IS_NOT_ERROR * opts.bIgnoreErrors);
+						   : REP_HINT_TAG_IS_NOT_ERROR * opts.bIgnoreErrors
+			   */
+			   );
 		}
 		cacheman::tDlOpts opts;
 
 		TDownloadState(TDownloadController& owner, cacheman::tDlOpts&& xopts)
-			: m_owner(owner), Q(owner.m_owner), opts(move(xopts))
+			: m_owner(owner),
+			  Q(owner.m_owner),
+			  rep(&owner.m_owner, xopts.sFilePathRel, xopts.msgVerbosityLevel),
+			  opts(move(xopts))
 		{
 		}
 
@@ -570,8 +626,7 @@ public:
 				auto now = GetTime();
 				if (now > spamLimit + 1)
 				{
-
-					m_owner.m_owner.ReportCont(".");
+					rep << ".";
 					spamLimit = now;
 				}
 			}
@@ -606,10 +661,11 @@ public:
 			if(!altUrl.sHost.empty() && fiaccess.get())
 			{
 				dbgline;
-
-				m_owner.m_owner.ReportCont(MsgFmt << "<i>Remote peer is not usable but the alternative source might be guessed from the path as "
-						<< altUrl.ToURI(true) << " . If this is the better option, please remove the file "
-						<< opts.sFilePathRel << ".head manually from the cache folder or remove the whole index file with the Delete button below.</i>\n");
+				rep << ENDL << "Remote peer is not usable but the alternative source might be guessed from the path as "sv
+						<< altUrl.ToURI(true)
+						<< ". If this is the better option, please remove the file "sv
+						<< opts.sFilePathRel
+						<< ".head manually from the cache folder or remove the whole index file with the Delete button below."sv;
 
 				return m_owner.Restart(this, replUrl(altUrl));
 			}
@@ -637,9 +693,8 @@ public:
 				// oh, that crap: in a repo, but no backends configured, and no original source
 				// to look at because head file is probably damaged :-(
 				// try to re-resolve relative to InRelease and retry download
-				m_owner.m_owner.ReportCont("<span class=\"WARNING\">"sv
-					 "Warning, running out of download locations (probably corrupted "sv
-					 "cache). Trying an educated guess...</span><br>\n"sv);
+				rep << RESTWARN << "Warning, running out of download locations (probably corrupted "sv
+					 "cache). Trying an educated guess..."sv;
 
 				cmstring::size_type pos = opts.sFilePathRel.length();
 				while (true)
@@ -669,7 +724,7 @@ public:
 						tHttpUrl tu;
 						if (tu.SetHttpUrl(url, false))
 						{
-							m_owner.m_owner.ReportCont("Restarting download..."sv);
+							rep << ENDL << "Restarting download..."sv;
 							return m_owner.Restart(this, replUrl(tu));
 						}
 					}
@@ -689,7 +744,7 @@ public:
 				{
 					if (!endsWith(opts.sFilePathRel, fix.fromEnd) || !StrHas(opts.sFilePathRel, fix.extraCheck))
 						continue;
-					m_owner.m_owner.ReportCont("Attempting to download the alternative version..."sv);
+					rep << ENDL << "Attempting to download the alternative version..."sv;
 					// if we have it already, use the old URL as base, otherwise recreate from whatever URL was recorded as download source
 					if (usedUrl.sHost.empty())
 					{
@@ -926,13 +981,12 @@ public:
 		ASSERT_IS_MAIN_THREAD;
 		erase_if(states, [&](const auto & el){ return el.get() == what; });
 	}
-	void Finish(cacheman::eDlResult res, string_view result_msg, TDownloadState* caller2destroy, eDlMsgSeverity sev, unsigned hints)
+	void Finish(cacheman::eDlResult res, string_view result_msg, TDownloadState* caller2destroy, eDlMsgSeverity sev)
 	{
 		LOGSTARTFUNCx((int)res, result_msg, (uintptr_t)caller2destroy);
 		ASSERT_IS_MAIN_THREAD;
 
 #warning pass the checkbox control flags, if error
-		m_owner.ReportEnd(result_msg, sev, hints);
 
 		auto pin(shared_from_this());
 		try
@@ -953,7 +1007,7 @@ public:
 		m_shutdownCanceler = evabase::GetGlobal().subscribe([&]()
 		{
 			Finish(cacheman::eDlResult::FAIL_LOCAL, "Abort on shutdown"sv, nullptr,
-				   eDlMsgSeverity::ERROR, 0);
+				   eDlMsgSeverity::ERROR);
 		});
 	}
 };
@@ -973,19 +1027,22 @@ cacheman::~cacheman()
 cacheman::eDlResult cacheman::Download(string_view sFilePathRel, tDlOpts opts)
 {
 	LOGSTARTFUNC;
-	ReportBegin(sFilePathRel, opts.msgVerbosityLevel, false, opts.bIgnoreErrors);
+#warning restore this and below?
+	//ReportBegin(sFilePathRel, opts.msgVerbosityLevel, false, opts.bIgnoreErrors);
 
 	opts.sFilePathRel = sFilePathRel;
 
 	if (GetFlags(sFilePathRel).uptodate)
 	{
-		ReportEnd(opts.bIsVolatileFile ? "... (fresh)"sv : "... (complete)"sv);
+#warning restore
+//		ReportEnd(opts.bIsVolatileFile ? "... (fresh)"sv : "... (complete)"sv);
 		return cacheman::eDlResult::OK;
 	}
 
 	if(opts.bIsVolatileFile && m_bSkipIxUpdate)
 	{
-		ReportEnd("... (skipped, as requested)"sv);
+		#warning restore
+//		ReportEnd("... (skipped, as requested)"sv);
 		return cacheman::eDlResult::OK;
 	}
 
@@ -1244,8 +1301,10 @@ found_base:;
 * And keep track of some folders for expiration.
 */
 
-void cacheman::FilterGroupData(tFileGroups& idxGroups)
+bool cacheman::FilterGroupData(tFileGroups& idxGroups)
 {
+	bool ret = true;
+
 	for(auto it=idxGroups.begin(); it!=idxGroups.end();)
 	{
 		unsigned found = 0;
@@ -1290,6 +1349,7 @@ void cacheman::FilterGroupData(tFileGroups& idxGroups)
 			continue;
 		for(auto& indexPath: group.second.paths)
 			Download(indexPath, true, eMsgShow, tFileItemPtr(), 0, 0);
+#error set ret
 
 		if(group.second.isReferenced)
 			continue;
@@ -1313,10 +1373,12 @@ void cacheman::FilterGroupData(tFileGroups& idxGroups)
 					SetFlags(cand).vfile_ondisk=true;
 					break;
 				}
+				#error else set ret
 			}
 		}
 	}
 #endif
+	return ret;
 }
 
 int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
@@ -1424,6 +1486,9 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 		{
 			return PATCH_FAIL;
 		}
+
+		tReporter rep(this, patchPathRel, SEV_DBG);
+//		ReportBegin(patchPathRel, eDlMsgSeverity::VERBOSE, true);
 #warning fixme, still needing to check? even if there is no parser?
 		//SetFlags(patchPathRel).parseignore = true; // static stuff, hands off!
 
@@ -1431,12 +1496,12 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 		// XXX: probe result can be checked against contents["SHA256-History"]
 		if(!probe.ScanFile(SABSPATH(patchPathRel), CSTYPE_SHA256, true, pf.m_p))
 		{
-			ReportMisc(MsgFmt << "Failure on checking of intermediate patch data in " << patchPathRel << ", stop patching...");
+			rep << RESTWARN << "Failure on checking of intermediate patch data, stop patching..."sv;
 			return PATCH_FAIL;
 		}
 		if(probe != patchSums[pname])
 		{
-			SendFmt<< "Bad patch data in " << patchPathRel <<" , stop patching...";
+			rep << RESTWARN << "Bad patch data, stop patching..."sv;
 			return PATCH_FAIL;
 		}
 
@@ -1446,12 +1511,12 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 			::fflush(pf.m_p); // still a slight risk of file closing error but it's good enough for now
 			if(::ferror(pf.m_p))
 			{
-				Send("Patch application error");
+				rep << RESTWARN << "Bad patch data, stop patching..."sv;
 				return PATCH_FAIL;
 			}
 			checkForceFclose(pf.m_p);
 
-			ReportMisc("Patching...<br>"sv, SEV_DBG);
+			rep << "Patching..."sv;
 
 #if 0
 			tSS cmd;
@@ -1499,7 +1564,7 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 				MTLOGASSERT(false,"Final verification failed");
 				return PATCH_FAIL;
 			}
-			ReportMisc("Patch result OKAY."sv, SEV_DBG);
+			rep << "Patch result OKAY."sv;
 			return 0;
 		};
 		return PATCH_FAIL;
@@ -1542,7 +1607,7 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 			{
 				// if possible, try to reconstruct reliable download source information
 				header h;
-				if(h.LoadFromFile(SABSPATH(pindexPathRel) + ".head")
+				if(h.LoadFromFile(SABSPATHEX(pindexPathRel, ".head"))
 				   && h.h[header::XORIG])
 				{
 					auto len = strlen(h.h[header::XORIG]);
@@ -1551,8 +1616,8 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 					h.h[header::XORIG][len-diffIdxSfx.length()] = 0;
 				}
 
-				ReportMisc(MsgFmt << "Installing as " << path << ", state: "
-						   << (string) probeStateWanted, SEV_DBG);
+				GetCurRep().Misc(MsgFmt << "Installing as " << path << ", state: "
+						   << (string) probeStateWanted);
 
 				/*
 				 * We don't know the change date from the index, let's consider it very old.
@@ -1583,62 +1648,65 @@ bool cacheman::UpdateVolatileFiles()
 	LOGSTARTFUNC
 
 	string sErr; // for download error output
+	bool failed = false;
 
 	// just reget them as-is and we are done. Also include non-index files, to be sure...
 	if (m_bForceDownload)
 	{
-		ReportSectionLabel("Bringing index files up to date..."sv);
+		tReporter rep(this, "Bringing index files up to date..."sv,
+					  eDlMsgSeverity::INFO, tReporter::SECTION);
+
 		for (auto& f: m_metaFilesRel)
 		{
-			auto notIgnorable = ! GetFlags(f.first).forgiveDlErrors;
-
 			// tolerate or not, it depends
 			switch(Download(f.first))
 			{
 			case eDlResult::OK: continue;
 			case eDlResult::GONE:
-				m_nErrorCount += (notIgnorable && !cfg::follow404);
+				failed |= (! GetFlags(f.first).forgiveDlErrors && !cfg::follow404);
 				break;
 			case eDlResult::FAIL_LOCAL:
 			case eDlResult::FAIL_REMOTE:
-				m_nErrorCount += notIgnorable;
+				failed |= ! GetFlags(f.first).forgiveDlErrors;
 				break;
 			}
 		}
-		ERRMSGABORT;
-		LOGRET(false);
+// XXX: what was the idea here? Why aborting explicitly?
+//		ERRMSGABORT;
+//		LOGRET(false);
+		return true;
 	}
 	dbgline;
 	tFileGroups idxGroups;
 
 	auto dbgState = [&]() {
 #ifdef DEBUGSPAM
-	for (auto& f: m_metaFilesRel)
-		SendFmt << "State of " << f.first << ": "
-			<< f.second.toString();
+		for (auto& f: m_metaFilesRel)
+			SendFmt << "State of " << f.first << ": "
+					<< f.second.toString();
 #endif
 	};
 
 #ifdef DEBUG
-		auto dbgDump = [&](const char *msg, int pfx)
+	auto dbgDump = [&](const char *msg, int pfx)
+	{
+		tFmtSendTempRaii<mainthandler, bSS> printer(*this);
+		printer.GetFmter() << "#########################################################################<br>\n"sv
+						   << "## " <<  msg  << sBRLF
+						   << "#########################################################################<br>\n"sv;
+		for(const auto& cp : idxGroups)
 		{
-			tFmtSendTempRaii<mainthandler, bSS> printer(*this);
-			printer.GetFmter() << "#########################################################################<br>\n"sv
-					<< "## " <<  msg  << sBRLF
-					<< "#########################################################################<br>\n"sv;
-			for(const auto& cp : idxGroups)
+			printer.GetFmter() << pfx << ": cKEY: " << cp.first.toString() << hendl
+							   << pfx << ": idxKey:" <<cp.second.diffIdxId.toString() << hendl
+							   << pfx << ": Paths:" << hendl;
+			for(const auto& path : cp.second.paths)
 			{
-				printer.GetFmter() << pfx << ": cKEY: " << cp.first.toString() << hendl
-						<< pfx << ": idxKey:" <<cp.second.diffIdxId.toString() << hendl
-						<< pfx << ": Paths:" << hendl;
-				for(const auto& path : cp.second.paths)
-				{
-					printer.GetFmter() << pfx << ":&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"
-					<< path << "&lt;=&gt;" << GetFlags(path).toString()
-					<< hendl;
-				}
+				printer.GetFmter() << pfx << ":&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"
+								   << path << "&lt;=&gt;" << GetFlags(path).toString()
+								   << hendl;
 			}
-		};
+		}
+	};
 #else
 #define dbgDump(x,y)
 #endif
@@ -1654,74 +1722,64 @@ bool cacheman::UpdateVolatileFiles()
 				"<br></span>\n";
 	}
 
-	// this runs early with the state that is present on disk, before updating any file,
-	// since it deals with the "reality" in the cache
+	unordered_map<string_view,string_view> uniqueReleaseFiles; // key=folder, value=rel-file-path
 
-	ReportSectionLabel("Checking by-hash stored files..."sv);
+	{
+		// this runs early with the state that is present on disk, before updating any file,
+		// since it deals with the "reality" in the cache
+		tReporter rep(this, "Checking by-hash stored files or redownloading as needed..."sv,
+					  eDlMsgSeverity::INFO, tReporter::SECTION);
 
-	/*
+		/*
 	 * Update all Release files
 	 *
 	 * Prefer the InRelease version where it has been observed
 	 */
 
-	unordered_map<string_view,string_view> uniqueReleaseFiles; // key=folder, value=rel-file-path
-	for (auto it = m_metaFilesRel.begin(); it != m_metaFilesRel.end(); ++it)
-	{
-		size_t len;
-
-		if(endsWith(it->first, inRelKey))
-			len = it->first.length() - inRelKey.length();
-		else if (endsWith(it->first, relKey))
-			len = it->first.length() - relKey.length();
-		else
-			continue;
-
-		// InRelease will come first through sorting, next emplace skips it
-		auto considered = uniqueReleaseFiles.emplace(it->first.substr(0, len), it->first);
-		if (!considered.second)
-			continue;
-		auto sPathRel = it->first;
-
-		if(!RestoreFromByHash(it, false))
+		for (auto it = m_metaFilesRel.begin(); it != m_metaFilesRel.end(); ++it)
 		{
-			m_nErrorCount++;
-			if(sErr.empty())
-				sErr = Concat("ByHash error at ", sPathRel);
-			continue;
-		}
-		// okay, not restored from by-hash folder, download the original volatile version
-		const auto& fl = GetFlags(sPathRel);
-		if (eDlResult::OK != Download(sPathRel, tDlOpts()
-									 .IgnErr(fl.hideDlErrors)
-									 .GuessReplacement(true)))
-		{
-			if (!fl.hideDlErrors)
-			{
-				m_nErrorCount++;
-				if(sErr.empty())
-					sErr = "DL error at " + sPathRel;
-			}
-
 			if (CheckStopSignal())
-			{
-				SendFmt << "Operation canceled."sv << hendl;
-				return false;
-			}
-			continue;
+				return true;
+
+			size_t len;
+
+			if(endsWith(it->first, inRelKey))
+				len = it->first.length() - inRelKey.length();
+			else if (endsWith(it->first, relKey))
+				len = it->first.length() - relKey.length();
+			else
+				continue;
+
+			// InRelease will come first through sorting, next emplace skips it
+			auto considered = uniqueReleaseFiles.emplace(it->first.substr(0, len), it->first);
+			if (!considered.second)
+				continue;
+			auto sPathRel = it->first;
+			const auto& fl = GetFlags(sPathRel);
+
+			RestoreFromByHash(it, false);
+
+			failed |= (eDlResult::OK != Download(sPathRel, tDlOpts()
+												 .IgnErr(fl.hideDlErrors)
+												 .GuessReplacement(true)));
 		}
 	}
 
-	ReportSectionLabel("Bringing index files up to date...");
-
-	if(!FixMissingOriginalsFromByHashVersions())
 	{
-		SendFmt << "Error fixing by-hash links"sv << hendl;
-		m_nErrorCount++;
-		LOGRET(false);
+		// this runs early with the state that is present on disk, before updating any file,
+		// since it deals with the "reality" in the cache
+		tReporter rep(this, "Bringing index files up to date..."sv,
+					  eDlMsgSeverity::INFO, tReporter::SECTION);
+
+		if(!FixMissingOriginalsFromByHashVersions())
+		{
+			rep.Error("Error fixing by-hash links"sv);
+			LOGRET(false);
+		}
+		for (const auto& kv: uniqueReleaseFiles)
+			ExtractReleaseDataAndAutofixPatchIndex(idxGroups, kv.second);
+
 	}
-	for (const auto& kv: uniqueReleaseFiles)
-		ExtractReleaseDataAndAutofixPatchIndex(idxGroups, kv.second);
 
 	dbgDump("After group building:", 0);
 
@@ -1730,7 +1788,7 @@ bool cacheman::UpdateVolatileFiles()
 
 	// OK, the equiv-classes map is built, now post-process the knowledge
 	FilterGroupData(idxGroups);
-	ERRMSGABORT;
+	//ERRMSGABORT;
 	dbgDump("Refined (1):", 1);
 	dbgState();
 
@@ -1789,7 +1847,7 @@ bool cacheman::UpdateVolatileFiles()
 				if (!groupHasOneFresh)
 				{
 					// a failed download will be caught separately but for now, another download attempt is pointless
-					m_nErrorCount += !fl.forgiveDlErrors;
+					failed |= !fl.forgiveDlErrors;
 					continue;
 				}
 			}
@@ -1798,23 +1856,29 @@ bool cacheman::UpdateVolatileFiles()
 		}
 	}
 	dbgline;
-	MTLOGDEBUG("<br><br><b>NOW GET THE REST</b><br><br>");
+	{
+#warning fixme
+	//	tReporter rep(this, "NOW GET THE REST"sv, eDlMsgSeverity::INFO, tReporter::SECTION);
+	//ReportSectionLabel("NOW GET THE REST", SEV_DBG);
 
 	// fetch all remaining stuff, at least the relevant parts and which we also can parse
 	for(auto& idx2att : m_metaFilesRel)
 	{
 		if (idx2att.second.uptodate
 				|| !idx2att.second.vfile_ondisk
-				|| idx2att.second.eIdxType <= EIDX_UNKNOWN
-				|| eDlResult::OK == Download(idx2att.first, tDlOpts()
+				|| idx2att.second.eIdxType <= EIDX_UNKNOWN)
+			continue;
+
+		if (eDlResult::OK != Download(idx2att.first, tDlOpts()
 											 .GuessReplacement(true)
 											 .IgnErr(idx2att.second.hideDlErrors)))
 		{
-			continue;
+			failed |= (! idx2att.second.forgiveDlErrors);
 		}
-		m_nErrorCount += (!idx2att.second.forgiveDlErrors);
+
 	}
-	LOGRET(true);
+	}
+	LOGRET(!failed);
 }
 
 void cacheman::BuildSingleLinkedBroList(tStrDeq& paths)
@@ -1939,6 +2003,9 @@ bool cacheman::ParseAndProcessMetaFile(tCbReport cbReportOne, tMetaMap::iterator
 	const auto& sPath = idxFile->first;
 	auto& idxType = idxFile->second.eIdxType;
 
+	tReporter rep(this, sPath, eDlMsgSeverity::INFO);
+	rep << "processing... "sv;
+
 	tRemoteFileInfo info;
 
 	if(idxType < enumMetaType::EIDX_UNKNOWN) // ignored file
@@ -1986,11 +2053,11 @@ bool cacheman::ParseAndProcessMetaFile(tCbReport cbReportOne, tMetaMap::iterator
 			return SimplifyPathInplace(info.path);
 		}
 	};
+
 	deque<tRewriteHint> targets;
 	if (!targets.emplace_back().configure(sPath, idxType))
 	{
-		m_nErrorCount++;
-		SendFmt << "Unexpected index file without subdir found: " << sPath;
+		rep.Error("Unexpected index file without subdir found!"sv).Propagate();
 		return false;
 	}
 	if (runGroupAndTag) // let's add the doppelgängers
@@ -2006,8 +2073,7 @@ bool cacheman::ParseAndProcessMetaFile(tCbReport cbReportOne, tMetaMap::iterator
 				return false; // heh?
 			if (!targets.emplace_back().configure(*nextName, idxType))
 			{
-				m_nErrorCount++;
-				SendFmt << "Unexpected index file without subdir found: " << *nextName;
+				rep.Error( MsgFmt << "Unexpected index file without subdir found: " << *nextName).Propagate(1);
 				return false;
 			}
 		} while (true);
@@ -2025,7 +2091,7 @@ bool cacheman::ParseAndProcessMetaFile(tCbReport cbReportOne, tMetaMap::iterator
 			tgt.setPath(info, pkgPath);
 			cbReportOne(info);
 			if (0 == (++progHintX & progTrigger))
-				ReportCont(".");
+				rep << ".";
 		}
 	};
 
@@ -2418,7 +2484,7 @@ void cacheman::ParseGenericRfc822File(filereader& reader,
 	}
 }
 
-void cacheman::ProcessSeenIndexFiles(std::function<void(tRemoteFileInfo)> pkgHandler)
+bool cacheman::ProcessSeenIndexFiles(std::function<void(tRemoteFileInfo)> pkgHandler)
 {
 	LOGSTARTFUNC;
 	auto tag = GenGroupTag();
@@ -2426,41 +2492,23 @@ void cacheman::ProcessSeenIndexFiles(std::function<void(tRemoteFileInfo)> pkgHan
 	for(auto path2att = m_metaFilesRel.begin(); path2att != m_metaFilesRel.end(); ++path2att)
 	{
 		if(CheckStopSignal())
-			return;
+			return true;
 
 		auto& att = path2att->second;
 
 		if(!att.vfile_ondisk && !att.uptodate)
 			continue;
 
-		ReportMisc(MsgFmt << "Parsing metadata in "sv << path2att->first);
+		tReporter rep(this, path2att->first, eDlMsgSeverity::INFO);
+		rep << "Parsing metadata"sv;
 
 		if (ParseAndProcessMetaFile(pkgHandler, path2att, tag))
 			continue;
 
 		if(!GetFlags(path2att->first).forgiveDlErrors)
-		{
-			m_nErrorCount++;
-			ReportBegin(path2att->first, eDlMsgSeverity::VERBOSE, false, false);
-			ReportCont("An error occurred while reading this file, some contents may have been ignored.", eDlMsgSeverity::ERROR);
-		}
+			rep.Error("An error occurred while reading this file, some contents may have been ignored."sv);
 	}
-}
-
-void cacheman::AddAdminAction(string_view sFileRel, string_view reason, bool bAlsoHasNativeFile, eDlMsgSeverity reportLevel)
-{
-	ASSERT(!"Dead Code");
-#if 0
-	auto id = Add2KillBill(sFileRel, bAlsoHasNativeFile ?
-							   Concat(reason, " (incl. alternativ version)"sv) :
-							   reason);
-	tSS fmt;
-	fmt << reason << "<label>(<input type=\"checkbox\" name=\"kf\" value=\""sv
-			 << id <<"\">Tag";
-	if (bAlsoHasNativeFile)
-		fmt << ", incl. alternativ version";
-	fmt << ")</label>";
-#endif
+	return true;
 }
 
 void cacheman::TellCount(unsigned nCount, off_t nSize)
@@ -2522,12 +2570,11 @@ void cacheman::PrintStats(cmstring &title)
 #endif
 }
 
-void cacheman::ProgTell()
+void cacheman::ProgTell(bool force)
 {
-	if (++m_nProgIdx == m_nProgTell)
+	if (++m_nProgIdx == m_nProgTell || force)
 	{
-		ReportMisc(MsgFmt<<"Scanning, found " << m_nProgIdx << " file" << (m_nProgIdx>1?"s":""),
-				   eDlMsgSeverity::INFO);
+		GetCurRep() << (MsgFmt<<"Scanning, found " << m_nProgIdx << " file" << (m_nProgIdx>1?"s":""));
 		m_nProgTell *= 2;
 	}
 }
@@ -2549,6 +2596,7 @@ void cacheman::BuildCacheFileList()
 {
 	//dump_proc_status();
 	IFileHandler::DirectoryWalk(cfg::cachedir, this);
+	ProgTell(true);
 	//dump_proc_status();
 }
 
@@ -2588,9 +2636,11 @@ bool cacheman::RestoreFromByHash(tMetaMap::iterator relFile, bool bRestoreFromOl
 
 		ReportExtraEntry(bhPathAbs, entry.fpr);
 
+		tReporter rep(this, bhPathAbs, SEV_DBG);
+
 		if (entry.fpr.GetSize() != stBH.size())
 		{
-			ReportMisc(MsgFmt << bhPathAbs << " is incomplete, ignoring as candidate");
+			rep.Misc("incomplete, ignoring as candidate");
 			return;
 		}
 
@@ -2601,14 +2651,14 @@ bool cacheman::RestoreFromByHash(tMetaMap::iterator relFile, bool bRestoreFromOl
 		// load by-hash header, check URL, rewrite URL, copy the stuff over
 		if(!h.LoadFromFile(Concat(bhPathAbs, ".head")) || ! h.h[header::XORIG])
 		{
-			ReportMisc(MsgFmt << "Couldn't read " << CACHE_BASE << bhPathAbs << ".head");
+			rep.Misc("Couldn't read .head file"sv);
 			return;
 		}
 
 		calculatedOrigin = h.h[header::XORIG];
 		auto pos = calculatedOrigin.rfind("by-hash/");
 		if (pos == stmiss)
-			ReportMisc(MsgFmt << CACHE_BASE << bhPathAbs << " is not from by-hash folder", SEV_DBG);
+			rep.Misc(" file is not from by-hash folder");
 		calculatedOrigin.erase(pos);
 		calculatedOrigin += GetBaseName(entry.path);
 
@@ -2617,7 +2667,8 @@ bool cacheman::RestoreFromByHash(tMetaMap::iterator relFile, bool bRestoreFromOl
 		if(!Inject(bhPathRel, wantedPathRel.first,
 				   false, -1, tHttpDate(h.h[header::LAST_MODIFIED]), calculatedOrigin))
 		{
-			return ReportMisc(MsgFmt << CACHE_BASE << bhPathRel << " : Couldn't install", SEV_DBG);
+			rep.Misc("failed to install");
+			return;
 		}
 		fl.uptodate = fl.vfile_ondisk = true;
 	};
@@ -2629,7 +2680,6 @@ bool cacheman::RestoreFromByHash(tMetaMap::iterator relFile, bool bRestoreFromOl
 
 bool cacheman::FixMissingOriginalsFromByHashVersions()
 {
-	bool ret = true;
 	// uses negated values to prefer the newest versions of those file which would pick the latest versions more likely
 	map<time_t,string> oldStuff;
 
@@ -2643,24 +2693,25 @@ bool cacheman::FixMissingOriginalsFromByHashVersions()
 	for (const auto& kv: oldStuff)
 	{
 		const auto& oldRelPathRel(kv.second);
+		tReporter rep(this, oldRelPathRel, SEV_DBG);
 		bool isNew(false);
 		auto flagsIter = SetFlags(oldRelPathRel, isNew);
 		// path relative to cache folder
 		if (!RestoreFromByHash(flagsIter, true))
 		{
-			ReportMisc(MsgFmt << "There were error(s) processing "sv << oldRelPathRel << ", ignoring..."sv);
-			ReportMisc("Enable verbosity to see more"sv, SEV_DBG, true);
+			rep.Error("Error(s) in processing, ignoring..."sv);
+			rep.Misc("Enable verbosity to see more"sv, true);
 			SetFlags(flagsIter->first).vfile_ondisk = false;
-			return ret;
+			return false;
 		}
 #ifdef DEBUG
-		ReportMisc(MsgFmt << "Purging "sv  << oldRelPathRel, SEV_DBG);
+		rep << "Purging"sv;
 #endif
 		if (DeleteAndAccount(SABSPATH(oldRelPathRel)) == YesNoErr::ERROR)
-			ReportMisc(MsgFmt << "Error removing file, check state of "sv << oldRelPathRel);
+			rep.Misc("Error removing file, check the file state"sv);
 		SetFlags(flagsIter->first).vfile_ondisk = false;
 	}
-	return ret;
+	return true;
 }
 
 bool cacheman::IsInternalItem(cmstring &sPathAbs, bool inDoubt)

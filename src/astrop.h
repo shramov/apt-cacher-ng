@@ -268,7 +268,7 @@ inline std::string Concat(string_view a, string_view b, string_view c = string_v
 	return ret;
 }
 
-inline std::string Append(std::string& ret,
+inline std::string& Append(std::string& ret,
 						   string_view a,
 						  string_view b,
 						  string_view c,

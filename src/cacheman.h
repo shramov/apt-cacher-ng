@@ -11,7 +11,9 @@
 #include "meta.h"
 #include "rex.h"
 #include "acworm.h"
-
+#include <stack>
+#include <optional>
+#include <initializer_list>
 #include <unordered_map>
 
 namespace acng
@@ -24,8 +26,7 @@ class tDlJobHints;
 class tFileGroups;
 struct tContentKey;
 
-static cmstring sAbortMsg("<span class=\"ERROR\">Found errors during processing, "
-						  "aborting as requested.</span>");
+extern string_view sAbortMessage; // ("Found errors during processing, aborting as requested.");
 
 static cmstring sIndex("Index");
 static cmstring sslIndex("/Index");
@@ -37,12 +38,19 @@ void DelTree(cmstring &what);
 
 class TDownloadController;
 
+enum eRepHint
+{
+	ENDL,
+	RESTWARN
+};
+
 enum class eDlMsgSeverity
 {
 	UNKNOWN,
-	XDEBUG,	 // extra level for debugging
+	XDEBUG,	 // extra information for debugging
+	VERY_VERBOSE, // show lots of information about internal processing
 	VERBOSE, // only shown when verbosity wanted
-	POTENTIAL_ERROR, // shown as error but only when debugging with verbosity
+	POTENTIAL_PROBLEM, // shown only when running with verbosity
 	INFO, // default level for the threshold if not quiet
 	WARNING,
 	NONFATAL_ERROR, // shown as error but shall not abort processing at state check
@@ -136,90 +144,109 @@ public:
 		//UNFINISHED
 	};
 
-private:
-
-	struct printcfg
+	SUTPROTECTED:
+	enum ePrintFormat
 	{
-		mstring curFileRel, buf;
-
-		enum eState
-		{
-			BEGIN,
-			PRINTING,
-			COLLECTING
-		} state = eState::BEGIN;
-		enum ePrintFormat
-		{
-			DEV,
-			WEB,
-			//SIMPLEWEB,
-			CRONJOB,
-		} format = ePrintFormat::DEV;
-
-		eDlMsgSeverity sevCur = eDlMsgSeverity::UNKNOWN, sevLimit = eDlMsgSeverity::NEVER;
-		unsigned fmtdepth = 0;
-		mstring m_sErrorMsg;
-
-	} m_print;
+		DEV,
+		WEB,
+		//SIMPLEWEB,
+		CRONJOB,
+	} format = ePrintFormat::DEV;
 
 	eDlMsgSeverity m_printSeverityMin = eDlMsgSeverity::INFO;
 
-	void CloseLine();
+	// Add some arbitrary commment in the current log context
+	// void ReportMisc(string_view msg, eDlMsgSeverity, bool prioInverted = false);
 
-	SUTPROTECTED:
-
-	/**
-	 * @brief ReportBegin Initiates the display or collection of a user message
-	 * If the conditions are met in the beginning, start printing immediately, otherwise push the string to a background buffer
-	 * @param what File name (relative path)
-	 * @param sev Initial assumed severity
-	 * @param opMode Start with collecting mode, regardless of severity conditions
-	 * @
-	 */
-	void ReportBegin(string_view what, eDlMsgSeverity sev, bool bForceCollecting, bool bIgnoreErrors);
-	void ReportCont(string_view msg, eDlMsgSeverity sev = eDlMsgSeverity::UNKNOWN);
-
-#define REP_HINT_TAG_AS_NEEDED 0x2
-#define REP_HINT_TAG_ALWAYS 0x4
-#define REP_HINT_TAG_IS_NOT_ERROR 0x8
-
-	void ReportEnd(string_view msg, eDlMsgSeverity sev = eDlMsgSeverity::UNKNOWN, unsigned hints = REP_HINT_TAG_AS_NEEDED);
-
-	// print a single message line immediately, meaning can be inverted (i.e. print ONLY below threshold)
-	void ReportMisc(string_view msg, eDlMsgSeverity sev = eDlMsgSeverity::VERBOSE, bool prioInverted = false)
+	class tReporter
 	{
-		if (!prioInverted ? sev < m_printSeverityMin : sev >= m_printSeverityMin)
-			return;
-		SendDecoratedComment(msg, sev);
-	}
+		cacheman& q;
+		std::optional<mstring> m_sWhat, m_sPrbuf, m_sError;
+		eDlMsgSeverity sevCur = eDlMsgSeverity::UNKNOWN, sevLimit = eDlMsgSeverity::NEVER;
+		bool m_fmtOpen = false, m_isPlainSection = false, m_bCollectingError = false;
+		unsigned indent_level = 0;
 
-	void ReportSectionLabel(string_view label)
-	{
-		SendDecoratedComment(label, eDlMsgSeverity::INFO, 3);
-	}
+	public:
 
-	/**
-	 * @brief SendDecoratedComment
-	 * If in the middle of active line -> send msg inline, otherwise: create a new single line
-	 * @param msg
-	 * @param colorHint
-	 * @param heading If set to non-zero, print the msg as section heading line
-	 */
-	void SendDecoratedComment(string_view msg, eDlMsgSeverity colorHint, unsigned heading = 0);
+		tReporter(cacheman* parent, string_view what, eDlMsgSeverity sev = eDlMsgSeverity::VERBOSE, int hints = NONE);
 
-	/**
-	 * @brief ReportData Special variant for data processing, a crossover of above and doing flashy printing
-	 * Will add action checkbox for message level WARNING and above.
-	 * @param sev
-	 * @param addPath
-	 */
-	void ReportData(eDlMsgSeverity sev, string_view path, string_view reason);
+		enum eHint
+		{
+			// various uses, can be passed through ctor or later
+			NONE = 0,
+			FORCE_COLLECTING = 1, // no matter what min. severity is set, go to collecting mode in the beginning
+			TAG_AS_NEEDED = 2, // print checkbox and error handling in case of errors unless forgivedlerrors flag is set
+			TAG_ALWAYS = 4, // always flag errors with checkbox
+			WHAT_IS_LABEL = 16, // `what` parameter is a title and has no meaning as a file
+			NO_ITEM_PREFIX = 32, // `what` parameter is a file but shall not be reported as title prefix
+			SECTION = 8
+		} tagHint = TAG_AS_NEEDED;
+
+		tReporter& IgnoreErrors()
+		{
+			sevLimit = q.m_printSeverityMin;
+			return *this;
+		}
+
+		tReporter& operator<<(string_view x);
+
+		/**
+		 * @brief operator <<
+		 * Inject a newline separator IF NEEDED, or mark the rest as warning/error
+		 * @return
+		 */
+		tReporter& operator<<(eRepHint);
+
+		/**
+		 * @brief Error is like Cont but reports the supplied msg as error cause on this object
+		 * @param msg Mandatory error description
+		 * @param propagate Optionally propagate the error status to the parent context, up to specified number of ascending.
+		 * @return
+		 */
+		tReporter& Error(string_view msg);
+		//tReporter& Error(std::initializer_list<string_view> msg, int propagate = 0);
+
+		tReporter& NonFatalError(string_view msg);
+
+		tReporter& Propagate(unsigned levels = 1); // expand error status to parent
+
+		/**
+		 * @brief Warning
+		 * Set the warning level on the current context.
+		 *
+		 * @return
+		 */
+		tReporter& Warning();
+		~tReporter();
+
+		// print a single message line immediately, meaning can be inverted (i.e. print ONLY below threshold)
+		void Misc(string_view msg, bool prioInverted = false)
+		{
+			if (!prioInverted ? sevCur < q.m_printSeverityMin : sevCur >= q.m_printSeverityMin)
+				return;
+			*this << msg;
+		}
+
+		/**
+		 * @brief Data
+		 * Quick message about data processing, not needing stack descending
+		 * @param sev
+		 * @param reason
+		 */
+		void Data(eDlMsgSeverity sev, string_view reason);
+
+	private:
+
+		string_view GetIndent();
+	};
+	std::stack<tReporter*> m_reporters;
+	tReporter& GetCurRep() { return * m_reporters.top(); }
+	friend class tReporter;
 
 	// common helper variables
 	bool m_bErrAbort, m_bForceDownload, m_bSkipIxUpdate = false;
 	bool m_bScanInternals, m_bByPath, m_bByChecksum, m_bSkipHeaderChecks;
 	bool m_bTruncateDamaged;
-	int m_nErrorCount;
 	unsigned int m_nProgIdx, m_nProgTell;
 
 	mstring m_currentlyProcessedIfile;
@@ -266,7 +293,7 @@ private:
 	 *
 	 * */
 
-	void ProcessSeenIndexFiles(std::function<void(tRemoteFileInfo)> pkgHandler);
+	bool ProcessSeenIndexFiles(std::function<void(tRemoteFileInfo)> pkgHandler);
 
 	std::shared_ptr<TDownloadController> m_dler;
 	struct tDlOpts
@@ -310,7 +337,7 @@ private:
 
 	void PrintStats(cmstring &title);
 
-	void ProgTell();
+	void ProgTell(bool force);
 	void AddAdminAction(string_view sFileRel, string_view reason, bool bExtraFile = false, eDlMsgSeverity reportLevel = eDlMsgSeverity::ERROR);
 
 	// add certain files to the trash list, to be removed after the activity is done in case of the expiration task
@@ -319,7 +346,7 @@ private:
 	SUTPRIVATE:
 
 	void ExtractReleaseDataAndAutofixPatchIndex(tFileGroups& ret, string_view sPathRel);
-	void FilterGroupData(tFileGroups& idxGroups);
+	bool FilterGroupData(tFileGroups& idxGroups);
 	void BuildSingleLinkedBroList(tStrDeq& paths);
 
 	/**

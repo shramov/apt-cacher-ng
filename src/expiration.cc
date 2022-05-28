@@ -104,16 +104,23 @@ void expiration::DoStateChecks(tDiskFileInfo& infoLocal, const tRemoteFileInfo& 
 	string_view sPathAbs(sHeadAbs.data(), sHeadAbs.length() - 5);
 	string_view sPathRel(sPathAbs.substr(CACHE_BASE_LEN));
 
+	tReporter rep(this, sPathRel, eDlMsgSeverity::VERY_VERBOSE);
+
 	auto lenFromStat = infoLocal.fpr.GetSize();
 	off_t lenFromHeader=-1;
 
 	// end line ending starting from a class and add checkbox as needed
-	auto finish_damaged = [&](string_view reason, auto sev)
+	auto finish_damaged = [&](bool isError, string_view reason)
 	{
 		if (m_damageList.is_open())
 			m_damageList << sPathRel << "\n";
-		ReportData(sev, sPathRel, reason);
+
 		infoLocal.action = infoLocal.FORCE_REMOVE;
+#warning FIXME, actually a potential error, eDlMsgSeverity::POTENTIAL_ERROR
+		if (isError)
+			rep.NonFatalError(reason);
+		else
+			rep << ENDL << RESTWARN << reason;
 	};
 
 	auto handle_incomplete = [&]()
@@ -126,20 +133,24 @@ void expiration::DoStateChecks(tDiskFileInfo& infoLocal, const tRemoteFileInfo& 
 			{
 				if (lenFromStat >0)
 				{
-					ReportData(eDlMsgSeverity::WARNING, sPathRel, "(incomplete download, truncating as requested)"sv);
-					auto hodler = m_parms.res.GetItemRegistry()->Create(to_string(sPathRel),
-																		ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY,
-																		fileitem::tSpecialPurposeAttr());
-					if (hodler.get())
-						hodler.get()->MarkFaulty(false);
+					evabase::GetGlobal().SyncRunOnMainThread([&]()
+					{
+						rep.Warning() << "(incomplete download, truncating as requested)"sv;
+						auto hodler = m_parms.res.GetItemRegistry()->Create(to_string(sPathRel),
+																			ESharingHow::FORCE_MOVE_OUT_OF_THE_WAY,
+																			fileitem::tSpecialPurposeAttr());
+						if (hodler.get())
+							hodler.get()->MarkFaulty(false);
+						return 0;
+					});
 				}
 			}
 			else
-				finish_damaged("incomplete download, invalidating (as requested)"sv, eDlMsgSeverity::WARNING);
+				finish_damaged(false, "incomplete download, invalidating (as requested)"sv);
 		}
 		else
 		{
-			ReportData(eDlMsgSeverity::VERBOSE, sPathRel, "(incomplete download, keep it for now)"sv);
+			rep << "(incomplete download, keep it for now)"sv;
 			infoLocal.action = infoLocal.FORCE_KEEP;
 		}
 	};
@@ -148,15 +159,15 @@ void expiration::DoStateChecks(tDiskFileInfo& infoLocal, const tRemoteFileInfo& 
 	auto finish_report_keep = [&]()
 	{
 		// ok, package matched, contents ok if checked, drop it from the removal list
-		ReportData(eDlMsgSeverity::VERBOSE, sPathRel, se);
+		rep << "OKAY"sv;
 		infoLocal.action = infoLocal.FORCE_KEEP;
 	};
 
 	auto report_oversize = [&]()
 	{
 		// user shall find a resolution here; for volatile files, not certain, print an action checkbox though
-		ReportData(eDlMsgSeverity::POTENTIAL_ERROR, sPathRel,
-				   m_parms.res.GetMatchers().GetFiletype(term(sPathRel)) == rex::FILE_VOLATILE
+		rep.NonFatalError(
+					m_parms.res.GetMatchers().GetFiletype(term(sPathRel)) == rex::FILE_VOLATILE
 				   ? "bad file state while containing volatile index data"sv
 				   : "size mismatch while strict check requested"sv);
 		infoLocal.action = infoLocal.FORCE_KEEP;
@@ -177,13 +188,13 @@ void expiration::DoStateChecks(tDiskFileInfo& infoLocal, const tRemoteFileInfo& 
 			if(lenFromHeader < 0)
 			{
 				// better drop it, properly downloaded ones DO have the length
-				return finish_damaged("header file does not contain content length", eDlMsgSeverity::POTENTIAL_ERROR);
+				return finish_damaged(true, "header file does not contain content length"sv);
 			}
 			if (lenFromHeader < lenFromStat)
 			{
 				if (YesNoErr::ERROR == DeleteAndAccount(sHeadAbs))
-					ReportMisc(MsgFmt << "Error removing " << sHeadAbs, eDlMsgSeverity::WARNING);
-				return finish_damaged("metadata reports incorrect file size (smaller than existing file)", eDlMsgSeverity::POTENTIAL_ERROR);
+					rep << ENDL << RESTWARN << "Error removing file"sv;
+				return finish_damaged(true, "metadata reports incorrect file size (smaller than existing file)"sv);
 			}
 		}
 		else
@@ -191,8 +202,7 @@ void expiration::DoStateChecks(tDiskFileInfo& infoLocal, const tRemoteFileInfo& 
 			auto& at = GetFlags(sPathRel);
 			if (!at.forgiveDlErrors) // just warn
 			{
-				ReportMisc(MsgFmt << "header file missing or damaged for "
-						   << sPathRel, eDlMsgSeverity::WARNING);
+				rep << ENDL << RESTWARN << "header file missing or damaged"sv;
 			}
 		}
 	}
@@ -233,16 +243,12 @@ void expiration::DoStateChecks(tDiskFileInfo& infoLocal, const tRemoteFileInfo& 
 		{
 			// IO error? better keep it for now, not sure how to deal with it
 			log::err(Concat("Error reading "sv, sPathAbs));
-			return finish_damaged(MsgFmt << "IO error occurred while checksumming "sv
-								  << sPathRel << ", leaving as-is for now."sv,
-								  eDlMsgSeverity::NONFATAL_ERROR);
+			return finish_damaged(true, "IO error occurred while"
+										" checksumming, leaving as-is for now.");
 		}
 
 		if (!infoLocal.fpr.csEquals(infoRemote.fpr))
-		{
-			return finish_damaged("checksum mismatch",
-								  eDlMsgSeverity::NONFATAL_ERROR);
-		}
+			return finish_damaged(true, "checksum mismatch"sv);
 	}
 
 	// CS should be validated now if the sizes and paths were matched
@@ -401,7 +407,7 @@ inline void expiration::RemoveAndStoreStatus(bool bPurgeNow)
 		}
 		else if (f.is_open())
 		{
-			ReportMisc( MsgFmt << "Tagging " << sPathRel
+			GetCurRep().Misc( MsgFmt << "Tagging " << sPathRel
 			#ifdef DEBUG
 							<< " (t-" << (m_gMaintTimeNow - disapTime) / 3600 << "h)"
 			#endif
@@ -410,9 +416,9 @@ inline void expiration::RemoveAndStoreStatus(bool bPurgeNow)
 				nCount++;
 				tagSpace += desc.fpr.GetSize();
 				f << disapTime << "\t"sv << el.second.folder << "\t"sv << el.first << svLF;
-			}
-			else
-				ReportMisc( MsgFmt << "Keeping " << sPathRel, eDlMsgSeverity::VERBOSE);
+		}
+		else
+			GetCurRep() << ENDL << ( MsgFmt << "Keeping " << sPathRel);
 
 	}
     if(nCount)
@@ -445,6 +451,7 @@ void expiration::Action()
 						 && !Cstat(SZABSPATH("_actmp/.ignoreTradeOff"));
 
 	off_t newLastIncommingOffset = 0;
+	bool okay = true;
 
 	if(tradeOffCheck)
 	{
@@ -465,60 +472,70 @@ void expiration::Action()
 
 	m_bIncompleteIsDamaged = StrHas(m_parms.cmd, "incomAsDamaged");
 	m_bScanVolatileContents = StrHas(m_parms.cmd, "scanVolatile");
-	ReportSectionLabel("Locating potentially expired files in the cache..."sv);
-	BuildCacheFileList();
-	if(CheckStopSignal())
-		return;
 
-	ReportMisc(MsgFmt << "Found " << m_nProgIdx << " files.", eDlMsgSeverity::INFO);
+
+	{
+		tReporter repSec(this, "Locating potentially expired files in the cache..."sv,
+						 eDlMsgSeverity::INFO, tReporter::SECTION);
+
+		BuildCacheFileList();
+		if(CheckStopSignal())
+			return;
+
+		repSec << (MsgFmt << "Found " << m_nProgIdx << " files.");
 
 #if 0 //def DEBUG
-	for(auto& i: m_trashFile2dir2Info)
-	{
-		SendFmt << "<br>File: " << i.first <<sBRLF;
-		for(auto& j: i.second)
-			 SendFmt << "Dir: " << j.first << " [ "<<j.second.fpr.size << " / " << j.second.nLostAt << " ]<br>\n";
-	}
+		for(auto& i: m_trashFile2dir2Info)
+		{
+			SendFmt << "<br>File: " << i.first <<sBRLF;
+			for(auto& j: i.second)
+				SendFmt << "Dir: " << j.first << " [ "<<j.second.fpr.size << " / " << j.second.nLostAt << " ]<br>\n";
+		}
 #endif
 
-/*	if(m_bByChecksum)
+		/*	if(m_bByChecksum)
 		m_fprCache.rehash(1.25*m_trashFile2dir2Info.size());
 */
-	//cout << "found package files: " << m_trashCandidates.size()<<endl;
-	//for(tS2DAT::iterator it=m_trashCandSet.begin(); it!=m_trashCandSet.end(); it++)
-	//	SendChunk(tSS()<<it->second.sDirname << "~~~" << it->first << " : " << it->second.fpr.size<<"<br>");
+		//cout << "found package files: " << m_trashCandidates.size()<<endl;
+		//for(tS2DAT::iterator it=m_trashCandSet.begin(); it!=m_trashCandSet.end(); it++)
+		//	SendChunk(tSS()<<it->second.sDirname << "~~~" << it->first << " : " << it->second.fpr.size<<"<br>");
 
-	UpdateVolatileFiles();
+		okay = UpdateVolatileFiles();
 
-	if(CheckStopSignal())
-		return;
+		if(!okay || CheckStopSignal())
+			return;
+	}
 
-	m_damageList.open(SZABSPATH(FNAME_DAMAGED), ios::out | ios::trunc);
-
-	ReportSectionLabel("Validating cache contents..."sv);
-
-	if(CheckAndReportError() || CheckStopSignal())
-		return;
-
-	ProcessSeenIndexFiles([this](const tRemoteFileInfo &e)
 	{
-		HandlePkgEntry(e);
-	});
+		tReporter repSec(this, "Validating cache contents..."sv,
+						 eDlMsgSeverity::INFO, tReporter::SECTION);
 
-	if(CheckAndReportError() || CheckStopSignal())
-		return;
+		m_damageList.open(SZABSPATH(FNAME_DAMAGED), ios::out | ios::trunc);
 
-	ReportSectionLabel("Reviewing candidates for removal...");
-	RemoveAndStoreStatus(StrHas(m_parms.cmd, "purgeNow"));
-	PurgeMaintLogsAndObsoleteFiles();
+		okay = ProcessSeenIndexFiles([this](const tRemoteFileInfo &e)
+		{
+			HandlePkgEntry(e);
+		});
 
-	DelTree(CACHE_BASE+"_actmp");
+		if(!okay || CheckStopSignal())
+			return;
+	}
 
-	TrimFiles();
+	{
+		tReporter repSec(this, "Reviewing candidates for removal...",
+						 eDlMsgSeverity::INFO, tReporter::SECTION);
 
-	PrintStats("Allocated disk space");
+		RemoveAndStoreStatus(StrHas(m_parms.cmd, "purgeNow"));
+		PurgeMaintLogsAndObsoleteFiles();
 
-	Send("<br>Done.<br>");
+		DelTree(CACHE_BASE+"_actmp");
+
+		TrimFiles();
+	}
+
+#warning BS. Now retrieved through a markup variable.
+	//PrintStats("Allocated disk space");
+	//ReportSectionLabel("Done!");
 
 	if(tradeOffCheck)
 	{
@@ -600,8 +617,9 @@ void expiration::TrimFiles()
 {
 	if(m_oversizedFiles.empty())
 		return;
-	auto now=GetTime();
-	ReportSectionLabel(MsgFmt << "Trimming cache files (" << m_oversizedFiles.size() <<")");
+	auto now = GetTime();
+	tReporter rep(this, "Trimming cache files", eDlMsgSeverity::VERBOSE, tReporter::SECTION);
+	rep << (MsgFmt <<  m_oversizedFiles.size() << " sparse file(s)");
 	for(const auto& fil: m_oversizedFiles)
 	{
 		// still there and not changed?
@@ -611,9 +629,13 @@ void expiration::TrimFiles()
 		if (now - 86400 < stinfo.msec())
 			continue;
 
+		tReporter rep(this, fil);
+
 		evabase::GetGlobal().SyncRunOnMainThread([&]()
 		{
-			auto hodler = m_parms.res.GetItemRegistry()->Create(fil, ESharingHow::ALWAYS_TRY_SHARING, fileitem::tSpecialPurposeAttr());
+			auto hodler = m_parms.res.GetItemRegistry()->Create(fil,
+																ESharingHow::ALWAYS_TRY_SHARING,
+																fileitem::tSpecialPurposeAttr());
 			if ( ! hodler.get())
 				return false;
 			auto pFi = hodler.get();
@@ -621,7 +643,7 @@ void expiration::TrimFiles()
 				return false;
 			if (0 != truncate(fil.c_str(), stinfo.size())) // CHECKED!
 			{
-				ReportMisc(MsgFmt << "Trim error at " << fil << " (" << tErrnoFmter() << ")", eDlMsgSeverity::WARNING);
+				rep.Warning() << (MsgFmt << "Trim error at " << fil << " (" << tErrnoFmter() << ")");
 			}
 			return true;
 		});
@@ -722,7 +744,7 @@ bool expiration::ProcessDirAfter(const std::string &sPath, const struct stat &st
 {
 	if (!m_fileCur && st.st_mtim.tv_sec < m_oldDate && !IsInternalItem(sPath, true))
 	{
-		ReportMisc(MsgFmt << "Deleting old empty folder " << html_sanitize(sPath));
+		GetCurRep() << "Deleting old empty folder " << html_sanitize(sPath);
 		rmdir(sPath.c_str());
 	}
 	m_lastDirCache = se;
@@ -764,7 +786,7 @@ bool expiration::ProcessRegular(const string & sPathAbs, const struct stat &stin
 	if (AC_UNLIKELY(sPathAbs.size() <= CACHE_BASE_LEN)) // heh?
 		return false;
 
-	ProgTell();
+	ProgTell(false);
 	auto diffMoreThan = [&stinfo](blkcnt_t diff)
 	{
 		return stinfo.st_blocks > diff && stinfo.st_size/stinfo.st_blksize < (stinfo.st_blocks - diff);
@@ -781,7 +803,7 @@ bool expiration::ProcessRegular(const string & sPathAbs, const struct stat &stin
 			// don't spam unless the user wants it and the size is really large
 			if(diffMoreThan(40))
 			{
-				ReportMisc(MsgFmt << "Trailing allocated space on " << sPathAbs << " (" << stinfo.st_blocks <<
+				GetCurRep().Misc(MsgFmt << "Trailing allocated space on " << sPathAbs << " (" << stinfo.st_blocks <<
 						" blocks, expected: ~" << (stinfo.st_size/stinfo.st_blksize + 1) <<"), will be trimmed later");
 			}
 		}
@@ -936,18 +958,6 @@ void expiration::LoadPreviousData(bool bForceInsert)
 
 }
 #endif
-
-inline bool expiration::CheckAndReportError()
-{
-	if (m_nErrorCount > 0 && m_bErrAbort)
-	{
-		SendFmt << sAbortMsg;
-//		if(m_nPrevFailCount + (m_nErrorCount>0) > cfg::exsupcount)
-		SendFmt << "\n<!--\n" maark << int(ControLineType::Error) << "Errors found, aborting expiration...\n-->\n";
-		return true;
-	}
-	return false;
-}
 
 void expiration::MarkObsolete(cmstring& sPathRel)
 {
