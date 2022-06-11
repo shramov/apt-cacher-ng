@@ -94,6 +94,7 @@ job::~job()
 
 inline bool job::ParseRangeAndIfMo(const header& h, acres& res)
 {
+	LOGSTARTFUNC;
 	/*
 	 * Range: bytes=453291-
 	 * ...
@@ -110,6 +111,7 @@ inline bool job::ParseRangeAndIfMo(const header& h, acres& res)
 	if (!pRange)
 		return true;
 	auto reErr = res.GetMatchers().ParseRanges(pRange, m_nReqRangeFrom, &m_nReqRangeTo, nullptr);
+	LOG(h.getRequestUrl() << " from: " << m_nReqRangeFrom << ", to: " << m_nReqRangeTo);
 	if (reErr.empty())
 		return true;
 	m_nReqRangeFrom = m_nReqRangeTo = -2;

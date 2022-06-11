@@ -134,7 +134,7 @@ std::string PathCombine(string_view a, string_view b)
 {
 	std::string ret;
 	ret.reserve(a.length() + b.length() + 1);
-	trimBoth(a, SZPATHSEP);
+	trimBack(a, SZPATHSEP);
 	trimBoth(b, SZPATHSEP);
 
 	ret += a;
