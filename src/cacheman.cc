@@ -124,6 +124,7 @@ struct tContentKey
 	}
 	bool valid() const { return fpr.GetCsType() != CSTYPES::CSTYPE_INVALID; }
 };
+
 struct tFileGroup
 {
 	// the list shall be finally sorted by compression type (most favorable first)
@@ -173,8 +174,7 @@ cacheman::cacheman(tRunParms&& parms) :
 
 bool cacheman::AddIFileCandidate(string_view sPathRel)
 {
-
- 	if(sPathRel.empty())
+	if(sPathRel.empty() || sPathRel.ends_with(".head"sv))
  		return false;
 
 	enumMetaType t;
@@ -189,8 +189,8 @@ bool cacheman::AddIFileCandidate(string_view sPathRel)
 			&& enumMetaType::EIDX_UNKNOWN != (t = GuessMetaTypeFromPath(sPathRel)))
 	{
 		auto & atts = SetFlags(sPathRel);
-		atts.vfile_ondisk=true;
-		atts.eIdxType=t;
+		atts.vfile_ondisk = true;
+		atts.eIdxType = t;
  		return true;
      }
  	return false;
@@ -224,7 +224,7 @@ cacheman::tMetaMap::iterator cacheman::SetFlags(string_view sPathRel, bool &repo
 			: it;
 }
 
-thread_local string sendDecoBuf;
+//thread_local string sendDecoBuf;
 
 #if 0
 void cacheman::tReporter::SendDecoratedComment(string_view msg, eDlMsgSeverity colorHint, unsigned heading)
@@ -268,10 +268,18 @@ void cacheman::tReporter::SendDecoratedComment(string_view msg, eDlMsgSeverity c
 
 cacheman::tReporter::~tReporter()
 {
-	ASSERT(this == q.m_reporters.top());
-	q.m_reporters.pop();
-
-	int cbId = -1;
+	if (IsCollecting())
+	{
+		q.Send(m_prbuf);
+		m_prbuf.clear();
+	}
+	q.m_indentLevel--;
+	if (m_sError.has_value())
+	{
+		q.Send(q.m_repLocalFmt.clean() << "<label>"
+			   << *m_sError << "&nbsp;(<input type=\"checkbox\" name=\"kf\" value=\""sv
+			   << m_errorId <<"\">Handle below)</label>");
+	}
 #warning implementme
 #if 0
 	if (m_print.sevCur >= eDlMsgSeverity::NONFATAL_ERROR)
@@ -316,60 +324,83 @@ cacheman::tReporter::~tReporter()
 		break;
 	}
 #endif
+
+	*this << "</span>";
 }
 
 string_view cacheman::tReporter::GetIndent()
 {
-	return se;
+#define IFAC 10
+
+	// a bit of memoization here
+	if (q.m_localMemoIndent == q.m_indentLevel)
+		return q.m_repIndentFmt;
+
+	q.m_repIndentFmt.clean() << "<span style=\"margin-left: "sv
+				<< (IFAC * q.m_indentLevel)
+				<< "px;\">";
+	if (q.m_indentLevel)
+		q.m_repIndentFmt << ((q.m_indentLevel & 1) ? "&#x2022;&nbsp;"sv : "&#x2010;&nbsp;"sv);
+	return q.m_repIndentFmt;
+}
+
+bool cacheman::tReporter::IsCollecting()
+{
+	return m_prbuf.isInited();
 }
 
 cacheman::tReporter::tReporter(cacheman *parent, string_view what, eDlMsgSeverity sev, int hints)
-	: q(*parent)
+	: q(*parent), m_hints(hints)
 {
-	q.m_reporters.push(this);
+	//q.m_reporters.push(this);
+	q.m_indentLevel++;
 
 	if (sev > sevLimit)
 		sev = sevLimit;
 
 	sevCur = sev;
-
 	m_sWhat = what;
-#if 0
+	auto isLab = (hints & WHAT_IS_LABEL);
 	if (sev < q.m_printSeverityMin || (hints & FORCE_COLLECTING ))
+		m_prbuf.setsize(88);
+
+#define ADD_MSG(x) { if (IsCollecting()) m_prbuf << x ; else q.Send(x); }
+
+	if (! (hints & NO_BREAK))
 	{
-		m_sWhat->substr()
-		Append(m_prbuf, what, ": "sv);
-#warning implement format as needed
+		ADD_MSG("<br>");
+		ADD_MSG(GetIndent());
 	}
-	else
-	{
-		state = PRINTING;
-		q.Send(what);
-		q.Send(": "sv);
-	}
-#endif
+
+	if (isLab)
+		ADD_MSG("<h2>");
+
+	ADD_MSG(what);
+
+	if (isLab)
+		ADD_MSG("</h2>");
+
+	if (!isLab)
+		ADD_MSG(": "sv);
 }
 
 cacheman::tReporter& cacheman::tReporter::operator<<(string_view x)
 {
-	if (m_sPrbuf)
-		Append(*m_sPrbuf, GetIndent(), x);
+	if (IsCollecting())
+		m_prbuf << x;
 	else
-	{
-		q.Send(GetIndent());
 		q.Send(x);
-	}
-
 	return *this;
 }
 
-cacheman::tReporter &cacheman::tReporter::Error(string_view msg)
+cacheman::tReporter& cacheman::tReporter::Error(string_view msg)
 {
+	// will be reported later
+	m_sError = msg;
+
 	if (m_sWhat)
-	{
-		q.Add2KillBill(*m_sWhat, msg);
-	}
-#warning propagate?
+		m_errorId = q.Add2KillBill(*m_sWhat, msg);
+
 	return *this;
 }
 
@@ -396,6 +427,10 @@ cacheman::tReporter &cacheman::tReporter::Error(std::initializer_list<string_vie
 
 cacheman::tReporter &cacheman::tReporter::Warning()
 {
+	m_bWarnSpanOpen = true;
+
+	*this << WSPAN;
+
 	return *this;
 }
 
@@ -524,6 +559,7 @@ struct tRewriteHint
 {
 	string_view fromEnd, toEnd, extraCheck;
 };
+
 static constexpr tRewriteHint sourceRewriteMap[] =
 {
 		{ "/Packages.bz2", "/Packages.xz", "" },
@@ -1260,7 +1296,7 @@ found_base:;
 	// now refine all extracted information and store it in eqClasses for later processing
 	for (const auto& if2cid : file2cid)
 	{
-		string sNativeName=if2cid.first.substr(0, FindCompSfxPos(if2cid.first));
+		string sNativeName = if2cid.first.substr(0, FindCompSfxPos(if2cid.first));
 		tContentKey groupId;
 
 		// identify the key for this group. Ideally, this is the descriptor
@@ -1278,7 +1314,7 @@ found_base:;
 		if (!groupId.valid())
 			groupId = if2cid.second;
 
-		tFileGroup &tgt = idxGroups[groupId];
+		auto &tgt = idxGroups[groupId];
 		tgt.paths.emplace_back(if2cid.first);
 
 		// also the index file id
@@ -1394,6 +1430,8 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 
 	if (need_update == siblings.end())
 		return -1;
+
+	tReporter rep(this, pindexPathRel, eDlMsgSeverity::VERY_VERBOSE);
 
 	filereader reader;
 	if (!reader.OpenFile(SABSPATH(pindexPathRel), true, 1))
@@ -1616,7 +1654,7 @@ int cacheman::PatchOne(cmstring& pindexPathRel, const tStrDeq& siblings)
 					h.h[header::XORIG][len-diffIdxSfx.length()] = 0;
 				}
 
-				GetCurRep().Misc(MsgFmt << "Installing as " << path << ", state: "
+				rep.Misc(MsgFmt << "Installing as " << path << ", state: "
 						   << (string) probeStateWanted);
 
 				/*
@@ -2570,11 +2608,11 @@ void cacheman::PrintStats(cmstring &title)
 #endif
 }
 
-void cacheman::ProgTell(bool force)
+void cacheman::tProgressTeller::Tell(bool force)
 {
 	if (++m_nProgIdx == m_nProgTell || force)
 	{
-		GetCurRep() << (MsgFmt<<"Scanning, found " << m_nProgIdx << " file" << (m_nProgIdx>1?"s":""));
+		rep << (MsgFmt<<"Scanning, found " << m_nProgIdx << " file" << (m_nProgIdx>1?"s":""));
 		m_nProgTell *= 2;
 	}
 }
@@ -2591,7 +2629,7 @@ bool cacheman::_checkSolidHashOnDisk(cmstring& hexname,
 								 hexname);
 	return ! ::access(solidPath.c_str(), F_OK);
 }
-
+/*
 void cacheman::BuildCacheFileList()
 {
 	//dump_proc_status();
@@ -2599,6 +2637,7 @@ void cacheman::BuildCacheFileList()
 	ProgTell(true);
 	//dump_proc_status();
 }
+*/
 
 bool cacheman::RestoreFromByHash(tMetaMap::iterator relFile, bool bRestoreFromOldRefs)
 {
@@ -2753,11 +2792,6 @@ void tBgTester::Action()
 		clock_gettime(CLOCK_MONOTONIC, &tp);
 		SendFmt << tp.tv_sec << "." << tp.tv_nsec << "<br>\n";
 	}
-}
-
-bool tBgTester::ProcessRegular(const std::string &, const struct stat &)
-{
-	return !CheckStopSignal();
 }
 
 #endif // DEBUG

@@ -15,9 +15,9 @@ using namespace acng;
 struct cachemanHandler : public cacheman
 {
 cachemanHandler(tRunParms&& p) : cacheman(std::move(p)) {}
-bool ProcessRegular(const std::string &, const struct stat &) override {return true;}
-bool ProcessOthers(const std::string &, const struct stat &) override {return true;}
-bool ProcessDirAfter(const std::string &, const struct stat &) override {return true;}
+//bool ProcessRegular(const std::string &, const struct stat &) override {return true;}
+//bool ProcessOthers(const std::string &, const struct stat &) override {return true;}
+//bool ProcessDirAfter(const std::string &, const struct stat &) override {return true;}
 protected:
 	virtual void Action() override {}
 

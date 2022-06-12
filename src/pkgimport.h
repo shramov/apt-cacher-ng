@@ -21,9 +21,7 @@ public:
 	void Action() override;
 	
 protected:
-	// FileHandler
-	bool ProcessRegular(const mstring &sPath, const struct stat &) override;
-	//bool ProcessOthers(const mstring &sPath, const struct stat &);
+	bool ImportFileFound(const mstring &sPath, const struct stat &, tReporter&);
 	void _LoadKeyCache();
 	void HandlePkgEntry(const tRemoteFileInfo &entry);
 
@@ -40,10 +38,6 @@ private:
 	std::deque<std::pair<tFingerprint, tImpFileInfo> > m_importRest;
 	std::set<mstring> m_precachedList;
 	/* tFprCacheMap m_cacheMap;*/
-	
-
-	bool m_bLookForIFiles = false;
-	mstring m_sSrcPath;
 		
 	//void _ExtractLocationsFromVolFiles();
 	void _GuessAndGetIfiles();

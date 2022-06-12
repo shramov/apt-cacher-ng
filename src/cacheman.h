@@ -78,13 +78,15 @@ enum class eDlMsgSeverity
  * b) keep updating the local metadata from pdiff files, therefore only updating diff Index and fetching related patches, never the whole original description file.
  */
 class ACNG_API cacheman :
-		public IFileHandler,
 		public tExclusiveUserAction,
 		public DeleteHelper
 {
 	friend class TDownloadController;
 	/** Little helper needed to deduplicate visiting of files with the same contents. */
 	int8_t m_idxPassId = 1;
+
+	int m_localMemoIndent = -1;
+	tSS m_repLocalFmt, m_repIndentFmt;
 
 public:
 	cacheman(tRunParms&& parms);
@@ -161,14 +163,16 @@ public:
 	class tReporter
 	{
 		cacheman& q;
-		std::optional<mstring> m_sWhat, m_sPrbuf, m_sError;
+		std::optional<mstring> m_sWhat, m_sError;
+		tSS m_prbuf;
 		eDlMsgSeverity sevCur = eDlMsgSeverity::UNKNOWN, sevLimit = eDlMsgSeverity::NEVER;
-		bool m_fmtOpen = false, m_isPlainSection = false, m_bCollectingError = false;
-		unsigned indent_level = 0;
+		bool m_isPlainSection = false, m_bCollectingError = false, m_bWarnSpanOpen = false;
+		int m_hints = 0, m_errorId = 0;
 
 	public:
-
-		tReporter(cacheman* parent, string_view what, eDlMsgSeverity sev = eDlMsgSeverity::VERBOSE, int hints = NONE);
+		tReporter(tReporter& parent, string_view what, int hints = NONE);
+		tReporter(cacheman* owner, string_view what, eDlMsgSeverity sev = eDlMsgSeverity::VERBOSE, int hints = NONE);
+		~tReporter();
 
 		enum eHint
 		{
@@ -179,7 +183,8 @@ public:
 			TAG_ALWAYS = 4, // always flag errors with checkbox
 			WHAT_IS_LABEL = 16, // `what` parameter is a title and has no meaning as a file
 			NO_ITEM_PREFIX = 32, // `what` parameter is a file but shall not be reported as title prefix
-			SECTION = 8
+			SECTION = 8,
+			NO_BREAK = 64
 		} tagHint = TAG_AS_NEEDED;
 
 		tReporter& IgnoreErrors()
@@ -204,7 +209,6 @@ public:
 		 * @return
 		 */
 		tReporter& Error(string_view msg);
-		//tReporter& Error(std::initializer_list<string_view> msg, int propagate = 0);
 
 		tReporter& NonFatalError(string_view msg);
 
@@ -217,7 +221,6 @@ public:
 		 * @return
 		 */
 		tReporter& Warning();
-		~tReporter();
 
 		// print a single message line immediately, meaning can be inverted (i.e. print ONLY below threshold)
 		void Misc(string_view msg, bool prioInverted = false)
@@ -236,11 +239,10 @@ public:
 		void Data(eDlMsgSeverity sev, string_view reason);
 
 	private:
-
 		string_view GetIndent();
+		bool IsCollecting();
 	};
-	std::stack<tReporter*> m_reporters;
-	tReporter& GetCurRep() { return * m_reporters.top(); }
+	std::atomic_int m_indentLevel = 0;
 	friend class tReporter;
 
 	// common helper variables
@@ -267,20 +269,6 @@ public:
 	void _BusyDisplayLogs();
 	void _Usermsg(mstring m);
 	bool AddIFileCandidate(string_view sFileRel);
-
-	// IFileHandler interface
-	bool ProcessDirBefore(const std::string &, const struct stat &) override
-	{
-		return true;
-	}
-	bool ProcessOthers(const mstring &, const struct stat &) override
-	{
-		return true;
-	}
-	bool ProcessDirAfter(const mstring &, const struct stat &) override
-	{
-		return true;
-	}
 
 	/*!
 	 * As the name saids, processes all index files and calls a callback
@@ -316,7 +304,6 @@ public:
 	};
 
 	virtual eDlResult Download(string_view sFilePathRel, tDlOpts opts = tDlOpts());
-	//eDlResult Download(cmstring& sFilePathRel) { tDlOpts o; return Download(sFilePathRel, tDlOpts()); };
 
 	void TellCount(unsigned nCount, off_t nSize);
 
@@ -337,7 +324,15 @@ public:
 
 	void PrintStats(cmstring &title);
 
-	void ProgTell(bool force);
+	struct tProgressTeller
+	{
+		tReporter& rep;
+		unsigned m_nProgTell = 1, m_nProgIdx = 0;
+		tProgressTeller(tReporter& _q) : rep(_q){};
+		void Tell(bool force = false);
+		~tProgressTeller() { Tell(true); }
+	};
+
 	void AddAdminAction(string_view sFileRel, string_view reason, bool bExtraFile = false, eDlMsgSeverity reportLevel = eDlMsgSeverity::ERROR);
 
 	// add certain files to the trash list, to be removed after the activity is done in case of the expiration task
@@ -385,7 +380,7 @@ public:
 	// "can return false negatives" thing
 	// to be implemented in subclasses
 	virtual bool _QuickCheckSolidFileOnDisk(cmstring& /* sFilePathRel */) { return false; }
-	void BuildCacheFileList();
+//	void BuildCacheFileList();
 	/**
 	 * This is supposed to restore references to files that are no longer
 	 * downloaded by apt directly but via semi-static files identified by hash
@@ -426,10 +421,6 @@ public:
 		//		m_szDecoFile="maint.html";
 	}
 	void Action() override;
-
-	// IFileHandler interface
-public:
-	bool ProcessRegular(const std::string &sPath, const struct stat &) override;
 };
 #endif // DEBUG
 }

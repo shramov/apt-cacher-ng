@@ -301,11 +301,11 @@ void expiration::ReportExtraEntry(cmstring& sPathAbs, const tFingerprint& fpr)
 
 expiration::expiration(tRunParms &&parms) :
 	cacheman(move(parms)),
-	m_oldDate(GetTime() - INTERNAL_DATA_EXP_DAYS * 86400)
+	m_expDate(GetTime() - INTERNAL_DATA_EXP_DAYS * 86400)
 {
 }
 
-inline void expiration::RemoveAndStoreStatus(bool bPurgeNow)
+inline void expiration::RemoveAndStoreStatus(bool bPurgeNow, tReporter& rep)
 {
 	LOGSTARTFUNC;
 
@@ -407,7 +407,7 @@ inline void expiration::RemoveAndStoreStatus(bool bPurgeNow)
 		}
 		else if (f.is_open())
 		{
-			GetCurRep().Misc( MsgFmt << "Tagging " << sPathRel
+			rep.Misc( MsgFmt << "Tagging " << sPathRel
 			#ifdef DEBUG
 							<< " (t-" << (m_gMaintTimeNow - disapTime) / 3600 << "h)"
 			#endif
@@ -418,7 +418,7 @@ inline void expiration::RemoveAndStoreStatus(bool bPurgeNow)
 				f << disapTime << "\t"sv << el.second.folder << "\t"sv << el.first << svLF;
 		}
 		else
-			GetCurRep() << ENDL << ( MsgFmt << "Keeping " << sPathRel);
+			rep << ENDL << ( MsgFmt << "Keeping " << sPathRel);
 
 	}
     if(nCount)
@@ -473,12 +473,11 @@ void expiration::Action()
 	m_bIncompleteIsDamaged = StrHas(m_parms.cmd, "incomAsDamaged");
 	m_bScanVolatileContents = StrHas(m_parms.cmd, "scanVolatile");
 
-
 	{
 		tReporter repSec(this, "Locating potentially expired files in the cache..."sv,
 						 eDlMsgSeverity::INFO, tReporter::SECTION);
 
-		BuildCacheFileList();
+		ScanCache();
 		if(CheckStopSignal())
 			return;
 
@@ -525,7 +524,7 @@ void expiration::Action()
 		tReporter repSec(this, "Reviewing candidates for removal...",
 						 eDlMsgSeverity::INFO, tReporter::SECTION);
 
-		RemoveAndStoreStatus(StrHas(m_parms.cmd, "purgeNow"));
+		RemoveAndStoreStatus(StrHas(m_parms.cmd, "purgeNow"), repSec);
 		PurgeMaintLogsAndObsoleteFiles();
 
 		DelTree(CACHE_BASE+"_actmp");
@@ -650,6 +649,45 @@ void expiration::TrimFiles()
 	}
 }
 
+void expiration::ScanCache()
+{
+	tReporter rep(this, "Scanning cache..."sv,
+					 eDlMsgSeverity::INFO, tReporter::SECTION);
+
+	struct tCollector : public IFileHandler
+	{
+		unsigned m_fileCur;
+		expiration& q;
+		cacheman::tProgressTeller pt;
+		tReporter& rep;
+		tCollector(expiration& _q, tReporter& r) : q(_q), rep(r), pt(r) {}
+		bool ProcessDirBefore(cmstring&, const struct stat &) { m_fileCur = 0; return true; }
+		bool ProcessOthers(cmstring&, const struct stat &) { m_fileCur++; return true; }
+		bool ProcessDirAfter(const std::string &sPath, const struct stat &st)
+		{
+			q.ProcessDir(sPath, !m_fileCur, st, rep);
+			return true;
+		}
+		bool ProcessRegular(const string & sPathAbs, const struct stat &stinfo)
+		{
+			m_fileCur++;
+			pt.Tell();
+			return q.ProcessCacheItem(sPathAbs, stinfo, rep);
+		}
+	} collector(*this, rep);
+	IFileHandler::DirectoryWalk(cfg::cachedir, &collector);
+}
+
+void expiration::ProcessDir(const std::string &sPath, bool isEmpty, const struct stat &st, tReporter& rep)
+{
+	if (isEmpty && st.st_mtim.tv_sec < m_expDate && !IsInternalItem(sPath, true))
+	{
+		rep << "Deleting old empty folder " << html_sanitize(sPath);
+		rmdir(sPath.c_str());
+	}
+	m_lastDirCache = se;
+}
+
 void expiration::HandleDamagedFiles()
 {
 	filereader f;
@@ -734,23 +772,6 @@ void expiration::PurgeMaintLogsAndObsoleteFiles()
 	}
 }
 
-bool expiration::ProcessDirBefore(const std::string &sPath, const struct stat &st)
-{
-	m_fileCur = 0;
-	return cacheman::ProcessDirBefore(sPath, st);
-}
-
-bool expiration::ProcessDirAfter(const std::string &sPath, const struct stat &st)
-{
-	if (!m_fileCur && st.st_mtim.tv_sec < m_oldDate && !IsInternalItem(sPath, true))
-	{
-		GetCurRep() << "Deleting old empty folder " << html_sanitize(sPath);
-		rmdir(sPath.c_str());
-	}
-	m_lastDirCache = se;
-	return cacheman::ProcessDirAfter(sPath, st);
-}
-
 
 int expiration::CheckCondition(string_view key)
 {
@@ -770,23 +791,15 @@ void expiration::SendProp(cmstring &key)
 		cacheman::SendProp(key);
 }
 
-bool expiration::ProcessOthers(const std::string &sPath, const struct stat &st)
-{
-	m_fileCur++;
-	return cacheman::ProcessOthers(sPath, st);
-}
 
-bool expiration::ProcessRegular(const string & sPathAbs, const struct stat &stinfo)
+bool expiration::ProcessCacheItem(cmstring& sPathAbs, const struct stat &stinfo, tReporter& rep)
 {
-	m_fileCur++;
-
 	if (AC_UNLIKELY(CheckStopSignal()))
 		return false;
 
 	if (AC_UNLIKELY(sPathAbs.size() <= CACHE_BASE_LEN)) // heh?
 		return false;
 
-	ProgTell(false);
 	auto diffMoreThan = [&stinfo](blkcnt_t diff)
 	{
 		return stinfo.st_blocks > diff && stinfo.st_size/stinfo.st_blksize < (stinfo.st_blocks - diff);
@@ -803,7 +816,7 @@ bool expiration::ProcessRegular(const string & sPathAbs, const struct stat &stin
 			// don't spam unless the user wants it and the size is really large
 			if(diffMoreThan(40))
 			{
-				GetCurRep().Misc(MsgFmt << "Trailing allocated space on " << sPathAbs << " (" << stinfo.st_blocks <<
+				rep.Misc(MsgFmt << "Trailing allocated space on " << sPathAbs << " (" << stinfo.st_blocks <<
 						" blocks, expected: ~" << (stinfo.st_size/stinfo.st_blksize + 1) <<"), will be trimmed later");
 			}
 		}

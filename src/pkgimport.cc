@@ -47,9 +47,10 @@ inline bool IsIndexDiff(const string & sPath)
 }
 */
 
-bool pkgimport::ProcessRegular(const mstring &sPath, const struct stat &stinfo)
+bool pkgimport::ImportFileFound(const mstring &sPath, const struct stat &stinfo, tReporter& rep)
 {
-	if(CheckStopSignal()) return false;
+	if(CheckStopSignal())
+		return false;
 
 	if(endsWithSzAr(sPath, ".head"))
 		return true;
@@ -57,65 +58,53 @@ bool pkgimport::ProcessRegular(const mstring &sPath, const struct stat &stinfo)
 	if(sPath.size()<=CACHE_BASE_LEN) // heh?
 		return false;
 
-	tReporter rep(this, sPath);
-	
-	if(m_bLookForIFiles)
+
+	if(rex::FILE_INVALID == m_parms.res.GetMatchers().GetFiletype(sPath))
+		return true;
+
+
+	// get a fingerprint by checksumming if not already there from the fpr cache
+
+	if(m_precachedList.find(sPath)!=m_precachedList.end())
+		return true; // have that already, somewhere...
+
+	for (CSTYPES ctp : { CSTYPE_MD5, CSTYPE_SHA1, CSTYPE_SHA512 } )
 	{
-		ProgTell(false);
 
-		if(0 == sPath.compare(CACHE_BASE_LEN, 1, "_"))
-			return true; // not for us, also excludes _import
-
-		AddIFileCandidate(sPath.substr(CACHE_BASE_LEN));
-	}
-	else if(rex::FILE_INVALID != m_parms.res.GetMatchers().GetFiletype(sPath))
-	{
-		// get a fingerprint by checksumming if not already there from the fpr cache
-
-		if(m_precachedList.find(sPath)!=m_precachedList.end())
-			return true; // have that already, somewhere...
-		
-		for (CSTYPES ctp : { CSTYPE_MD5, CSTYPE_SHA1, CSTYPE_SHA512 } )
-		{
-
-			// get the most likely requested contents id
-			tFingerprint fpr;
-			/*	if ( (IsIndexDiff(sPath) && fpr.ScanFile(sPath, CSTYPE_SHA1, true))
+		// get the most likely requested contents id
+		tFingerprint fpr;
+		/*	if ( (IsIndexDiff(sPath) && fpr.ScanFile(sPath, CSTYPE_SHA1, true))
 			 || (!IsIndexDiff(sPath) && fpr.ScanFile(sPath, CSTYPE_MD5, false)))
 			 */
-			if (!fpr.ScanFile(sPath, ctp, false, nullptr))
-			{
-				rep.Warning() << "Error checking file contents";
-				continue;
-			}
-			if (fpr.GetSize() < 50)
-			{
-				// ultra small files, looking like garbage (gz'ed empfy file, ...)
-				continue;
-			}
+		if (!fpr.ScanFile(sPath, ctp, false, nullptr))
+		{
+			rep.Warning() << "Error checking file contents";
+			continue;
+		}
+		if (fpr.GetSize() < 50)
+		{
+			// ultra small files, looking like garbage (gz'ed empfy file, ...)
+			continue;
+		}
 
-			SendFmt << "<font color=blue>Checked " << sPath << " (" << GetCsName(ctp)
-					<< " fingerprint created)</font><br>\n";
+		SendFmt << "<font color=blue>Checked " << sPath << " (" << GetCsName(ctp)
+				<< " fingerprint created)</font><br>\n";
 
-			// add this entry immediately if needed and get its reference
-			tImpFileInfo & node = m_importMap[fpr];
-			if (node.sPath.empty())
-			{ // fresh, just added to the map
-				node.sPath = sPath;
-				node.mtime = stinfo.st_mtime;
-			}
-			else if (node.sPath != sPath)
-			{
-				rep.Warning() << (MsgFmt << "Duplicate found, "sv << sPath << " vs. "
-						<< node.sPath << ", ignoring new entry."sv);
-				m_importRest.emplace_back(fpr, tImpFileInfo(sPath, stinfo.st_mtime));
-			}
+		// add this entry immediately if needed and get its reference
+		tImpFileInfo & node = m_importMap[fpr];
+		if (node.sPath.empty())
+		{ // fresh, just added to the map
+			node.sPath = sPath;
+			node.mtime = stinfo.st_mtime;
+		}
+		else if (node.sPath != sPath)
+		{
+			rep.Warning() << (MsgFmt << "Duplicate found, "sv << sPath << " vs. "
+							  << node.sPath << ", ignoring new entry."sv);
+			m_importRest.emplace_back(fpr, tImpFileInfo(sPath, stinfo.st_mtime));
 		}
 	}
-	else
-	{
-		rep << "File type unknown, skipping.";
-	}
+
 	return true;
 }
 
@@ -170,30 +159,41 @@ bool LinkOrCopy(const std::string &from, const std::string &to)
 	return false;
 }
 
+string svImportSfx("_import");
+string svImportSfxSlash("_import/");
 			
 void pkgimport::Action()
 {
-// TODO: import path from cmd?
-	m_sSrcPath=CACHE_BASE+"_import";
+	auto sSrcPath = SABSPATH(svImportSfx);
 	
-	SendFmt << "Importing from " << m_sSrcPath << " directory.<br>Scanning local files...<br>";
+	tReporter rep(this, MsgFmt << "Importing from " << sSrcPath << " directory.",
+				  eDlMsgSeverity::INFO, tReporter::SECTION);
 
-	m_bByPath=true; // should act on all locations
+	m_bByPath = true; // should act on all locations
 
 	_LoadKeyCache();
 	if(!m_precachedList.empty())
-		Send( tSS(100)<<"Loaded "<<m_importMap.size()<<
-				(m_precachedList.size()==1 ? " entry" : " entries")
-				<<" from the fingerprint cache<br>\n");
-	
-	m_bLookForIFiles=true;
+	{
+		Send( tSS(100) << "Loaded " << m_importMap.size()
+			  << (m_precachedList.size()==1 ? " entry" : " entries")
+			  <<" from the fingerprint cache<br>\n");
+	}
 
-	BuildCacheFileList();
+	IFileHandler::FindFiles(CACHE_BASE, [&](cmstring& s, const struct stat&)
+	{
+		if (CheckStopSignal()) return false;
+		string_view rel(s);
+		rel.remove_prefix(CACHE_BASE_LEN + 1);
+		if (!IsInternalItem(s, true))
+			AddIFileCandidate(rel);
+		return true;
+	});
+
 	if(CheckStopSignal()) return;
 	
 	if (m_metaFilesRel.empty())
 	{
-		GetCurRep().Error("No index files detected. Unable to continue, cannot map files to internal locations."sv);
+		rep.Error("No index files detected. Unable to continue, cannot map files to internal locations."sv);
 		return;
 	}
 
@@ -201,17 +201,20 @@ void pkgimport::Action()
 		return;
 	if (!UpdateVolatileFiles() && m_bErrAbort)
 	{
-		GetCurRep().Error(sAbortMessage);
+		rep.Error(sAbortMessage);
 		return;
 	}
 	if (CheckStopSignal())
 		return;
 
-	
-	m_bLookForIFiles=false;
-	DBGQLOG("building contents map for " << m_sSrcPath);
-	DirectoryWalk(m_sSrcPath, this, true);
-	if(CheckStopSignal()) return;
+	DBGQLOG("building contents map for " << sSrcPath);
+	IFileHandler::FindFiles(sSrcPath, [&](cmstring& s, const struct stat& stinfo)
+	{
+		return ImportFileFound(s, stinfo, rep);
+	});
+
+	if(CheckStopSignal())
+		return;
 	
 	if(m_importMap.empty())
 	{
@@ -252,7 +255,7 @@ void pkgimport::Action()
 		fList << fpr2info.first.GetSize() << svendl
 				<< (int)fpr2info.first.GetCsType() << svendl
 				<< fpr2info.first.GetCsAsString() << svendl
-				<< fpr2info.second.sPath.substr(m_sSrcPath.size()+1) <<svendl
+				<< fpr2info.second.sPath.substr(sSrcPath.size()+1) <<svendl
 				<< fpr2info.second.mtime	<<svendl;
 
 		remaining += fpr2info.first.GetSize();
@@ -265,7 +268,7 @@ void pkgimport::Action()
 		fList << fpr2info.first.GetSize() << svendl
 				<< (int)fpr2info.first.GetCsType() << svendl
 				<< fpr2info.first.GetCsAsString() << svendl
-				<< fpr2info.second.sPath.substr(m_sSrcPath.size()+1) <<svendl
+				<< fpr2info.second.sPath.substr(sSrcPath.size()+1) <<svendl
 				<< fpr2info.second.mtime	<<svendl;
 		remaining += fpr2info.first.GetSize();
 	}
@@ -372,7 +375,7 @@ void pkgimport::_LoadKeyCache()
 			return;
 
 		std::getline(in, info.sPath);
-		info.sPath.insert(0, m_sSrcPath + SZPATHSEP);
+		info.sPath.insert(0, SABSPATH(svImportSfxSlash));
 
 		in>>info.mtime;
 		std::getline(in, cs); // newline

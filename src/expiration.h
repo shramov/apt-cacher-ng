@@ -42,15 +42,14 @@ protected:
 	std::unordered_multimap<string_view,tDiskFileInfo> m_delCand;
 	tStrVec m_oversizedFiles;
 	tStrDeq m_emptyFolders;
-	unsigned m_fileCur;
-	time_t m_oldDate;
+	time_t m_expDate;
 
 	tDiskFileInfo* PickCand(std::pair<decltype (m_delCand)::iterator, decltype (m_delCand)::iterator> range, string_view dir);
 	tDiskFileInfo* PickCand(string_view folderName, string_view fileName);
 	std::pair<tDiskFileInfo&,bool> PickOrAdd(string_view folderName, string_view fileName, bool dupData);
 	std::pair<tDiskFileInfo&,bool> PickOrAdd(string_view svPathRel);
 
-	void RemoveAndStoreStatus(bool purgeAll);
+	void RemoveAndStoreStatus(bool purgeAll, tReporter& rep);
 
 	// callback implementations
 	virtual void Action() override;
@@ -80,12 +79,11 @@ private:
 	void ListExpiredFiles(bool bPurgeNow);
 	void TrimFiles();
 
-	// IFileHandler interface
+	void ScanCache();
+
 public:
-	bool ProcessRegular(const mstring &sPath, const struct stat &) override;
-	bool ProcessOthers(const std::string &sPath, const struct stat &) override;
-	bool ProcessDirBefore(const std::string &sPath, const struct stat &) override;
-	bool ProcessDirAfter(const std::string &sPath, const struct stat &) override;
+	bool ProcessCacheItem(const mstring &sPath, const struct stat &st, tReporter& rep);
+	void ProcessDir(const std::string &sPath, bool isEmpty, const struct stat &st, tReporter& rep);
 
 	// tMarkupFileSend interface
 protected:

@@ -79,6 +79,7 @@ class ACNG_API acbuf
          */
         int sysread(int fd, unsigned int maxlen=MAX_VAL(unsigned int));
 
+		bool isInited() { return m_buf; }
 
     protected:
         size_t r, w, m_nCapacity; // read/write positions, size

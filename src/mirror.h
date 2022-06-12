@@ -21,7 +21,7 @@ public:
 
 protected:
 	// FileHandler
-	bool ProcessRegular(const mstring &sPath, const struct stat &) override;
+	bool ProcessRegular(const mstring &sPath, const struct stat &);
 	void HandlePkgEntry(const tRemoteFileInfo &entry);
 	void _LoadKeyCache(const mstring & sFileName);
 
