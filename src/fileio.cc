@@ -121,7 +121,7 @@ bool xtouch(cmstring &wanted)
 	return true;
 }
 
-bool optmkdir(LPCSTR path)
+bool ACNG_API optmkdir(LPCSTR path)
 {
 	return 0 == mkdir(path, cfg::dirperms) || EEXIST == errno;
 }
@@ -240,7 +240,7 @@ ssize_t ACNG_API eb_dump_chunks(evbuffer* inbuf, mstring& ret,  size_t nMax2Send
 	return nMax2SendNow;
 };
 
-ssize_t eb_dump_chunks(evbuffer* inbuf, int out_fd, size_t nMax2SendNow)
+ssize_t ACNG_API eb_dump_chunks(evbuffer* inbuf, int out_fd, size_t nMax2SendNow)
 {
 	auto xl(std::min(nMax2SendNow, evbuffer_get_length(inbuf)));
 	return eb_dump_chunks<int, ::writev>(inbuf, out_fd, xl);

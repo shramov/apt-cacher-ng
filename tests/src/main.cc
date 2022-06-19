@@ -28,3 +28,10 @@ int main(int argc, char **argv)
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
+
+namespace acng
+{
+#ifdef DEBUG
+void dbg_handler(evutil_socket_t, short, void*) {}
+#endif
+}

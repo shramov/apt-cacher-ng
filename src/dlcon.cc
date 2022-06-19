@@ -19,6 +19,11 @@
 #include "aclock.h"
 #include "rex.h"
 
+#ifdef DEBUG
+// just for the pointer cast
+#include "conserver.h"
+#endif
+
 #include <algorithm>
 #include <list>
 #include <map>
@@ -57,6 +62,10 @@ struct tDlStream;
 using tDlStreamPool = list<tDlStream>;
 #define MOVE_FRONT_THERE_TO_BACK_HERE(there, here) here.splice(here.end(), there, there.begin())
 static const struct timeval timeout_asap{0,0};
+
+#ifdef DEBUG
+void dbg_dump(Dumpable* what);
+#endif
 
 enum class eJobResult
 {
@@ -1670,7 +1679,10 @@ void CDlConn::DispatchDfrd(tDlJobPtr&& what, tDlJobPrioQ& unhandled)
 			return what.reset();
 	}
 
-	ldbg("2many streams, let's interrupt something");
+	ldbg("### TOO MANY STREAMS; let's interrupt something");
+#ifdef DEBUG
+	dbg_dump(m_res.GetLastConserver());
+#endif
 
 	unhandled.push(move(what));
 	dbgline;

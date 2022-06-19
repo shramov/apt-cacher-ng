@@ -64,7 +64,7 @@ string_view GetBaseName(string_view in)
 
 #warning inline this
 
-string_view GetDirPart(string_view in, eSlashMode smode)
+string_view ACNG_API GetDirPart(string_view in, eSlashMode smode)
 {
 	if(in.empty())
 		return smode == eSlashMode::ALWAYS ? SVPATHSEPUNIX : se;

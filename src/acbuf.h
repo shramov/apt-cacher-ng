@@ -138,7 +138,17 @@ public:
 	bool recv(int nConFd, std::string* sErrorStatus=nullptr);
 
     inline tSS & add(const char *data, size_t len)
-	{ if (len) { reserve_atleast(len); assert(data); memcpy(wptr(), data, len); got(len); }; return *this; }
+	{
+		if (len)
+		{
+			reserve_atleast(len);
+#ifdef DEBUG
+			assert(data);
+#endif
+			memcpy(wptr(), data, len); got(len);
+		};
+		return *this;
+	}
 	inline tSS & add(const char *val) { if(val) return add(val, strlen(val)); return *this; }
 	inline tSS & add(const std::string& val) { return add((const char*) val.data(), (size_t) val.size());}
 

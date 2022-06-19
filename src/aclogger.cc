@@ -14,6 +14,7 @@
 #include "filereader.h"
 #include "fileio.h"
 #include "acutilpath.h"
+#include "dumper.h"
 
 #include <vector>
 #include <deque>
@@ -592,4 +593,11 @@ void ACNG_API dump_proc_status_always()
 };
 #endif
 
+#ifdef DEBUG
+void dbg_dump(Dumpable* what)
+{
+	Dumper dumper;
+	what->DumpInfo(dumper);
+}
+#endif
 }

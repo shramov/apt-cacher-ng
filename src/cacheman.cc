@@ -330,8 +330,8 @@ cacheman::tReporter::~tReporter()
 
 string_view cacheman::tReporter::GetIndent()
 {
+#warning All this is crap. Simplify! Let the browser handle indenting, use just <ul><li>... and only remember here which type of bullet point was used last time, then adjust list-style property
 #define IFAC 10
-
 	// a bit of memoization here
 	if (q.m_localMemoIndent == q.m_indentLevel)
 		return q.m_repIndentFmt;

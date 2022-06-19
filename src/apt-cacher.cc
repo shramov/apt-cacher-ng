@@ -57,6 +57,7 @@ void check_algos();
 void ac3rdparty_init();
 void ac3rdparty_deinit();
 
+void dbg_dump(Dumpable* what);
 
 //extern mstring sReplDir;
 
@@ -232,8 +233,7 @@ void noop_handler(evutil_socket_t, short, void*)
 #ifdef DEBUG
 void dbg_handler(evutil_socket_t, short, void*)
 {
-	Dumper dumper;
-	g_server->DumpInfo(dumper);
+	dbg_dump(g_server);
 }
 #endif
 
