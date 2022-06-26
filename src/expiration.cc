@@ -660,7 +660,7 @@ void expiration::ScanCache()
 		expiration& q;
 		cacheman::tProgressTeller pt;
 		tReporter& rep;
-		tCollector(expiration& _q, tReporter& r) : q(_q), rep(r), pt(r) {}
+		tCollector(expiration& _q, tReporter& r) : q(_q), pt(r), rep(r) {}
 		bool ProcessDirBefore(cmstring&, const struct stat &) { m_fileCur = 0; return true; }
 		bool ProcessOthers(cmstring&, const struct stat &) { m_fileCur++; return true; }
 		bool ProcessDirAfter(const std::string &sPath, const struct stat &st)

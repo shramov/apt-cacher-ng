@@ -166,7 +166,7 @@ void pkgimport::Action()
 {
 	auto sSrcPath = SABSPATH(svImportSfx);
 	
-	tReporter rep(this, MsgFmt << "Importing from " << sSrcPath << " directory.",
+	tReporter rep(this, MsgFmt << "Importing from " << sSrcPath << " directory...",
 				  eDlMsgSeverity::INFO, tReporter::SECTION);
 
 	m_bByPath = true; // should act on all locations

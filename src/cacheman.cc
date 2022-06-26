@@ -1,5 +1,5 @@
 
-//#define DEBUGSPAM
+#define DEBUGSPAM
 
 #include "debug.h"
 #include "cacheman.h"
@@ -268,12 +268,16 @@ void cacheman::tReporter::SendDecoratedComment(string_view msg, eDlMsgSeverity c
 
 cacheman::tReporter::~tReporter()
 {
+	bool bIndent = ! (m_hints & NO_INDENT);
 	if (IsCollecting())
 	{
+		// start printing to stream?
+		if (bIndent)
+			q.ReportIndentInc();
+
 		q.Send(m_prbuf);
 		m_prbuf.clear();
-	}
-	q.m_indentLevel--;
+	}	
 	if (m_sError.has_value())
 	{
 		q.Send(q.m_repLocalFmt.clean() << "<label>"
@@ -325,9 +329,14 @@ cacheman::tReporter::~tReporter()
 	}
 #endif
 
-	*this << "</span>";
+	//*this << "</span>";
+	//q.m_indentLevel--;
+	if (bIndent)
+		q.ReportIndentDec();
+
 }
 
+#if 0 // alternative indent code, actually not that good looking
 string_view cacheman::tReporter::GetIndent()
 {
 #warning All this is crap. Simplify! Let the browser handle indenting, use just <ul><li>... and only remember here which type of bullet point was used last time, then adjust list-style property
@@ -343,6 +352,7 @@ string_view cacheman::tReporter::GetIndent()
 		q.m_repIndentFmt << ((q.m_indentLevel & 1) ? "&#x2022;&nbsp;"sv : "&#x2010;&nbsp;"sv);
 	return q.m_repIndentFmt;
 }
+#endif
 
 bool cacheman::tReporter::IsCollecting()
 {
@@ -353,34 +363,35 @@ cacheman::tReporter::tReporter(cacheman *parent, string_view what, eDlMsgSeverit
 	: q(*parent), m_hints(hints)
 {
 	//q.m_reporters.push(this);
-	q.m_indentLevel++;
+	//q.m_indentLevel++;
 
 	if (sev > sevLimit)
 		sev = sevLimit;
 
 	sevCur = sev;
 	m_sWhat = what;
-	auto isLab = (hints & WHAT_IS_LABEL);
 	if (sev < q.m_printSeverityMin || (hints & FORCE_COLLECTING ))
 		m_prbuf.setsize(88);
 
 #define ADD_MSG(x) { if (IsCollecting()) m_prbuf << x ; else q.Send(x); }
 
-	if (! (hints & NO_BREAK))
+	UNLESS(hints & WHAT_IS_HEADING) UNLESS(hints & NO_BREAK) ADD_MSG("<br>");
+
+	UNLESS(hints & NO_INDENT)
 	{
-		ADD_MSG("<br>");
-		ADD_MSG(GetIndent());
+		if (!IsCollecting())
+			q.ReportIndentInc();
 	}
 
-	if (isLab)
+	if (hints & WHAT_IS_HEADING)
 		ADD_MSG("<h2>");
 
 	ADD_MSG(what);
 
-	if (isLab)
+	if (hints & WHAT_IS_HEADING)
 		ADD_MSG("</h2>");
 
-	if (!isLab)
+	UNLESS(hints & WHAT_IS_HEADING)
 		ADD_MSG(": "sv);
 }
 
@@ -1208,11 +1219,6 @@ bool cacheman::Inject(string_view fromRel, string_view toRel,
 
 void cacheman::ExtractReleaseDataAndAutofixPatchIndex(tFileGroups& idxGroups, string_view sPathRel)
 {
-#ifdef DEBUG
-	SendFmt << "Start parsing " << sPathRel << "<br>";
-#endif
-	// raw data extraction
-
 	typedef map<string, tContentKey> tFile2Cid;
 	// pull all contents into a sorted dictionary for later filtering
 	// the key represents the identity of the file
@@ -1688,12 +1694,12 @@ bool cacheman::UpdateVolatileFiles()
 	string sErr; // for download error output
 	bool failed = false;
 
+	tReporter rep(this, "Bringing index files up to date..."sv,
+				  eDlMsgSeverity::INFO, tReporter::SECTION);
+
 	// just reget them as-is and we are done. Also include non-index files, to be sure...
 	if (m_bForceDownload)
 	{
-		tReporter rep(this, "Bringing index files up to date..."sv,
-					  eDlMsgSeverity::INFO, tReporter::SECTION);
-
 		for (auto& f: m_metaFilesRel)
 		{
 			// tolerate or not, it depends
@@ -1717,7 +1723,8 @@ bool cacheman::UpdateVolatileFiles()
 	dbgline;
 	tFileGroups idxGroups;
 
-	auto dbgState = [&]() {
+	auto dbgState = [&]()
+	{
 #ifdef DEBUGSPAM
 		for (auto& f: m_metaFilesRel)
 			SendFmt << "State of " << f.first << ": "
@@ -1755,9 +1762,8 @@ bool cacheman::UpdateVolatileFiles()
 
 	if(m_bSkipIxUpdate)
 	{
-		SendFmt << "<span class=\"ERROR\">"
-				"Warning: Online Activity is disabled, some update errors might be not recoverable without it"
-				"<br></span>\n";
+		rep.Warning() << "Warning: Online Activity is disabled, "sv
+						 "some update errors might be not recoverable without it"sv;
 	}
 
 	unordered_map<string_view,string_view> uniqueReleaseFiles; // key=folder, value=rel-file-path
@@ -1765,14 +1771,11 @@ bool cacheman::UpdateVolatileFiles()
 	{
 		// this runs early with the state that is present on disk, before updating any file,
 		// since it deals with the "reality" in the cache
-		tReporter rep(this, "Checking by-hash stored files or redownloading as needed..."sv,
+		tReporter rep(this, "Checking/Updating by-hash stored Release files..."sv,
 					  eDlMsgSeverity::INFO, tReporter::SECTION);
 
-		/*
-	 * Update all Release files
-	 *
-	 * Prefer the InRelease version where it has been observed
-	 */
+		// Update all Release files
+		// Prefer the InRelease version where it has been observed
 
 		for (auto it = m_metaFilesRel.begin(); it != m_metaFilesRel.end(); ++it)
 		{
@@ -1781,7 +1784,7 @@ bool cacheman::UpdateVolatileFiles()
 
 			size_t len;
 
-			if(endsWith(it->first, inRelKey))
+			if (endsWith(it->first, inRelKey))
 				len = it->first.length() - inRelKey.length();
 			else if (endsWith(it->first, relKey))
 				len = it->first.length() - relKey.length();
@@ -1806,17 +1809,23 @@ bool cacheman::UpdateVolatileFiles()
 	{
 		// this runs early with the state that is present on disk, before updating any file,
 		// since it deals with the "reality" in the cache
-		tReporter rep(this, "Bringing index files up to date..."sv,
-					  eDlMsgSeverity::INFO, tReporter::SECTION);
+		tReporter rep(this, "Synchronizing cached by-hash variants"sv,
+					  eDlMsgSeverity::VERBOSE, tReporter::SECTION);
 
 		if(!FixMissingOriginalsFromByHashVersions())
 		{
 			rep.Error("Error fixing by-hash links"sv);
 			LOGRET(false);
 		}
+	}
+
+	{
+		// this runs early with the state that is present on disk, before updating any file,
+		// since it deals with the "reality" in the cache
+		tReporter rep(this, "Synchronizing remote cache identities"sv,
+					  eDlMsgSeverity::VERBOSE, tReporter::SECTION);
 		for (const auto& kv: uniqueReleaseFiles)
 			ExtractReleaseDataAndAutofixPatchIndex(idxGroups, kv.second);
-
 	}
 
 	dbgDump("After group building:", 0);
@@ -2042,7 +2051,7 @@ bool cacheman::ParseAndProcessMetaFile(tCbReport cbReportOne, tMetaMap::iterator
 	auto& idxType = idxFile->second.eIdxType;
 
 	tReporter rep(this, sPath, eDlMsgSeverity::INFO);
-	rep << "processing... "sv;
+	//rep << "processing... "sv;
 
 	tRemoteFileInfo info;
 

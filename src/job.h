@@ -30,7 +30,7 @@ public:
 	static uint_fast32_t g_genJobId;
 	job(IConnBase& parent) : m_parent(parent) {}
 
-	~job();
+	IFDEBUG(virtual) ~job();
 
 	void Prepare(const header &h, bufferevent* be, cmstring& callerHostname, acres& res);
 	void PrepareFatalError(string_view errorStatus);
@@ -60,9 +60,7 @@ public:
 	aobservable::subscription m_subKey;
 	// std::shared_ptr<SomeData> m_tempData; // local state snapshot for delayed data retrieval
 	std::unique_ptr<fileitem::ICacheDataSender> m_dataSender;
-#ifdef DEBUG
-	uint_fast32_t m_id = g_genJobId++;
-#endif
+	IFDEBUG(uint_fast32_t m_id = g_genJobId++);
     bool m_bIsHttp11 = true;
 	bool m_bIsHeadOnly = false;
 
@@ -110,12 +108,7 @@ public:
 	 * @return Format object usable for convenient data adding, which is sent ASAP in the next operation cycles
 	 */
 	inline ebstream GetBufFmter();
-
-#ifdef DEBUG
-	// Analyzed interface
-public:
-	void DumpInfo(Dumper &) override;
-#endif
+	IFDEBUG(void DumpInfo(Dumper &) override);
 };
 
 }

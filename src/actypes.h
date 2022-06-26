@@ -58,6 +58,16 @@ typedef const char * LPCSTR;
 #define MIN_VAL(x) (std::numeric_limits< x >::min())
 #define MAX_VAL(x) (std::numeric_limits< x >::max())
 
+#define UNLESS(x) if (!(x))
+
+#ifdef __GNUC__
+#define AC_LIKELY(x)   __builtin_expect(!!(x), true)
+#define AC_UNLIKELY(x) __builtin_expect(!!(x), false)
+#else
+#define AC_LIKELY(x)   x
+#define AC_UNLIKELY(x) x
+#endif
+
 #define STRINGIFY(a) STR(a)
 #define STR(a) #a
 

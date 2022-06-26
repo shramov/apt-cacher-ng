@@ -529,7 +529,7 @@ struct tDlJob
 		return m_bFileItemAssigned ? eResponsibility::US : eResponsibility::NOT_US;
 	}
 
-	~tDlJob()
+	virtual ~tDlJob()
 	{
 		LOGSTART("tDlJob::~tDlJob");
 		if (m_pStorageRef)
@@ -1074,7 +1074,7 @@ TRAILER_JUNK_SKIPPED:
 			{
 #ifdef DEBUG
 				auto curLen = evbuffer_get_length(pBuf);
-				auto what = evbuffer_pullup(pBuf, curLen);
+				static volatile auto what = evbuffer_pullup(pBuf, curLen);
 				if (curLen < 2)
 					return eJobResult::HINT_MORE;
 #endif

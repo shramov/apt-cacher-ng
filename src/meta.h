@@ -232,14 +232,6 @@ off_t Hex2Offt(string_view s);
 
 typedef std::deque<std::pair<std::string, std::string>> tLPS;
 
-#ifdef __GNUC__
-#define AC_LIKELY(x)   __builtin_expect(!!(x), true)
-#define AC_UNLIKELY(x) __builtin_expect(!!(x), false)
-#else
-#define AC_LIKELY(x)   x
-#define AC_UNLIKELY(x) x
-#endif
-
 // shortcut for the non-invasive lookup and copy of stuff from maps
 #define ifThereStoreThere(x,y,z) { auto itFind = (x).find(y); if(itFind != (x).end()) z = itFind->second; }
 #define ifThereStoreThereAndBreak(x,y,z) { auto itFind = (x).find(y); if(itFind != (x).end()) { z = itFind->second; break; } }

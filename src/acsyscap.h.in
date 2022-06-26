@@ -38,3 +38,5 @@
 #define LOGDIR "@ACNG_LOG_DIR@"
 #define UDSPATH "@SOCKET_PATH@"
 #cmakedefine DEBUG
+
+#define OPENSSL_API_COMPAT 0x10100000L

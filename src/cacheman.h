@@ -166,7 +166,7 @@ public:
 		std::optional<mstring> m_sWhat, m_sError;
 		tSS m_prbuf;
 		eDlMsgSeverity sevCur = eDlMsgSeverity::UNKNOWN, sevLimit = eDlMsgSeverity::NEVER;
-		bool m_isPlainSection = false, m_bCollectingError = false, m_bWarnSpanOpen = false;
+		bool m_bCollectingError = false, m_bWarnSpanOpen = false;
 		int m_hints = 0, m_errorId = 0;
 
 	public:
@@ -174,17 +174,19 @@ public:
 		tReporter(cacheman* owner, string_view what, eDlMsgSeverity sev = eDlMsgSeverity::VERBOSE, int hints = NONE);
 		~tReporter();
 
-		enum eHint
+		enum eFmtHint
 		{
 			// various uses, can be passed through ctor or later
 			NONE = 0,
 			FORCE_COLLECTING = 1, // no matter what min. severity is set, go to collecting mode in the beginning
 			TAG_AS_NEEDED = 2, // print checkbox and error handling in case of errors unless forgivedlerrors flag is set
 			TAG_ALWAYS = 4, // always flag errors with checkbox
+			WHAT_IS_HEADING = 8,
 			WHAT_IS_LABEL = 16, // `what` parameter is a title and has no meaning as a file
 			NO_ITEM_PREFIX = 32, // `what` parameter is a file but shall not be reported as title prefix
-			SECTION = 8,
-			NO_BREAK = 64
+			NO_BREAK = 64,
+			NO_INDENT = 128,
+			SECTION = (WHAT_IS_HEADING | NO_INDENT)
 		} tagHint = TAG_AS_NEEDED;
 
 		tReporter& IgnoreErrors()
@@ -239,10 +241,9 @@ public:
 		void Data(eDlMsgSeverity sev, string_view reason);
 
 	private:
-		string_view GetIndent();
 		bool IsCollecting();
 	};
-	std::atomic_int m_indentLevel = 0;
+
 	friend class tReporter;
 
 	// common helper variables
@@ -339,6 +340,11 @@ public:
 	virtual void MarkObsolete(cmstring&) {};
 
 	SUTPRIVATE:
+
+	// future extension
+	//int m_indentDepth = 0;
+	void ReportIndentInc() {}
+	void ReportIndentDec() {}
 
 	void ExtractReleaseDataAndAutofixPatchIndex(tFileGroups& ret, string_view sPathRel);
 	bool FilterGroupData(tFileGroups& idxGroups);
