@@ -27,12 +27,9 @@ tSslConfig::tSslConfig()
 	if(inited)
 		return;
 	inited = true;
-	SSL_load_error_strings();
+	OPENSSL_init_ssl(OPENSSL_INIT_SSL_DEFAULT, nullptr);
 	ERR_load_BIO_strings();
-	ERR_load_crypto_strings();
 	ERR_load_SSL_strings();
-	OpenSSL_add_all_algorithms();
-	SSL_library_init();
 }
 
 tSslConfig::~tSslConfig()
