@@ -592,7 +592,7 @@ public:
 	lint_user_ptr<dlcontroller> dler;
 	deque<lint_user_ptr<TDownloadState>> states;
 	cacheman& m_owner;
-	promise<cacheman::eDlResult> m_repResult;
+	acpromise<cacheman::eDlResult> *m_repResult = nullptr;
 	aobservable::subscription m_shutdownCanceler;
 	const tRewriteHint *pUsedRewrite = nullptr;
 
@@ -1009,9 +1009,9 @@ public:
 		};
 	};
 
-	void Start(std::promise<cacheman::eDlResult>& pro, cacheman::tDlOpts&& opts)
+	void Start(acpromise<cacheman::eDlResult>* pro, cacheman::tDlOpts&& opts)
 	{
-		m_repResult.swap(pro);
+		m_repResult = pro;
 		states.emplace_back(lint_user_ptr(new TDownloadState(*this, move(opts))));
 		states.back()->Run();
 	}
@@ -1038,7 +1038,7 @@ public:
 		auto pin(shared_from_this());
 		try
 		{
-			m_repResult.set_value(res);
+			m_repResult->set_value(res);
 		}
 		catch (...)
 		{
@@ -1093,14 +1093,14 @@ cacheman::eDlResult cacheman::Download(string_view sFilePathRel, tDlOpts opts)
 		return cacheman::eDlResult::OK;
 	}
 
-	std::promise<cacheman::eDlResult> pro;
+	acpromise<cacheman::eDlResult> pro;
 	auto fut = pro.get_future();
 	evabase::GetGlobal().SyncRunOnMainThread([&]()
 	{
 		if (!m_dler)
 			m_dler.reset(new TDownloadController(m_parms.res, *this));
 
-		m_dler->Start(pro, move(opts));
+		m_dler->Start(&pro, move(opts));
 		return 0;
 	});
 	try

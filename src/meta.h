@@ -15,6 +15,8 @@
 #include <cstring>
 #include <atomic>
 #include <mutex>
+#include <condition_variable>
+#include <exception>
 
 #include <fcntl.h>
 #include <strings.h>
@@ -361,6 +363,58 @@ T take_front(std::deque<T>& container)
 	container.pop_front();
 	return ret;
 }
+
+
+template<typename T>
+class acpromise
+{
+	T res = T();
+	bool done = false;
+	std::exception_ptr bad;
+
+	std::mutex mx;
+	std::condition_variable cond;
+
+	acpromise(const acpromise&) =delete;
+public:
+	acpromise() {}
+	void set_value(T val)
+	{
+		lguard g(mx);
+		res = val;
+		done = true;
+		cond.notify_all();
+	}
+	void set_exception(std::exception_ptr ex)
+	{
+		lguard g(mx);
+		bad = ex;
+		done = true;
+		cond.notify_all();
+	}
+	T get()
+	{
+		ulock g(mx);
+		while(!done)
+		{
+			cond.wait(g);
+		}
+		if (bad)
+			std::rethrow_exception(bad);
+		return res;
+	}
+	struct future
+	{
+		acpromise& pro;
+		future(acpromise& par) : pro(par){}
+		T get() { return pro.get(); }
+	};
+	future get_future()
+	{
+		return future(*this);
+	}
+};
+
 
 }
 

@@ -77,6 +77,8 @@ public:
  */
 	static void Post(tAction&&);
 
+	static void Post(const tAction*);
+
 	/**
  * @brief Execute in-place if on main thread, otherwise Post it
  */

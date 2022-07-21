@@ -244,7 +244,7 @@ void cb_handover(evutil_socket_t, short, void*)
 	}
 }
 
-void evabase::Post(tAction && act)
+void evabase::Post(tAction&& act)
 {
 	if (!act)
 		return;
@@ -303,9 +303,11 @@ uintptr_t evabase::SyncRunOnMainThread(std::function<uintptr_t ()> act, uintptr_
 
 	if(std::this_thread::get_id() == GetMainThreadId())
 		return act();
-
-	std::promise<uintptr_t> pro;
+	acpromise<uintptr_t> pro;
 	auto fut = pro.get_future();
+
+#if 1
+
 	try
 	{
 		Post([&]() -> void
@@ -325,6 +327,74 @@ uintptr_t evabase::SyncRunOnMainThread(std::function<uintptr_t ()> act, uintptr_
 		return onRejection;
 	}
 	return fut.get();
+#endif
+#if 0
+	void *a = &pro, *b = &act;
+	try
+	{
+		tAction todo = [/*pa = &act, p = &pro*/ a, b]() mutable
+		{
+				auto p = ((decltype(pro)*)a);
+				auto pa = ((decltype(act)*)b);
+			try
+			{
+				p->set_value((*pa)());
+
+			}
+			catch (...)
+			{
+				p->set_exception(std::current_exception());
+			}
+		};
+		Post(move(todo));
+	}
+	catch (...)
+	{
+		return onRejection;
+	}
+	return fut.get();
+#endif
+#if 0
+	bool done = false;
+	exception_ptr bad;
+	std::mutex mx;
+	std::condition_variable cond;
+	uintptr_t res;
+	try
+	{
+		tAction todo = [&]() mutable
+		{
+			try
+			{
+				auto x = act();
+				lguard g(mx);
+				res = x;
+				done = true;
+				cond.notify_all();
+			}
+			catch (...)
+			{
+				lguard g(mx);
+				bad = std::current_exception();
+				done = true;
+				cond.notify_all();
+			}
+		};
+		Post(move(todo));
+	}
+	catch (...)
+	{
+		return onRejection;
+	}
+	ulock g(mx);
+	while(!done)
+	{
+		cond.wait(g);
+	}
+	if (bad)
+		std::rethrow_exception(bad);
+	return res;
+#endif
 }
 
 
