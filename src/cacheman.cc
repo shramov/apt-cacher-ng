@@ -1,6 +1,3 @@
-
-#define DEBUGSPAM
-
 #include "debug.h"
 #include "cacheman.h"
 #include "expiration.h"
@@ -1728,7 +1725,7 @@ bool cacheman::UpdateVolatileFiles()
 #ifdef DEBUGSPAM
 		for (auto& f: m_metaFilesRel)
 			SendFmt << "State of " << f.first << ": "
-					<< f.second.toString();
+					<< f.second.hideDlErrors;
 #endif
 	};
 

@@ -268,8 +268,7 @@ off_t lastCurrentDlCount(0);
 void expiration::HandlePkgEntry(const tRemoteFileInfo &entry)
 {
 #ifdef DEBUGSPAM
-	LOGSTART2("expiration::HandlePkgEntry:",
-			  "\ndir:" << entry.sDirectory << "\nname: " << entry.sFileName << "\nsize: " << entry.fpr.size << "\ncsum: " << entry.fpr.GetCsAsString());
+	LOG("expiration::HandlePkgEntry:" << "\npath:" << entry.path << "\nsize: " << entry.fpr.GetSize() << "\ncsum: " << entry.fpr.GetCsAsString());
 #endif
 
 	auto what = SplitDirPath(entry.path);

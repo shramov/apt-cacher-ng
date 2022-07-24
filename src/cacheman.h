@@ -16,6 +16,8 @@
 #include <initializer_list>
 #include <unordered_map>
 
+#define DEBUGSPAM
+
 namespace acng
 {
 
@@ -122,7 +124,7 @@ public:
 		off_t usedDiskSpace = 0;
 		inline tIfileAttribs() =default;
 
-#if defined(DEBUG) || defined(DEBUGIDX)
+#if defined(DEBUG) || defined(DEBUGIDX) || defined(DEBUGSPAM)
 		inline tSS toString() const
 		{
 			return tSS() << forgiveDlErrors << "|"
