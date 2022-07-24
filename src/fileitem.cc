@@ -672,37 +672,45 @@ void fileitem::DlSetError(const tRemoteStatus& errState, fileitem::EDestroyMode 
 void fileitem::ManualStart(int statusCode, mstring statusMessage, mstring mimetype, mstring originOrRedirect, off_t contLen, time_t modTime)
 {
 	LOGSTARTFUNCs;
-	auto q = [pin = as_lptr(this), statusCode, statusMessage, mimetype, originOrRedirect, contLen, modTime]()
+	bool onMT = evabase::IsMainThread();
+	// XXX: quite expensive but what shall we do? Use another container with locking to pass those operations over?
+	if (!onMT)
+		evabase::GetGlobal().SyncRunOnMainThread([&]() {__inc_ref(); return 0;});
+	auto q = [this, onMT, statusCode, statusMessage, mimetype, originOrRedirect, contLen, modTime]() mutable
 	{
-		LOGSTARTFUNCs
-		ASSERT(!statusMessage.empty());
-		pin->m_bLocallyGenerated = true;
-		pin->NotifyObservers();
-		ldbg(pin->m_status);
-		if (pin->m_status > FIST_COMPLETE)
-			return; // error-out already
-		ASSERT(pin->m_status < FIST_DLGOTHEAD);
-		pin->m_responseStatus = {statusCode, std::move(statusMessage)};
-		ldbg(statusCode << " " << statusMessage)
-		if (!mimetype.empty())
-			pin->m_contentType = std::move(mimetype);
-		pin->m_responseOrigin = originOrRedirect;
-		if (contLen >= 0)
-			pin->m_nContentLength = contLen;
-		pin->m_responseModDate = tHttpDate(modTime != -1 ? modTime : GetTime());
-		if (pin->m_status < FIST_DLGOTHEAD)
-			pin->m_status = FIST_DLGOTHEAD;
+		try
+		{
+			LOGSTARTFUNCs;
+			ASSERT(!statusMessage.empty());
+			m_bLocallyGenerated = true;
+			NotifyObservers();
+			ldbg(pin->m_status);
+			if (m_status > FIST_COMPLETE)
+				return; // error-out already
+			ASSERT(pin->m_status < FIST_DLGOTHEAD);
+			m_responseStatus = {statusCode, std::move(statusMessage)};
+			ldbg(statusCode << " " << statusMessage)
+					if (!mimetype.empty())
+					m_contentType = std::move(mimetype);
+			m_responseOrigin = originOrRedirect;
+			if (contLen >= 0)
+				m_nContentLength = contLen;
+			m_responseModDate = tHttpDate(modTime != -1 ? modTime : GetTime());
+			if (m_status < FIST_DLGOTHEAD)
+				m_status = FIST_DLGOTHEAD;
+		}
+		catch (...) {}
+
+		if (onMT)
+		{
+			__dec_ref();
+			onMT = false;
+		}
 	};
-	if (evabase::IsMainThread())
-	{
-		dbgline;
+	if (onMT)
 		q();
-	}
 	else
-	{
-		dbgline;
 		evabase::Post(q);
-	}
 }
 
 TResFileItem::TResFileItem(string_view fileName, string_view mimetype)
