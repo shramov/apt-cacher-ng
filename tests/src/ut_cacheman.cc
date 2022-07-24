@@ -11,7 +11,6 @@ using namespace acng;
 #define TEST_DIR "_tmp/"
 #define IPATH TEST_DIR "Index"
 
-#if 1
 struct cachemanHandler : public cacheman
 {
 cachemanHandler(tRunParms&& p) : cacheman(std::move(p)) {}
@@ -123,7 +122,8 @@ TEST(cacheman, pdiff)
 	size_t pbase_len(0);
 
 	input.emplace_back(pbase);
-	ASSERT_EQ(0, tm.PatchOne(IPATH, input));
+#warning "restore me"
+//	ASSERT_EQ(0, tm.PatchOne(IPATH, input));
 
 	{
 		filereader rd;
@@ -141,4 +141,34 @@ TEST(cacheman, pdiff)
 		ASSERT_TRUE(pbase_len > 0);
 	}
 }
-#endif
+struct implNoDl : public cacheman
+{
+	using cacheman::cacheman;
+	virtual eDlResult Download(string_view sFilePathRel, tDlOpts opts = tDlOpts()) override
+	{
+		return eDlResult::OK;
+	}
+};
+
+TEST(cacheman, discover_release_files)
+{
+	mainthandler::tRunParms opts
+	{
+		EWorkType::STYLESHEET,
+				"?noop",
+				-1,
+				nullptr,
+				nullptr,
+				*res
+	};
+	 struct tImpl : public implNoDl
+	 {
+		 using implNoDl::implNoDl;
+		 virtual void Action() override
+		 {
+
+		 }
+	 } impl;
+
+}
+
