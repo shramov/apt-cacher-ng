@@ -268,6 +268,7 @@ off_t lastCurrentDlCount(0);
 void expiration::HandlePkgEntry(const tRemoteFileInfo &entry)
 {
 #ifdef DEBUGSPAM
+	LOGSTARTFUNC;
 	LOG("expiration::HandlePkgEntry:" << "\npath:" << entry.path << "\nsize: " << entry.fpr.GetSize() << "\ncsum: " << entry.fpr.GetCsAsString());
 #endif
 

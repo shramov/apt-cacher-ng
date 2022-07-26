@@ -684,10 +684,10 @@ void fileitem::ManualStart(int statusCode, mstring statusMessage, mstring mimety
 			ASSERT(!statusMessage.empty());
 			m_bLocallyGenerated = true;
 			NotifyObservers();
-			ldbg(pin->m_status);
+			ldbg(m_status);
 			if (m_status > FIST_COMPLETE)
 				return; // error-out already
-			ASSERT(pin->m_status < FIST_DLGOTHEAD);
+			ASSERT(m_status < FIST_DLGOTHEAD);
 			m_responseStatus = {statusCode, std::move(statusMessage)};
 			ldbg(statusCode << " " << statusMessage)
 					if (!mimetype.empty())

@@ -11,6 +11,9 @@ using namespace acng;
 #define TEST_DIR "_tmp/"
 #define IPATH TEST_DIR "Index"
 
+using namespace acng;
+using namespace std;
+
 struct cachemanHandler : public cacheman
 {
 cachemanHandler(tRunParms&& p) : cacheman(std::move(p)) {}
@@ -68,17 +71,11 @@ std::string curDir()
 	return getcwd(pbuf, _countof(pbuf));
 }
 
-
-TEST(cacheman, pdiff)
+mainthandler::tRunParms FakeParms()
 {
-	using namespace acng;
-	using namespace std;
+	static auto res = acres::Create();
 
-	auto res = acres::Create();
-	unique_ptr<mainthandler> handler;
-	lint_ptr<IMaintJobItem> item;
-
-	mainthandler::tRunParms opts
+	return mainthandler::tRunParms
 	{
 		EWorkType::STYLESHEET,
 				"?noop",
@@ -87,8 +84,14 @@ TEST(cacheman, pdiff)
 				nullptr,
 				*res
 	};
+}
 
-	auto p = new cachemanHandler(std::move(opts));
+TEST(cacheman, pdiff)
+{
+	unique_ptr<mainthandler> handler;
+	lint_ptr<IMaintJobItem> item;
+
+	auto p = new cachemanHandler(FakeParms());
 	auto& tm = *p;
 	handler.reset(p);
 	item.reset(new TestPtItem(move(handler)));
@@ -152,23 +155,16 @@ struct implNoDl : public cacheman
 
 TEST(cacheman, discover_release_files)
 {
-	mainthandler::tRunParms opts
+	unique_ptr<mainthandler> handler;
+	lint_ptr<IMaintJobItem> item;
+	struct tImpl : public implNoDl
 	{
-		EWorkType::STYLESHEET,
-				"?noop",
-				-1,
-				nullptr,
-				nullptr,
-				*res
+		using implNoDl::implNoDl;
+		virtual void Action() override
+		{
+		}
 	};
-	 struct tImpl : public implNoDl
-	 {
-		 using implNoDl::implNoDl;
-		 virtual void Action() override
-		 {
-
-		 }
-	 } impl;
+	auto p = make_unique<tImpl>(FakeParms());
 
 }
 
