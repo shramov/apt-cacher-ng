@@ -364,7 +364,7 @@ public:
 	{
 		auto me = (connImpl*)ctx;
 		auto* rcvr = bereceiver(me->bd.outStream->GetBufferEvent());
-		if (log::logIsEnabled)
+		if (log::logIsEnabledInApplication)
 			me->bd.m_nBytesIn += evbuffer_get_length(rcvr);
 		bufferevent_write_buffer(*me->m_be, rcvr);
 	}

@@ -34,7 +34,7 @@ ofstream fErr, fStat, fDbg;
 #ifndef DEBUG
 ACNG_API bool logIsEnabled = false;
 #else
-ACNG_API bool logIsEnabled = true;
+ACNG_API bool logIsEnabledInApplication = true;
 #endif
 
 #define MAX_DBG_LIMIT 300*1000000
@@ -139,7 +139,7 @@ mstring open()
 	if(cfg::logdir.empty())
 		return se;
 	
-	logIsEnabled = true;
+	logIsEnabledInApplication = true;
 
 	string apath = PathCombine(cfg::logdir, g_szLogPrefix + ".log"),
 			epath = PathCombine(cfg::logdir, g_szLogPrefix + ".err"),
@@ -176,7 +176,7 @@ void transfer(uint64_t bytesIn,
 	totalIn += bytesIn;
 	totalOut += bytesOut;
 
-	if(!logIsEnabled)
+	if(!logIsEnabledInApplication)
 		return;
 
 	if(!fStat.is_open())
@@ -202,7 +202,7 @@ void transfer(uint64_t bytesIn,
 
 void misc_io(const string & sLine, const char cLogType)
 {
-	if(!logIsEnabled)
+	if(!logIsEnabledInApplication)
 		return;
 	if(!fStat.is_open())
 		return;
@@ -223,10 +223,10 @@ void misc(const string & sLine, const char cLogType)
 
 void err_io(const char *msg, size_t len)
 {
-	if (!logIsEnabled)
+	if (!logIsEnabledInApplication)
 		return;
 
-	if (!fErr) return;
+	auto& target = fErr.is_open() ? fErr : std::cerr;
 
 	if (!cfg::minilog)
 	{
@@ -234,12 +234,12 @@ void err_io(const char *msg, size_t len)
 		const time_t tm = time(nullptr);
 		ctime_r(&tm, buf);
 		buf[24] = '|';
-		fErr.write(buf, 25);
+		target.write(buf, 25);
 	}
-	fErr.write(msg, len).write(szNEWLINE, 1);
+	target.write(msg, len).write(szNEWLINE, 1);
 
 	if (cfg::debug & LOG_FLUSH)
-		fErr.flush();
+		target.flush();
 }
 
 void err(const char *msg, size_t len)
@@ -251,7 +251,7 @@ void err(const char *msg, size_t len)
 
 void dbg_io(const char *msg, size_t len)
 {
-	if (!logIsEnabled)
+	if (!logIsEnabledInApplication)
 		return;
 
 	dbgWriteCount += len;
@@ -303,7 +303,7 @@ void dbg(const char *msg, size_t len)
 
 void ACNG_API flush()
 {
-	if(!logIsEnabled)
+	if(!logIsEnabledInApplication)
 		return;
 	off_t curSize(-1);
 	for (auto* h: {&fErr, &fStat, &fDbg})
@@ -335,7 +335,7 @@ void close(bool bReopen, bool truncateDebugLog)
 	ignore_value(symlink(snapIn.c_str(), inLinkPath.c_str()));
 	ignore_value(symlink(snapOut.c_str(), outLinkPath.c_str()));
 
-	if (!logIsEnabled)
+	if (!logIsEnabledInApplication)
 		return;
 
 	if(cfg::debug >= LOG_MORE) cerr << (bReopen ? "Reopening logs...\n" : "Closing logs...\n");
