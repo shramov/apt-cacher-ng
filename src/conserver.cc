@@ -252,12 +252,12 @@ public:
 		hints.ai_flags = AI_PASSIVE;
 		hints.ai_family = PF_UNSPEC;
 
-		addrinfo* dnsret;
+		addrinfo* dnsret = nullptr;
 		int r = getaddrinfo(addi, tPortFmter().fmt(port), &hints, &dnsret);
 		if(r)
 		{
+			log::err(string("Error resolving address for binding: ") + gai_strerror(r));
 			log::flush();
-			perror("Error resolving address for binding");
 			return;
 		}
 		TFinalAction dnsclean([dnsret]()

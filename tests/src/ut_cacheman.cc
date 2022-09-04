@@ -7,12 +7,11 @@
 #include <unordered_map>
 
 using namespace acng;
+using namespace std;
 
 #define TEST_DIR "_tmp/"
 #define IPATH TEST_DIR "Index"
 
-using namespace acng;
-using namespace std;
 
 struct cachemanHandler : public cacheman
 {

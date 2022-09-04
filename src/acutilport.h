@@ -21,7 +21,7 @@ struct tPortFmter
 			return "80";
 		if (nPort == 443)
 			return "443";
-		snprintf(buf, sizeof(buf), "%hi", nPort);
+		snprintf(buf, sizeof(buf), "%hu", nPort);
 		return buf;
 	}
 private:

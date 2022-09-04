@@ -48,6 +48,13 @@ add_executable(ut_dns
         )
 target_link_libraries(ut_dns ${TEST_LIB_SET})
 
+add_executable(ut_server
+        src/ut_server.cc
+        src/main.cc
+        ../src/conserver.cc
+        )
+target_link_libraries(ut_server ${TEST_LIB_SET})
+
 add_executable(it_job
         src/it_job.cc
         src/main.cc
