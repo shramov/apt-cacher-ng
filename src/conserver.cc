@@ -7,10 +7,11 @@
 #include "sockio.h"
 #include "fileio.h"
 #include "evabase.h"
-#include "acregistry.h"
+//#include "acregistry.h"
 #include "acutilport.h"
 #include "aclock.h"
 #include "conn.h"
+#include "sut.h"
 
 #include <signal.h>
 #include <arpa/inet.h>
@@ -62,17 +63,11 @@ struct TLintprHasher
 
 class conserverImpl : public conserver
 {
+	SUTPRIVATE:
 	std::list<unique_fdevent> m_listeners;
 	std::unordered_set<tConnPtr, TLintprHasher> m_conns;
 	acres& m_res;
 	aobservable::subscription m_resumeSub;
-
-	//	auto nSockets = conserver::Setup([](unique_fd&& fd, std::string name) { StartServing(move(fd), name, *sharedResources); });
-
-	/**
-* Perform a gracefull connection shutdown.
-*/
-	ACNG_API void static FinishConnection(int fd);
 
 	// conserver interface
 public:
@@ -80,15 +75,10 @@ public:
 	{
 		m_conns.erase(lint_user_ptr<IConnBase>(p));
 	}
-	void ReplaceConnection(IConnBase *p, lint_user_ptr<IConnBase>(pNew)) override
-	{
-		m_conns.emplace(pNew);
-		m_conns.erase(lint_user_ptr<IConnBase>(p));
-	}
 
 public:
 
-	void SetupConAndGo(unique_fd&& man_fd, string clientName, LPCSTR clientPort, bool isAdmin)
+	virtual void SetupConAndGo(unique_fd&& man_fd, string clientName, LPCSTR clientPort, bool isAdmin)
 	{
 		USRDBG("Client name: " << clientName << ":" << clientPort);
 		try

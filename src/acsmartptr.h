@@ -10,7 +10,8 @@
 
 #include "actypes.h"
 
-namespace acng {
+namespace acng
+{
 
 /**
  * Basic base implementation of a reference-counted class
