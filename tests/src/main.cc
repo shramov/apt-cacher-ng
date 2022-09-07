@@ -1,6 +1,8 @@
 #include "gtest/gtest.h"
 #include "acres.h"
 #include "evabase.h"
+#include "main.h"
+
 #include <locale.h>
 
 using namespace acng;
@@ -35,3 +37,4 @@ namespace acng
 void dbg_handler(evutil_socket_t, short, void*) {}
 #endif
 }
+
