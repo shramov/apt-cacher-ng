@@ -30,9 +30,9 @@ int find_free_port()
 	}
 }
 
-TFakeServer make_fake_server(int portCount, conserver* pAltServer)
+TFakeServerData make_fake_server(int portCount, conserver* pAltServer)
 {
-	TFakeServer ret;
+	TFakeServerData ret;
 	if (pAltServer)
 		ret.serva = lint_user_ptr<conserver>(pAltServer);
 	else

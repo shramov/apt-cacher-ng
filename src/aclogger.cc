@@ -31,10 +31,11 @@ namespace log
 
 ofstream fErr, fStat, fDbg;
 
+ACNG_API bool logIsEnabledInApplication
 #ifndef DEBUG
-ACNG_API bool logIsEnabled = false;
+= false;
 #else
-ACNG_API bool logIsEnabledInApplication = true;
+= true;
 #endif
 
 #define MAX_DBG_LIMIT 300*1000000
@@ -59,8 +60,7 @@ void ResetOldCounters()
 	memcpy(lbuf + CACHE_BASE.size(), cfg::privStoreRelQstatsSfx.data(),
 			cfg::privStoreRelQstatsSfx.size());
 
-	for (char foldNam :
-	{ 'i', 'o' })
+	for (char foldNam :	{ 'i', 'o' })
 	{
 		lbuf[xl] = 0;
 		auto xoff = sprintf(lbuf + xl, "/%c/", foldNam);

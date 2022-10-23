@@ -1,6 +1,8 @@
 #ifndef ACTEMPLATES_H
 #define ACTEMPLATES_H
 
+#include "sut.h"
+
 #include <functional>
 #include <utility>
 
@@ -86,7 +88,7 @@ struct auto_raii
  */
 struct TFinalAction
 {
-private:
+	SUTPRIVATE:
 	tAction m_p;
 public:
 	TFinalAction() =default;

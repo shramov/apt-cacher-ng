@@ -68,6 +68,7 @@ add_executable(it_transport
         src/main.cc
         src/it_transport.cc
         ../src/conserver.cc
+        src/ut_server_misc.cc
         )
 target_link_libraries(it_transport ${TEST_LIB_SET})
 

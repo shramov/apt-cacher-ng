@@ -19,10 +19,10 @@ class conserver;
 
 int find_free_port();
 
-struct TFakeServer
+struct TFakeServerData
 {
     vector<int> ports;
     lint_user_ptr<conserver> serva;
 };
 
-TFakeServer make_fake_server(int nPorts, conserver*p = nullptr);
+TFakeServerData make_fake_server(int nPorts, conserver*p = nullptr);
