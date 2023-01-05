@@ -53,7 +53,7 @@ bool tHttpUrl::SetHttpUrl(string_view sUrlRaw, bool unescape)
 
 	// kill leading slashes in any case
 	while(hStart<l && url[hStart]=='/') hStart++;
-	if(hStart>=l)
+	if (hStart >= l)
 		return false;
 
 	hEndSuc=url.find_first_of("/?", hStart);

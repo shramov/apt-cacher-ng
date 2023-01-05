@@ -21,9 +21,6 @@ using namespace std;
 namespace acng
 {
 
-// this is kept here as global anchor but it can be never set in special setups!
-ACNG_API std::shared_ptr<IFileItemRegistry> g_registry;
-
 void fileitem::NotifyObservers()
 {
 	if (!m_notifier)

@@ -143,19 +143,18 @@ bool ACNG_API mkdirhier(string_view path, bool tryOptimistic)
 	// ok, try punching terminators into the string to mkdir on that
 	for (;it < fio_spr.end(); ++it)
 	{
-		if (*it == '/')
-		{
-			*it = 0x0;
-			if (0 == mkdir(fio_spr.data(), cfg::dirperms) || EEXIST == errno)
-				*it = '/';
-			else // error state, keep the errno. XXX: return some error code?
-				return false;
-		}
+		if (*it != '/')
+			continue;
+		*it = 0x0;
+		if (0 != mkdir(fio_spr.data(), cfg::dirperms) || EEXIST == errno)
+			return false;
+		*it = '/'; // restore it
 	}
 	return optmkdir(fio_spr.c_str());
 }
 
-void set_block(int fd) {
+void set_block(int fd)
+{
 	int flags = fcntl(fd, F_GETFL);
 	//ASSERT(flags != -1);
 	flags &= ~O_NONBLOCK;
@@ -257,7 +256,7 @@ void ACNG_API event_and_fd_free(event *e)
 
 ssize_t dumpall(int fd, string_view data)
 {
-	ssize_t ret = data.size();
+	auto ret = data.size();
 	while (data.size())
 	{
 		errno = 0;

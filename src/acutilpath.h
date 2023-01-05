@@ -21,20 +21,7 @@ std::pair<string_view, string_view> SplitDirPath(string_view in);
 mstring SimplifyPath(string_view input);
 // trade-off version: quick check for possible directory changes ("/."), then modify the string as needed
 bool SimplifyPathInplace(mstring& input);
-inline std::pair<mstring, bool> SimplifyPathChecked(string_view input)
-{
-	std::pair<mstring, bool> ret;
-	try
-	{
-		ret.first = SimplifyPath(input);
-		ret.second = true;
-	}
-	catch (...)
-	{
-		ret.second = false;
-	}
-	return ret;
-}
+std::pair<mstring, bool> SimplifyPathChecked(string_view input);
 
 std::string PathCombine(string_view a, string_view b);
 std::string PathCombine(string_view a, string_view b, string_view c,

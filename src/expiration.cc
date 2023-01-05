@@ -107,7 +107,7 @@ void expiration::DoStateChecks(tDiskFileInfo& infoLocal, const tRemoteFileInfo& 
 	tReporter rep(this, sPathRel, eDlMsgSeverity::VERY_VERBOSE);
 
 	auto lenFromStat = infoLocal.fpr.GetSize();
-	off_t lenFromHeader=-1;
+	off_t lenFromHeader = -1;
 
 	// end line ending starting from a class and add checkbox as needed
 	auto finish_damaged = [&](bool isError, string_view reason)

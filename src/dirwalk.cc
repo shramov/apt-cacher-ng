@@ -83,13 +83,12 @@ bool dnode::Walk(IFileHandler *h, dnode::tDupeFilter *pFilter, bool bFollowSymli
 	// also make sure we are not visiting the same directory through some symlink construct
 	if(pFilter)
 	{
-		auto key_isnew = pFilter->emplace(m_stinfo.st_dev, m_stinfo.st_ino);
-		if(!key_isnew.second)
+		if(!pFilter->emplace(m_stinfo.st_dev, m_stinfo.st_ino).second)
 			return true; // visited this before, recursion detected
 	}
 
 //	cerr << "Opening: " << sPath<<endl;
-	DIR *dir = opendir(sPath.c_str());
+	auto dir = opendir(sPath.c_str());
 	if (!dir) // weird, whatever... ignore...
 		return true;
 	

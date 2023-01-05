@@ -225,9 +225,13 @@ std::atomic_bool extThreadJobsAdded(false);
 void cb_handover(evutil_socket_t, short, void*)
 {
 	temp_simple_q.swap(local_simple_q);
-	for(const auto& ac: temp_simple_q)
-		ac();
-	temp_simple_q.clear();
+	auto f = [](decltype(temp_simple_q) &q)
+	{
+		if (q.empty()) return;
+		for (const auto& ac: q) ac();
+		q.clear();
+	};
+	f(temp_simple_q);
 
 	if (extThreadJobsAdded)
 	{
@@ -235,13 +239,7 @@ void cb_handover(evutil_socket_t, short, void*)
 		temp_simple_q.swap(extThreadQueue);
 		extThreadJobsAdded.store(false);
 	}
-
-	if (!temp_simple_q.empty())
-	{
-		for(const auto& ac: temp_simple_q)
-			ac();
-		temp_simple_q.clear();
-	}
+	f(temp_simple_q);
 }
 
 void evabase::Post(tAction&& act)

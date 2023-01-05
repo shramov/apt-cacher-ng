@@ -173,4 +173,25 @@ void TuneSendWindow(bufferevent *bev)
 
 }
 
+void termsocket_quick(int &fd)
+{
+	if(fd<0)
+		return;
+	::shutdown(fd, SHUT_RDWR);
+	while(0 != ::close(fd))
+	{
+		if(errno != EINTR) break;
+	};
+	fd=-1;
+}
+
+bool check_read_state(int fd)
+{
+	fd_set rfds;
+	FD_ZERO(&rfds);
+	FD_SET(fd, &rfds);
+	struct timeval tv = { 0, 0};
+	return (1 == select(fd + 1, &rfds, nullptr, nullptr, &tv) && FD_ISSET(fd, &rfds));
+}
+
 }

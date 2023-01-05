@@ -306,6 +306,7 @@ public:
 		m_shutdownLock.reset();
 		return true;
 	}
+
 	void ProcessBacklog()
 	{
 		if (m_streams.size() >= MAX_STREAMS_PER_USER)
@@ -313,6 +314,7 @@ public:
 		if (!m_backlog.empty())
 			TriggerDispatch();
 	}
+
 	/**
 	 * @brief TermOrProcBacklog
 	 * If terminating scheduled, release this agent.
@@ -652,26 +654,13 @@ struct tDlJob
 
 #define CRLF "\r\n"sv
 
-		if (GetFiAttributes().bHeadOnly)
-		{
-			head << "HEAD "sv;
-			m_bAllowStoreData = false;
-		}
-		else
-		{
-			head << "GET "sv;
-			m_bAllowStoreData = true;
-		}
+		m_bAllowStoreData = ! GetFiAttributes().bHeadOnly;
+		head << (m_bAllowStoreData ? "GET "sv : "HEAD "sv);
 
 		if (proxy)
 			head << RemoteUri(true);
-		else // only absolute path without scheme
-		{
-			if (m_pCurBackend) // base dir from backend definition
-				head << UrlEscape(m_pCurBackend->sPath);
-
-			head << UrlEscape(m_remoteUri.sPath);
-		}
+		else // only absolute path without scheme; base dir from backend definition?
+			head << UrlEscape(m_pCurBackend ? m_pCurBackend->sPath : m_remoteUri.sPath);
 
 		ldbg(RemoteUri(true));
 
@@ -1321,6 +1310,7 @@ void tDlStream::OnRead(bufferevent *pBE)
 {
 	if (m_requested.empty())
 		return handleDisconnect("Unexpected Data", TRANS_STREAM_ERR_FATAL);
+
 	while (!m_requested.empty())
 	{
 		auto res = m_requested.front()->ProcessIncomming(pBE, *this);
@@ -1381,11 +1371,14 @@ bool tDlStream::TakeJob(tDlJobPtr& pJob)
 {
 	if (!pJob || m_sacrificied)
 		return false;
+
 	if (!m_requested.empty() && pJob->GetId() < m_requested.back()->GetId())
 		return false;
+
 	// if already connected - can we serve that job from this connection?
 	if (m_transport && !pJob->ValidateTargetConnection(*m_transport))
 		return false;
+
 	if (!m_transport)
 	{
 		// analyze whether there is a good chance that this connection will be able to serve it or not

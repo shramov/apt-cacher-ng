@@ -42,6 +42,9 @@ public:
 	}
 };
 
+// this is kept here as global anchor but it can be never set in special setups!
+ACNG_API lint_ptr<IFileItemRegistry> g_registry;
+
 lint_ptr<IFileItemRegistry> SetupServerItemRegistry()
 {
 	if (!g_registry)

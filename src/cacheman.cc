@@ -80,7 +80,7 @@ inline tStrPos FindCompSfxPos(const string &s)
 
 static short FindCompIdx(cmstring &s)
 {
-	for(unsigned i=0;i<_countof(sfxXzBz2GzLzma); ++i)
+	for (unsigned i=0; i<_countof(sfxXzBz2GzLzma); ++i)
 	{
 		if(endsWith(s, sfxXzBz2GzLzma[i]))
 			return i;
@@ -128,7 +128,6 @@ struct tFileGroup
 	// and among the same type by modification date so the newest appears on top which
 	// should be the most appropriate for patching
 	tStrDeq paths;
-
 	tContentKey diffIdxId;
 #ifdef EXPLICIT_INDEX_USE_CHECKING
 	bool isReferenced = false;
@@ -157,13 +156,15 @@ cacheman::cacheman(tRunParms&& parms) :
 	m_nProgIdx(0), m_nProgTell(1)
 {
 	m_gMaintTimeNow=GetTime();
-	m_bErrAbort=(m_parms.cmd.find("abortOnErrors=aOe")!=stmiss);
-	m_bByChecksum=(m_parms.cmd.find("byChecksum")!=stmiss);
-	m_bByPath=(StrHas(m_parms.cmd, "byPath") || m_bByChecksum);
-	m_bForceDownload=(m_parms.cmd.find("forceRedownload")!=stmiss);
-	m_bSkipHeaderChecks=(m_parms.cmd.find("skipHeadChecks")!=stmiss);
-	m_bTruncateDamaged=(m_parms.cmd.find("truncNow")!=stmiss);
-	m_bSkipIxUpdate=(m_parms.cmd.find("skipIxUp=si")!=stmiss);
+#define pickbool(x, y) x = (m_parms.cmd.find(y)!=stmiss)
+	pickbool(m_bErrAbort, "abortOnErrors=aOe");
+	pickbool(m_bByChecksum, "byChecksum");
+	pickbool(m_bByPath, "byPath");
+	m_bByPath |= m_bByChecksum;
+	pickbool(m_bForceDownload, "forceRedownload");
+	pickbool(m_bSkipHeaderChecks, "skipHeadChecks");
+	pickbool(m_bTruncateDamaged, "truncNow");
+	pickbool(m_bSkipIxUpdate, "skipIxUp=si");
 
 	if (m_parms.cmd.find("beVerbose")!=stmiss)
 		m_printSeverityMin = eDlMsgSeverity::VERBOSE;

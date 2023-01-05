@@ -247,62 +247,39 @@ std::pair<T,T> pairSum(const std::pair<T,T>& a, const std::pair<T,T>& b)
 	return std::pair<T,T>(a.first+b.first, a.second + b.second);
 }
 
+
 namespace cfg
 {
 extern int nettimeout;
 }
 struct CTimeVal
 {
-	struct timeval tv = {0,23};
+	struct timeval tv = {0, 23};
 public:
-	// calculates for relative time (span)
-	struct timeval* For(time_t tExpSec, suseconds_t tExpUsec = 23)
-	{
-		tv.tv_sec = tExpSec;
-		tv.tv_usec = tExpUsec;
-		return &tv;
-	}
+	/** @brief Recalculates for a relative time span */
+	struct timeval* For(time_t tExpSec, suseconds_t tExpUsec = 23);
 	struct timeval* ForNetTimeout()
 	{
-		tv.tv_sec = cfg::nettimeout;
-		tv.tv_usec = 23;
-		return &tv;
+		return & (tv = {cfg::nettimeout, 23});
 	}
 	// calculates for absolute time
-	struct timeval* Until(time_t tExpWhen, suseconds_t tExpUsec = 23)
-	{
-		tv.tv_sec = GetTime() + tExpWhen;
-		tv.tv_usec = tExpUsec;
-		return &tv;
-	}
+	struct timeval* Until(time_t tExpWhen, suseconds_t tExpUsec = 23);
 	// like above but with error checking
-	struct timeval* SetUntil(time_t tExpWhen, suseconds_t tExpUsec = 23)
-	{
-		auto now(GetTime());
-		if(now >= tExpWhen)
-			return nullptr;
-		tv.tv_sec = now + tExpWhen;
-		tv.tv_usec = tExpUsec;
-		return &tv;
-	}
-	// calculates for a timespan with max. length until tExpSec
-	struct timeval* Remaining(time_t tExpSec, suseconds_t tExpUsec = 23)
-	{
-		auto exp = tExpSec - GetTime();
-		tv.tv_sec = exp < 0 ? 0 : exp;
-		tv.tv_usec = tExpUsec;
-		return &tv;
-	}
+	struct timeval* SetUntil(time_t tExpWhen, suseconds_t tExpUsec = 23);
+	/** Calculates for a timespan with max. length until tExpSec */
+	struct timeval* Remaining(time_t tExpSec, suseconds_t tExpUsec = 23);
 };
 
 
-struct ltstring {
-    bool operator()(const mstring &s1, const mstring &s2) const {
+struct ltcasestring
+{
+	bool operator()(const mstring &s1, const mstring &s2) const
+	{
         return strcasecmp(s1.c_str(), s2.c_str()) < 0;
     }
 };
 
-class NoCaseStringMap : public std::map<mstring, mstring, ltstring>
+class NoCaseStringMap : public std::map<mstring, mstring, ltcasestring>
 {
 };
 
@@ -345,17 +322,6 @@ template <typename T>
 reversion_wrapper<T> reverse (T&& iterable) { return { iterable }; }
 // end reversed iterable adapter
 
-/*
-struct DurationTimeValAdapter : public timeval
-{
-	DurationTimeValAdapter(std::chrono::milliseconds ms)
-	{
-		tv_sec = std::chrono::duration<std::chrono::seconds>(ms);
-		tv_usec = std::chrono::duration<std::chrono::microseconds>(ms - std::chrono::seconds(tv_sec));
-	}
-};
-*/
-
 template<typename T>
 T take_front(std::deque<T>& container)
 {
@@ -364,7 +330,9 @@ T take_front(std::deque<T>& container)
 	return ret;
 }
 
-
+/**
+ * @brief Alternative to std::promise class which does not trigger undefined behavior.
+ */
 template<typename T>
 class acpromise
 {
@@ -419,4 +387,3 @@ public:
 }
 
 #endif // _META_H
-

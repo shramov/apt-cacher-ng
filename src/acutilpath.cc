@@ -169,7 +169,6 @@ std::string PathCombine(string_view a, string_view b, string_view c, string_view
 }
 
 
-
 constexpr string_view dirEnds[] = {"/", "\\", "/.", "\\."};
 
 mstring SimplifyPath(string_view input)
@@ -220,6 +219,21 @@ bool SimplifyPathInplace(mstring &input)
 	if (res.second)
 		return input.swap(res.first), true;
 	return false;
+}
+
+std::pair<mstring, bool> SimplifyPathChecked(string_view input)
+{
+	std::pair<mstring, bool> ret;
+	try
+	{
+		ret.first = SimplifyPath(input);
+		ret.second = true;
+	}
+	catch (...)
+	{
+		ret.second = false;
+	}
+	return ret;
 }
 
 

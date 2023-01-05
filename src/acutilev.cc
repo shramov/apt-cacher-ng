@@ -58,5 +58,43 @@ void be_flush_free_close(bufferevent *be)
 	// there is BEV_FLUSH but the source code looks shady, not clear if shutdown() is ever called
 }
 
+ssize_t eb_move_range(evbuffer *src, evbuffer *tgt, size_t len)
+{
+	auto have = evbuffer_get_length(src);
+	if (have == 0)
+		return 0;
+
+	if (len > have)
+		len = have;
+
+	do {
+		auto limited = len > INT_MAX;
+		int limit = limited ? INT_MAX : len;
+		auto n = evbuffer_remove_buffer(src, tgt, limit);
+		// if error or not augmented -> pass through
+		if (!limited || n <= limit)
+			return n;
+		len -= limit;
+	}
+	while (len > 0);
+	return -1;
+}
+
+ssize_t eb_move_range(evbuffer *src, evbuffer *tgt, size_t maxTake, off_t &updatePos)
+{
+	auto n = eb_move_range(src, tgt, maxTake);
+	if (n > 0)
+		updatePos += n;
+	return n;
+}
+
+string_view beconsum::front(ssize_t limit)
+{
+	auto len = evbuffer_get_contiguous_space(m_eb);
+	if (limit >= 0 && size_t(limit) < len)
+		len = limit;
+	return string_view((const char*) evbuffer_pullup(m_eb, len), len);
+}
+
 
 }

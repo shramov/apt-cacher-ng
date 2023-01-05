@@ -798,6 +798,22 @@ bool Bz2compressFile(const char *pathIn, const char*pathOut)
 	return bRet;
 }
 
+bool CsEqual(const char *sz, uint8_t b[], unsigned short binLen)
+{
+	auto* a=(const unsigned char*) sz;
+	if(!a)
+		return false;
+	for(int i=0; i<binLen;i++)
+	{
+		if(!*a)
+			return false;
+
+		uint_fast16_t r=hexmap[a[i*2]] * 16 + hexmap[a[i*2+1]];
+		if(r != b[i]) return false;
+	}
+	return true;
+}
+
 #endif
 
 }

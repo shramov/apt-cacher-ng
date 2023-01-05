@@ -15,9 +15,7 @@
 #cmakedefine HAVE_LINUX_FALLOCATE
 #cmakedefine HAVE_LINUX_SENDFILE
 #cmakedefine WORDS_BIGENDIAN
-#cmakedefine HAVE_DLOPEN
 #cmakedefine HAVE_PREAD
-#cmakedefine HAVE_LINUX_SPLICE
 #cmakedefine HAVE_DAEMON
 #cmakedefine HAVE_STRLCPY
 #cmakedefine HAVE_LIBWRAP
@@ -25,7 +23,6 @@
 #cmakedefine HAVE_SYS_VFS_H
 #cmakedefine HAVE_SSL
 #cmakedefine HAVE_TOMCRYPT
-#cmakedefine HAVE_SD_NOTIFY
 #cmakedefine HAVE_LINUX_EVENTFD
 #cmakedefine ACVERSION "@ACVERSION@"
 #cmakedefine CFGDIR  "@CFGDIR@"
@@ -40,3 +37,13 @@
 #cmakedefine DEBUG
 
 #define OPENSSL_API_COMPAT 0x10100000L
+
+#ifdef HAVE_TOMCRYPT
+// with workaround, http://clang.debian.net/logs/2015-03-25/libtomcrypt_1.17-6_unstable_clang.log
+#ifndef LTC_NO_ROLC
+#define LTC_NO_ROLC
+#endif
+#ifndef LTC_BASE64
+#define LTC_BASE64
+#endif
+#endif

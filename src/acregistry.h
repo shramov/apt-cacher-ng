@@ -34,7 +34,7 @@ public:
 // global registry handling, used only in server
 lint_ptr<IFileItemRegistry> ACNG_API SetupServerItemRegistry();
 void ACNG_API TeardownServerItemRegistry();
-extern lint_ptr<IFileItemRegistry> g_registry;
+extern ACNG_API lint_ptr<IFileItemRegistry> g_registry;
 
 }
 

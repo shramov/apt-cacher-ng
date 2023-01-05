@@ -831,5 +831,31 @@ std::string to_base36(unsigned int val)
 	return result;
 }
 
+timeval *CTimeVal::For(time_t tExpSec, suseconds_t tExpUsec)
+{
+	return & (tv = {tExpSec, tExpUsec});
+}
+
+
+
+timeval *CTimeVal::Until(time_t tExpWhen, suseconds_t tExpUsec)
+{
+	return & (tv = {GetTime() + tExpWhen, tExpUsec});
+}
+
+timeval *CTimeVal::SetUntil(time_t tExpWhen, suseconds_t tExpUsec)
+{
+	auto now(GetTime());
+	if(now >= tExpWhen)
+		return nullptr;
+	return & (tv = {now + tExpWhen, tExpUsec});
+}
+
+timeval *CTimeVal::Remaining(time_t tExpSec, suseconds_t tExpUsec)
+{
+	auto exp = tExpSec - GetTime();
+	return & (tv = {exp < 0 ? 0 : exp, tExpUsec});
+}
+
 
 }

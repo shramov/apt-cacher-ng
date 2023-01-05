@@ -84,40 +84,14 @@ struct beconsum
 	 * @param limit if negative, grab the maximum size of the first chunk. If positive, then the size of the first chunk but not more than limit value
 	 * @return string view structure with at most <limit> bytes
 	 */
-	string_view front(ssize_t limit = -1)
-    {
-            auto len = evbuffer_get_contiguous_space(m_eb);
-			if (limit >= 0 && size_t(limit) < len)
-				len = limit;
-            return string_view((const char*) evbuffer_pullup(m_eb, len), len);
-    }
+	string_view front(ssize_t limit = -1);
 	const string_view linear(size_t len) { return string_view(
 					(const char*) evbuffer_pullup(m_eb, len), len); }
 	// make the whole thing contiguous
 	const string_view linear() { return linear(size()); }
 };
 
-inline ssize_t eb_move_range(evbuffer* src, evbuffer *tgt, size_t len)
-{
-	auto have = evbuffer_get_length(src);
-	if (have == 0)
-		return 0;
-
-	if (len > have)
-		len = have;
-
-	do {
-		auto limited = len > INT_MAX;
-		int limit = limited ? INT_MAX : len;
-		auto n = evbuffer_remove_buffer(src, tgt, limit);
-		// if error or not augmented -> pass through
-		if (!limited || n <= limit)
-			return n;
-		len -= limit;
-	}
-	while (len > 0);
-	return -1;
-}
+ssize_t eb_move_range(evbuffer* src, evbuffer *tgt, size_t len);
 /**
  * @brief eb_move_atmost little helper wrapper to increment one tracking position when needed
  * @param src
@@ -126,13 +100,7 @@ inline ssize_t eb_move_range(evbuffer* src, evbuffer *tgt, size_t len)
  * @param updatePos
  * @return
  */
-inline ssize_t eb_move_range(evbuffer* src, evbuffer *tgt, size_t maxTake, off_t& updatePos)
-{
-	auto n = eb_move_range(src, tgt, maxTake);
-	if (n > 0)
-		updatePos += n;
-	return n;
-}
+ssize_t eb_move_range(evbuffer* src, evbuffer *tgt, size_t maxTake, off_t& updatePos);
 
 
 }
