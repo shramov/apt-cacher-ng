@@ -22,14 +22,15 @@ option(SUP_STATIC "Build and link core functionality as static code" off)
 
 if(SUP_STATIC)
         message("-- Configuring shared code as STATIC lib")
-ADD_LIBRARY(supacng STATIC ${SHAREDSRCS})
+        ADD_LIBRARY(supacng STATIC ${SHAREDSRCS})
 else()
         message("-- Configuring shared code as DYNAMIC lib")
-ADD_LIBRARY(supacng SHARED ${SHAREDSRCS})
-add_definitions(-DACNG_CORE_IN_SO)
+        ADD_LIBRARY(supacng SHARED ${SHAREDSRCS})
+        target_compile_definitions(supacng PUBLIC -DACNG_CORE_IN_SO)
 endif()
 
-SET_TARGET_PROPERTIES(supacng PROPERTIES COMPILE_FLAGS "${ACNG_COMPFLAGS} ${ACNG_CXXFLAGS} ${CFLAGS_DAEMON} ${CFLAGS_PTHREAD}")
+# XXX: acng_server is only there because of sd_notify; maybe factor that out
+TARGET_LINK_LIBRARIES(supacng PUBLIC acng_common acng_network acng_compression acng_crypto acng_server)
 
 option(ENABLE_PCH "Enable use of precompiled headers for faster builds" off)
 if(ENABLE_PCH)
@@ -47,20 +48,21 @@ TARGET_LINK_LIBRARIES(supacng ${BaseNetworkLibs} ${ServerLibs} ${CompLibs} ${SSL
 INSTALL(TARGETS supacng LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 
 ADD_EXECUTABLE(apt-cacher-ng apt-cacher.cc conserver.cc)
-TARGET_LINK_LIBRARIES(apt-cacher-ng supacng ${BaseNetworkLibs} ${ServerLibs} ${CompLibs} ${SSL_LIB_LIST} ${LDFLAGS_DAEMON} ${CMAKE_THREAD_LIBS_INIT} ${EXTRA_LIBS_ACNG})
-SET_TARGET_PROPERTIES(apt-cacher-ng PROPERTIES COMPILE_FLAGS "${ACNG_COMPFLAGS} ${ACNG_CXXFLAGS} ${CFLAGS_DAEMON} ${CFLAGS_PTHREAD}")
+TARGET_LINK_LIBRARIES(apt-cacher-ng supacng)
+#SET_TARGET_PROPERTIES(apt-cacher-ng PROPERTIES COMPILE_FLAGS "${ACNG_COMPFLAGS} ${ACNG_CXXFLAGS} ${CFLAGS_DAEMON} ${CFLAGS_PTHREAD}")
 INSTALL(TARGETS apt-cacher-ng DESTINATION ${CMAKE_INSTALL_SBINDIR})
 
 if (ENABLE_TOOL)
     ADD_EXECUTABLE(acngtool acngtool.cc ebrunner.cc)
-    SET_TARGET_PROPERTIES(acngtool PROPERTIES COMPILE_FLAGS "${ACNG_COMPFLAGS} ${ACNG_CXXFLAGS} ${CFLAGS_PTHREAD}")
-    TARGET_LINK_LIBRARIES(acngtool supacng ${BaseNetworkLibs} ${CompLibs} ${SSL_LIB_LIST} ${CMAKE_THREAD_LIBS_INIT} ${EXTRA_LIBS_ACNGTOOL})
+    TARGET_LINK_LIBRARIES(acngtool supacng)
     INSTALL(TARGETS acngtool DESTINATION ${LIBDIR})
 endif()
 
 # build a special version for test with full symbol visibility
 if(ENABLE_TESTS)
-	ADD_LIBRARY(supacngTEST STATIC ${SHAREDSRCS})
-  SET_TARGET_PROPERTIES(supacng PROPERTIES COMPILE_FLAGS "${ACNG_COMPFLAGS} ${ACNG_CXXFLAGS} ${CFLAGS_DAEMON} ${CFLAGS_PTHREAD} -fvisibility=default -DUNDER_TEST")
+	add_library(supacngTEST STATIC ${SHAREDSRCS})
+  target_link_libraries(supacngTEST PUBLIC acng_common acng_network acng_compression acng_crypto acng_server)
+  target_compile_options(supacngTEST PUBLIC -fvisibility=default)
+  target_compile_definitions(supacngTEST PUBLIC -DUNDER_TEST)
 endif()
 

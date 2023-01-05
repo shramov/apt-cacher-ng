@@ -1,8 +1,3 @@
-PROJECT(ACNG CXX C)
-
-INCLUDE_DIRECTORIES(${CMAKE_BINARY_DIR} "${CMAKE_SOURCE_DIR}/src")
-
-ADD_EXECUTABLE(in.acng client.cc ../src/acerrno.cc)
-SET_TARGET_PROPERTIES(in.acng PROPERTIES COMPILE_FLAGS "${ACNG_COMPFLAGS} ${ACNG_CXXFLAGS} -DMINIBUILD")
-TARGET_LINK_LIBRARIES(in.acng ${BaseNetworkLibs} ${NetworkLibs} ${EXTRA_LIBS_INETD})
-INSTALL(TARGETS in.acng DESTINATION ${LIBDIR})
+add_executable(in.acng client.cc ../src/acerrno.cc)
+target_link_libraries(in.acng acng_common acng_network)
+install(TARGETS in.acng DESTINATION ${LIBDIR})

@@ -1,14 +1,12 @@
 cmake_minimum_required(VERSION 3.1)
 
-unset(SDTYPE)
 if(HAVE_SD_NOTIFY)
 	set(SDTYPE notify)
 else()
 	set(SDTYPE simple)
 endif()
-CONFIGURE_FILE(apt-cacher-ng.service.in apt-cacher-ng.service)
-CONFIGURE_FILE(apt-cacher-ng.conf.in apt-cacher-ng.conf)
-unset(SDTYPE)
+configure_file(apt-cacher-ng.service.in apt-cacher-ng.service)
+configure_file(apt-cacher-ng.conf.in apt-cacher-ng.conf)
 
 # this is experimental and is supposed to match LSB
 if(SDINSTALL)
