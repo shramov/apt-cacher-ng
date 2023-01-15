@@ -137,6 +137,8 @@ int optproxycheckint=-1;
 int port = ACNG_DEF_PORT;
 int minilog = 0;
 
+int request_limit(5), max_streams_per_user(8);
+
 #ifdef DEBUG
 int dnscachetime(30);
 #else

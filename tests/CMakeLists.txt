@@ -34,7 +34,6 @@ add_executable(ut_cacheman
 
 target_link_libraries(ut_cacheman ${TEST_LIB_SET})
 
-
 add_executable(ut_http
 	src/ut_http.cc
 	src/main.cc
@@ -56,13 +55,20 @@ add_executable(ut_server
         )
 target_link_libraries(ut_server ${TEST_LIB_SET})
 
+add_executable(ut_dlcon
+        src/ut_dlcon.cc
+        src/main.cc
+        #src/ut_server_misc.cc
+        #../src/dlcon.cc
+        )
+target_link_libraries(ut_dlcon ${TEST_LIB_SET})
+
 add_executable(it_job
         src/it_job.cc
         src/main.cc
         ../src/job.cc
         )
 target_link_libraries(it_job ${TEST_LIB_SET})
-
 
 add_executable(it_transport
         src/main.cc

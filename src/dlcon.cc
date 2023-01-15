@@ -41,10 +41,8 @@ using namespace std;
 //#define DISCO_FAILURE
 
 #define MAX_RETRY cfg::dlretriesmax
-
-#warning fixme, control via config
-#define REQUEST_LIMIT 5
-#define MAX_STREAMS_PER_USER 8
+#define REQUEST_LIMIT cfg::request_limit
+#define MAX_STREAMS_PER_USER cfg::max_streams_per_user
 
 #warning EVALUATE: in case of malicious attacker, maybe restrict this to 30k in the begining and adjust later?
 // empirically found values which represent usual package sizes and are still less than usual socket buffer size
@@ -69,12 +67,12 @@ void dbg_dump(Dumpable* what);
 
 enum class eJobResult
 {
-	HINT_MORE=0
-	,HINT_DONE=1
-	,HINT_RECONNECT=2
-	,JOB_BROKEN=4
-	,MIRROR_BROKEN=8
-	,MIRROR_BROKEN_KILL_LAST_FILE=16
+	HINT_MORE = 0
+	,HINT_DONE = 1
+	,HINT_RECONNECT = 2
+	,JOB_BROKEN = 4
+	,MIRROR_BROKEN = 8
+	,MIRROR_BROKEN_KILL_LAST_FILE = 16
 };
 
 /**
@@ -98,19 +96,18 @@ struct tRemoteValidator
 		changeStamp--;
 		return & pKnownIssues;
 	}
-  tState* GetEntry(const tHttpUrl& hoPo)
-  {
-          auto it = m_problemCounters.find(hoPo.GetHostPortProtoKey());
-          return it != m_problemCounters.end()
-                  ? & it->second
-                  : nullptr;
-  }
+	tState* GetEntry(const tHttpUrl& hoPo)
+	{
+		auto it = m_problemCounters.find(hoPo.GetHostPortProtoKey());
+		return it != m_problemCounters.end()
+				? & it->second
+				: nullptr;
+	}
 
-	private:
+private:
 	map<string,tState> m_problemCounters;
-  // megative numbers are validator revision, positive are errors, 0 is initial state
+	// megative numbers are validator revision, positive are errors, 0 is initial state
 	int changeStamp = -1;
-
 };
 
 using tDlJobPtr = unique_ptr<tDlJob>;

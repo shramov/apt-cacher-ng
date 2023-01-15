@@ -44,6 +44,8 @@ optproxytimeout, patrace, maxdlspeed, maxredlsize, dlretriesmax, nsafriendly, tr
 fasttimeout, discotimeout, allocspace, dnsopts, minilog, follow404,
 sendwindow, recvwindow;
 
+extern int request_limit, max_streams_per_user;
+
 // processed config settings
 extern const tHttpUrl* GetProxyInfo();
 extern void MarkProxyFailure();
