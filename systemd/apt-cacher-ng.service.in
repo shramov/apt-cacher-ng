@@ -16,5 +16,32 @@ Group=apt-cacher-ng
 Type=@SDTYPE@
 Restart=on-failure
 
+# Sandboxing
+ProtectSystem=strict
+ProtectHome=yes
+ReadWriteDirectories=-/var/log
+ReadWriteDirectories=-/var/run
+ReadWriteDirectories=-/var/cache
+
+CapabilityBoundingSet=
+MemoryDenyWriteExecute=yes
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateMounts=yes
+PrivateTmp=yes
+PrivateUsers=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectKernelTunables=yes
+ProtectProc=yes
+ProtectSystem=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+
 [Install]
 WantedBy=multi-user.target
