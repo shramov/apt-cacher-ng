@@ -40,6 +40,7 @@
 
 #include <list>
 #include <unordered_map>
+#include <algorithm>
 
 #include <event2/buffer.h>
 
@@ -158,7 +159,7 @@ void expireAgents(int, short, void*)
 	if (spare_agents.empty())
 		return;
 	auto ex = GetTime() - 30;
-	auto firstGood = find_if(spare_agents.begin(), spare_agents.end(),
+	auto firstGood = std::find_if(spare_agents.begin(), spare_agents.end(),
 						  [ex](const auto& el){ return el.first > ex; });
 	spare_agents.erase(spare_agents.begin(), firstGood);
 }

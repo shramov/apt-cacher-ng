@@ -5,6 +5,7 @@
 #include <list>
 #include <unordered_map>
 #include <future>
+#include <algorithm>
 
 #include "caddrinfo.h"
 #include "sockio.h"

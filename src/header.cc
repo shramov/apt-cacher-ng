@@ -12,6 +12,7 @@
 
 #include <map>
 #include <iostream>
+#include <algorithm>
 
 #include <cstdio>
 

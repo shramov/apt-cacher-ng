@@ -6,6 +6,7 @@
 #include "evabase.h"
 
 #include <list>
+#include <algorithm>
 
 #define IN_ABOUT_ONE_DAY 100000
 
