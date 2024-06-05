@@ -202,15 +202,15 @@ public:
             return ret;
         }
 
-	struct iterator :
-			public std::iterator<
-			                        std::input_iterator_tag,   // iterator_category
-			                        string_view,                      // value_type
-			                        string_view,                      // difference_type
-			                        const long*,               // pointer
-			                        string_view                       // reference
-			                                      >
+	struct iterator
 	{
+
+              using iterator_category = std::input_iterator_tag;
+    using value_type = string_view;
+    using difference_type = string_view;
+    using pointer = const long*;
+    using reference = string_view;
+
         tSplitWalkBase* _walker = nullptr;
 		// default is end sentinel
 		bool bEol = true;

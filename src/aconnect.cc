@@ -7,6 +7,7 @@
 #include "portutils.h"
 
 #include <future>
+#include <algorithm>
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -172,7 +173,7 @@ void aconnector::retError(mstring msg)
 void aconnector::retSuccess(int fd)
 {
 	// doing destructors work already since we need to visit nodes anyway to find and extract the winner
-	auto it = find_if(m_eventFds.begin(), m_eventFds.end(), [fd](auto& el){return el.fd.get() == fd;});
+	auto it = std::find_if(m_eventFds.begin(), m_eventFds.end(), [fd](auto& el){return el.fd.get() == fd;});
 	if (it == m_eventFds.end())
 		m_cback({unique_fd(), "Internal error"});
 	else
@@ -187,7 +188,7 @@ void aconnector::disable(int fd, int ec)
 {
 	LOGSTARTFUNCx(fd);
 	ASSERT(fd != -1);
-	auto it = find_if(m_eventFds.begin(), m_eventFds.end(), [fd](auto& el){return el.fd.get() == fd;});
+	auto it = std::find_if(m_eventFds.begin(), m_eventFds.end(), [fd](auto& el){return el.fd.get() == fd;});
 	if (it == m_eventFds.end())
 		return;
 	// error from primary always wins, grab before closing it
