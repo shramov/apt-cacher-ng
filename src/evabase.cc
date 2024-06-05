@@ -36,8 +36,7 @@ tResolvConfStamp cachedDnsFingerprint { { 0, 1 }, 0, 0 };
 struct event *handover_wakeup;
 const struct timeval timeout_asap{0,0};
 #warning add unlocked queues which are only used when installing thread is the main thread
-deque<tAction> extThreadQueue, temp_simple_q, local_simple_q;
-std::mutex handover_mx;
+deque<tAction> temp_simple_q, local_simple_q;
 void RejectPendingDnsRequests();
 std::atomic_bool g_shutdownHint = false;
 
@@ -220,26 +219,16 @@ void evabase::SignalStop()
 	});
 }
 
-std::atomic_bool extThreadJobsAdded(false);
-
 void cb_handover(evutil_socket_t, short, void*)
 {
 	temp_simple_q.swap(local_simple_q);
-	auto f = [](decltype(temp_simple_q) &q)
-	{
-		if (q.empty()) return;
-		for (const auto& ac: q) ac();
-		q.clear();
-	};
-	f(temp_simple_q);
 
-	if (extThreadJobsAdded)
-	{
-		std::lock_guard g(handover_mx);
-		temp_simple_q.swap(extThreadQueue);
-		extThreadJobsAdded.store(false);
-	}
-	f(temp_simple_q);
+	if (temp_simple_q.empty())
+		return;
+
+	for (const auto& ac: temp_simple_q)
+			ac();
+	temp_simple_q.clear();
 }
 
 void evabase::Post(tAction&& act)
@@ -247,16 +236,9 @@ void evabase::Post(tAction&& act)
 	if (!act)
 		return;
 
-	if (IsMainThread())
-	{
-		local_simple_q.emplace_back(move(act));
-	}
-	else
-	{
-		std::lock_guard g(handover_mx);
-		extThreadQueue.emplace_back(move(act));
-		extThreadJobsAdded.store(true);
-	}
+	ASSERT(IsMainThread());
+
+	local_simple_q.emplace_back(move(act));
 	ASSERT(handover_wakeup);
 	event_add(handover_wakeup, &timeout_asap);
 }
