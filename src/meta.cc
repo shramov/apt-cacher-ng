@@ -831,7 +831,7 @@ bool scaseequals(string_view a, string_view b)
     return true;
 }
 
-#if !defined(HAVE_STRLCPY) || !HAVE_STRLCPY
+#if !defined(HAVE_STRLCPY)
 size_t strlcpy(char *tgt, const char *src, size_t tgtSize)
 {
     auto p = src;
