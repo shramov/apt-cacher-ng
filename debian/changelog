@@ -1,3 +1,11 @@
+apt-cacher-ng (3.7.4-1.1) unstable; urgency=medium
+
+  * Non-maintainer upload.
+  * Simplify !defined(HAVE_STRLCPY) check to fix FTBFS (Closes: #1071295)
+  * Avoid installing empty /lib/systemd/system directory (Closes: #1059190)
+
+ -- Chris Hofstaedtler <zeha@debian.org>  Tue, 11 Jun 2024 00:41:08 +0200
+
 apt-cacher-ng (3.7.4-1) unstable; urgency=medium
 
   * New upstream version
@@ -514,7 +522,7 @@ apt-cacher-ng (0.8.0~rc4-1) unstable; urgency=low
 
 apt-cacher-ng (0.8.0~rc3-1) unstable; urgency=low
 
-  * New upstream version, first Sid upload of 0.8.x 
+  * New upstream version, first Sid upload of 0.8.x
     + systemd related changes: startup notification, restart on crashes
       (closes: #752255)
     + Now really fixes lookup of .default files in the resource directory
@@ -617,7 +625,7 @@ apt-cacher-ng (0.7.24-1) unstable; urgency=medium
   * Review of maintainer scripts, now responsive to modification of
     CacheDir in existing configuration file(s)
   * Defensive behavior of Debconf integration (closes: #732606) and including
-    NEWS.Debian to explain the extended config handling 
+    NEWS.Debian to explain the extended config handling
   * added libssl-dev to build dependencies (now really closes: #729508)
   * fixing build failure on architectures where ancgfs is not built (i.e. Hurd)
   * Debconf description improvement in better German translation
@@ -630,7 +638,7 @@ apt-cacher-ng (0.7.23-1) unstable; urgency=medium
     + fixes reading of certain .xz files (closes: #729941, #731804)
     + HTTPS support (closes: #729508)
   * more debconf controlled settings injected through a separate config
-    file, partially based on the patch from 
+    file, partially based on the patch from
     Geert Stappers <stappers@stappers.nl> (closes: #726656)
   * policy version bump, and no longer recommending perl, there are enough
     functionality replacements implemented to work with just perl-base
@@ -812,7 +820,7 @@ apt-cacher-ng (0.7.5-1) unstable; urgency=low
 
 apt-cacher-ng (0.7.4-1) unstable; urgency=medium
 
-  * New upstream release 
+  * New upstream release
     + prevents endless looping in certain situations (LP: #999915)
     + more tolerance to unstable connections and behavior fix for conflicting
       downloads in maintenance mode (closes: #672801)
@@ -1113,7 +1121,7 @@ apt-cacher-ng (0.5-1) unstable; urgency=low
 
 apt-cacher-ng (0.4.9-2) unstable; urgency=low
 
-  * Minor change to support Ubuntu release notes delivery with GET 
+  * Minor change to support Ubuntu release notes delivery with GET
     parameters (closes: #588662)
 
  -- Eduard Bloch <blade@debian.org>  Sun, 11 Jul 2010 11:06:49 +0200
@@ -1139,7 +1147,7 @@ apt-cacher-ng (0.4.8-1) unstable; urgency=low
 
 apt-cacher-ng (0.4.7-1) unstable; urgency=low
 
-  * New upstream version 
+  * New upstream version
     + supports fallback backends descriptions which are used when the file is
       specified in the config but not configured properly. Intended to help
       in a heterogeneous Debian/Ubuntu environment (closes Ubuntu tasks
@@ -1164,7 +1172,7 @@ apt-cacher-ng (0.4.5-1) unstable; urgency=low
 
   * New upstream release
     + documented DnsCacheSeconds (Ubuntu bug 530524)
-    + Added simple implementation of SOAP request forwarding for PTS 
+    + Added simple implementation of SOAP request forwarding for PTS
       access (closes: #453277)
     + Typo fix in userinfo.html (closes: #572171)
 
@@ -1224,7 +1232,7 @@ apt-cacher-ng (0.4.1-1) unstable; urgency=low
     + passing HTTP redirection target through to user (closes: #556234)
   * Unconfuse crontab expiration script when BindAdress contains multiple
     entries (patch by Hellekin O\. Wolf, closes: #554707)
- 
+
  -- Eduard Bloch <blade@debian.org>  Sun, 22 Nov 2009 19:06:32 +0100
 
 apt-cacher-ng (0.4-1) unstable; urgency=low
