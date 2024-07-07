@@ -48,7 +48,7 @@ using namespace acng;
 
 bool g_bVerbose = false;
 
-#define SUICIDE_TIMEOUT 600
+#define SUICIDE_TIMEOUT 3600
 
 namespace acng {
 extern std::shared_ptr<cleaner> g_victor;

@@ -6,9 +6,11 @@ apt-cacher-ng (3.7.5) EVENT-VERTICAL; urgency=low
     architectures with 64-bit time (by Helge Deller <deller@gmx.de>)
     https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=1073970
   * Compilation fix with STRLCPY feature not reported properly 
+  * Compilation fix with GCC-14 (stop using deprecated iterator template)
+  * Increase suicide timeout value to one hour (60s might have affected slow
+    systems, Debian bug #1006925)
 
-
- -- Eduard Bloch <blade@debian.org>  Sat, 09 Oct 2021 12:39:30 +0200
+ -- Eduard Bloch <blade@debian.org>  Sun, 07 Jul 2024 17:13:37 +0200
 
 apt-cacher-ng (3.7.4) NANOTUBES-ARE-FOREVER; urgency=low
 
