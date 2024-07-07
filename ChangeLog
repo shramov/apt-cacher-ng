@@ -1,3 +1,15 @@
+apt-cacher-ng (3.7.5) EVENT-VERTICAL; urgency=low
+
+  [ BUGFIXES]
+
+  * Integer overflow in maint job scheduler, causing endless loop on 32-bit
+    architectures with 64-bit time (by Helge Deller <deller@gmx.de>)
+    https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=1073970
+  * Compilation fix with STRLCPY feature not reported properly 
+
+
+ -- Eduard Bloch <blade@debian.org>  Sat, 09 Oct 2021 12:39:30 +0200
+
 apt-cacher-ng (3.7.4) NANOTUBES-ARE-FOREVER; urgency=low
 
   [ BUGFIXES]
