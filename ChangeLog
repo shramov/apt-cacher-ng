@@ -9,6 +9,8 @@ apt-cacher-ng (3.7.5) EVENT-VERTICAL; urgency=low
   * Compilation fix with GCC-14 (stop using deprecated iterator template)
   * Increase suicide timeout value to one hour (60s might have affected slow
     systems, Debian bug #1006925)
+  * Support SHA256: fields for source files (by Antonio Russo,
+    Debian bug #1026848)
 
  -- Eduard Bloch <blade@debian.org>  Sun, 07 Jul 2024 17:13:37 +0200
 
