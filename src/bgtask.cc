@@ -222,7 +222,7 @@ void tSpecOpDetachable::Run()
 			SendFmt << "Maintenance task <b>" << GetTaskName()
 					<< "</b>, apt-cacher-ng version: " ACVERSION;
 			string link = "http://" + GetMyHostPort() + "/" + cfg::reportpage;
-			SendFmtRemote << " (<a href=\"" << m_parms.cmd << "&sigabort=" << rand()
+			SendFmtRemote << " (<a href=\"" << m_parms.GetBaseUrl() << "?sigabort=" << rand()
 					<< "\">Cancel</a>)"
 					<< "\n<!--\n"
 					<< maark << int(ControLineType::BeforeError)

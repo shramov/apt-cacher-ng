@@ -30,6 +30,36 @@ using namespace std;
 
 namespace acng {
 
+/**
+* If the command URL has a GET option called orig=..., decode the contents from hex ASCII and append to current parameters.
+*/
+mstring ExpandEncapsulatedCmd(cmstring& input)
+{
+	const string_view var_string = "&orig=";
+	auto pos = input.find(var_string);
+	// try the alternative?
+	if (pos == stmiss)
+		pos = input.find("?orig=");
+	if (pos == stmiss)
+		return input;
+
+	pos += var_string.size();
+
+	auto epos = input.find('&', pos);
+	if (epos == stmiss)
+		epos = input.size();
+	acbuf buf;
+	auto decode_ok = DecodeBase64(input.data() + pos, epos - pos, buf);
+	if (!decode_ok)
+		return input;
+	auto data = buf.view();
+	auto qpos = data.find('?');
+	if (qpos != stmiss)
+		data.remove_prefix(qpos + 1);
+	//return (input + "&origreal=").append(data);
+	return (input + "&").append(data);
+}
+
 tSpecialRequest::tSpecialRequest(const tRunParms& parms) :
 		m_parms(parms)
 {
@@ -202,10 +232,12 @@ LPCSTR tSpecialRequest::GetTaskName()
 	return "SpecialOperation";
 }
 
-tSpecialRequest::eMaintWorkType ACNG_API tSpecialRequest::DispatchMaintWork(cmstring& cmd, const char* auth)
+tSpecialRequest::eMaintWorkType ACNG_API tSpecialRequest::DispatchMaintWork(cmstring& cmd_raw, const char* auth)
 {
 	LOGSTARTs("DispatchMaintWork");
 	LOG("cmd: " << cmd);
+
+	auto cmd = ExpandEncapsulatedCmd(cmd_raw);
 
 #if 0 // defined(DEBUG)
 	if(cmd.find("tickTack")!=stmiss)
@@ -279,9 +311,11 @@ tSpecialRequest::eMaintWorkType ACNG_API tSpecialRequest::DispatchMaintWork(cmst
 
 tSpecialRequest* tSpecialRequest::MakeMaintWorker(tRunParms&& parms)
 {
+	// play back the potentially tainted parameters, the URL shall not be used from now on
+	parms.cmd = ExpandEncapsulatedCmd(parms.cmd);
+
 	if(cfg::DegradedMode() && parms.type != workSTYLESHEET)
 		parms.type = workUSERINFO;
-
 	switch (parms.type)
 	{
 	case workNotSpecial:
@@ -337,6 +371,24 @@ void tSpecialRequest::RunMaintWork(eMaintWorkType jobType, cmstring& cmd, int fd
 	catch(...)
 	{
 	}
+}
+
+/**
+ * @brief Extract the called URL of the request without the GET parameters.
+*/
+string_view tSpecialRequest::tRunParms::GetBaseUrl()
+{
+	auto pos = cmd.find('?');
+    return pos == stmiss ? cmd : string_view(cmd).substr(0, pos);
+}
+
+mstring tSpecialRequest::tRunParms::EncodeParameters()
+{
+	string_view pardata = cmd;
+	auto pos = pardata.find('?');
+	if (pos != stmiss)
+		pardata.remove_prefix(pos + 1);
+	return EncodeBase64(pardata.data(), pardata.length());
 }
 
 }

@@ -510,7 +510,8 @@ void expiration::Action()
 			SendFmt << "Expiration suppressed due to costs-vs.-benefit considerations "
 					"(see exStartTradeOff setting, " << offttosH(haveIncomming) <<
 					" vs. " << offttosH(cfg::exstarttradeoff)
-					<< " (<a href=\"" << this->m_parms.cmd << "&ignoreTradeOff=iTO\">Override this check now</a>)"
+					<< " (<a href=\"" << m_parms.GetBaseUrl() << "?ignoreTradeOff=iTO&orig="
+					<< m_parms.EncodeParameters() << "\">Override this check now</a>)"
 					<< sBRLF;
 			return;
 		}
@@ -661,9 +662,10 @@ void expiration::ListExpiredFiles()
 		}
 	this->TellCount(cnt, nSpace);
 
-	mstring delURL(this->m_parms.cmd);
-	StrSubst(delURL, "justShow", "justRemove");
-	SendFmtRemote << "<a href=\""<<delURL<<"\">Delete all listed files</a> "
+	StrSubst(m_parms.cmd, "justShow", "justRemove");
+	SendFmtRemote << "<a href=\"" << m_parms.GetBaseUrl()
+	<< "?orig=" << m_parms.EncodeParameters()
+	<< "\">Delete all listed files</a> "
 				"(no further confirmation)<br>\n";
 	return;
 }
