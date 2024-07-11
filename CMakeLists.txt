@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.1)
+cmake_minimum_required(VERSION 3.5)
 
 # try to set the best C++ language level
 set(CMAKE_CXX_STANDARD 20)

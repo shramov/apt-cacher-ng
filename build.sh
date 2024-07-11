@@ -28,4 +28,4 @@ then
 	exit 1
 fi
 PAR=-j$(nproc 2>/dev/null) || PAR=-j3
-make $PAR
+cmake --build . -- $PAR
