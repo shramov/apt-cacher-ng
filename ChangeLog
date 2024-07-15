@@ -11,9 +11,13 @@ apt-cacher-ng (3.7.5) EVENT-VERTICAL; urgency=low
     systems, Debian bug #1006925)
   * Support SHA256: fields for source files (by Antonio Russo,
     Debian bug #1026848)
+
+  [ MISCELLANEOUS]
+
   * DB generation script updates: new Fedora locations, EPEL9 used as
-    reference, ScientificLinux removed (because EOL, old data was kept but
-    considered deprecated)
+    reference, ScientificLinux removed
+  * Database update (ScientificLinux kept although EOL, considered deprecated
+    and subject to removal in future)
 
  -- Eduard Bloch <blade@debian.org>  Sun, 07 Jul 2024 17:13:37 +0200
 
