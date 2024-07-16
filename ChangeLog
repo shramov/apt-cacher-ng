@@ -1,3 +1,26 @@
+apt-cacher-ng (3.7.5) EVENT-VERTICAL; urgency=low
+
+  [ BUGFIXES]
+
+  * Integer overflow in maint job scheduler, causing endless loop on 32-bit
+    architectures with 64-bit time (by Helge Deller <deller@gmx.de>)
+    https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=1073970
+  * Compilation fix with STRLCPY feature not reported properly 
+  * Compilation fix with GCC-14 (stop using deprecated iterator template)
+  * Increase suicide timeout value to one hour (60s might have affected slow
+    systems, Debian bug #1006925)
+  * Support SHA256: fields for source files (by Antonio Russo,
+    Debian bug #1026848)
+
+  [ MISCELLANEOUS]
+
+  * DB generation script updates: new Fedora locations, EPEL9 used as
+    reference, ScientificLinux removed
+  * Database update (ScientificLinux kept although EOL, considered deprecated
+    and subject to removal in future)
+
+ -- Eduard Bloch <blade@debian.org>  Sun, 07 Jul 2024 17:13:37 +0200
+
 apt-cacher-ng (3.7.4) NANOTUBES-ARE-FOREVER; urgency=low
 
   [ BUGFIXES]

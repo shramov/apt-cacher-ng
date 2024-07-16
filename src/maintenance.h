@@ -59,8 +59,10 @@ public:
 	{
 		int fd;
 		tSpecialRequest::eMaintWorkType type;
-		cmstring cmd;
+		mstring cmd;
 		ISharedConnectionResources* pDlResProvider;
+		string_view GetBaseUrl();
+		mstring EncodeParameters();
 	};
 	/*!
 	 *  @brief Main execution method for maintenance tasks.

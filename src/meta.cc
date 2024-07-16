@@ -283,13 +283,14 @@ bool Hex2buf(const char *a, size_t len, acbuf& ret)
 	ret.clear();
 	ret.setsize(len/2+1);
 	auto *uA = (const unsigned char*) a;
-	for(auto end=uA+len;uA<end;uA+=2)
+	auto pRes = ret.wptr();
+	for(auto end=uA+len;uA<end;uA+=2,++pRes)
 	{
 		if(!*uA || !uA[1])
 			return false;
 		if(hexmap[uA[0]]>15 || hexmap[uA[1]] > 15)
 			return false;
-		*(ret.wptr()) = hexmap[uA[0]] * 16 + hexmap[uA[1]];
+		*pRes = hexmap[uA[0]] * 16 + hexmap[uA[1]];
 	}
 	ret.got(len/2);
 	return true;
@@ -831,7 +832,7 @@ bool scaseequals(string_view a, string_view b)
     return true;
 }
 
-#if !defined(HAVE_STRLCPY) || !HAVE_STRLCPY
+#if !defined(HAVE_STRLCPY)
 size_t strlcpy(char *tgt, const char *src, size_t tgtSize)
 {
     auto p = src;
