@@ -18,8 +18,10 @@ apt-cacher-ng (3.7.5) EVENT-VERTICAL; urgency=low
     reference, ScientificLinux removed
   * Database update (ScientificLinux kept although EOL, considered deprecated
     and subject to removal in future)
+  * Additional alternative identifier _apt-proxy._tcp in Avahi configuration
+    for users who reject names with multiple underscores (Debian bug#1051481)
 
- -- Eduard Bloch <blade@debian.org>  Sun, 07 Jul 2024 17:13:37 +0200
+ -- Eduard Bloch <blade@debian.org>  Wed, 17 Jul 2024 09:46:25 +0200
 
 apt-cacher-ng (3.7.4) NANOTUBES-ARE-FOREVER; urgency=low
 
