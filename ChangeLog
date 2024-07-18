@@ -11,6 +11,9 @@ apt-cacher-ng (3.7.5) EVENT-VERTICAL; urgency=low
     systems, Debian bug #1006925)
   * Support SHA256: fields for source files (by Antonio Russo,
     Debian bug #1026848)
+  * On redirection responses, if the Location header is not a URL (i.e.
+    relative or absolute within same host), fix construction of target URL
+    (Debian bug #1074404)
 
   [ MISCELLANEOUS]
 

@@ -202,48 +202,58 @@ struct tDlJob
 			return false;
 		}
 
-		// start modifying the target URL, point of no return
-		m_pCurBackend = nullptr;
-		bool bWasBeMode = m_bBackendMode;
-		m_bBackendMode = false;
-
 		auto sLocationDecoded = UrlUnescape(pNewUrl);
 
 		tHttpUrl newUri;
-		if (newUri.SetHttpUrl(sLocationDecoded, false))
+		auto is_abs_path = startsWithSz(sLocationDecoded, "/");
+		auto is_url = is_abs_path ? false : newUri.SetHttpUrl(sLocationDecoded, false);
+
+		// stop the backend probing in any case, then judge by type
+
+		if (is_url)
 		{
-			dbgline;
-			m_remoteUri = newUri;
+			m_bBackendMode = false;
+			m_pCurBackend = nullptr;
+			m_remoteUri = move(newUri);
 			return true;
 		}
-		// ok, some protocol-relative crap? let it parse the hostname but keep the protocol
-		if (startsWithSz(sLocationDecoded, "//"))
-		{
-			stripPrefixChars(sLocationDecoded, "/");
-			return m_remoteUri.SetHttpUrl(
-					m_remoteUri.GetProtoPrefix() + sLocationDecoded);
-		}
 
-		// recreate the full URI descriptor matching the last download
-		if (bWasBeMode)
-		{
-			if (!m_pCurBackend)
-			{
-                sErrorMsg = "Bad redirection target";
-				return false;
+		if (m_bBackendMode && !m_pCurBackend) {
+			sErrorMsg = "Bad redirection target in backend mode";
+			return false; // strange...
+		}
+			
+
+		// take last backend as fixed target (base)
+		if (m_bBackendMode) {
+			// recreate actual download URL in fixed mode
+			m_bBackendMode = false;
+			if (is_abs_path) {
+				m_remoteUri = move(*m_pCurBackend);
+				m_remoteUri.sPath = sLocationDecoded;
+				return true;
 			}
-			auto sPathBackup = m_remoteUri.sPath;
+			auto sfx = m_remoteUri.sPath;
 			m_remoteUri = *m_pCurBackend;
-			m_remoteUri.sPath += sPathBackup;
+			m_remoteUri.sPath += sfx;
+		}
+		else {
+			// at the same host... use the absolute URL?
+			if (is_abs_path)
+			{
+				m_remoteUri.sPath = sLocationDecoded;
+				return true;
+			}
 		}
 
-		if (startsWithSz(sLocationDecoded, "/"))
-		{
-			m_remoteUri.sPath = sLocationDecoded;
-			return true;
-		}
-		// ok, must be relative
-		m_remoteUri.sPath += (sPathSepUnix + sLocationDecoded);
+		// not absolute, not URL, construct the resource link around the previous base URL
+		auto spos = m_remoteUri.sPath.find_last_of('/');
+		if (spos == stmiss)
+			m_remoteUri.sPath = '/';
+		else
+			m_remoteUri.sPath.erase(++spos);
+
+		m_remoteUri.sPath += sLocationDecoded;
 		return true;
 	}
 
