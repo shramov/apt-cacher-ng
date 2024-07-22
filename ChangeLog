@@ -11,6 +11,9 @@ apt-cacher-ng (3.7.5) EVENT-VERTICAL; urgency=low
     systems, Debian bug #1006925)
   * Support SHA256: fields for source files (by Antonio Russo,
     Debian bug #1026848)
+  * On redirection responses, if the Location header is not a URL (i.e.
+    relative or absolute within same host), fix construction of target URL
+    (Debian bug #1074404)
 
   [ MISCELLANEOUS]
 
@@ -18,8 +21,10 @@ apt-cacher-ng (3.7.5) EVENT-VERTICAL; urgency=low
     reference, ScientificLinux removed
   * Database update (ScientificLinux kept although EOL, considered deprecated
     and subject to removal in future)
+  * Additional alternative identifier _apt-proxy._tcp in Avahi configuration
+    for users who reject names with multiple underscores (Debian bug#1051481)
 
- -- Eduard Bloch <blade@debian.org>  Sun, 07 Jul 2024 17:13:37 +0200
+ -- Eduard Bloch <blade@debian.org>  Wed, 17 Jul 2024 09:46:25 +0200
 
 apt-cacher-ng (3.7.4) NANOTUBES-ARE-FOREVER; urgency=low
 

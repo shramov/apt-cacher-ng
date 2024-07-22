@@ -15,4 +15,12 @@ X-Source: http://blog.surgut.co.uk/2013/03/avahi-apt-cacher-ng-sbuild.html
   <type>_apt_proxy._tcp</type>
   <port>3142</port>
  </service>
+  <service protocol="ipv6">
+  <type>_apt-proxy._tcp</type>
+  <port>3142</port>
+ </service>
+ <service protocol="ipv4">
+  <type>_apt-proxy._tcp</type>
+  <port>3142</port>
+ </service>
 </service-group>
