@@ -8,6 +8,7 @@ http://cofractal-ewr.mm.fcix.net/fedora/linux/
 http://creeperhost.mm.fcix.net/fedora/linux/
 http://divergentnetworks.mm.fcix.net/fedora/linux/
 http://download-cc-rdu01.fedoraproject.org/pub/fedora/linux/
+http://download.fedoraproject.org/pub/fedora/linux/
 http://download.nus.edu.sg/mirror/fedora/linux/
 http://edgeuno-bog2.mm.fcix.net/fedora/linux/
 http://espejito.fder.edu.uy/fedora/fedora/linux/
@@ -49,6 +50,7 @@ http://ftp.plusline.net/fedora/linux/
 http://ftp.uni-bayreuth.de/linux/fedora/linux/
 http://ftp.uni-kl.de/pub/linux/fedora/linux/
 http://ftp.uni-stuttgart.de/epel/
+http://ftp.uni-stuttgart.de/fedora-epel/
 http://ftp.upjs.sk/pub/fedora/linux/
 http://ftp.wrz.de/pub/fedora/linux/
 http://ftp.yz.yamagata-u.ac.jp/pub/linux/fedora-projects/fedora/linux/
@@ -114,8 +116,6 @@ http://mirror.umd.edu/fedora/linux/
 http://mirror.us.leaseweb.net/fedora/linux/
 http://mirror.uv.es/mirror/fedora/linux/
 http://mirror.vpsnet.com/fedora/linux/
-http://mirror.xenyth.net/fedora/linux/
-http://mirror.xeonbd.com/fedora/linux/
 http://mirror.yandex.ru/fedora/linux/
 http://mirror2.totbb.net/fedora/linux/
 http://mirroronet.pl/pub/mirrors/fedora/linux/

@@ -24,7 +24,7 @@ apt-cacher-ng (3.7.5) EVENT-VERTICAL; urgency=low
   * Additional alternative identifier _apt-proxy._tcp in Avahi configuration
     for users who reject names with multiple underscores (Debian bug#1051481)
 
- -- Eduard Bloch <blade@debian.org>  Wed, 17 Jul 2024 09:46:25 +0200
+ -- Eduard Bloch <blade@debian.org>  Mon, 22 Jul 2024 17:32:12 +0200
 
 apt-cacher-ng (3.7.4) NANOTUBES-ARE-FOREVER; urgency=low
 
