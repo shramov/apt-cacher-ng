@@ -55,7 +55,7 @@ nosametarball:
 	test ! -f ../tarballs/$(DEBSRCNAME)
 
 gendbs:
-	$(MAKE) -C dbgen CONFDIR=../conf
+	$(MAKE) -C dbgen CONFDIR=../conf DBTMP=$(CURDIR)/dbgen/tmp rebuild
 
 doxy:
 	doxygen Doxyfile
