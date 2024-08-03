@@ -579,6 +579,12 @@ struct tDlJob
 					}
 				}
 
+                if (h.getStatusCode() >= 500)
+                {
+                    sErrorMsg = "5xx response from mirror, mirror blacklisted";
+                    return HINT_DISCON | EFLAG_MIRROR_BROKEN;
+                }
+
 				off_t contentLength = atoofft(h.h[header::CONTENT_LENGTH], -1);
 
                 if (m_fiAttr.bHeadOnly)
