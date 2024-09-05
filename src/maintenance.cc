@@ -235,7 +235,7 @@ LPCSTR tSpecialRequest::GetTaskName()
 tSpecialRequest::eMaintWorkType ACNG_API tSpecialRequest::DispatchMaintWork(cmstring& cmd_raw, const char* auth)
 {
 	LOGSTARTs("DispatchMaintWork");
-	LOG("cmd: " << cmd);
+	LOG("cmd: " << cmd_raw);
 
 	auto cmd = ExpandEncapsulatedCmd(cmd_raw);
 

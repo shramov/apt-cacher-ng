@@ -39,6 +39,11 @@
 #undef HAVE_LIBBZ2
 #undef HAVE_ZLIB
 #undef HAVE_LZMA
+#undef HAVE_ZSTD
+#endif
+
+#ifdef HAVE_ZSTD
+#include <zstd.h>
 #endif
 
 using namespace std;
@@ -222,6 +227,47 @@ static const uint8_t xzMagic[] =
 lzmaMagic[] = {0x5d, 0, 0, 0x80};
 #endif
 
+#ifdef HAVE_ZSTD
+static const uint8_t zstdMagic[] = { 0x28, 0xb5, 0x2f, 0xfd };
+
+class tZstdDec : public IDecompressor
+{
+    ZSTD_DStream* m_strm = nullptr;
+public:
+    virtual ~tZstdDec() {
+        ZSTD_freeDStream(m_strm);
+    };
+    virtual bool UncompMore(char *szInBuf, size_t nBufSize, size_t &nBufPos, acbuf &UncompBuf)
+    {
+        //auto res = ZSTD_decompressDCtx(m_strm, szxx, );
+		ZSTD_inBuffer inbuf { szInBuf, nBufSize, nBufPos};
+		ZSTD_outBuffer outbuf { UncompBuf.wptr(), UncompBuf.freecapa(), 0 };
+		auto res = ZSTD_decompressStream(m_strm, &outbuf, &inbuf);
+		nBufPos = inbuf.pos;
+		if (res == 0) {
+			eof = true;
+		}
+		else if (ZSTD_isError(res)) {
+			eof = true;
+			if (psError)
+				*psError = ZSTD_getErrorName(res);
+			return false;
+		}
+		UncompBuf.got(res);
+		return true;
+    }
+    virtual bool Init()
+    {
+        m_strm = ZSTD_createDStream();
+        if(!m_strm && psError) {
+            *psError = "Zstandard initialization error";
+        }
+    }
+};
+
+#endif
+
+
 filereader::filereader()
 :
 	m_bError(false),
@@ -275,21 +321,27 @@ bool filereader::OpenFile(const string & sFilename, bool bNoMagic, unsigned nFak
 		if(m_UncompBuf.sysread(m_fd) >= 10)
 		{
 			if(false) {}
-#ifdef HAVE_ZLIB
-			else if (0 == memcmp(gzMagic, m_UncompBuf.rptr(), _countof(gzMagic)))
-				m_Dec.reset(new tGzDec);
-#endif
-#ifdef HAVE_LIBBZ2
-			else if (0 == memcmp(bz2Magic, m_UncompBuf.rptr(), _countof(bz2Magic)))
-				m_Dec.reset(new tBzDec);
-#endif
 #ifdef HAVE_LZMA
 			else if (0 == memcmp(xzMagic, m_UncompBuf.rptr(), _countof(xzMagic)))
 				m_Dec.reset(new tXzDec(false));
-			else if (0 == memcmp(lzmaMagic, m_UncompBuf.rptr(), _countof(lzmaMagic)))
-				m_Dec.reset(new tXzDec(true));
 #endif
-		}
+#ifdef HAVE_ZLIB
+            else if (0 == memcmp(gzMagic, m_UncompBuf.rptr(), _countof(gzMagic)))
+                m_Dec.reset(new tGzDec);
+#endif
+#ifdef HAVE_LIBBZ2
+            else if (0 == memcmp(bz2Magic, m_UncompBuf.rptr(), _countof(bz2Magic)))
+                m_Dec.reset(new tBzDec);
+#endif
+#ifdef HAVE_ZSTD
+            else if (0 == memcmp(zstdMagic, m_UncompBuf.rptr(), _countof(zstdMagic)))
+                m_Dec.reset(new tZstdDec());
+#endif
+#ifdef HAVE_LZMA
+            else if (0 == memcmp(lzmaMagic, m_UncompBuf.rptr(), _countof(lzmaMagic)))
+                m_Dec.reset(new tXzDec(true));
+#endif
+        }
 	}
 
 	if (m_Dec.get())

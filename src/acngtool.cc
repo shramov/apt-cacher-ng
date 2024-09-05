@@ -220,21 +220,20 @@ static void usage(int retCode = 0, LPCSTR cmd = nullptr)
 {
 	if(cmd)
 	{
-		if(0 == strcmp(cmd, "shrink"))
-			cerr << "USAGE: acngtool shrink numberX [-f | -n] [-x] [-v] [variable assignments...]" <<endl <<
-			"-f: delete files"<< endl <<
-			"-n: dry run, display results" << endl <<
-			"-v: more verbosity" << endl <<
-			"-x: also drop index files (can be dangerous)" <<endl <<
-			"Suffix X can be k,K,m,M,g,G (for kb,KiB,mb,MiB,gb,GiB)" << endl;
+		if (0 == strcmp(cmd, "shrink"))
+			cerr << R"##(USAGE: acngtool shrink numberX [-f | -n] [-x] [-v] [variable assignments...]
+-f: delete files
+-n: dry run, display results
+-v: more verbosity
+-x: also drop index files (can be dangerous)
+Suffix X can be k,K,m,M,g,G (for kb,KiB,mb,MiB,gb,GiB)##";
 	}
 	else
-		(retCode ? cout : cerr) <<
-		"Usage: acngtool command parameter... [options]\n\n"
-			"command := { printvar, cfgdump, retest, patch, curl, encb64, maint, shrink }\n"
-			"parameter := (specific to command)\n"
-			"options := (see apt-cacher-ng options)\n"
-			"extra options := -h, --verbose\n"
+		(retCode ? cout : cerr) << R"(Usage: acngtool command parameter... [options]
+command := { printvar, cfgdump, retest, patch, curl, encb64, maint, shrink }
+parameter := (specific to command)
+options := (see apt-cacher-ng options)
+extra options := -h, --verbose)"
 #if SUPPWHASH
 #warning FIXME
 			"-H: read a password from STDIN and print its hash\n"
@@ -737,6 +736,11 @@ int patch_file(string sBase, string sPatch, string sResult)
 	return res.good() ? 0 : -4;
 }
 
+#ifdef DEBUG
+void xcat(LPCSTR p) {
+	
+}
+#endif
 
 struct parm {
 	unsigned minArg, maxArg; // if maxArg is UINT_MAX, there will be a final call with NULL argument
@@ -933,6 +937,18 @@ std::unordered_map<string, parm> parms = {
 				}
 			}
 		}
+		#ifdef DEBUG
+		,
+		{
+			"xcat",
+			{
+				1, 1, [](LPCSTR p)
+				{
+					xcat(p);
+				}
+			}
+		}
+		#endif
 	,
 		{
 			"printvar",

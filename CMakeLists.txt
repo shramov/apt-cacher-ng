@@ -288,6 +288,14 @@ ELSE(HAVE_LZMA)
 ENDIF(HAVE_LZMA)
 SET(CMAKE_REQUIRED_LIBRARIES "")
 
+
+pkg_check_modules(zstd libzstd)
+if(zstd_FOUND)
+        list(APPEND CompLibs ${zstd_LINK_LIBRARIES})
+        _append(ACNG_COMPFLAGS ${zstd_CFLAGS})
+endif()
+set(HAVE_ZSTD ${zstd_FOUND})
+
 set(HAVE_CHECKSUM on)
 
 pkg_check_modules(libevent "libevent>=2.1.2")
