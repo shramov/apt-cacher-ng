@@ -738,7 +738,11 @@ int patch_file(string sBase, string sPatch, string sResult)
 
 #ifdef DEBUG
 void xcat(LPCSTR p) {
-	
+	::acng::filereader rdr;
+	if(!rdr.OpenFile(p))
+		exit(EXIT_FAILURE);
+	rdr.GetOneLine();
+
 }
 #endif
 

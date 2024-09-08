@@ -119,6 +119,7 @@ endforeach(linkarg)
 option(USE_SSL "Use OpenSSL library for TLS and other crypto functionality" on)
 option(ENABLE_TOOLS "Build additional command line tools (acngfs, inetd client)" on)
 option(ENABLE_TESTS "Build tests (for development only)" off)
+option(DEBUG "Add internal DEBUG instrumentation" off)
 
 IF(CMAKE_SYSTEM MATCHES "Darwin")
         _append(ACNG_COMPFLAGS -D_DARWIN_C_SOURCE)
