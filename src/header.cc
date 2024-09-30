@@ -388,7 +388,7 @@ mstring header::ExtractCustomHeaders(string_view reqHead, bool isPassThrough)
         forbidden = taboo.end() != std::find_if(taboo.begin(),
                                                 taboo.end(),
                                                 [&](cmstring &x)
-        { return scaseequals(x, it.first.data()); }
+        { return scaseequals(x, it.first); }
                 );
 
         if(!forbidden)
